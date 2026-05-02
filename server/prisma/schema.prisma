@@ -1,0 +1,594 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ──── USERS & AUTH ────
+model User {
+  id                String           @id @default(uuid())
+  username          String           @unique
+  passwordHash      String
+  plainPassword     String?
+  name              String
+  role              Role             @default(MANAGER)
+  unitId            String?
+  unit              Unit?            @relation(fields: [unitId], references: [id])
+  isActive          Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  sessions          Session[]
+  auditLogs         AuditLog[]
+  productRequests   ProductRequest[]
+  sentNotifications Notification[]   @relation("SentBy")
+  purchaseRequests         PurchaseRequest[]  @relation("PurchaseRequestManager")
+  purchaseRequestApprovals PurchaseRequest[]  @relation("PurchaseRequestApprover")
+  // New relations for procurement workflow
+  targetedNotifications    Notification[]     @relation("TargetUser")
+  quotationsCreated        Quotation[]        @relation("QuotationCreator")
+  purchaseOrdersCreated    PurchaseOrder[]    @relation("POCreator")
+  paymentRequestsCreated   PaymentRequest[]   @relation("PaymentCreator")
+  paymentRequestsProcessed PaymentRequest[]   @relation("PaymentProcessor")
+  qcInspections            QCInspection[]     @relation("QCInspector")
+  qcInspectionRequests     QCInspection[]     @relation("QCInspectionRequestor")
+  gatePassesCreated        GatePass[]         @relation("GatePassCreator")
+  ionsCreated              InterOfficeNote[]  @relation("IONCreator")
+  ionsAssigned             InterOfficeNote[]  @relation("IONAssignee")
+  transferRequestsCreated  InventoryTransferRequest[] @relation("TransferRequester")
+  transferRequestsApproved InventoryTransferRequest[] @relation("TransferApprover")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshToken String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  STORE_MANAGER
+  PURCHASE_OFFICER
+  ACCOUNTING
+  QC
+  LAB
+}
+
+// ──── UNITS ────
+model Unit {
+  id              String           @id @default(uuid())
+  name            String           @unique
+  code            String           @unique
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  users           User[]
+  productRequests ProductRequest[]
+  purchaseRequests PurchaseRequest[]
+  transfersFrom    InventoryTransferRequest[] @relation("TransferFromUnit")
+  transfersTo      InventoryTransferRequest[] @relation("TransferToUnit")
+}
+
+// ──── AUDIT LOG ────
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  entity     String
+  entityId   String?
+  details    Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+}
+
+// ──── PRODUCTS / INVENTORY ────
+model Product {
+  id             String          @id @default(uuid())
+  name           String
+  sku            String          @unique
+  description    String?
+  category       String?
+  unit           String          @default("pcs")
+  currentStock   Float           @default(0)
+  minStockLevel  Float           @default(0)
+  maxStockLevel  Float?
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  stockMovements StockMovement[]
+  requestItems   RequestItem[]
+  purchaseRequestItems PurchaseRequestItem[]
+  batches        ProductBatch[]
+  transfers      InventoryTransferRequest[]
+}
+
+// ──── PRODUCT BATCHES (FIFO lot tracking) ────
+model ProductBatch {
+  id            String   @id @default(uuid())
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  batchNo       String?
+  receivedDate  DateTime @default(now())
+  quantity      Float                                 // original inward qty
+  remaining     Float                                 // qty still in stock
+  unitCost      Float?
+  referenceType String?                               // InwardEntry, PurchaseOrder, InwardEntryNewProduct
+  referenceId   String?
+  notes         String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  @@index([productId, receivedDate])
+  @@index([productId, remaining])
+}
+
+// ──── STOCK MOVEMENTS ────
+model StockMovement {
+  id            String       @id @default(uuid())
+  productId     String
+  product       Product      @relation(fields: [productId], references: [id])
+  type          MovementType
+  quantity      Float
+  referenceType String?
+  referenceId   String?
+  batchNumber   String?
+  notes         String?
+  performedBy   String?
+  unitId        String?
+  createdAt     DateTime     @default(now())
+}
+
+enum MovementType {
+  IN
+  OUT
+  ADJUSTMENT
+}
+
+// ──── PRODUCT REQUESTS / MIV (Requester → Store Manager workflow) ────
+// Form No: RAPS/MIV/REV01 Dt: 01/02/2025
+model ProductRequest {
+  id             String        @id @default(uuid())
+  requestNumber  String        @unique
+  referenceNo    String?                      // Reference No. & Date (from MIV form)
+  mirNo          String?                      // MIR NO. (from MIV form)
+  issueNo        String?                      // Issue No.
+  issueDate      DateTime?                    // Issue Date
+  managerId      String?
+  manager        User?         @relation(fields: [managerId], references: [id], onDelete: SetNull)
+  unitId         String
+  unit           Unit          @relation(fields: [unitId], references: [id])
+  status         RequestStatus @default(PENDING)
+  notes          String?
+  remarks        String?                      // Remarks field from MIV form
+  clearanceNotes String?
+  clearedById    String?
+  clearedAt      DateTime?
+  collectedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  items          RequestItem[]
+}
+
+model RequestItem {
+  id              String         @id @default(uuid())
+  requestId       String
+  request         ProductRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product        @relation(fields: [productId], references: [id])
+  quantity        Float
+  approvedQty     Float?
+  collectedQty    Float          @default(0)  // cumulative qty actually taken (partial collection)
+  purpose         String?                     // Purpose (Production fills)
+  qtyIssued       Float?                      // Qty Issue (Store fills)
+  materialBatchNo String?                     // Material Batch No. If any (Store fills)
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  PARTIAL
+  REJECTED
+  COLLECTED
+  CANCELLED
+}
+
+// ──── PURCHASE REQUESTS (Requester → Admin → PO → Quotation → Order workflow) ────
+model PurchaseRequest {
+  id                String                @id @default(uuid())
+  requestNumber     String                @unique
+  requestId         String                                           // Order name (required, locked after create) — filled by unit manager only
+  managerId         String?
+  manager           User?                 @relation("PurchaseRequestManager", fields: [managerId], references: [id], onDelete: SetNull)
+  unitId            String
+  unit              Unit                  @relation(fields: [unitId], references: [id])
+  status            PurchaseRequestStatus @default(PENDING_ADMIN)
+  notes             String?
+  adminNotes        String?
+  adminApprovedById String?
+  adminApprovedBy   User?                 @relation("PurchaseRequestApprover", fields: [adminApprovedById], references: [id])
+  adminApprovedAt   DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  items             PurchaseRequestItem[]
+  quotations        Quotation[]
+  purchaseOrders    PurchaseOrder[]
+}
+
+// Form No: RAPS/PRF Rev no. 02 Date: 31/08/2024
+model PurchaseRequestItem {
+  id                    String          @id @default(uuid())
+  requestId             String
+  request               PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  productId             String?
+  product               Product?        @relation(fields: [productId], references: [id])
+  productName           String                         // Material Description
+  productUnit           String          @default("pcs") // UOM
+  requestedQty          Float                          // Required Quantity
+  adminApprovedQty      Float?
+  purchasedQty          Float           @default(0)
+  itemStatus            ItemOrderStatus?                // Set once ORDER_PLACED; mirrored from PO items
+  // PRF form fields
+  materialType          String?                        // Raw material / Consumable / Tooling / Others
+  materialSpecification String?                        // Material specification data
+  qapNo                 String?                        // QAP no. & QAP attachment reference
+  drawingNo             String?                        // Drawing no. & detailed drawing reference
+  materialRequiredFor   String?                        // SO no. / R&D
+  purpose               String?                        // Purpose
+  sourceOfSupply        String?                        // Source of supply if any
+  scopeOfWork           String?                        // Scope of work details
+  inspectionType        String?                        // Inhouse / External (RAPS QC/Customer QC)
+  requiredByDate        DateTime?                      // Required by date
+  itemRemarks           String?                        // Other details/Remarks
+}
+
+enum PurchaseRequestStatus {
+  PENDING_ADMIN
+  APPROVED
+  QUOTATION_SUBMITTED
+  QUOTATION_APPROVED
+  ORDER_PLACED
+  GOODS_ARRIVED
+  QC_PASSED
+  INWARD_DONE
+  COMPLETED
+  REJECTED
+  IN_PROGRESS
+}
+
+// ──── QUOTATIONS (PO collects from suppliers) ────
+model Quotation {
+  id                String          @id @default(uuid())
+  quotationNumber   String          @unique
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
+  supplierName      String?
+  supplierContact   String?
+  supplierAddress   String?
+  totalAmount       Float
+  notes             String?
+  isSelected        Boolean         @default(false)
+  createdById       String
+  createdBy         User            @relation("QuotationCreator", fields: [createdById], references: [id])
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  items             QuotationItem[]
+  purchaseOrders    PurchaseOrder[]
+}
+
+model QuotationItem {
+  id              String    @id @default(uuid())
+  quotationId     String
+  quotation       Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  productName     String
+  productUnit     String    @default("pcs")
+  quantity        Float
+  unitPrice       Float
+  totalPrice      Float
+  supplierName    String
+  supplierContact String?
+  supplierAddress String?
+}
+
+// ──── PURCHASE ORDERS (created when quotation is selected) ────
+model PurchaseOrder {
+  id                String              @id @default(uuid())
+  orderNumber       String              @unique
+  customName        String
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest     @relation(fields: [purchaseRequestId], references: [id])
+  quotationId       String
+  quotation         Quotation           @relation(fields: [quotationId], references: [id])
+  supplierName      String
+  totalAmount       Float
+  advancePaid       Float               @default(0)
+  totalPaid         Float               @default(0)
+  goodsArrived      Boolean             @default(false)
+  goodsArrivedAt    DateTime?
+  status            PurchaseOrderStatus @default(PENDING_ACCOUNTING)
+  createdById       String
+  createdBy         User                @relation("POCreator", fields: [createdById], references: [id])
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  items             PurchaseOrderItem[]
+  paymentRequests   PaymentRequest[]
+  qcInspections     QCInspection[]
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productName     String
+  productUnit     String        @default("pcs")
+  quantity        Float
+  unitPrice       Float
+  totalPrice      Float
+  receivedQty     Float         @default(0)
+  itemStatus      ItemOrderStatus @default(WAITING)
+  purchaseRequestItemId String?
+  statusUpdatedAt DateTime?
+  statusUpdatedBy String?
+}
+
+enum ItemOrderStatus {
+  WAITING
+  ORDERED
+  ON_THE_WAY
+  RECEIVED
+  CANCELLED
+}
+
+enum PurchaseOrderStatus {
+  PENDING_ACCOUNTING
+  ORDERED
+  PLACED
+  ADVANCE_PAID
+  PAYMENT_PENDING
+  PAID
+  GOODS_ARRIVED
+  QC_PENDING
+  QC_PASSED
+  QC_FAILED
+  INWARD_DONE
+  COMPLETED
+}
+
+// ──── PAYMENT REQUESTS (PO → Accounting) ────
+model PaymentRequest {
+  id              String               @id @default(uuid())
+  paymentNumber   String               @unique
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
+  amount          Float
+  paymentType     PaymentType
+  status          PaymentRequestStatus @default(PENDING)
+  notes           String?
+  processedById   String?
+  processedBy     User?                @relation("PaymentProcessor", fields: [processedById], references: [id])
+  processedAt     DateTime?
+  createdById     String
+  createdBy       User                 @relation("PaymentCreator", fields: [createdById], references: [id])
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+}
+
+enum PaymentType {
+  ADVANCE
+  PARTIAL
+  FINAL
+}
+
+enum PaymentRequestStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+}
+
+// ──── QC INSPECTIONS ────
+// Form No: RAPS/IIR Rev 01, Dt: 01/09/2024 (Inward Inspection Request + Report)
+model QCInspection {
+  id               String        @id @default(uuid())
+  inspectionNumber String        @unique          // ION No.
+  purchaseOrderId  String
+  purchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  result           QCResult      @default(PENDING)
+  parameters       Json?                          // Flexible inspection parameters
+  notes            String?
+  requestCreatedById String?                      // Who created the inspection request (Purchase/Stores)
+  requestCreatedBy   User?         @relation("QCInspectionRequestor", fields: [requestCreatedById], references: [id])
+  inspectedById    String?                        // Who filled the inspection report (QC)
+  inspectedBy      User?         @relation("QCInspector", fields: [inspectedById], references: [id])
+  inspectedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  // ── Page 1: Inward Inspection Request fields ──
+  invoiceNo          String?                      // 11. Invoice no. & date
+  invoiceDate        DateTime?
+  dcNo               String?                      // 12. DC no. if any
+  gatePassNo         String?                      // 13. Gate pass no. (FIM/Others)
+  gatePassType       String?                      // 14. Gate pass type
+  probableDateOfReturn DateTime?                  // 15. Probable date of Return
+  materialReceiptDate  DateTime?                  // 16. Material receipt date @ RAPS Store
+  // ── Page 2: Inward Inspection Report fields ──
+  reportNo           String?                      // Inspection report no.
+  reportDate         DateTime?
+  materialDescription String?                     // Material description and specification
+  materialCategory   String?                      // Raw materials / Consumables / Tooling & Fixtures / FIM
+  documentTypes      Json?                        // Checkboxes: Test Report, COC, COA, 3rd Party/Customer Clearance
+  inspectionLocation String?                      // Dimensional Inspection at Supplier Place / at RAPS Inward
+  reportReferenceNo  String?                      // Report reference no.
+  packingCondition   String?                      // Sealed / Broken
+  packingDamageNotes String?                      // If damages, mention
+  batchNo            String?                      // Batch no./Identification
+  dateOfManufacturing DateTime?                   // Date of manufacturing
+  dateOfExpiry       DateTime?                    // Date of Expiry
+  tappedHolesCondition String?                    // Check condition of tapped holes, weld lugs
+  // Quantity tracking
+  qtyAsPerPR         Float?                       // Quantity as per PR
+  qtyOrdered         Float?                       // Quantity ordered
+  qtyReceived        Float?                       // Quantity Received
+  qtyAccepted        Float?                       // Quantity Accepted
+  qtyRejected        Float?                       // Quantity Rejected
+  rejectionReason    String?                      // Reason for Rejection/Non conformity
+  remarks            String?                      // Remarks
+  mirNo              String?                      // MIR No. (Store to be filled)
+}
+
+enum QCResult {
+  PENDING
+  PASSED
+  FAILED
+  PARTIAL
+}
+
+// ──── GATE PASS (Stores: returnable / non-returnable / delivery challan) ────
+model GatePass {
+  id                 String         @id @default(uuid())
+  passNumber         String         @unique
+  passType           GatePassType
+  date               DateTime       @default(now())
+  partyName          String                                // Vendor / Customer
+  partyContact       String?
+  vehicleNo          String?
+  invoiceNo          String?
+  dcNo               String?
+  purpose            String?
+  status             GatePassStatus @default(OPEN)
+  expectedReturnDate DateTime?                             // For returnable
+  actualReturnDate   DateTime?
+  returnedBy         String?
+  issuedToName       String?
+  issuedToDept       String?
+  requisitionNo      String?                               // Gate Pass Requisition No (FIM etc.)
+  remarks            String?
+  createdById        String
+  createdBy          User           @relation("GatePassCreator", fields: [createdById], references: [id])
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  items              GatePassItem[]
+}
+
+model GatePassItem {
+  id          String   @id @default(uuid())
+  gatePassId  String
+  gatePass    GatePass @relation(fields: [gatePassId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float    @default(1)
+  unit        String   @default("pcs")
+  remarks     String?
+}
+
+enum GatePassType {
+  RETURNABLE
+  NON_RETURNABLE
+  DELIVERY_CHALLAN
+}
+
+enum GatePassStatus {
+  OPEN
+  RETURNED
+  CLOSED
+}
+
+// ──── INTER OFFICE NOTE (ION) — MANAGER ↔ LAB secret workflow ────
+// Doc No: RAMS/ION/00
+model InterOfficeNote {
+  id                 String    @id @default(uuid())
+  ionNumber          String    @unique
+  userReferenceNo    String?
+  section            String?
+  projectName        String?
+  supplyOrderNo      String?
+  referenceDocQA     String?
+  materialSupplyDate DateTime?
+  sampleRequired     Boolean   @default(false)
+  reportGeneration   Boolean   @default(false)
+  requiredByDate     DateTime?
+  completedDate      DateTime?
+  externalQAWitness  String?
+  qcContactDetails   String?
+  otherInformation   String?
+  status             IONStatus @default(SENT)
+  createdById        String
+  createdBy          User      @relation("IONCreator", fields: [createdById], references: [id])
+  assignedToId       String?
+  assignedTo         User?     @relation("IONAssignee", fields: [assignedToId], references: [id])
+  remarks            String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  items              IONItem[]
+}
+
+model IONItem {
+  id                  String          @id @default(uuid())
+  ionId               String
+  ion                 InterOfficeNote @relation(fields: [ionId], references: [id], onDelete: Cascade)
+  jobIdentification   String
+  activityRequired    String?
+  materialComposition String?
+  drawingNo           String?
+  specification       String?
+}
+
+enum IONStatus {
+  SENT
+  WAITING
+  COLLECTED
+}
+
+// ──── INVENTORY TRANSFER REQUEST (unit-to-unit stock transfers) ────
+model InventoryTransferRequest {
+  id              String         @id @default(uuid())
+  transferNumber  String         @unique
+  fromUnitId      String
+  fromUnit        Unit           @relation("TransferFromUnit", fields: [fromUnitId], references: [id])
+  toUnitId        String
+  toUnit          Unit           @relation("TransferToUnit", fields: [toUnitId], references: [id])
+  productId       String
+  product         Product        @relation(fields: [productId], references: [id])
+  quantity        Float
+  reason          String?
+  status          TransferStatus @default(PENDING)
+  requestedById   String
+  requestedBy     User           @relation("TransferRequester", fields: [requestedById], references: [id])
+  approvedById    String?
+  approvedBy      User?          @relation("TransferApprover", fields: [approvedById], references: [id])
+  approvedAt      DateTime?
+  completedAt     DateTime?
+  rejectionReason String?
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+enum TransferStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  TRANSFERRED
+}
+
+// ──── NOTIFICATIONS ────
+model Notification {
+  id           String   @id @default(uuid())
+  type         String
+  title        String
+  message      String
+  productId    String?
+  targetRole   String?
+  targetUserId String?
+  targetUser   User?    @relation("TargetUser", fields: [targetUserId], references: [id])
+  sentById     String?
+  sentBy       User?    @relation("SentBy", fields: [sentById], references: [id])
+  isRead       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+}

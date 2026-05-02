@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowRapsRdsSnapshots",
+      "Effect": "Allow",
+      "Action": [
+        "rds:CreateDBSnapshot",
+        "rds:DescribeDBSnapshots",
+        "rds:DescribeDBInstances",
+        "rds:ListTagsForResource",
+        "rds:AddTagsToResource",
+        "rds:DeleteDBSnapshot",
+        "rds:RestoreDBInstanceFromDBSnapshot"
+      ],
+      "Resource": [
+        "arn:aws:rds:ap-south-1:*:db:raps-prod",
+        "arn:aws:rds:ap-south-1:*:snapshot:raps-*"
+      ]
+    }
+  ]
+}

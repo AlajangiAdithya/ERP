@@ -1,0 +1,1038 @@
+import { useState, useEffect } from 'react';
+import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp } from 'lucide-react';
+import api from '../api/axios';
+import { useAuth } from '../context/AuthContext';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Badge from '../components/ui/Badge';
+import Modal from '../components/ui/Modal';
+import Input from '../components/ui/Input';
+import { formatDateTime } from '../utils/formatters';
+import PRPdf from '../components/pdf/PRPdf';
+import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+
+const statusColor = (s) => ({
+  PENDING_ADMIN: 'yellow',
+  APPROVED: 'blue',
+  QUOTATION_SUBMITTED: 'purple',
+  QUOTATION_APPROVED: 'navy',
+  ORDER_PLACED: 'navy',
+  GOODS_ARRIVED: 'purple',
+  QC_PASSED: 'green',
+  INWARD_DONE: 'green',
+  IN_PROGRESS: 'navy',
+  COMPLETED: 'green',
+  REJECTED: 'red',
+}[s] || 'gray');
+
+const statusLabel = (s) => ({
+  PENDING_ADMIN: 'Pending Admin',
+  APPROVED: 'Approved',
+  QUOTATION_SUBMITTED: 'Quotation Submitted',
+  QUOTATION_APPROVED: 'Quotation Approved',
+  ORDER_PLACED: 'Order Placed',
+  GOODS_ARRIVED: 'Goods Arrived',
+  QC_PASSED: 'QC Passed',
+  INWARD_DONE: 'Inward Done',
+  IN_PROGRESS: 'In Progress',
+  COMPLETED: 'Completed',
+  REJECTED: 'Rejected',
+}[s] || s);
+
+const itemStatusColor = (s) => ({
+  WAITING: 'gray',
+  ORDERED: 'blue',
+  ON_THE_WAY: 'purple',
+  RECEIVED: 'green',
+  CANCELLED: 'red',
+}[s] || 'gray');
+
+const itemStatusLabel = (s) => ({
+  WAITING: 'Waiting',
+  ORDERED: 'Ordered',
+  ON_THE_WAY: 'On the Way',
+  RECEIVED: 'Received',
+  CANCELLED: 'Cancelled',
+}[s] || s);
+
+function ProgressBar({ purchased, total }) {
+  const pct = total > 0 ? Math.min(100, (purchased / total) * 100) : 0;
+  return (
+    <div className="w-full">
+      <div className="flex justify-between text-xs mb-1">
+        <span className="text-gray-600">{purchased} / {total}</span>
+        <span className={pct >= 100 ? 'text-green-600 font-semibold' : 'text-amber-600 font-semibold'}>{Math.round(pct)}%</span>
+      </div>
+      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-green-500' : pct > 0 ? 'bg-amber-500' : 'bg-gray-300'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {pct < 100 && total > 0 && (
+        <p className="text-xs text-red-500 mt-0.5 font-medium">{total - purchased} pending</p>
+      )}
+    </div>
+  );
+}
+
+// ─── Manager: Create New Request (paper-table format) ───
+function CreateRequestModal({ isOpen, onClose, onCreated }) {
+  const { user } = useAuth();
+  const emptyItem = {
+    productName: '', productUnit: 'kg', requestedQty: '',
+    materialType: '', materialSpecification: '', qapNo: '', drawingNo: '',
+    materialRequiredFor: '', purpose: '', sourceOfSupply: '', scopeOfWork: '',
+    inspectionType: '', requiredByDate: '', itemRemarks: '',
+  };
+  const [items, setItems] = useState([{ ...emptyItem }]);
+  const [notes, setNotes] = useState('');
+  const [requestId, setRequestId] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setItems([{ ...emptyItem }]);
+      setNotes('');
+      setRequestId('');
+    }
+  }, [isOpen]);
+
+  const addItem = () => setItems([...items, { ...emptyItem }]);
+  const removeItem = (idx) => {
+    if (items.length <= 1) return;
+    setItems(items.filter((_, i) => i !== idx));
+  };
+  const updateItem = (idx, field, value) => {
+    const updated = [...items];
+    updated[idx] = { ...updated[idx], [field]: value };
+    setItems(updated);
+  };
+
+  const submit = async () => {
+    const validItems = items.filter(i => i.productName.trim());
+    if (validItems.length === 0) return alert('Enter at least one material description');
+    if (!requestId.trim()) return alert('Order Name is required — this will identify your order throughout the system.');
+    setSaving(true);
+    try {
+      await api.post('/purchase-requests', {
+        notes: notes || undefined,
+        requestId: requestId.trim(),
+        items: validItems.map(i => ({
+          productName: i.productName.trim(),
+          productUnit: i.productUnit || 'pcs',
+          requestedQty: parseFloat(i.requestedQty) || 1,
+          materialType: i.materialType || undefined,
+          materialSpecification: i.materialSpecification || undefined,
+          qapNo: i.qapNo || undefined,
+          drawingNo: i.drawingNo || undefined,
+          materialRequiredFor: i.materialRequiredFor || undefined,
+          purpose: i.purpose || undefined,
+          sourceOfSupply: i.sourceOfSupply || undefined,
+          scopeOfWork: i.scopeOfWork || undefined,
+          inspectionType: i.inspectionType || undefined,
+          requiredByDate: i.requiredByDate || undefined,
+          itemRemarks: i.itemRemarks || undefined,
+        })),
+      });
+      onClose();
+      onCreated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to create request');
+    }
+    setSaving(false);
+  };
+
+  const unitOptions = ['kg', 'litre', 'pcs', 'meter', 'ton', 'box', 'drum', 'bag', 'roll', 'set'];
+  const today = new Date().toISOString().split('T')[0];
+
+  // Paper-form cell styles
+  const cellInput = "w-full px-1.5 py-1 text-xs border-0 focus:outline-none focus:bg-yellow-50";
+  const cellSelect = "w-full px-1.5 py-1 text-xs border-0 bg-white focus:outline-none focus:bg-yellow-50";
+  const labelCell = "border border-gray-400 bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700 align-middle";
+  const dataCell = "border border-gray-400 p-0 align-middle";
+  const headerCell = "border border-gray-400 bg-gray-200 px-2 py-1 text-xs font-bold text-center";
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="New Purchase Requisition Form" size="full">
+      <div className="space-y-3">
+        {/* Paper form header */}
+        <div className="border border-gray-400 bg-gray-50 p-3 text-center">
+          <div className="text-base font-bold text-gray-800">PURCHASE REQUISITION FORM</div>
+          <div className="text-[10px] text-gray-500 mt-0.5">Form No: RAPS/PRF • Rev. 02 • Date: 31/08/2024</div>
+        </div>
+
+        {/* Header fields in 2-col grid, paper style */}
+        <table className="w-full border-collapse text-xs">
+          <tbody>
+            <tr>
+              <td className={labelCell} style={{ width: '15%' }}>PR No.</td>
+              <td className={dataCell} style={{ width: '35%' }}>
+                <span className="px-2 py-1 text-xs text-gray-500 italic">Auto-generated on submit</span>
+              </td>
+              <td className={labelCell} style={{ width: '15%' }}>Date</td>
+              <td className={dataCell} style={{ width: '35%' }}>
+                <span className="px-2 py-1 text-xs text-gray-700">{today}</span>
+              </td>
+            </tr>
+            <tr>
+              <td className={labelCell}>Unit</td>
+              <td className={dataCell}>
+                <span className="px-2 py-1 text-xs text-gray-700">{user?.unit?.name || user?.unit?.code || '—'}</span>
+              </td>
+              <td className={labelCell}>Indenter</td>
+              <td className={dataCell}>
+                <span className="px-2 py-1 text-xs text-gray-700">{user?.name || '—'}</span>
+              </td>
+            </tr>
+            <tr>
+              <td className={labelCell}>Order Name <span className="text-red-600">*</span></td>
+              <td className={dataCell} colSpan={3}>
+                <input
+                  type="text" value={requestId}
+                  onChange={(e) => setRequestId(e.target.value)}
+                  placeholder="Required — this name identifies the order end-to-end (e.g. SO-2024-0123, R&D Alpha, Bearings-Q2)"
+                  className={cellInput}
+                  required
+                />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Materials table — rows=fields, cols=materials */}
+        <div className="flex items-center justify-between mt-2">
+          <h4 className="text-sm font-semibold text-gray-700">Material Details</h4>
+          <Button size="sm" variant="secondary" onClick={addItem}>
+            <Plus size={14} className="mr-1" /> Add Material
+          </Button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-xs" style={{ minWidth: items.length > 2 ? `${400 + items.length * 200}px` : '100%' }}>
+            <thead>
+              <tr>
+                <th className={headerCell} style={{ width: '180px' }}>Field</th>
+                {items.map((_, idx) => (
+                  <th key={idx} className={headerCell}>
+                    <div className="flex items-center justify-between">
+                      <span>Material-{idx + 1}</span>
+                      {items.length > 1 && (
+                        <button onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 ml-1">
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className={labelCell}>Material Description *</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="text" value={item.productName}
+                      onChange={(e) => updateItem(idx, 'productName', e.target.value)}
+                      className={cellInput} placeholder="Description..." />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Material Type</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <select value={item.materialType}
+                      onChange={(e) => updateItem(idx, 'materialType', e.target.value)}
+                      className={cellSelect}>
+                      <option value="">—</option>
+                      <option value="Raw Material">Raw Material</option>
+                      <option value="Consumable">Consumable</option>
+                      <option value="Tooling">Tooling</option>
+                      <option value="Others">Others</option>
+                    </select>
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Material Specification</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="text" value={item.materialSpecification}
+                      onChange={(e) => updateItem(idx, 'materialSpecification', e.target.value)}
+                      className={cellInput} />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Quantity</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="number" min={0.01} step="any" value={item.requestedQty}
+                      onChange={(e) => updateItem(idx, 'requestedQty', e.target.value)}
+                      className={cellInput} placeholder="Qty" />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>UOM</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <select value={item.productUnit}
+                      onChange={(e) => updateItem(idx, 'productUnit', e.target.value)}
+                      className={cellSelect}>
+                      {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Drawing No.</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="text" value={item.drawingNo}
+                      onChange={(e) => updateItem(idx, 'drawingNo', e.target.value)}
+                      className={cellInput} />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>QAP No.</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="text" value={item.qapNo}
+                      onChange={(e) => updateItem(idx, 'qapNo', e.target.value)}
+                      className={cellInput} />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Required For (SO/R&D)</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="text" value={item.materialRequiredFor}
+                      onChange={(e) => updateItem(idx, 'materialRequiredFor', e.target.value)}
+                      className={cellInput} />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Purpose</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="text" value={item.purpose}
+                      onChange={(e) => updateItem(idx, 'purpose', e.target.value)}
+                      className={cellInput} />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Source of Supply</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="text" value={item.sourceOfSupply}
+                      onChange={(e) => updateItem(idx, 'sourceOfSupply', e.target.value)}
+                      className={cellInput} />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Scope of Work</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="text" value={item.scopeOfWork}
+                      onChange={(e) => updateItem(idx, 'scopeOfWork', e.target.value)}
+                      className={cellInput} />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Inspection Type</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <select value={item.inspectionType}
+                      onChange={(e) => updateItem(idx, 'inspectionType', e.target.value)}
+                      className={cellSelect}>
+                      <option value="">—</option>
+                      <option value="Inhouse">Inhouse</option>
+                      <option value="External - RAPS QC">External - RAPS QC</option>
+                      <option value="External - Customer QC">External - Customer QC</option>
+                    </select>
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Required By Date</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="date" value={item.requiredByDate}
+                      onChange={(e) => updateItem(idx, 'requiredByDate', e.target.value)}
+                      className={cellInput} />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Remarks</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="text" value={item.itemRemarks}
+                      onChange={(e) => updateItem(idx, 'itemRemarks', e.target.value)}
+                      className={cellInput} />
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">Additional Notes (optional)</label>
+          <textarea
+            value={notes} onChange={(e) => setNotes(e.target.value)}
+            className="w-full px-2 py-1.5 border border-gray-400 text-xs focus:outline-none focus:bg-yellow-50"
+            rows={2} placeholder="Reason for purchase request..."
+          />
+        </div>
+
+        <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={saving || !requestId.trim() || items.every(i => !i.productName.trim())}>
+            {saving ? 'Submitting...' : `Submit Request (${items.filter(i => i.productName.trim()).length} material${items.filter(i => i.productName.trim()).length === 1 ? '' : 's'})`}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Admin: Review Modal ───
+function AdminReviewModal({ request, onClose, onUpdated }) {
+  const [adminNotes, setAdminNotes] = useState(request?.adminNotes || '');
+  const [adjustedItems, setAdjustedItems] = useState([]);
+  const [processing, setProcessing] = useState(false);
+
+  useEffect(() => {
+    if (request) {
+      setAdminNotes(request.adminNotes || '');
+      setAdjustedItems(request.items.map(i => ({
+        id: i.id,
+        adminApprovedQty: i.adminApprovedQty != null ? i.adminApprovedQty : i.requestedQty,
+      })));
+    }
+  }, [request]);
+
+  const approve = async () => {
+    setProcessing(true);
+    try {
+      await api.put(`/purchase-requests/${request.id}/admin-approve`, {
+        adminNotes: adminNotes || undefined,
+        items: adjustedItems,
+      });
+      onClose();
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to approve');
+    }
+    setProcessing(false);
+  };
+
+  const reject = async () => {
+    if (!adminNotes.trim()) return alert('Please provide a reason for rejection');
+    setProcessing(true);
+    try {
+      await api.put(`/purchase-requests/${request.id}/admin-reject`, { adminNotes });
+      onClose();
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to reject');
+    }
+    setProcessing(false);
+  };
+
+  const saveNotes = async () => {
+    try {
+      await api.put(`/purchase-requests/${request.id}/admin-update-notes`, { adminNotes });
+      alert('Notes saved');
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save notes');
+    }
+  };
+
+  if (!request) return null;
+
+  const isPending = request.status === 'PENDING_ADMIN';
+
+  return (
+    <Modal isOpen={!!request} onClose={onClose} title={`${isPending ? 'Review' : 'View'} ${request.requestNumber}`} size="xl">
+      <div className="space-y-4">
+        {request.requestId && (
+          <div className="bg-navy-50 border border-navy-200 rounded-md p-3">
+            <div className="text-xs uppercase tracking-wide text-navy-600 font-medium">Order Name (set by manager, locked)</div>
+            <div className="text-xl font-bold text-navy-700">{request.requestId}</div>
+          </div>
+        )}
+        {/* Info Header */}
+        <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-md p-4">
+          <div><span className="text-gray-500">Request #:</span> <span className="font-medium">{request.requestNumber}</span></div>
+          <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(request.status)}>{statusLabel(request.status)}</Badge></div>
+          <div><span className="text-gray-500">Manager:</span> <span className="font-medium">{request.manager?.name}</span></div>
+          <div><span className="text-gray-500">Unit:</span> <Badge color="blue">{request.unit?.name}</Badge></div>
+          <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(request.createdAt)}</span></div>
+          {request.adminApprovedBy && (
+            <div><span className="text-gray-500">Reviewed By:</span> <span className="font-medium">{request.adminApprovedBy.name}</span> • <span className="text-xs">{formatDateTime(request.adminApprovedAt)}</span></div>
+          )}
+        </div>
+
+        {request.notes && (
+          <div className="bg-yellow-50 rounded-md p-3 text-sm">
+            <span className="text-yellow-700 font-medium">Manager's Note:</span> <span>{request.notes}</span>
+          </div>
+        )}
+
+        {/* Items */}
+        <div>
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">Requested Items</h4>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Category</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested</th>
+                {isPending ? (
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approve Qty</th>
+                ) : (
+                  <>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purchased</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Progress</th>
+                  </>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {request.items?.map((item, idx) => {
+                const approvedQty = item.adminApprovedQty || 0;
+                return (
+                  <tr key={item.id} className="border-b border-gray-50">
+                    <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
+                    <td className="px-3 py-2 text-gray-500">{item.product?.category || '—'}</td>
+                    <td className="px-3 py-2 text-gray-700">{item.requestedQty} {item.productUnit}</td>
+                    {isPending ? (
+                      <td className="px-3 py-2">
+                        <Input
+                          type="number" min={0} step="any"
+                          value={adjustedItems[idx]?.adminApprovedQty ?? ''}
+                          onChange={(e) => {
+                            const newItems = [...adjustedItems];
+                            newItems[idx] = { ...newItems[idx], adminApprovedQty: parseFloat(e.target.value) || 0 };
+                            setAdjustedItems(newItems);
+                          }}
+                          className="w-28"
+                        />
+                      </td>
+                    ) : (
+                      <>
+                        <td className="px-3 py-2 text-gray-600">{approvedQty} {item.productUnit}</td>
+                        <td className="px-3 py-2 text-gray-600">{item.purchasedQty} {item.productUnit}</td>
+                        <td className="px-3 py-2 w-40">
+                          <ProgressBar purchased={item.purchasedQty} total={approvedQty} />
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Admin Notes */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            <FileText size={14} className="inline mr-1" />
+            Admin Notes {!isPending && '(editable)'}
+          </label>
+          <textarea
+            value={adminNotes} onChange={(e) => setAdminNotes(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
+            rows={3} placeholder="Internal admin notes..."
+          />
+          {!isPending && (
+            <Button size="sm" variant="secondary" className="mt-1" onClick={saveNotes}>Save Notes</Button>
+          )}
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex justify-between items-center pt-2 gap-3">
+          <DownloadPdfButton
+            document={<PRPdf request={request} />}
+            fileName={`PR-${request.requestNumber}.pdf`}
+            label="Download PR PDF"
+          />
+          {isPending && (
+            <div className="flex gap-3">
+              <Button variant="danger" onClick={reject} disabled={processing}>
+                <XCircle size={16} className="mr-1" /> Reject
+              </Button>
+              <Button onClick={approve} disabled={processing}>
+                <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Approve'}
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Purchase Officer: Record Purchase Modal ───
+function RecordPurchaseModal({ request, onClose, onUpdated }) {
+  const [items, setItems] = useState([]);
+  const [processing, setProcessing] = useState(false);
+
+  useEffect(() => {
+    if (request) {
+      setItems(request.items.map(i => ({
+        id: i.id,
+        productName: i.productName,
+        productUnit: i.productUnit,
+        approvedQty: i.adminApprovedQty || i.requestedQty,
+        currentPurchased: i.purchasedQty || 0,
+        newPurchasedQty: i.purchasedQty || 0,
+      })));
+    }
+  }, [request]);
+
+  const submit = async () => {
+    setProcessing(true);
+    try {
+      await api.put(`/purchase-requests/${request.id}/record-purchase`, {
+        items: items.map(i => ({ id: i.id, purchasedQty: i.newPurchasedQty })),
+      });
+      onClose();
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to record purchase');
+    }
+    setProcessing(false);
+  };
+
+  if (!request) return null;
+
+  return (
+    <Modal isOpen={!!request} onClose={onClose} title={`Record Purchase — ${request.requestNumber}`} size="lg">
+      <div className="space-y-4">
+        <div className="bg-blue-50 rounded-md p-3 text-sm">
+          <span className="text-blue-700 font-medium">Manager:</span> {request.manager?.name} •
+          <span className="text-blue-700 font-medium ml-2">Unit:</span> {request.unit?.name}
+          {request.notes && (
+            <div className="mt-1"><span className="text-blue-700 font-medium">Note:</span> {request.notes}</div>
+          )}
+        </div>
+
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved Qty</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Already Purchased</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Total Purchased</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Progress</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, idx) => (
+              <tr key={item.id} className="border-b border-gray-50">
+                <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
+                <td className="px-3 py-2 text-gray-700">{item.approvedQty} {item.productUnit}</td>
+                <td className="px-3 py-2 text-gray-500">{item.currentPurchased} {item.productUnit}</td>
+                <td className="px-3 py-2">
+                  <Input
+                    type="number" min={0} max={item.approvedQty} step="any"
+                    value={item.newPurchasedQty}
+                    onChange={(e) => {
+                      const newItems = [...items];
+                      newItems[idx] = { ...newItems[idx], newPurchasedQty: parseFloat(e.target.value) || 0 };
+                      setItems(newItems);
+                    }}
+                    className="w-28"
+                  />
+                </td>
+                <td className="px-3 py-2 w-36">
+                  <ProgressBar purchased={item.newPurchasedQty} total={item.approvedQty} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div className="flex justify-end gap-3 pt-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={processing}>
+            <PackageCheck size={16} className="mr-1" /> {processing ? 'Saving...' : 'Update Purchase Record'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Procurement Journey Timeline ───
+function ProcurementJourney({ request }) {
+  const statusOrder = [
+    { key: 'PENDING_ADMIN', label: 'Submitted', detail: request?.createdAt ? formatDateTime(request.createdAt) : null },
+    { key: 'APPROVED', label: 'Admin Approved', detail: request?.adminApprovedBy ? `${request.adminApprovedBy.name} • ${formatDateTime(request.adminApprovedAt)}` : null },
+    { key: 'QUOTATION_SUBMITTED', label: 'Quotations Collected', detail: null },
+    { key: 'QUOTATION_APPROVED', label: 'Quotation Approved', detail: request?.purchaseOrders?.[0] ? `PO: ${request.purchaseOrders[0].customName}` : null },
+    { key: 'ORDER_PLACED', label: 'Order Placed', detail: null },
+    { key: 'GOODS_ARRIVED', label: 'Goods Arrived', detail: null },
+    { key: 'QC_PASSED', label: 'QC Passed', detail: null },
+    { key: 'INWARD_DONE', label: 'Inward Complete', detail: null },
+    { key: 'COMPLETED', label: 'Closed', detail: null },
+  ];
+
+  const currentIndex = statusOrder.findIndex((s) => s.key === request.status);
+  const effectiveIndex = request.status === 'REJECTED' ? -1 : currentIndex;
+
+  return (
+    <div>
+      <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-1">
+        <TrendingUp size={14} /> Procurement Journey
+      </h4>
+      <ol className="relative border-l-2 border-gray-200 ml-2 space-y-3">
+        {statusOrder.map((stage, idx) => {
+          const reached = idx <= effectiveIndex;
+          const isCurrent = idx === effectiveIndex;
+          return (
+            <li key={stage.key} className="pl-4 relative">
+              <span className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 ${
+                reached ? (isCurrent ? 'bg-navy-600 border-navy-600' : 'bg-green-500 border-green-500') : 'bg-white border-gray-300'
+              }`} />
+              <div className={`text-sm font-medium ${reached ? 'text-gray-900' : 'text-gray-400'}`}>
+                {stage.label}
+              </div>
+              {stage.detail && reached && (
+                <div className="text-xs text-gray-500">{stage.detail}</div>
+              )}
+            </li>
+          );
+        })}
+        {request.status === 'REJECTED' && (
+          <li className="pl-4 relative">
+            <span className="absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 bg-red-500 border-red-500" />
+            <div className="text-sm font-medium text-red-600">Rejected</div>
+            {request.adminNotes && <div className="text-xs text-gray-500">{request.adminNotes}</div>}
+          </li>
+        )}
+      </ol>
+    </div>
+  );
+}
+
+// ─── Detail View Modal (for Managers viewing progress) ───
+function DetailModal({ request, onClose }) {
+  if (!request) return null;
+
+  const primaryPO = request.purchaseOrders?.[0];
+
+  return (
+    <Modal isOpen={!!request} onClose={onClose} title={`Purchase Request ${request.requestNumber}`} size="xl">
+      <div className="space-y-4">
+        {request.requestId && (
+          <div className="bg-navy-50 border border-navy-200 rounded-md p-3">
+            <div className="text-xs uppercase tracking-wide text-navy-600 font-medium">Order Name</div>
+            <div className="text-xl font-bold text-navy-700">{request.requestId}</div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-md p-4">
+          <div><span className="text-gray-500">Request #:</span> <span className="font-medium">{request.requestNumber}</span></div>
+          <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(request.status)}>{statusLabel(request.status)}</Badge></div>
+          <div><span className="text-gray-500">Requester:</span> <span className="font-medium">{request.manager?.name}</span></div>
+          <div><span className="text-gray-500">Unit:</span> <Badge color="blue">{request.unit?.name}</Badge></div>
+          <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(request.createdAt)}</span></div>
+          {request.adminApprovedBy && (
+            <>
+              <div><span className="text-gray-500">Reviewed By:</span> <span className="font-medium">{request.adminApprovedBy.name}</span></div>
+              <div><span className="text-gray-500">Reviewed At:</span> <span>{formatDateTime(request.adminApprovedAt)}</span></div>
+            </>
+          )}
+          {primaryPO && (
+            <div className="col-span-2"><span className="text-gray-500">PO:</span> <span className="font-medium">{primaryPO.orderNumber}</span> <Badge color="gray">₹{primaryPO.totalAmount?.toLocaleString('en-IN')}</Badge></div>
+          )}
+        </div>
+
+        {request.notes && (
+          <div className="bg-yellow-50 rounded-md p-3 text-sm">
+            <span className="text-yellow-700 font-medium">Your Note:</span> <span>{request.notes}</span>
+          </div>
+        )}
+        {request.adminNotes && (
+          <div className="bg-blue-50 rounded-md p-3 text-sm">
+            <span className="text-blue-600 font-medium">Admin Notes:</span> <span>{request.adminNotes}</span>
+          </div>
+        )}
+
+        <ProcurementJourney request={request} />
+
+        <div>
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">Items & Procurement Status</h4>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Item Status</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purchased</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Progress</th>
+              </tr>
+            </thead>
+            <tbody>
+              {request.items?.map(item => {
+                const approvedQty = item.adminApprovedQty ?? item.requestedQty;
+                return (
+                  <tr key={item.id} className="border-b border-gray-50">
+                    <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
+                    <td className="px-3 py-2 text-gray-600">{item.requestedQty} {item.productUnit}</td>
+                    <td className="px-3 py-2 text-gray-600">
+                      {item.adminApprovedQty != null ? `${item.adminApprovedQty} ${item.productUnit}` : '—'}
+                    </td>
+                    <td className="px-3 py-2">
+                      {item.itemStatus ? (
+                        <Badge color={itemStatusColor(item.itemStatus)}>{itemStatusLabel(item.itemStatus)}</Badge>
+                      ) : (
+                        <span className="text-gray-400 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-gray-600">{item.purchasedQty || 0} {item.productUnit}</td>
+                    <td className="px-3 py-2 w-40">
+                      {item.adminApprovedQty != null ? (
+                        <ProgressBar purchased={item.purchasedQty || 0} total={approvedQty} />
+                      ) : (
+                        <span className="text-gray-400 text-xs">Awaiting approval</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <DownloadPdfButton
+            document={<PRPdf request={request} />}
+            fileName={`PR-${request.requestNumber}.pdf`}
+            label="Download PR PDF"
+          />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Main Page ───
+export default function PurchaseRequests() {
+  const { user } = useAuth();
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [selectedForReview, setSelectedForReview] = useState(null);
+  const [selectedForPurchase, setSelectedForPurchase] = useState(null);
+  const [selectedForDetail, setSelectedForDetail] = useState(null);
+  const [tab, setTab] = useState('ALL');
+
+  const isManager = ['MANAGER', 'LAB'].includes(user?.role);
+  const isAdmin = user?.role === 'ADMIN';
+  const isPO = user?.role === 'PURCHASE_OFFICER';
+  const isAccounting = user?.role === 'ACCOUNTING';
+  const isQC = user?.role === 'QC';
+
+  const fetchRequests = () => {
+    setLoading(true);
+    const params = { limit: 50 };
+    if (tab !== 'ALL' && !isPO) params.status = tab;
+    api.get('/purchase-requests', { params })
+      .then(({ data }) => setRequests(data.requests))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchRequests(); }, [tab]);
+
+  const handleRowClick = (r) => {
+    if (isAdmin) {
+      setSelectedForReview(r);
+    } else if (isPO) {
+      setSelectedForPurchase(r);
+    } else {
+      setSelectedForDetail(r);
+    }
+  };
+
+  const cancelRequest = async (requestId) => {
+    if (!confirm('Cancel this purchase request?')) return;
+    try {
+      await api.put(`/purchase-requests/${requestId}/cancel`);
+      fetchRequests();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to cancel');
+    }
+  };
+
+  const tabs = isPO
+    ? ['ALL', 'APPROVED', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED']
+    : isAccounting
+    ? ['ALL', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'COMPLETED']
+    : isQC
+    ? ['ALL', 'GOODS_ARRIVED', 'QC_PASSED']
+    : ['ALL', 'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED', 'REJECTED'];
+
+  const filteredRequests = tab === 'ALL' ? requests : requests.filter(r => r.status === tab);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">
+          {isPO ? 'Purchase Assignments' : 'Purchase Requests'}
+        </h1>
+        {isManager && (
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus size={16} /> New Purchase Request
+          </Button>
+        )}
+      </div>
+
+      {/* Tabs */}
+      {tabs.length > 1 && (
+        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit flex-wrap">
+          {tabs.map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                tab === t ? 'bg-white text-navy-700 font-medium shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >{t === 'ALL' ? 'All' : statusLabel(t)}</button>
+          ))}
+        </div>
+      )}
+
+      <Card>
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : filteredRequests.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            {isPO ? 'No purchase assignments available.' : 'No purchase requests found.'}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Request #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Request ID</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Manager</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Progress</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Required By</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRequests.map(r => {
+                  // Calculate overall progress
+                  const totalApproved = r.items.reduce((sum, i) => sum + (i.adminApprovedQty || 0), 0);
+                  const totalPurchased = r.items.reduce((sum, i) => sum + (i.purchasedQty || 0), 0);
+                  // Earliest Required By date across items
+                  const requiredDates = r.items.map(i => i.requiredByDate).filter(Boolean);
+                  const earliestRequired = requiredDates.length > 0
+                    ? requiredDates.reduce((a, b) => (new Date(a) < new Date(b) ? a : b))
+                    : null;
+
+                  return (
+                    <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => handleRowClick(r)}>
+                        {r.requestNumber}
+                      </td>
+                      <td className="px-3 py-2 text-gray-600 text-xs">
+                        {r.requestId ? (
+                          <span className="font-medium">{r.requestId}</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-gray-600">{r.manager?.name}</td>
+                      <td className="px-3 py-2"><Badge color="blue">{r.unit?.code}</Badge></td>
+                      <td className="px-3 py-2 text-gray-600">{r.items?.length}</td>
+                      <td className="px-3 py-2"><Badge color={statusColor(r.status)}>{statusLabel(r.status)}</Badge></td>
+                      <td className="px-3 py-2 w-32">
+                        {r.purchaseOrders?.length > 0 ? (
+                          <span className="text-xs text-navy-700 font-medium">{r.purchaseOrders[0].customName}</span>
+                        ) : ['APPROVED', 'IN_PROGRESS', 'COMPLETED'].includes(r.status) ? (
+                          <ProgressBar purchased={totalPurchased} total={totalApproved} />
+                        ) : (
+                          <span className="text-gray-400 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">
+                        {earliestRequired ? (
+                          <span className={new Date(earliestRequired) < new Date() ? 'text-red-600 font-medium' : ''}>
+                            {new Date(earliestRequired).toLocaleDateString()}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex gap-2">
+                          {isAdmin && r.status === 'PENDING_ADMIN' && (
+                            <Button size="sm" variant="secondary" onClick={() => setSelectedForReview(r)}>Review</Button>
+                          )}
+                          {isAdmin && r.status !== 'PENDING_ADMIN' && (
+                            <Button size="sm" variant="secondary" onClick={() => setSelectedForReview(r)}>View</Button>
+                          )}
+                          {isPO && r.status === 'APPROVED' && (
+                            <Button size="sm" onClick={() => window.location.href = '/quotations'}>
+                              <ShoppingCart size={14} className="mr-1" /> Add Quotes
+                            </Button>
+                          )}
+                          {isPO && ['IN_PROGRESS'].includes(r.status) && (
+                            <Button size="sm" onClick={() => setSelectedForPurchase(r)}>
+                              <ShoppingCart size={14} className="mr-1" /> Update
+                            </Button>
+                          )}
+                          {isManager && (
+                            <Button size="sm" variant="secondary" onClick={() => setSelectedForDetail(r)}>View</Button>
+                          )}
+                          {isManager && r.status === 'PENDING_ADMIN' && (
+                            <Button size="sm" variant="danger" onClick={() => cancelRequest(r.id)}>Cancel</Button>
+                          )}
+                          {!isAdmin && !isPO && !isManager && (
+                            <Button size="sm" variant="secondary" onClick={() => setSelectedForDetail(r)}>View</Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Modals */}
+      <CreateRequestModal isOpen={showCreate} onClose={() => setShowCreate(false)} onCreated={fetchRequests} />
+      <AdminReviewModal request={selectedForReview} onClose={() => setSelectedForReview(null)} onUpdated={fetchRequests} />
+      <RecordPurchaseModal request={selectedForPurchase} onClose={() => setSelectedForPurchase(null)} onUpdated={fetchRequests} />
+      <DetailModal request={selectedForDetail} onClose={() => setSelectedForDetail(null)} />
+    </div>
+  );
+}
