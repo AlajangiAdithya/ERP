@@ -34,7 +34,7 @@ export default function MyRequests() {
   useEffect(() => { fetchRequests(); }, []);
 
   const openCreate = () => {
-    api.get('/products', { params: { limit: 100 } }).then(({ data }) => setProducts(data.products));
+    api.get('/products', { params: { limit: 1000 } }).then(({ data }) => setProducts(data.products));
     setCartItems([]);
     setNotes('');
     setRemarks('');

@@ -2,19 +2,27 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "AllowRapsRdsSnapshots",
+      "Sid": "DescribeRdsForBackupChecks",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBSnapshots",
+        "rds:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ManageRapsSnapshots",
       "Effect": "Allow",
       "Action": [
         "rds:CreateDBSnapshot",
-        "rds:DescribeDBSnapshots",
-        "rds:DescribeDBInstances",
-        "rds:ListTagsForResource",
         "rds:AddTagsToResource",
         "rds:DeleteDBSnapshot",
         "rds:RestoreDBInstanceFromDBSnapshot"
       ],
       "Resource": [
-        "arn:aws:rds:ap-south-1:*:db:raps-prod",
+        "arn:aws:rds:ap-south-1:*:db:raps-rds-sg",
+        "arn:aws:rds:ap-south-1:*:db:raps-restore",
         "arn:aws:rds:ap-south-1:*:snapshot:raps-*"
       ]
     }

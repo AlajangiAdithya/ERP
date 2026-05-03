@@ -1,6 +1,6 @@
 # RAPS ERP — AWS Deployment Guide
 
-Deploy target: single EC2 (`t4g.small`, Ubuntu 22.04 LTS, ap-south-1) + RDS PostgreSQL (`db.t4g.micro`, Multi-AZ off, ap-south-1) + Route 53 + Let's Encrypt.
+Deploy target: single EC2 (`t3.micro`, Ubuntu 22.04 LTS, ap-south-1) + RDS PostgreSQL (`db.t4g.micro`, Multi-AZ off, ap-south-1) + Route 53 + Let's Encrypt.
 
 Estimated monthly cost: ~$22–25.
 
@@ -30,7 +30,7 @@ Estimated monthly cost: ~$22–25.
 1. EC2 → Launch instance
    - Name: `raps-app`
    - AMI: Ubuntu Server 22.04 LTS (arm64)
-   - Type: `t4g.small`
+   - Type: `t3.micro`
    - Key pair: create + download `.pem`
    - Network: same VPC as RDS
    - Security group: create `raps-app-sg`

@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-DB_INSTANCE_ID="${DB_INSTANCE_ID:-raps-prod}"     # override via env
+DB_INSTANCE_ID="${DB_INSTANCE_ID:-raps-rds-sg}"   # override via env
 AWS_REGION="${AWS_REGION:-ap-south-1}"
 HALF="${1:-}"                                      # h1 or h2 (passed by cron)
 LOGFILE="/var/log/raps-backup.log"
