@@ -22,7 +22,6 @@ const productSchema = z.object({
 router.get('/', authenticate, async (req, res) => {
   try {
     const { search, category, page, limit } = req.query;
-    const { skip, take } = paginate(page, limit);
 
     const where = { isActive: true };
     if (search) {
@@ -32,6 +31,17 @@ router.get('/', authenticate, async (req, res) => {
       ];
     }
     if (category) where.category = category;
+
+    // Support limit=all to bypass pagination (for product selection dropdowns)
+    if (limit === 'all') {
+      const products = await prisma.product.findMany({
+        where,
+        orderBy: { name: 'asc' },
+      });
+      return res.json({ products, total: products.length, page: 1, totalPages: 1 });
+    }
+
+    const { skip, take } = paginate(page, limit);
 
     const [products, total] = await Promise.all([
       prisma.product.findMany({

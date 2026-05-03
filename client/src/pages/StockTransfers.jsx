@@ -45,7 +45,7 @@ export default function StockTransfers() {
   useEffect(() => {
     Promise.all([
       api.get('/warehouses/all'),
-      api.get('/products', { params: { limit: 100 } }),
+      api.get('/products', { params: { limit: 'all' } }),
     ]).then(([whRes, prodRes]) => {
       setWarehouses(whRes.data);
       setProducts(prodRes.data.products || []);

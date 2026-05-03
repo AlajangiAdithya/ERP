@@ -28,7 +28,7 @@ export default function SaleOrderForm() {
 
   useEffect(() => {
     api.get('/customers/all').then(({ data }) => setCustomers(data));
-    api.get('/products', { params: { limit: 200 } }).then(({ data }) => setProducts(data.products || []));
+    api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products || []));
 
     if (!isNew) {
       api.get(`/sales/${id}`)

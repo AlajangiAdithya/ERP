@@ -55,7 +55,7 @@ export default function InventoryTransfers() {
 
   useEffect(() => {
     api.get('/units').then(({ data }) => setUnits(data || [])).catch(() => setUnits([]));
-    api.get('/products', { params: { limit: 200 } })
+    api.get('/products', { params: { limit: 'all' } })
       .then(({ data }) => setProducts(data.products || []))
       .catch(() => setProducts([]));
   }, []);

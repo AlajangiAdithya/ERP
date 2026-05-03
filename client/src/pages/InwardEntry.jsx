@@ -276,7 +276,7 @@ function ExistingProductForm({ onSuccess }) {
   const [saving, setSaving] = useState(false);
 
   const loadProducts = () =>
-    api.get('/products', { params: { limit: 200 } }).then(({ data }) => setProducts(data.products));
+    api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products));
 
   useEffect(() => { loadProducts(); }, []);
 
