@@ -1,5 +1,5 @@
 {
-    "buildCommand": "cd server && npm ci && cd ../client && npm ci && npm run build",
+    "buildCommand": "cd server && npm ci && cd ../client && npm ci --include=dev && npm run build",
     "outputDirectory": "client/dist",
     "rewrites": [
         {
