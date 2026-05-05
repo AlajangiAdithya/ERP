@@ -2,7 +2,27 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "DescribeRdsForBackupChecks",
+      "Sid": "S3BackupAccess",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:HeadObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::S3_BUCKET",
+        "arn:aws:s3:::S3_BUCKET/*"
+      ]
+    },
+    {
+      "Sid": "STSGetCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DescribeRdsForMonitoring",
       "Effect": "Allow",
       "Action": [
         "rds:DescribeDBInstances",
@@ -10,21 +30,6 @@
         "rds:ListTagsForResource"
       ],
       "Resource": "*"
-    },
-    {
-      "Sid": "ManageRapsSnapshots",
-      "Effect": "Allow",
-      "Action": [
-        "rds:CreateDBSnapshot",
-        "rds:AddTagsToResource",
-        "rds:DeleteDBSnapshot",
-        "rds:RestoreDBInstanceFromDBSnapshot"
-      ],
-      "Resource": [
-        "arn:aws:rds:ap-south-1:*:db:raps-rds-sg",
-        "arn:aws:rds:ap-south-1:*:db:raps-restore",
-        "arn:aws:rds:ap-south-1:*:snapshot:raps-*"
-      ]
     }
   ]
 }

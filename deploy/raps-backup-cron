@@ -1,12 +1,18 @@
-# RAPS half-yearly RDS snapshots. Install:
+# RAPS quarterly backups (pg_dump to S3). Install:
 #   sudo cp deploy/raps-backup-cron /etc/cron.d/raps-backup
 #   sudo chmod 644 /etc/cron.d/raps-backup
 #
-# Cron runs in UTC by default on EC2. 00:30 IST = 19:00 previous-day UTC.
+# Cron runs in UTC on EC2. 00:30 IST = 19:00 previous-day UTC.
 # Format: m h dom mon dow user command
 
-# Apr 1 00:30 IST -> snapshot covering Mar..Sep
-0 19 31 3 * root /usr/local/bin/raps-backup.sh h1
+# Q1: Jan 1 00:30 IST (Dec 31 19:00 UTC)
+0 19 31 12 * root /usr/local/bin/raps-backup.sh
 
-# Oct 1 00:30 IST -> snapshot covering Oct..Feb
-0 19 30 9 * root /usr/local/bin/raps-backup.sh h2
+# Q2: Apr 1 00:30 IST (Mar 31 19:00 UTC)
+0 19 31 3 * root /usr/local/bin/raps-backup.sh
+
+# Q3: Jul 1 00:30 IST (Jun 30 19:00 UTC)
+0 19 30 6 * root /usr/local/bin/raps-backup.sh
+
+# Q4: Oct 1 00:30 IST (Sep 30 19:00 UTC)
+0 19 30 9 * root /usr/local/bin/raps-backup.sh

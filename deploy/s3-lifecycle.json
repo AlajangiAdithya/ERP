@@ -1,0 +1,31 @@
+{
+  "Rules": [
+    {
+      "ID": "QuarterlyBackupTiering",
+      "Filter": {
+        "Prefix": "quarterly/"
+      },
+      "Status": "Enabled",
+      "Transitions": [
+        {
+          "Days": 90,
+          "StorageClass": "GLACIER_IR"
+        },
+        {
+          "Days": 365,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ]
+    },
+    {
+      "ID": "CleanupOldVersions",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 30
+      }
+    }
+  ]
+}
