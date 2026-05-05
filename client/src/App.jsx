@@ -88,7 +88,7 @@ export default function App() {
 
               {/* Purchase Requests — Admin, Manager, Lab, Purchase Officer, Accounting, QC */}
               <Route path="/purchase-requests" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB']}><PurchaseRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'ACCOUNTING', 'QC', 'LAB']}><PurchaseRequests /></PrivateRoute>
               } />
 
               {/* Quotation Management — PO submits, ADMIN approves (no accounting tier) */}

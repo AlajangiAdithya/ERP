@@ -165,14 +165,23 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
       include: ION_INCLUDE,
     });
 
-    // Notify the target manager if this is a manager-to-manager ION
     if (resolvedAssigneeId) {
       await prisma.notification.create({
         data: {
           type: 'ION_RECEIVED',
           title: `New ION: ${ion.ionNumber}`,
-          message: `${req.user.name} sent you an Inter Office Note (${ion.ionNumber})${projectName ? ` for project "${projectName}"` : ''}.`,
+          message: `${req.user.name} sent you an Inter Office Note (${ion.ionNumber})${projectName ? ` for project "${projectName}"` : ''}. Please review and start work.`,
           targetUserId: resolvedAssigneeId,
+          sentById: req.user.id,
+        },
+      });
+    } else {
+      await prisma.notification.create({
+        data: {
+          type: 'ION_RECEIVED',
+          title: `New ION: ${ion.ionNumber}`,
+          message: `${req.user.name} sent a new Inter Office Note (${ion.ionNumber})${projectName ? ` for project "${projectName}"` : ''}. Please review and start work.`,
+          targetRole: 'LAB',
           sentById: req.user.id,
         },
       });
@@ -232,13 +241,17 @@ router.put('/:id/status', authenticate, authorize('LAB', 'MANAGER'), async (req,
       include: ION_INCLUDE,
     });
 
-    // Notify the sender on status changes
     if (existing.createdBy?.id && existing.createdBy.id !== req.user.id) {
+      const statusMsg = status === 'WAITING'
+        ? `${req.user.name} has started work on your ION ${updated.ionNumber}.`
+        : `Work on your ION ${updated.ionNumber} is complete. Your items are ready for collection from ${req.user.name}.`;
       await prisma.notification.create({
         data: {
           type: 'ION_STATUS_UPDATE',
-          title: `ION ${updated.ionNumber} → ${status}`,
-          message: `${req.user.name} marked your ION ${updated.ionNumber} as ${status === 'WAITING' ? 'in progress' : 'collected'}.`,
+          title: status === 'WAITING'
+            ? `ION ${updated.ionNumber}: Work Started`
+            : `ION ${updated.ionNumber}: Work Complete — Ready for Collection`,
+          message: statusMsg,
           targetUserId: existing.createdBy.id,
           sentById: req.user.id,
         },

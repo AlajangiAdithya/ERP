@@ -14,7 +14,7 @@ const getNavItems = (role) => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
     { to: '/products', icon: Package, label: 'Products', roles: ALL_ROLES },
-    { to: '/purchase-requests', icon: ShoppingCart, label: 'Purchase Requests', roles: ['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB'] },
+    { to: '/purchase-requests', icon: ShoppingCart, label: 'Purchase Requests', roles: ['ADMIN', 'MANAGER', 'ACCOUNTING', 'QC', 'LAB'] },
     { to: '/quotations', icon: FileSearch, label: 'Quotations', roles: ['PURCHASE_OFFICER', 'ADMIN'] },
     { to: '/purchase-orders', icon: Truck, label: 'Purchase Orders', roles: ['PURCHASE_OFFICER', 'ADMIN', 'ACCOUNTING', 'STORE_MANAGER', 'QC'] },
     { to: '/payment-requests', icon: CreditCard, label: 'Payment Requests', roles: ['PURCHASE_OFFICER', 'ACCOUNTING', 'ADMIN'] },

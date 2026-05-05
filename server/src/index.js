@@ -75,9 +75,17 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`RAPS ERP Server running on port ${PORT}`);
-  });
+  const prisma = require('./config/db');
+  prisma.$queryRaw`SELECT 1`
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`RAPS ERP Server running on port ${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('Database connection failed:', err.message);
+      process.exit(1);
+    });
 }
 
 module.exports = app;

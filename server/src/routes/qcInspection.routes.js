@@ -49,11 +49,10 @@ router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STOR
       prisma.qCInspection.count({ where }),
     ]);
 
-    // Also get orders awaiting inspection (arrived but no inspection yet)
+    // Orders awaiting inspection — includes repeat deliveries (partial delivery support)
     const pendingOrders = await prisma.purchaseOrder.findMany({
       where: {
-        status: { in: ['GOODS_ARRIVED', 'QC_PENDING'] },
-        qcInspections: { none: { result: { in: ['PASSED', 'FAILED'] } } },
+        status: 'GOODS_ARRIVED',
       },
       include: {
         items: true,

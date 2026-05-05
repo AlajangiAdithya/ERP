@@ -9,6 +9,9 @@ const router = express.Router();
 // GET /api/reports/dashboard
 router.get('/dashboard', authenticate, async (req, res) => {
   try {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
     const [
       totalProducts,
       lowStockProducts,
@@ -16,6 +19,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
       pendingRequests,
       recentMovements,
       recentRequests,
+      movementTrends,
     ] = await Promise.all([
       prisma.product.count({ where: { isActive: true } }),
 
@@ -46,25 +50,21 @@ router.get('/dashboard', authenticate, async (req, res) => {
         orderBy: { createdAt: 'desc' },
         take: 10,
       }),
+
+      prisma.$queryRaw`
+        SELECT
+          DATE("createdAt") as date,
+          type,
+          SUM(quantity) as total_quantity,
+          COUNT(*)::int as count
+        FROM "StockMovement"
+        WHERE "createdAt" >= ${sevenDaysAgo}
+        GROUP BY DATE("createdAt"), type
+        ORDER BY DATE("createdAt") ASC
+      `,
     ]);
 
     const lowStockCount = lowStockProducts[0]?.count || 0;
-
-    // Stock movement trends (last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const movementTrends = await prisma.$queryRaw`
-      SELECT 
-        DATE("createdAt") as date,
-        type,
-        SUM(quantity) as total_quantity,
-        COUNT(*)::int as count
-      FROM "StockMovement"
-      WHERE "createdAt" >= ${sevenDaysAgo}
-      GROUP BY DATE("createdAt"), type
-      ORDER BY DATE("createdAt") ASC
-    `;
 
     res.json({
       stats: {
@@ -186,37 +186,33 @@ router.get('/audit-logs', authenticate, authorize('ADMIN'), async (req, res) => 
 // GET /api/reports/unit-summary — Admin: summary of unit-wise consumption
 router.get('/unit-summary', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
-    const units = await prisma.unit.findMany({
-      where: { isActive: true },
-      include: {
-        _count: { select: { users: true, productRequests: true } },
-      },
-    });
-
-    const summaries = await Promise.all(units.map(async (unit) => {
-      const totalOut = await prisma.stockMovement.aggregate({
-        where: { unitId: unit.id, type: 'OUT' },
-        _sum: { quantity: true },
-        _count: true,
-      });
-
-      const requestStats = await prisma.productRequest.groupBy({
-        by: ['status'],
-        where: { unitId: unit.id },
-        _count: true,
-      });
-
-      return {
-        id: unit.id,
-        name: unit.name,
-        code: unit.code,
-        totalUsers: unit._count.users,
-        totalRequests: unit._count.productRequests,
-        totalItemsConsumed: totalOut._sum.quantity || 0,
-        totalMovements: totalOut._count,
-        requestStats: requestStats.reduce((acc, s) => { acc[s.status] = s._count; return acc; }, {}),
-      };
-    }));
+    const summaries = await prisma.$queryRaw`
+      SELECT
+        u.id,
+        u.name,
+        u.code,
+        COALESCE(uc.user_count, 0)::int AS "totalUsers",
+        COALESCE(rc.req_count, 0)::int AS "totalRequests",
+        COALESCE(sm.total_qty, 0) AS "totalItemsConsumed"
+      FROM "Unit" u
+      LEFT JOIN (
+        SELECT "unitId", COUNT(*)::int AS user_count
+        FROM "User" WHERE "isActive" = true
+        GROUP BY "unitId"
+      ) uc ON uc."unitId" = u.id
+      LEFT JOIN (
+        SELECT "unitId", COUNT(*)::int AS req_count
+        FROM "ProductRequest"
+        GROUP BY "unitId"
+      ) rc ON rc."unitId" = u.id
+      LEFT JOIN (
+        SELECT "unitId", SUM(quantity) AS total_qty
+        FROM "StockMovement" WHERE type = 'OUT'
+        GROUP BY "unitId"
+      ) sm ON sm."unitId" = u.id
+      WHERE u."isActive" = true
+      ORDER BY u.name ASC
+    `;
 
     res.json(summaries);
   } catch (error) {

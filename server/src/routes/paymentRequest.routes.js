@@ -120,17 +120,15 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
       },
     });
 
-    // Notify the right group based on amount tier
     const tier = getTier(data.amount);
     const tierLabel = getTierLabel(tier);
-    const targetRole = tier === 'L1' ? 'ACCOUNTING' : 'ADMIN';
 
     await prisma.notification.create({
       data: {
         type: 'PAYMENT_REQUEST',
         title: `Payment Request (${tier}): ${order.customName}`,
-        message: `${data.paymentType} payment of ₹${data.amount.toLocaleString('en-IN')} requested for order "${order.customName}" (${order.orderNumber}) to ${order.supplierName}. Approval tier: ${tier} — ${tierLabel}.${data.notes ? ' Notes: ' + data.notes : ''}`,
-        targetRole,
+        message: `${data.paymentType} payment of ₹${data.amount.toLocaleString('en-IN')} requested for order "${order.customName}" (${order.orderNumber}) to ${order.supplierName}. Approval tier: ${tier} — ${tierLabel}. Please approve to send to Accounting.${data.notes ? ' Notes: ' + data.notes : ''}`,
+        targetRole: 'ADMIN',
         sentById: req.user.id,
       },
     });
@@ -156,7 +154,66 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
   }
 });
 
-// PUT /api/payment-requests/:id/pay — ACCOUNTING marks as paid (subject to tier rules)
+// PUT /api/payment-requests/:id/approve — ADMIN approves, then it goes to ACCOUNTING
+router.put('/:id/approve', authenticate, authorize('ADMIN'), async (req, res) => {
+  try {
+    const request = await prisma.paymentRequest.findUnique({
+      where: { id: req.params.id },
+      include: { purchaseOrder: { select: { customName: true, orderNumber: true, supplierName: true } } },
+    });
+
+    if (!request) return res.status(404).json({ error: 'Payment request not found' });
+    if (request.status !== 'PENDING') {
+      return res.status(400).json({ error: 'Can only approve pending requests' });
+    }
+
+    const tier = getTier(request.amount);
+    if (!canApprove(req.user, request.amount)) {
+      return res.status(403).json({
+        error: `This payment is ₹${request.amount.toLocaleString('en-IN')} (${tier}). Approval required from: ${getTierLabel(tier)}.`,
+        tier,
+        requiredApprovers: getTierLabel(tier),
+      });
+    }
+
+    const updated = await prisma.paymentRequest.update({
+      where: { id: req.params.id },
+      data: { status: 'APPROVED' },
+      include: {
+        createdBy: { select: { id: true, name: true } },
+        purchaseOrder: { select: { orderNumber: true, customName: true } },
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        type: 'PAYMENT_APPROVED',
+        title: `Payment Approved: ${request.purchaseOrder.customName}`,
+        message: `${request.paymentType} payment of ₹${request.amount.toLocaleString('en-IN')} for order "${request.purchaseOrder.customName}" (${request.purchaseOrder.orderNumber}) has been approved by ${req.user.name}. Please process the payment.`,
+        targetRole: 'ACCOUNTING',
+        sentById: req.user.id,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'APPROVE_PAYMENT',
+        entity: 'PaymentRequest',
+        entityId: request.id,
+        details: { paymentNumber: request.paymentNumber, amount: request.amount, tier },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Approve payment error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/payment-requests/:id/pay — ACCOUNTING marks as paid (after admin approval)
 router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (req, res) => {
   try {
     const request = await prisma.paymentRequest.findUnique({
@@ -171,15 +228,8 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
     if (request.status === 'REJECTED') {
       return res.status(400).json({ error: 'Cannot pay a rejected request' });
     }
-
-    // Tiered approval gate: accounting can self-approve only <1L; otherwise needs the right admin
-    const tier = getTier(request.amount);
-    if (!canApprove(req.user, request.amount)) {
-      return res.status(403).json({
-        error: `This payment is ₹${request.amount.toLocaleString('en-IN')} (${tier}). Approval required from: ${getTierLabel(tier)}.`,
-        tier,
-        requiredApprovers: getTierLabel(tier),
-      });
+    if (request.status === 'PENDING') {
+      return res.status(400).json({ error: 'Payment must be approved by Admin before it can be marked as paid' });
     }
 
     const order = request.purchaseOrder;
@@ -208,14 +258,12 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
       const orderUpdate = { totalPaid: newTotalPaid, advancePaid: newAdvancePaid };
 
       if (wasPendingAccounting) {
-        // First payment approved → order is officially ORDERED
         orderUpdate.status = newTotalPaid >= order.totalAmount ? 'PAID' : 'ORDERED';
       } else if (newTotalPaid >= order.totalAmount) {
         orderUpdate.status = 'PAID';
       } else if (request.paymentType === 'ADVANCE') {
         orderUpdate.status = 'ADVANCE_PAID';
       }
-      // Otherwise keep current status (e.g. stay ORDERED during partial payments)
 
       await tx.purchaseOrder.update({
         where: { id: order.id },
@@ -223,7 +271,6 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
       });
 
       if (wasPendingAccounting) {
-        // Mark all PO items as ORDERED and mirror to PR items
         for (const item of order.items) {
           await tx.purchaseOrderItem.update({
             where: { id: item.id },
@@ -260,7 +307,7 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
         data: {
           type: 'ORDER_PLACED',
           title: `Order Placed: ${order.customName}`,
-          message: `Accounting approved the payment for your purchase request ${order.purchaseRequest.requestNumber}. The order has been placed with ${order.supplierName}.`,
+          message: `Payment for your purchase request ${order.purchaseRequest.requestNumber} has been processed. The order has been placed with ${order.supplierName}.`,
           targetUserId: order.purchaseRequest.managerId,
           sentById: req.user.id,
         },
@@ -301,8 +348,8 @@ router.put('/:id/reject', authenticate, authorize('ACCOUNTING', 'ADMIN'), async 
     });
 
     if (!request) return res.status(404).json({ error: 'Payment request not found' });
-    if (request.status !== 'PENDING') {
-      return res.status(400).json({ error: 'Can only reject pending requests' });
+    if (!['PENDING', 'APPROVED'].includes(request.status)) {
+      return res.status(400).json({ error: 'Can only reject pending or approved requests' });
     }
 
     const updated = await prisma.paymentRequest.update({

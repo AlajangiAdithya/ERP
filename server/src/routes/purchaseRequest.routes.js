@@ -95,44 +95,43 @@ router.get('/', authenticate, async (req, res) => {
 // GET /api/purchase-requests/dashboard-stats — stats for PO dashboard
 router.get('/dashboard-stats', authenticate, async (req, res) => {
   try {
-    const roleFilter = {};
+    const where = {};
     if (REQUESTER_ROLES.includes(req.user.role)) {
-      roleFilter.managerId = req.user.id;
+      where.managerId = req.user.id;
     } else if (req.user.role === 'PURCHASE_OFFICER') {
-      roleFilter.status = { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE'] };
+      where.status = { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE'] };
     } else if (req.user.role === 'ACCOUNTING') {
-      roleFilter.status = { in: ['QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED'] };
+      where.status = { in: ['QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED'] };
     } else if (req.user.role === 'QC') {
-      roleFilter.status = { in: ['GOODS_ARRIVED', 'QC_PASSED'] };
+      where.status = { in: ['GOODS_ARRIVED', 'QC_PASSED'] };
     }
 
-    const [pendingAdmin, approved, quotationSubmitted, quotationApproved, orderPlaced, goodsArrived, qcPassed, inwardDone, inProgress, completed, rejected] = await Promise.all([
-      prisma.purchaseRequest.count({ where: { ...roleFilter, status: 'PENDING_ADMIN' } }),
-      prisma.purchaseRequest.count({ where: { ...roleFilter, status: 'APPROVED' } }),
-      prisma.purchaseRequest.count({ where: { ...roleFilter, status: 'QUOTATION_SUBMITTED' } }),
-      prisma.purchaseRequest.count({ where: { ...roleFilter, status: 'QUOTATION_APPROVED' } }),
-      prisma.purchaseRequest.count({ where: { ...roleFilter, status: 'ORDER_PLACED' } }),
-      prisma.purchaseRequest.count({ where: { ...roleFilter, status: 'GOODS_ARRIVED' } }),
-      prisma.purchaseRequest.count({ where: { ...roleFilter, status: 'QC_PASSED' } }),
-      prisma.purchaseRequest.count({ where: { ...roleFilter, status: 'INWARD_DONE' } }),
-      prisma.purchaseRequest.count({ where: { ...roleFilter, status: 'IN_PROGRESS' } }),
-      prisma.purchaseRequest.count({ where: { ...roleFilter, status: 'COMPLETED' } }),
-      prisma.purchaseRequest.count({ where: { ...roleFilter, status: 'REJECTED' } }),
-    ]);
+    const groups = await prisma.purchaseRequest.groupBy({
+      by: ['status'],
+      where,
+      _count: true,
+    });
+
+    const counts = {};
+    let total = 0;
+    for (const g of groups) {
+      counts[g.status] = g._count;
+      total += g._count;
+    }
 
     res.json({
-      pendingAdmin,
-      approved,
-      quotationSubmitted,
-      quotationApproved,
-      orderPlaced,
-      goodsArrived,
-      qcPassed,
-      inwardDone,
-      inProgress,
-      completed,
-      rejected,
-      total: pendingAdmin + approved + quotationSubmitted + quotationApproved + orderPlaced + goodsArrived + qcPassed + inwardDone + inProgress + completed + rejected,
+      pendingAdmin: counts['PENDING_ADMIN'] || 0,
+      approved: counts['APPROVED'] || 0,
+      quotationSubmitted: counts['QUOTATION_SUBMITTED'] || 0,
+      quotationApproved: counts['QUOTATION_APPROVED'] || 0,
+      orderPlaced: counts['ORDER_PLACED'] || 0,
+      goodsArrived: counts['GOODS_ARRIVED'] || 0,
+      qcPassed: counts['QC_PASSED'] || 0,
+      inwardDone: counts['INWARD_DONE'] || 0,
+      inProgress: counts['IN_PROGRESS'] || 0,
+      completed: counts['COMPLETED'] || 0,
+      rejected: counts['REJECTED'] || 0,
+      total,
     });
   } catch (error) {
     console.error('Dashboard stats error:', error);

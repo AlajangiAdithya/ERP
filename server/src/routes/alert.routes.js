@@ -11,7 +11,9 @@ router.get('/low-stock', authenticate, async (req, res) => {
   try {
     const products = await prisma.$queryRaw`
       SELECT p.id, p.name, p.sku, p.category, p.unit,
-             p."currentStock", p."minStockLevel",
+             ROUND(p."currentStock"::numeric, 2)::float AS "currentStock",
+             ROUND(p."minStockLevel"::numeric, 2)::float AS "minStockLevel",
+             ROUND(p."minStockLevel"::numeric - p."currentStock"::numeric, 2)::float AS "deficit",
              CASE
                WHEN p."currentStock" = 0 THEN 'Out of Stock'
                WHEN p."minStockLevel" > 0 AND p."currentStock" <= p."minStockLevel" * 0.5 THEN 'Critical'

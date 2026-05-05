@@ -55,11 +55,25 @@ const typeColor = (t) => ({
 function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
   const [rejectNotes, setRejectNotes] = useState('');
   const [processing, setProcessing] = useState(false);
-  const isAccountingOrAdmin = ['ACCOUNTING', 'ADMIN'].includes(currentUser?.role);
+  const isAdmin = currentUser?.role === 'ADMIN';
+  const isAccounting = currentUser?.role === 'ACCOUNTING';
 
   if (!payment) return null;
   const tier = getTier(payment.amount);
   const userCanApprove = canApprove(currentUser, payment.amount);
+
+  const adminApprove = async () => {
+    if (!confirm('Approve this payment and send to Accounting?')) return;
+    setProcessing(true);
+    try {
+      await api.put(`/payment-requests/${payment.id}/approve`);
+      onClose();
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed');
+    }
+    setProcessing(false);
+  };
 
   const markPaid = async () => {
     if (!confirm('Confirm this payment has been processed?')) return;
@@ -105,10 +119,10 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
           <div><span className="text-gray-500">Requested by:</span> <span>{payment.createdBy?.name}</span></div>
           <div><span className="text-gray-500">Date:</span> <span>{formatDateTime(payment.createdAt)}</span></div>
           {payment.processedBy && (
-            <div><span className="text-gray-500">Processed by:</span> <span>{payment.processedBy?.name}</span></div>
+            <div><span className="text-gray-500">Paid by:</span> <span>{payment.processedBy?.name}</span></div>
           )}
           {payment.processedAt && (
-            <div><span className="text-gray-500">Processed at:</span> <span>{formatDateTime(payment.processedAt)}</span></div>
+            <div><span className="text-gray-500">Paid at:</span> <span>{formatDateTime(payment.processedAt)}</span></div>
           )}
         </div>
 
@@ -130,16 +144,45 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
           </div>
         )}
 
-        {/* Actions */}
-        {isAccountingOrAdmin && payment.status === 'PENDING' && (
+        {/* Step 1: Admin approves PENDING payments */}
+        {isAdmin && payment.status === 'PENDING' && (
           <div className="flex flex-col gap-3 pt-2 border-t">
             {!userCanApprove && (
               <div className="bg-red-50 border border-red-200 text-red-800 text-xs rounded-md px-3 py-2">
                 You don't have authority to approve this payment. Required: <strong>{tierLabel(tier)}</strong>.
               </div>
             )}
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-md px-3 py-2">
+              Approve this payment to send it to Accounting for processing.
+            </div>
             <div className="flex gap-3">
-              <Button onClick={markPaid} disabled={processing || !userCanApprove}>
+              <Button onClick={adminApprove} disabled={processing || !userCanApprove}>
+                <CheckCircle size={16} className="mr-1" /> {processing ? 'Approving...' : 'Approve & Send to Accounting'}
+              </Button>
+              <Button variant="danger" onClick={reject} disabled={processing}>
+                <XCircle size={16} className="mr-1" /> Reject
+              </Button>
+            </div>
+            <Input label="Rejection reason (if rejecting)" value={rejectNotes}
+              onChange={(e) => setRejectNotes(e.target.value)} placeholder="Reason for rejection" />
+          </div>
+        )}
+
+        {/* Accounting sees PENDING — waiting for admin */}
+        {isAccounting && payment.status === 'PENDING' && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-md px-3 py-2">
+            Waiting for Admin approval before this payment can be processed.
+          </div>
+        )}
+
+        {/* Step 2: Accounting processes APPROVED payments */}
+        {(isAccounting || isAdmin) && payment.status === 'APPROVED' && (
+          <div className="flex flex-col gap-3 pt-2 border-t">
+            <div className="bg-green-50 border border-green-200 text-green-800 text-xs rounded-md px-3 py-2">
+              Admin has approved this payment. Please process and mark as paid.
+            </div>
+            <div className="flex gap-3">
+              <Button onClick={markPaid} disabled={processing}>
                 <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Mark as Paid'}
               </Button>
               <Button variant="danger" onClick={reject} disabled={processing}>
@@ -180,7 +223,7 @@ export default function PaymentRequests() {
 
   useEffect(() => { fetchData(); }, [tab]);
 
-  const tabs = ['ALL', 'PENDING', 'PAID', 'REJECTED'];
+  const tabs = ['ALL', 'PENDING', 'APPROVED', 'PAID', 'REJECTED'];
 
   return (
     <div className="space-y-6">
@@ -245,7 +288,10 @@ export default function PaymentRequests() {
                       <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(p.createdAt)}</td>
                       <td className="px-3 py-2">
                         <Button size="sm" variant="secondary" onClick={() => setSelectedPayment(p)}>
-                          <Eye size={14} className="mr-1" /> {isAccounting && p.status === 'PENDING' ? 'Review' : 'View'}
+                          <Eye size={14} className="mr-1" /> {
+                            user?.role === 'ADMIN' && p.status === 'PENDING' ? 'Review' :
+                            isAccounting && p.status === 'APPROVED' ? 'Process' : 'View'
+                          }
                         </Button>
                       </td>
                     </tr>

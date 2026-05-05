@@ -14,12 +14,12 @@ import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 const STATUS_TABS = [
   { key: 'ALL', label: 'All' },
   { key: 'SENT', label: 'Sent' },
-  { key: 'WAITING', label: 'Waiting' },
-  { key: 'COLLECTED', label: 'Collected' },
+  { key: 'WAITING', label: 'In Progress' },
+  { key: 'COLLECTED', label: 'Completed' },
 ];
 
 const statusColor = (s) => ({ SENT: 'yellow', WAITING: 'blue', COLLECTED: 'green' }[s] || 'gray');
-const statusLabel = (s) => ({ SENT: 'Sent', WAITING: 'Waiting', COLLECTED: 'Collected' }[s] || s);
+const statusLabel = (s) => ({ SENT: 'Sent', WAITING: 'In Progress', COLLECTED: 'Completed' }[s] || s);
 
 export default function InterOfficeNote() {
   const { user } = useAuth();
@@ -485,12 +485,12 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
             <div className="flex justify-end gap-2">
               {canStart && (
                 <Button variant="secondary" disabled={busy} onClick={() => act('WAITING')}>
-                  <Send size={14} /> Start Work (mark Waiting)
+                  <Send size={14} /> Start Work
                 </Button>
               )}
               {canComplete && (
                 <Button disabled={busy} onClick={() => act('COLLECTED')}>
-                  <CheckCircle2 size={14} /> Mark Collected
+                  <CheckCircle2 size={14} /> Mark Work Complete
                 </Button>
               )}
             </div>

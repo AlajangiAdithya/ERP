@@ -658,7 +658,7 @@ export default function QCInspections() {
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isSM = user?.role === 'STORE_MANAGER';
   const isAdmin = user?.role === 'ADMIN';
-  const canCreateRequest = isPO || isSM;
+  const canCreateRequest = isPO || isSM || isQC;
 
   const fetchData = async () => {
     setLoading(true);
@@ -674,9 +674,9 @@ export default function QCInspections() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // Orders that still need an inspection request (no inspection yet)
+  // Orders needing a new inspection request (no PENDING inspection for current batch)
   const ordersNeedingRequest = pendingOrders.filter(
-    o => !inspections.some(i => i.purchaseOrder?.id === o.id)
+    o => !inspections.some(i => i.purchaseOrder?.id === o.id && i.result === 'PENDING')
   );
   // Inspections awaiting QC report
   const pendingInspections = inspections.filter(i => i.result === 'PENDING');

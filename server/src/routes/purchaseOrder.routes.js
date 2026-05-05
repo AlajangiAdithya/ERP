@@ -69,35 +69,45 @@ router.get('/', authenticate, async (req, res) => {
 // GET /api/purchase-orders/dashboard — PO dashboard stats
 router.get('/dashboard', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), async (req, res) => {
   try {
-    const [pendingAccounting, ordered, placed, advancePaid, paymentPending, paid, goodsArrived, qcPending, qcPassed, qcFailed, inwardDone, completed] = await Promise.all([
-      prisma.purchaseOrder.count({ where: { status: 'PENDING_ACCOUNTING' } }),
-      prisma.purchaseOrder.count({ where: { status: 'ORDERED' } }),
-      prisma.purchaseOrder.count({ where: { status: 'PLACED' } }),
-      prisma.purchaseOrder.count({ where: { status: 'ADVANCE_PAID' } }),
-      prisma.purchaseOrder.count({ where: { status: 'PAYMENT_PENDING' } }),
-      prisma.purchaseOrder.count({ where: { status: 'PAID' } }),
-      prisma.purchaseOrder.count({ where: { status: 'GOODS_ARRIVED' } }),
-      prisma.purchaseOrder.count({ where: { status: 'QC_PENDING' } }),
-      prisma.purchaseOrder.count({ where: { status: 'QC_PASSED' } }),
-      prisma.purchaseOrder.count({ where: { status: 'QC_FAILED' } }),
-      prisma.purchaseOrder.count({ where: { status: 'INWARD_DONE' } }),
-      prisma.purchaseOrder.count({ where: { status: 'COMPLETED' } }),
+    const [groups, orders] = await Promise.all([
+      prisma.purchaseOrder.groupBy({
+        by: ['status'],
+        _count: true,
+      }),
+      prisma.purchaseOrder.findMany({
+        where: { status: { not: 'COMPLETED' } },
+        select: { totalAmount: true, totalPaid: true, advancePaid: true },
+      }),
     ]);
 
-    // Payment summary
-    const orders = await prisma.purchaseOrder.findMany({
-      where: { status: { not: 'COMPLETED' } },
-      select: { totalAmount: true, totalPaid: true, advancePaid: true },
-    });
+    const counts = {};
+    let total = 0;
+    for (const g of groups) {
+      counts[g.status] = g._count;
+      total += g._count;
+    }
 
     const totalOrderValue = orders.reduce((s, o) => s + o.totalAmount, 0);
     const totalPaidAmount = orders.reduce((s, o) => s + o.totalPaid, 0);
     const totalAdvancePaid = orders.reduce((s, o) => s + o.advancePaid, 0);
 
     res.json({
-      statusCounts: { pendingAccounting, ordered, placed, advancePaid, paymentPending, paid, goodsArrived, qcPending, qcPassed, qcFailed, inwardDone, completed },
+      statusCounts: {
+        pendingAccounting: counts['PENDING_ACCOUNTING'] || 0,
+        ordered: counts['ORDERED'] || 0,
+        placed: counts['PLACED'] || 0,
+        advancePaid: counts['ADVANCE_PAID'] || 0,
+        paymentPending: counts['PAYMENT_PENDING'] || 0,
+        paid: counts['PAID'] || 0,
+        goodsArrived: counts['GOODS_ARRIVED'] || 0,
+        qcPending: counts['QC_PENDING'] || 0,
+        qcPassed: counts['QC_PASSED'] || 0,
+        qcFailed: counts['QC_FAILED'] || 0,
+        inwardDone: counts['INWARD_DONE'] || 0,
+        completed: counts['COMPLETED'] || 0,
+      },
       paymentSummary: { totalOrderValue, totalPaidAmount, totalAdvancePaid, pendingPayment: totalOrderValue - totalPaidAmount },
-      total: pendingAccounting + ordered + placed + advancePaid + paymentPending + paid + goodsArrived + qcPending + qcPassed + qcFailed + inwardDone + completed,
+      total,
     });
   } catch (error) {
     console.error('Dashboard error:', error);
@@ -121,18 +131,31 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
-// PUT /api/purchase-orders/:id/goods-arrived — PO marks goods as arrived
+// PUT /api/purchase-orders/:id/goods-arrived — PO marks goods as arrived (supports partial deliveries)
 router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const order = await prisma.purchaseOrder.findUnique({
       where: { id: req.params.id },
-      include: { purchaseRequest: { select: { id: true, requestNumber: true } } },
+      include: {
+        items: true,
+        purchaseRequest: { select: { id: true, requestNumber: true } },
+      },
     });
 
     if (!order) return res.status(404).json({ error: 'Purchase order not found' });
-    if (order.goodsArrived) {
-      return res.status(400).json({ error: 'Goods already marked as arrived' });
+
+    const allowedStatuses = ['ORDERED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID'];
+    if (!allowedStatuses.includes(order.status)) {
+      return res.status(400).json({
+        error: order.status === 'GOODS_ARRIVED' || order.status === 'QC_PENDING' || order.status === 'QC_PASSED'
+          ? 'A delivery batch is already being processed (QC / inward). Complete that first.'
+          : `Cannot mark goods arrived when order status is ${order.status}`,
+      });
     }
+
+    const totalOrdered = order.items.reduce((s, i) => s + i.quantity, 0);
+    const totalReceived = order.items.reduce((s, i) => s + (i.receivedQty || 0), 0);
+    const isPartial = totalReceived > 0;
 
     const updated = await prisma.$transaction(async (tx) => {
       const result = await tx.purchaseOrder.update({
@@ -153,24 +176,28 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
       return result;
     });
 
-    // Notify QC team
+    const deliveryNote = isPartial
+      ? `More goods arrived for order "${order.customName}" (${order.orderNumber}) from ${order.supplierName}. Previously received ${totalReceived} of ${totalOrdered} items. Please inspect the new delivery.`
+      : `Goods for order "${order.customName}" (${order.orderNumber}) from ${order.supplierName} have arrived. Please proceed with quality inspection.`;
+
     await prisma.notification.create({
       data: {
         type: 'GOODS_ARRIVED',
-        title: `Goods Arrived: ${order.customName}`,
-        message: `Goods for order "${order.customName}" (${order.orderNumber}) from ${order.supplierName} have arrived. Please proceed with quality inspection.`,
+        title: `${isPartial ? 'More ' : ''}Goods Arrived: ${order.customName}`,
+        message: deliveryNote,
         targetRole: 'QC',
         sentById: req.user.id,
       },
     });
 
-    // Also notify the manager who raised the PR
     if (updated.purchaseRequest?.managerId) {
       await prisma.notification.create({
         data: {
           type: 'GOODS_ARRIVED',
-          title: `Goods Arrived: Your PR ${order.purchaseRequest.requestNumber}`,
-          message: `Goods for your purchase request "${order.customName}" (${order.purchaseRequest.requestNumber}) have arrived and are being inspected.`,
+          title: `${isPartial ? 'More ' : ''}Goods Arrived: Your PR ${order.purchaseRequest.requestNumber}`,
+          message: isPartial
+            ? `More goods for "${order.customName}" (${order.purchaseRequest.requestNumber}) have arrived (${totalReceived} of ${totalOrdered} already received).`
+            : `Goods for your purchase request "${order.customName}" (${order.purchaseRequest.requestNumber}) have arrived and are being inspected.`,
           targetUserId: updated.purchaseRequest.managerId,
           sentById: req.user.id,
         },
@@ -183,7 +210,10 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
         action: 'GOODS_ARRIVED',
         entity: 'PurchaseOrder',
         entityId: order.id,
-        details: { orderNumber: order.orderNumber, customName: order.customName },
+        details: {
+          orderNumber: order.orderNumber, customName: order.customName,
+          isPartialDelivery: isPartial, totalReceived, totalOrdered,
+        },
         ipAddress: req.ip,
       },
     });
@@ -198,7 +228,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
 // PUT /api/purchase-orders/:id/inward — Store Manager does inward entry
 router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
-    const { items } = req.body; // [{ id, receivedQty }]
+    const { items } = req.body; // [{ id, receivedQty, batchNumber? }]
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Items with received quantities are required' });
@@ -209,7 +239,11 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
       include: {
         items: true,
         purchaseRequest: {
-          select: { id: true, requestNumber: true, managerId: true, manager: { select: { id: true, name: true, role: true } } },
+          select: {
+            id: true, requestNumber: true, managerId: true,
+            manager: { select: { id: true, name: true, role: true } },
+            items: { select: { id: true, productId: true, productName: true, productUnit: true } },
+          },
         },
       },
     });
@@ -220,41 +254,146 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      // Update received quantities for order items
       for (const item of items) {
         const orderItem = order.items.find(i => i.id === item.id);
         if (!orderItem) continue;
 
+        const receivedQty = parseFloat(item.receivedQty) || 0;
+        if (receivedQty <= 0) continue;
+
+        // Increment receivedQty (not replace) for partial delivery support
         await tx.purchaseOrderItem.update({
           where: { id: item.id },
-          data: { receivedQty: item.receivedQty },
+          data: { receivedQty: { increment: receivedQty } },
+        });
+
+        let productId = null;
+
+        if (orderItem.purchaseRequestItemId) {
+          const prItem = order.purchaseRequest.items.find(
+            i => i.id === orderItem.purchaseRequestItemId
+          );
+          if (prItem?.productId) productId = prItem.productId;
+        }
+
+        if (!productId) {
+          const existing = await tx.product.findFirst({
+            where: {
+              name: { equals: orderItem.productName, mode: 'insensitive' },
+              isActive: true,
+            },
+          });
+          if (existing) productId = existing.id;
+        }
+
+        if (!productId) {
+          const sku = generateOrderNumber('SKU');
+          const newProduct = await tx.product.create({
+            data: {
+              name: orderItem.productName,
+              sku,
+              unit: orderItem.productUnit || 'pcs',
+              currentStock: 0,
+              isActive: true,
+            },
+          });
+          productId = newProduct.id;
+
+          if (orderItem.purchaseRequestItemId) {
+            await tx.purchaseRequestItem.update({
+              where: { id: orderItem.purchaseRequestItemId },
+              data: { productId },
+            });
+          }
+        }
+
+        await tx.product.update({
+          where: { id: productId },
+          data: { currentStock: { increment: receivedQty } },
+        });
+
+        const movement = await tx.stockMovement.create({
+          data: {
+            productId,
+            type: 'IN',
+            quantity: receivedQty,
+            batchNumber: item.batchNumber || null,
+            referenceType: 'PurchaseOrder',
+            referenceId: order.id,
+            notes: `PO ${order.orderNumber} — ${order.supplierName}`,
+            performedBy: req.user.id,
+          },
+        });
+
+        await tx.productBatch.create({
+          data: {
+            productId,
+            batchNo: item.batchNumber || null,
+            quantity: receivedQty,
+            remaining: receivedQty,
+            referenceType: 'PurchaseOrder',
+            referenceId: movement.id,
+            notes: `PO ${order.orderNumber} — ${orderItem.productName}`,
+            createdById: req.user.id,
+          },
         });
       }
 
-      // Update order status
-      const result = await tx.purchaseOrder.update({
-        where: { id: req.params.id },
-        data: { status: 'INWARD_DONE' },
-        include: ORDER_INCLUDE,
+      // Check if ALL items are now fully received
+      const refreshedItems = await tx.purchaseOrderItem.findMany({
+        where: { purchaseOrderId: req.params.id },
       });
+      const allFullyReceived = refreshedItems.every(i => i.receivedQty >= i.quantity);
 
-      // Update PR status
-      await tx.purchaseRequest.update({
-        where: { id: order.purchaseRequest.id },
-        data: { status: 'INWARD_DONE' },
-      });
+      let result;
+      if (allFullyReceived) {
+        result = await tx.purchaseOrder.update({
+          where: { id: req.params.id },
+          data: { status: 'INWARD_DONE' },
+          include: ORDER_INCLUDE,
+        });
+        await tx.purchaseRequest.update({
+          where: { id: order.purchaseRequest.id },
+          data: { status: 'INWARD_DONE' },
+        });
+      } else {
+        // Partial delivery: reset to ORDERED so PO can mark next batch as arrived
+        result = await tx.purchaseOrder.update({
+          where: { id: req.params.id },
+          data: { status: 'ORDERED', goodsArrived: false },
+          include: ORDER_INCLUDE,
+        });
+      }
 
-      return result;
+      return { result, allFullyReceived, refreshedItems };
     });
 
-    // Notify the original manager that items have arrived
+    const { result: updatedOrder, allFullyReceived, refreshedItems } = updated;
+    const totalReceived = refreshedItems.reduce((s, i) => s + i.receivedQty, 0);
+    const totalOrdered = refreshedItems.reduce((s, i) => s + i.quantity, 0);
+
     if (order.purchaseRequest.managerId) {
+      const inwardMsg = allFullyReceived
+        ? `All items for order "${order.customName}" (${order.purchaseRequest.requestNumber}) have been received and entered into stores. Please send MIV to collect your items.`
+        : `Partial delivery: ${totalReceived} of ${totalOrdered} items for order "${order.customName}" (${order.purchaseRequest.requestNumber}) have been received. Remaining items will follow.`;
       await prisma.notification.create({
         data: {
           type: 'INWARD_COMPLETE',
-          title: `Items Arrived: ${order.customName}`,
-          message: `Items for order "${order.customName}" (${order.purchaseRequest.requestNumber}) have been received and entered into stores. Please send MIV to collect your items.`,
+          title: `${allFullyReceived ? 'All ' : 'Partial '}Items Received: ${order.customName}`,
+          message: inwardMsg,
           targetUserId: order.purchaseRequest.managerId,
+          sentById: req.user.id,
+        },
+      });
+    }
+
+    if (!allFullyReceived) {
+      await prisma.notification.create({
+        data: {
+          type: 'PARTIAL_DELIVERY',
+          title: `Partial Delivery Complete: ${order.customName}`,
+          message: `${totalReceived} of ${totalOrdered} items received for "${order.customName}" (${order.orderNumber}). Order is active for the next delivery.`,
+          targetRole: 'PURCHASE_OFFICER',
           sentById: req.user.id,
         },
       });
@@ -270,12 +409,15 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           orderNumber: order.orderNumber,
           customName: order.customName,
           itemsReceived: items.length,
+          allFullyReceived,
+          totalReceived,
+          totalOrdered,
         },
         ipAddress: req.ip,
       },
     });
 
-    res.json(updated);
+    res.json(updatedOrder);
   } catch (error) {
     console.error('Inward entry error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -326,14 +468,13 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
 
     const tier = getTier(data.amount);
     const tierLabel = getTierLabel(tier);
-    const targetRole = tier === 'L1' ? 'ACCOUNTING' : 'ADMIN';
 
     await prisma.notification.create({
       data: {
         type: 'PAYMENT_REQUEST',
         title: `Payment Request (${tier}): ${order.customName}`,
-        message: `New ${data.paymentType.toLowerCase()} payment request of ₹${data.amount.toLocaleString('en-IN')} for order "${order.customName}" (${order.orderNumber}). Supplier: ${order.supplierName}. Approval tier: ${tier} — ${tierLabel}.`,
-        targetRole,
+        message: `New ${data.paymentType.toLowerCase()} payment request of ₹${data.amount.toLocaleString('en-IN')} for order "${order.customName}" (${order.orderNumber}). Supplier: ${order.supplierName}. Approval tier: ${tier} — ${tierLabel}. Please approve to send to Accounting.`,
+        targetRole: 'ADMIN',
         sentById: req.user.id,
       },
     });

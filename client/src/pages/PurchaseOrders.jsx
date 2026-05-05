@@ -109,7 +109,11 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
 
   useEffect(() => {
     if (order) {
-      setInwardItems(order.items?.map(i => ({ id: i.id, receivedQty: i.quantity })) || []);
+      // Default to remaining qty for each item (supports partial deliveries)
+      setInwardItems(order.items?.map(i => ({
+        id: i.id,
+        receivedQty: Math.max(0, i.quantity - (i.receivedQty || 0)),
+      })) || []);
       setPaymentType(order.status === 'PENDING_ACCOUNTING' ? 'ADVANCE' : 'PARTIAL');
       const prId = order.purchaseRequest?.id || order.purchaseRequestId;
       if (prId) {
@@ -124,22 +128,21 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     }
   }, [order]);
 
-  if (!order) return null;
-
-  const remaining = order.totalAmount - order.totalPaid;
-  const isPendingAccounting = order.status === 'PENDING_ACCOUNTING';
-  const tier = getTier(order.totalAmount);
-
-  // Pull supplier contact from the selected quotation (matches by supplier name)
   const supplierFromQuotation = useMemo(() => {
-    if (!prQuotations.length) return null;
+    if (!order || !prQuotations.length) return null;
     const selected = prQuotations.find(q => q.isSelected);
     if (!selected) return null;
     const item = (selected.items || []).find(
       i => (i.supplierName || '').trim().toLowerCase() === (order.supplierName || '').trim().toLowerCase()
     );
     return item ? { contact: item.supplierContact, address: item.supplierAddress } : null;
-  }, [prQuotations, order.supplierName]);
+  }, [prQuotations, order]);
+
+  if (!order) return null;
+
+  const remaining = order.totalAmount - order.totalPaid;
+  const isPendingAccounting = order.status === 'PENDING_ACCOUNTING';
+  const tier = getTier(order.totalAmount);
 
   const placeOrder = async () => {
     if (!paymentAmount || parseFloat(paymentAmount) <= 0) return alert('Enter the payment amount.');
@@ -267,11 +270,18 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             {remaining > 0 && <p className="text-xs text-red-600 mt-1">Remaining: {formatCurrency(remaining)}</p>}
           </div>
           <div className="bg-green-50 rounded-md p-3">
-            <ProgressBar
-              value={order.items?.reduce((s, i) => s + (i.receivedQty || 0), 0) || 0}
-              total={order.items?.reduce((s, i) => s + i.quantity, 0) || 0}
-              label="Items Received"
-            />
+            {(() => {
+              const totalRcvd = order.items?.reduce((s, i) => s + (i.receivedQty || 0), 0) || 0;
+              const totalQty = order.items?.reduce((s, i) => s + i.quantity, 0) || 0;
+              return (
+                <>
+                  <ProgressBar value={totalRcvd} total={totalQty} label={`Delivery: ${totalRcvd} / ${totalQty} received`} />
+                  {totalRcvd > 0 && totalRcvd < totalQty && (
+                    <p className="text-xs text-amber-600 mt-1 font-medium">Partial delivery — {totalQty - totalRcvd} remaining</p>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
 
@@ -288,7 +298,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Item Status</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Received</th>
                 {isSM && order.status === 'QC_PASSED' && (
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Receive Qty</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Receive (this delivery)</th>
                 )}
               </tr>
             </thead>
@@ -320,7 +330,17 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                         </Badge>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-gray-600">{item.receivedQty || 0}</td>
+                    <td className="px-3 py-2">
+                      <span className={`font-medium ${(item.receivedQty || 0) >= item.quantity ? 'text-green-600' : (item.receivedQty || 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                        {item.receivedQty || 0} / {item.quantity}
+                      </span>
+                      {(item.receivedQty || 0) > 0 && (item.receivedQty || 0) < item.quantity && (
+                        <span className="text-xs text-amber-500 ml-1">partial</span>
+                      )}
+                      {(item.receivedQty || 0) >= item.quantity && (
+                        <span className="text-xs text-green-500 ml-1">complete</span>
+                      )}
+                    </td>
                     {isSM && order.status === 'QC_PASSED' && (
                       <td className="px-3 py-2">
                         <input
@@ -493,9 +513,10 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             </>
           )}
 
-          {isPO && !isPendingAccounting && !order.goodsArrived && ['ORDERED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID'].includes(order.status) && (
+          {isPO && ['ORDERED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID'].includes(order.status) && (
             <Button onClick={markGoodsArrived} disabled={processing}>
-              <Truck size={16} className="mr-1" /> Mark Goods Arrived
+              <Truck size={16} className="mr-1" />
+              {order.items?.some(i => (i.receivedQty || 0) > 0) ? 'Mark More Goods Arrived' : 'Mark Goods Arrived'}
             </Button>
           )}
 
@@ -568,6 +589,11 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
                         <Package size={11} className="text-gray-400" />
                         <span className="font-medium">{it.productName}</span>
                         <span className="text-gray-500">× {it.quantity} {it.productUnit}</span>
+                        {(it.receivedQty || 0) > 0 && (
+                          <span className={`font-medium ${(it.receivedQty || 0) >= it.quantity ? 'text-green-600' : 'text-amber-600'}`}>
+                            ({it.receivedQty}/{it.quantity} rcvd)
+                          </span>
+                        )}
                         <Badge color={itemStatusColor(it.itemStatus || 'WAITING')}>
                           {itemStatusLabel(it.itemStatus || 'WAITING')}
                         </Badge>

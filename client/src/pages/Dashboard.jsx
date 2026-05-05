@@ -56,18 +56,31 @@ function AdminDashboard() {
   };
 
   useEffect(() => {
-    Promise.all([
-      api.get('/reports/dashboard'),
-      api.get('/reports/unit-summary'),
-      api.get('/purchase-requests/dashboard-stats'),
-    ])
-      .then(([dashRes, unitRes, prRes]) => {
-        setData(dashRes.data);
-        setUnitSummary(unitRes.data);
-        setPrStats(prRes.data);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    const load = async (attempt = 1) => {
+      const results = await Promise.allSettled([
+        api.get('/reports/dashboard'),
+        api.get('/reports/unit-summary'),
+        api.get('/purchase-requests/dashboard-stats'),
+      ]);
+
+      if (cancelled) return;
+
+      const [dashRes, unitRes, prRes] = results;
+
+      if (dashRes.status === 'fulfilled') {
+        setData(dashRes.value.data);
+      } else if (attempt < 3) {
+        setTimeout(() => !cancelled && load(attempt + 1), attempt * 1500);
+        return;
+      }
+
+      if (unitRes.status === 'fulfilled') setUnitSummary(unitRes.value.data);
+      if (prRes.status === 'fulfilled') setPrStats(prRes.value.data);
+      setLoading(false);
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) return <Loader />;
@@ -255,28 +268,39 @@ function ManagerDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.get('/products', { params: { limit: 50 } }),
-      api.get('/requests', { params: { limit: 10 } }),
-      api.get('/requests', { params: { status: 'PENDING', limit: 1 } }),
-      api.get('/requests', { params: { status: 'APPROVED', limit: 1 } }),
-      api.get('/purchase-requests', { params: { limit: 20 } }),
-    ])
-      .then(([prodRes, reqRes, pendingRes, approvedRes, prRes]) => {
-        setProducts(prodRes.data.products);
-        setTotalProducts(prodRes.data.total);
-        setRequests(reqRes.data.requests);
+    let cancelled = false;
+    const load = async () => {
+      const results = await Promise.allSettled([
+        api.get('/products', { params: { limit: 50 } }),
+        api.get('/requests', { params: { limit: 10 } }),
+        api.get('/requests', { params: { status: 'PENDING', limit: 1 } }),
+        api.get('/requests', { params: { status: 'APPROVED', limit: 1 } }),
+        api.get('/purchase-requests', { params: { limit: 20 } }),
+      ]);
+
+      if (cancelled) return;
+
+      const [prodRes, reqRes, pendingRes, approvedRes, prRes] = results;
+      if (prodRes.status === 'fulfilled') {
+        setProducts(prodRes.value.data.products || []);
+        setTotalProducts(prodRes.value.data.total || 0);
+      }
+      if (reqRes.status === 'fulfilled') setRequests(reqRes.value.data.requests || []);
+      if (pendingRes.status === 'fulfilled' && approvedRes.status === 'fulfilled') {
         setRequestCounts({
-          pending: pendingRes.data.total,
-          approved: approvedRes.data.total,
+          pending: pendingRes.value.data.total || 0,
+          approved: approvedRes.value.data.total || 0,
         });
-        setPurchaseRequests(prRes.data.requests);
-        setPrInProgressCount(
-          (prRes.data.requests || []).filter(r => ['APPROVED', 'IN_PROGRESS'].includes(r.status)).length
-        );
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      }
+      if (prRes.status === 'fulfilled') {
+        const reqs = prRes.value.data.requests || [];
+        setPurchaseRequests(reqs);
+        setPrInProgressCount(reqs.filter(r => ['APPROVED', 'IN_PROGRESS'].includes(r.status)).length);
+      }
+      setLoading(false);
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) return <Loader />;
@@ -431,18 +455,31 @@ function StoreManagerDashboard() {
   const [lowStockModal, setLowStockModal] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      api.get('/reports/dashboard'),
-      api.get('/alerts/low-stock'),
-      api.get('/requests', { params: { status: 'PENDING', limit: 10 } }),
-    ])
-      .then(([dashRes, lowRes, reqRes]) => {
-        setData(dashRes.data);
-        setLowStock(lowRes.data);
-        setPendingRequests(reqRes.data.requests);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    const load = async (attempt = 1) => {
+      const results = await Promise.allSettled([
+        api.get('/reports/dashboard'),
+        api.get('/alerts/low-stock'),
+        api.get('/requests', { params: { status: 'PENDING', limit: 10 } }),
+      ]);
+
+      if (cancelled) return;
+
+      const [dashRes, lowRes, reqRes] = results;
+
+      if (dashRes.status === 'fulfilled') {
+        setData(dashRes.value.data);
+      } else if (attempt < 3) {
+        setTimeout(() => !cancelled && load(attempt + 1), attempt * 1500);
+        return;
+      }
+
+      if (lowRes.status === 'fulfilled') setLowStock(lowRes.value.data);
+      if (reqRes.status === 'fulfilled') setPendingRequests(reqRes.value.data.requests);
+      setLoading(false);
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   const notifyAdmin = async (product) => {
@@ -529,37 +566,48 @@ function StoreManagerDashboard() {
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">SKU</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Current Stock</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Min Level</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Deficit</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Action</th>
               </tr>
             </thead>
             <tbody>
               {lowStock.length === 0 ? (
-                <tr><td colSpan={6} className="px-3 py-4 text-center text-gray-400">All stock levels healthy ✓</td></tr>
+                <tr><td colSpan={7} className="px-3 py-4 text-center text-gray-400">All stock levels healthy</td></tr>
               ) : (
-                lowStock.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-50">
-                    <td className="px-3 py-2 font-medium text-gray-700">{p.name}</td>
-                    <td className="px-3 py-2 text-gray-500">{p.sku}</td>
-                    <td className="px-3 py-2 text-gray-700">{p.currentStock} {p.unit}</td>
-                    <td className="px-3 py-2 text-gray-500">{p.minStockLevel} {p.unit}</td>
-                    <td className="px-3 py-2">
-                      <Badge color={p.stockStatus === 'Out of Stock' ? 'red' : p.stockStatus === 'Critical' ? 'red' : 'yellow'}>
-                        {p.stockStatus}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => notifyAdmin(p)}
-                        disabled={notifying[p.id]}
-                      >
-                        {notifying[p.id] ? 'Sending...' : 'Notify Admin'}
-                      </Button>
-                    </td>
-                  </tr>
-                ))
+                lowStock.map((p) => {
+                  const fmt = (v) => { const n = Number(v); return Number.isInteger(n) ? n.toString() : n.toFixed(2); };
+                  return (
+                    <tr key={p.id} className="border-b border-gray-50">
+                      <td className="px-3 py-2 font-medium text-gray-700">{p.name}</td>
+                      <td className="px-3 py-2 text-gray-500">{p.sku}</td>
+                      <td className="px-3 py-2">
+                        <span className={`font-semibold ${p.currentStock === 0 ? 'text-red-600' : 'text-amber-600'}`}>{fmt(p.currentStock)}</span>
+                        <span className="text-gray-400 ml-1">{p.unit}</span>
+                      </td>
+                      <td className="px-3 py-2 text-gray-500">{fmt(p.minStockLevel)} {p.unit}</td>
+                      <td className="px-3 py-2">
+                        <span className="font-semibold text-red-600">{p.deficit > 0 ? fmt(p.deficit) : '—'}</span>
+                        {p.deficit > 0 && <span className="text-gray-400 ml-1">{p.unit}</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Badge color={p.stockStatus === 'Out of Stock' ? 'red' : p.stockStatus === 'Critical' ? 'red' : 'yellow'}>
+                          {p.stockStatus}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => notifyAdmin(p)}
+                          disabled={notifying[p.id]}
+                        >
+                          {notifying[p.id] ? 'Sending...' : 'Notify Admin'}
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -584,16 +632,22 @@ function PurchaseOfficerDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.get('/purchase-requests/dashboard-stats'),
-      api.get('/purchase-requests', { params: { limit: 20 } }),
-    ])
-      .then(([statsRes, reqRes]) => {
-        setStats(statsRes.data);
-        setRequests(reqRes.data.requests);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    const load = async () => {
+      const results = await Promise.allSettled([
+        api.get('/purchase-requests/dashboard-stats'),
+        api.get('/purchase-requests', { params: { limit: 20 } }),
+      ]);
+
+      if (cancelled) return;
+
+      const [statsRes, reqRes] = results;
+      if (statsRes.status === 'fulfilled') setStats(statsRes.value.data);
+      if (reqRes.status === 'fulfilled') setRequests(reqRes.value.data.requests || []);
+      setLoading(false);
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) return <Loader />;
@@ -688,21 +742,28 @@ function AccountingDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.get('/payment-requests?limit=10'),
-      api.get('/quotations?limit=10'),
-    ])
-      .then(([payRes, quotRes]) => {
-        setPaymentRequests(payRes.data.paymentRequests || []);
-        const pendingQuotations = (quotRes.data.quotations || []).filter(q => !q.isSelected);
-        const totalPending = payRes.data.paymentRequests?.filter(p => p.status === 'PENDING').length || 0;
-        setStats({
-          pendingPayments: totalPending,
-          pendingQuotations: pendingQuotations.length,
-        });
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    const load = async () => {
+      const results = await Promise.allSettled([
+        api.get('/payment-requests?limit=10'),
+        api.get('/quotations?limit=10'),
+      ]);
+
+      if (cancelled) return;
+
+      const [payRes, quotRes] = results;
+      const payments = payRes.status === 'fulfilled' ? (payRes.value.data.paymentRequests || []) : [];
+      setPaymentRequests(payments);
+
+      const quotations = quotRes.status === 'fulfilled' ? (quotRes.value.data.quotations || []) : [];
+      setStats({
+        pendingPayments: payments.filter(p => p.status === 'PENDING').length,
+        pendingQuotations: quotations.filter(q => !q.isSelected).length,
+      });
+      setLoading(false);
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) return <Loader />;
@@ -773,13 +834,16 @@ function QCDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     api.get('/qc-inspections?limit=50')
       .then(({ data }) => {
+        if (cancelled) return;
         setInspections(data.inspections || []);
         setPendingOrders(data.pendingOrders || []);
       })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) return <Loader />;
@@ -888,6 +952,12 @@ function PackageCheck(props) {
 }
 
 function LowStockModal({ isOpen, onClose, products, loading }) {
+  const formatStock = (val) => {
+    if (val == null) return '0';
+    const n = Number(val);
+    return Number.isInteger(n) ? n.toString() : n.toFixed(2);
+  };
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`Low Stock Products (${products.length})`} size="xl">
       {loading ? (
@@ -911,6 +981,7 @@ function LowStockModal({ isOpen, onClose, products, loading }) {
                 <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Category</th>
                 <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Current Stock</th>
                 <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Min Level</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Deficit</th>
                 <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
               </tr>
             </thead>
@@ -923,11 +994,17 @@ function LowStockModal({ isOpen, onClose, products, loading }) {
                   <td className="px-3 py-2 text-gray-500">{p.category || '—'}</td>
                   <td className="px-3 py-2">
                     <span className={`font-semibold ${p.currentStock === 0 ? 'text-red-600' : 'text-amber-600'}`}>
-                      {p.currentStock}
+                      {formatStock(p.currentStock)}
                     </span>
                     <span className="text-gray-400 ml-1">{p.unit}</span>
                   </td>
-                  <td className="px-3 py-2 text-gray-500">{p.minStockLevel} {p.unit}</td>
+                  <td className="px-3 py-2 text-gray-500">{formatStock(p.minStockLevel)} {p.unit}</td>
+                  <td className="px-3 py-2">
+                    <span className="font-semibold text-red-600">
+                      {p.deficit > 0 ? `${formatStock(p.deficit)}` : '—'}
+                    </span>
+                    {p.deficit > 0 && <span className="text-gray-400 ml-1">{p.unit}</span>}
+                  </td>
                   <td className="px-3 py-2">
                     <Badge color={
                       p.stockStatus === 'Out of Stock' ? 'red' :
