@@ -68,6 +68,15 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ── Serve React SPA (production only) ─────────────────
+if (process.env.NODE_ENV === 'production') {
+  const clientDist = path.join(__dirname, '../../client/dist');
+  app.use(express.static(clientDist, { maxAge: '1y', immutable: true }));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
+
 // Error handling
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);

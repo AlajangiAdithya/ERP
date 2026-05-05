@@ -1,0 +1,20 @@
+# Nixpacks build configuration for Railway
+# Builds both server and client in a single service
+
+[phases.setup]
+nixPkgs = ["nodejs_20", "npm-9_x", "openssl"]
+
+[phases.install]
+cmds = [
+    "cd server && npm ci",
+    "cd client && npm ci"
+]
+
+[phases.build]
+cmds = [
+    "cd server && npx prisma generate",
+    "cd client && npm run build"
+]
+
+[start]
+cmd = "cd server && npx prisma migrate deploy && node src/index.js"

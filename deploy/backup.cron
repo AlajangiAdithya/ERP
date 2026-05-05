@@ -1,0 +1,3 @@
+# RAPS weekly backup — every Sunday at 00:30 IST (Saturday 19:00 UTC)
+# Install: sudo cp deploy/backup.cron /etc/cron.d/raps-backup
+0 19 * * 6 root /usr/local/bin/raps-backup
