@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, Users, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle } from 'lucide-react';
+import { Package, AlertTriangle, Users, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import StatsCard from '../components/shared/StatsCard';
 import Card from '../components/ui/Card';
+import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
 import { formatDateTime } from '../utils/formatters';
@@ -36,7 +37,23 @@ function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [unitSummary, setUnitSummary] = useState([]);
   const [prStats, setPrStats] = useState(null);
+  const [lowStockModal, setLowStockModal] = useState(false);
+  const [lowStockProducts, setLowStockProducts] = useState([]);
+  const [lowStockLoading, setLowStockLoading] = useState(false);
   const navigate = useNavigate();
+
+  const openLowStockModal = async () => {
+    setLowStockModal(true);
+    setLowStockLoading(true);
+    try {
+      const { data } = await api.get('/alerts/low-stock');
+      setLowStockProducts(data);
+    } catch (err) {
+      console.error('Failed to fetch low stock:', err);
+    } finally {
+      setLowStockLoading(false);
+    }
+  };
 
   useEffect(() => {
     Promise.all([
@@ -54,7 +71,14 @@ function AdminDashboard() {
   }, []);
 
   if (loading) return <Loader />;
-  if (!data) return <p className="text-gray-500">Failed to load dashboard data.</p>;
+  if (!data) return (
+    <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+      <AlertTriangle size={40} className="mb-3 opacity-50" />
+      <p className="text-lg font-medium text-gray-500">Failed to load dashboard data</p>
+      <p className="text-sm mt-1">Check your connection and try again</p>
+      <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-navy-700 text-white text-sm rounded-lg hover:bg-navy-800 transition-colors">Retry</button>
+    </div>
+  );
 
   const { stats, recentMovements, recentRequests } = data;
 
@@ -63,10 +87,10 @@ function AdminDashboard() {
       <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard title="Total Products" value={stats.totalProducts} icon={Package} color="navy" />
-        <StatsCard title="Low Stock Alerts" value={stats.lowStockAlerts} icon={AlertTriangle} color="red" />
-        <StatsCard title="Active Users" value={stats.totalUsers} icon={Users} color="green" />
-        <StatsCard title="Pending Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" />
+        <StatsCard title="Total Products" value={stats.totalProducts} icon={Package} color="navy" onClick={() => navigate('/products')} />
+        <StatsCard title="Low Stock Alerts" value={stats.lowStockAlerts} icon={AlertTriangle} color="red" onClick={openLowStockModal} />
+        <StatsCard title="Active Users" value={stats.totalUsers} icon={Users} color="green" onClick={() => navigate('/management')} />
+        <StatsCard title="Pending Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" onClick={() => navigate('/all-requests')} />
       </div>
 
       {/* Purchase Request Stats */}
@@ -208,6 +232,13 @@ function AdminDashboard() {
           </div>
         </Card>
       </div>
+      {/* Low Stock Modal */}
+      <LowStockModal
+        isOpen={lowStockModal}
+        onClose={() => setLowStockModal(false)}
+        products={lowStockProducts}
+        loading={lowStockLoading}
+      />
     </div>
   );
 }
@@ -216,31 +247,39 @@ function ManagerDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
+  const [totalProducts, setTotalProducts] = useState(0);
   const [requests, setRequests] = useState([]);
+  const [requestCounts, setRequestCounts] = useState({ pending: 0, approved: 0 });
   const [purchaseRequests, setPurchaseRequests] = useState([]);
+  const [prInProgressCount, setPrInProgressCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       api.get('/products', { params: { limit: 50 } }),
       api.get('/requests', { params: { limit: 10 } }),
-      api.get('/purchase-requests', { params: { limit: 10 } }),
+      api.get('/requests', { params: { status: 'PENDING', limit: 1 } }),
+      api.get('/requests', { params: { status: 'APPROVED', limit: 1 } }),
+      api.get('/purchase-requests', { params: { limit: 20 } }),
     ])
-      .then(([prodRes, reqRes, prRes]) => {
+      .then(([prodRes, reqRes, pendingRes, approvedRes, prRes]) => {
         setProducts(prodRes.data.products);
+        setTotalProducts(prodRes.data.total);
         setRequests(reqRes.data.requests);
+        setRequestCounts({
+          pending: pendingRes.data.total,
+          approved: approvedRes.data.total,
+        });
         setPurchaseRequests(prRes.data.requests);
+        setPrInProgressCount(
+          (prRes.data.requests || []).filter(r => ['APPROVED', 'IN_PROGRESS'].includes(r.status)).length
+        );
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <Loader />;
-
-  const pendingCount = requests.filter(r => r.status === 'PENDING').length;
-  const approvedCount = requests.filter(r => r.status === 'APPROVED').length;
-  const prPendingCount = purchaseRequests.filter(r => r.status === 'PENDING_ADMIN').length;
-  const prInProgressCount = purchaseRequests.filter(r => ['APPROVED', 'IN_PROGRESS'].includes(r.status)).length;
 
   return (
     <div className="space-y-6">
@@ -259,10 +298,10 @@ function ManagerDashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard title="Available Products" value={products.length} icon={Package} color="navy" />
-        <StatsCard title="MIV Pending" value={pendingCount} icon={ClipboardList} color="yellow" />
-        <StatsCard title="Ready to Collect" value={approvedCount} icon={Activity} color="green" />
-        <StatsCard title="Purchase In Progress" value={prInProgressCount} icon={ShoppingCart} color="blue" />
+        <StatsCard title="Available Products" value={totalProducts} icon={Package} color="navy" onClick={() => navigate('/products')} />
+        <StatsCard title="MIV Pending" value={requestCounts.pending} icon={ClipboardList} color="yellow" onClick={() => navigate('/my-requests')} />
+        <StatsCard title="Ready to Collect" value={requestCounts.approved} icon={Activity} color="green" onClick={() => navigate('/my-requests')} />
+        <StatsCard title="Purchase In Progress" value={prInProgressCount} icon={ShoppingCart} color="blue" onClick={() => navigate('/purchase-requests')} />
       </div>
 
       {/* Purchase Request Progress */}
@@ -389,6 +428,7 @@ function StoreManagerDashboard() {
   const [pendingRequests, setPendingRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notifying, setNotifying] = useState({});
+  const [lowStockModal, setLowStockModal] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -417,7 +457,14 @@ function StoreManagerDashboard() {
   };
 
   if (loading) return <Loader />;
-  if (!data) return <p className="text-gray-500">Failed to load dashboard data.</p>;
+  if (!data) return (
+    <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+      <AlertTriangle size={40} className="mb-3 opacity-50" />
+      <p className="text-lg font-medium text-gray-500">Failed to load dashboard data</p>
+      <p className="text-sm mt-1">Check your connection and try again</p>
+      <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-navy-700 text-white text-sm rounded-lg hover:bg-navy-800 transition-colors">Retry</button>
+    </div>
+  );
 
   const { stats } = data;
 
@@ -431,9 +478,9 @@ function StoreManagerDashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard title="Total Products" value={stats.totalProducts} icon={Package} color="navy" />
-        <StatsCard title="Low Stock Items" value={stats.lowStockAlerts} icon={AlertTriangle} color="red" />
-        <StatsCard title="Pending Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" />
+        <StatsCard title="Total Products" value={stats.totalProducts} icon={Package} color="navy" onClick={() => navigate('/products')} />
+        <StatsCard title="Low Stock Items" value={stats.lowStockAlerts} icon={AlertTriangle} color="red" onClick={() => setLowStockModal(true)} />
+        <StatsCard title="Pending Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" onClick={() => navigate('/request-clearance')} />
         <StatsCard title="Active Users" value={stats.totalUsers} icon={Users} color="green" />
       </div>
 
@@ -518,6 +565,14 @@ function StoreManagerDashboard() {
           </table>
         </div>
       </Card>
+
+      {/* Low Stock Modal */}
+      <LowStockModal
+        isOpen={lowStockModal}
+        onClose={() => setLowStockModal(false)}
+        products={lowStock}
+        loading={false}
+      />
     </div>
   );
 }
@@ -553,10 +608,10 @@ function PurchaseOfficerDashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard title="Approved (New)" value={stats?.approved || 0} icon={CheckCircle} color="blue" />
-        <StatsCard title="In Progress" value={stats?.inProgress || 0} icon={TrendingUp} color="yellow" />
-        <StatsCard title="Items Pending" value={stats?.pendingItems || 0} icon={ShoppingCart} color="red" />
-        <StatsCard title="Completed" value={stats?.completed || 0} icon={PackageCheck} color="green" />
+        <StatsCard title="Approved (New)" value={stats?.approved || 0} icon={CheckCircle} color="blue" onClick={() => navigate('/purchase-requests')} />
+        <StatsCard title="In Progress" value={stats?.inProgress || 0} icon={TrendingUp} color="yellow" onClick={() => navigate('/purchase-requests')} />
+        <StatsCard title="Items Pending" value={stats?.pendingItems || 0} icon={ShoppingCart} color="red" onClick={() => navigate('/purchase-requests')} />
+        <StatsCard title="Completed" value={stats?.completed || 0} icon={PackageCheck} color="green" onClick={() => navigate('/purchase-requests')} />
       </div>
 
       {/* Active Purchase Assignments */}
@@ -662,9 +717,9 @@ function AccountingDashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatsCard title="Pending Payments" value={stats?.pendingPayments || 0} icon={AlertTriangle} color="red" />
-        <StatsCard title="Pending Quotations" value={stats?.pendingQuotations || 0} icon={ClipboardList} color="yellow" />
-        <StatsCard title="Payment Processed" value={paymentRequests.filter(p => p.status === 'PAID').length} icon={CheckCircle} color="green" />
+        <StatsCard title="Pending Payments" value={stats?.pendingPayments || 0} icon={AlertTriangle} color="red" onClick={() => navigate('/payment-requests')} />
+        <StatsCard title="Pending Quotations" value={stats?.pendingQuotations || 0} icon={ClipboardList} color="yellow" onClick={() => navigate('/quotations')} />
+        <StatsCard title="Payment Processed" value={paymentRequests.filter(p => p.status === 'PAID').length} icon={CheckCircle} color="green" onClick={() => navigate('/payment-requests')} />
       </div>
 
       {/* Pending Payment Requests */}
@@ -711,8 +766,184 @@ function AccountingDashboard() {
   );
 }
 
+function QCDashboard() {
+  const navigate = useNavigate();
+  const [inspections, setInspections] = useState([]);
+  const [pendingOrders, setPendingOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/qc-inspections?limit=50')
+      .then(({ data }) => {
+        setInspections(data.inspections || []);
+        setPendingOrders(data.pendingOrders || []);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Loader />;
+
+  const pendingCount = inspections.filter(i => i.result === 'PENDING').length;
+  const passedCount = inspections.filter(i => i.result === 'PASSED').length;
+  const failedCount = inspections.filter(i => i.result === 'FAILED').length;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">QC Dashboard</h1>
+        <Button onClick={() => navigate('/qc-inspections')}>
+          <ClipboardCheck size={16} className="mr-1" /> All Inspections
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard title="Awaiting Inspection" value={pendingOrders.length} icon={AlertTriangle} color="red" onClick={() => navigate('/qc-inspections')} />
+        <StatsCard title="Pending Results" value={pendingCount} icon={ClipboardList} color="yellow" onClick={() => navigate('/qc-inspections')} />
+        <StatsCard title="Passed" value={passedCount} icon={CheckCircle} color="green" onClick={() => navigate('/qc-inspections')} />
+        <StatsCard title="Failed" value={failedCount} icon={AlertTriangle} color="red" />
+      </div>
+
+      {/* Pending Orders Awaiting Inspection */}
+      {pendingOrders.length > 0 && (
+        <Card>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Orders Awaiting Inspection</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Order #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Supplier</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Arrived</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingOrders.map((o) => (
+                  <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/qc-inspections')}>
+                    <td className="px-3 py-2 font-medium text-navy-700">{o.orderNumber}</td>
+                    <td className="px-3 py-2 text-gray-600">{o.supplierName || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{o.items?.length || 0} items</td>
+                    <td className="px-3 py-2 text-gray-500">{o.goodsArrivedAt ? formatDateTime(o.goodsArrivedAt) : '—'}</td>
+                    <td className="px-3 py-2"><Badge color="yellow">{o.status}</Badge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* Recent Inspections */}
+      <Card>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-700">Recent Inspections</h3>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/qc-inspections')}>View All</Button>
+        </div>
+        {inspections.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            <ClipboardCheck size={40} className="mx-auto mb-3 opacity-50" />
+            <p className="text-gray-500">No inspections yet</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Inspection #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Order</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Supplier</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Result</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inspections.slice(0, 10).map((i) => (
+                  <tr key={i.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-3 py-2 font-medium text-navy-700">{i.inspectionNumber}</td>
+                    <td className="px-3 py-2 text-gray-600">{i.purchaseOrder?.orderNumber || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{i.purchaseOrder?.supplierName || '—'}</td>
+                    <td className="px-3 py-2">
+                      <Badge color={
+                        i.result === 'PASSED' ? 'green' :
+                        i.result === 'FAILED' ? 'red' :
+                        i.result === 'PARTIAL' ? 'yellow' : 'gray'
+                      }>{i.result}</Badge>
+                    </td>
+                    <td className="px-3 py-2 text-gray-500">{formatDateTime(i.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 function PackageCheck(props) {
   return <CheckCircle {...props} />;
+}
+
+function LowStockModal({ isOpen, onClose, products, loading }) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Low Stock Products (${products.length})`} size="xl">
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : products.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <Package size={40} className="mx-auto mb-3 opacity-50" />
+          <p className="text-lg font-medium text-gray-500">All stock levels are healthy</p>
+          <p className="text-sm mt-1">No products are below their minimum stock level</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50">
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">#</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Product</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">SKU</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Category</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Current Stock</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Min Level</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((p, idx) => (
+                <tr key={p.id} className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${idx % 2 === 1 ? 'bg-gray-50/50' : ''}`}>
+                  <td className="px-3 py-2 text-gray-400 text-xs">{idx + 1}</td>
+                  <td className="px-3 py-2 font-medium text-gray-700">{p.name}</td>
+                  <td className="px-3 py-2 text-gray-500 font-mono text-xs">{p.sku}</td>
+                  <td className="px-3 py-2 text-gray-500">{p.category || '—'}</td>
+                  <td className="px-3 py-2">
+                    <span className={`font-semibold ${p.currentStock === 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                      {p.currentStock}
+                    </span>
+                    <span className="text-gray-400 ml-1">{p.unit}</span>
+                  </td>
+                  <td className="px-3 py-2 text-gray-500">{p.minStockLevel} {p.unit}</td>
+                  <td className="px-3 py-2">
+                    <Badge color={
+                      p.stockStatus === 'Out of Stock' ? 'red' :
+                      p.stockStatus === 'Critical' ? 'red' : 'yellow'
+                    }>
+                      {p.stockStatus}
+                    </Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
 }
 
 function Loader() {
@@ -731,6 +962,7 @@ export default function Dashboard() {
   if (user?.role === 'STORE_MANAGER') return <StoreManagerDashboard />;
   if (user?.role === 'PURCHASE_OFFICER') return <PurchaseOfficerDashboard />;
   if (user?.role === 'ACCOUNTING') return <AccountingDashboard />;
+  if (user?.role === 'QC') return <QCDashboard />;
 
   return <AdminDashboard />;
 }

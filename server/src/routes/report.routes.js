@@ -21,7 +21,10 @@ router.get('/dashboard', authenticate, async (req, res) => {
 
       prisma.$queryRaw`
         SELECT COUNT(*)::int as count FROM "Product"
-        WHERE "isActive" = true AND "currentStock" <= "minStockLevel" AND "minStockLevel" > 0
+        WHERE "isActive" = true AND (
+          ("minStockLevel" > 0 AND "currentStock" <= "minStockLevel")
+          OR "currentStock" = 0
+        )
       `,
 
       prisma.user.count({ where: { isActive: true } }),

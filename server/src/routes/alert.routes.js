@@ -16,7 +16,7 @@ router.get('/low-stock', authenticate, async (req, res) => {
                WHEN p."currentStock" = 0 THEN 'Out of Stock'
                WHEN p."minStockLevel" > 0 AND p."currentStock" <= p."minStockLevel" * 0.5 THEN 'Critical'
                WHEN p."minStockLevel" > 0 AND p."currentStock" <= p."minStockLevel" THEN 'Low'
-               ELSE 'Healthy'
+               ELSE 'Low'
              END as "stockStatus"
       FROM "Product" p
       WHERE p."isActive" = true
