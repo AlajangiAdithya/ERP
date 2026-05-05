@@ -2,7 +2,7 @@
 # Builds both server and client in a single service
 
 [phases.setup]
-nixPkgs = ["nodejs_20", "npm-9_x", "openssl"]
+nixPkgs = ["nodejs_20", "openssl"]
 
 [phases.install]
 cmds = [
