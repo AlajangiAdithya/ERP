@@ -26,9 +26,6 @@ const inventoryTransferRoutes = require('./routes/inventoryTransfer.routes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Trust Vercel's proxy
-app.set('trust proxy', 1);
-
 // Security
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({
