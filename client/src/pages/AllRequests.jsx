@@ -5,6 +5,7 @@ import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Pagination from '../components/shared/Pagination';
+import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { formatDateTime } from '../utils/formatters';
 
 export default function AllRequests() {
@@ -14,13 +15,15 @@ export default function AllRequests() {
   const [totalPages, setTotalPages] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [showDetail, setShowDetail] = useState(null);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   useEffect(() => {
     setLoading(true);
-    api.get('/requests', { params: { status: statusFilter || undefined, page, limit: 20 } })
+    api.get('/requests', { params: { status: statusFilter || undefined, page, limit: 20, fromDate: fromDate || undefined, toDate: toDate || undefined } })
       .then(({ data }) => { setRequests(data.requests); setTotalPages(data.totalPages); })
       .finally(() => setLoading(false));
-  }, [page, statusFilter]);
+  }, [page, statusFilter, fromDate, toDate]);
 
   const statusColor = (s) => ({
     PENDING: 'yellow', APPROVED: 'green', PARTIAL: 'orange', COLLECTED: 'blue', REJECTED: 'red', CANCELLED: 'gray'
@@ -32,14 +35,17 @@ export default function AllRequests() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">All Requests</h1>
 
-      <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
-        {statuses.map(s => (
-          <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
-            className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
-              statusFilter === s ? 'bg-white text-navy-700 font-medium shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >{s || 'ALL'}</button>
-        ))}
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+          {statuses.map(s => (
+            <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
+              className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                statusFilter === s ? 'bg-white text-navy-700 font-medium shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >{s || 'ALL'}</button>
+          ))}
+        </div>
+        <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={(v) => { setFromDate(v); setPage(1); }} onToChange={(v) => { setToDate(v); setPage(1); }} />
       </div>
 
       <Card>

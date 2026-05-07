@@ -9,7 +9,7 @@ const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate } = require('../utils/helpers');
+const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -24,10 +24,11 @@ const ION_INCLUDE = {
 // GET /api/ion — list, filtered by role + assignment
 router.get('/', authenticate, authorize(...ION_ROLES), async (req, res) => {
   try {
-    const { status, page, limit } = req.query;
+    const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
 
     const where = {};
+    applyDateFilter(where, { fromDate, toDate });
     if (status && ['SENT', 'WAITING', 'COLLECTED'].includes(status)) where.status = status;
 
     if (req.user.role === 'MANAGER') {

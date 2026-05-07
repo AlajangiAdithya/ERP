@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate } = require('../utils/helpers');
+const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -24,10 +24,11 @@ const createRequestSchema = z.object({
 // GET /api/requests — list requests based on role
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { status, page, limit } = req.query;
+    const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
 
     const where = {};
+    applyDateFilter(where, { fromDate, toDate });
 
     // Role-based filtering — requester roles see only their own
     if (REQUESTER_ROLES.includes(req.user.role)) {

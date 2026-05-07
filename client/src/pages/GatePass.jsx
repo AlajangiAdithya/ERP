@@ -4,6 +4,7 @@ import api from '../api/axios';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Input, { Select, Textarea } from '../components/ui/Input';
+import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import { formatDate, formatDateTime } from '../utils/formatters';
@@ -26,16 +27,18 @@ export default function GatePass() {
   const [showCreate, setShowCreate] = useState(false);
   const [detail, setDetail] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const load = () => {
     setLoading(true);
-    api.get('/gatepasses', { params: { passType: activeTab, limit: 100 } })
+    api.get('/gatepasses', { params: { passType: activeTab, limit: 100, fromDate: fromDate || undefined, toDate: toDate || undefined } })
       .then(({ data }) => setGatePasses(data.gatePasses || []))
       .catch(() => setGatePasses([]))
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [activeTab, refreshKey]);
+  useEffect(load, [activeTab, refreshKey, fromDate, toDate]);
 
   return (
     <div className="space-y-6">
@@ -49,17 +52,20 @@ export default function GatePass() {
         </Button>
       </div>
 
-      <div className="flex gap-2 border-b border-gray-200">
-        {PASS_TABS.map(({ key, label, Icon }) => (
-          <button
-            key={key}
-            onClick={() => setActiveTab(key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              activeTab === key ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}>
-            <Icon size={16} className="inline mr-2" />{label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="flex gap-2 border-b border-gray-200">
+          {PASS_TABS.map(({ key, label, Icon }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === key ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}>
+              <Icon size={16} className="inline mr-2" />{label}
+            </button>
+          ))}
+        </div>
+        <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
       </div>
 
       {loading ? (

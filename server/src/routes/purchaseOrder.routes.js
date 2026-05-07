@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate } = require('../utils/helpers');
+const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
 const { getTier, getTierLabel } = require('../utils/approvalTiers');
 
 const router = express.Router();
@@ -32,10 +32,11 @@ const ORDER_INCLUDE = {
 // GET /api/purchase-orders — role-filtered list
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { status, page, limit } = req.query;
+    const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
 
     const where = {};
+    applyDateFilter(where, { fromDate, toDate });
 
     // Role-based filtering
     if (req.user.role === 'QC') {

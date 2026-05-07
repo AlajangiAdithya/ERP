@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate } = require('../utils/helpers');
+const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
 const { canApprove, getTier, getTierLabel } = require('../utils/approvalTiers');
 
 const router = express.Router();
@@ -18,10 +18,11 @@ const createSchema = z.object({
 // GET /api/payment-requests — role-filtered list
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { status, purchaseOrderId, page, limit } = req.query;
+    const { status, purchaseOrderId, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
 
     const where = {};
+    applyDateFilter(where, { fromDate, toDate });
 
     if (req.user.role === 'PURCHASE_OFFICER') {
       where.createdById = req.user.id;

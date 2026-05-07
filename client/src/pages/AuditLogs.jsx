@@ -3,6 +3,7 @@ import api from '../api/axios';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
 import Pagination from '../components/shared/Pagination';
+import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { Select } from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
 
@@ -13,6 +14,8 @@ export default function AuditLogs() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState({ action: '', entity: '' });
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -20,6 +23,8 @@ export default function AuditLogs() {
       page, limit: 25,
       action: filters.action || undefined,
       entity: filters.entity || undefined,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
     };
     api.get('/reports/audit-logs', { params })
       .then(({ data }) => {
@@ -28,7 +33,7 @@ export default function AuditLogs() {
         setTotal(data.total);
       })
       .finally(() => setLoading(false));
-  }, [page, filters]);
+  }, [page, filters, fromDate, toDate]);
 
   const actionColors = {
     CREATE: 'green', UPDATE: 'blue', DELETE: 'red', LOGIN: 'navy', LOGOUT: 'gray',
@@ -38,6 +43,28 @@ export default function AuditLogs() {
   const actions = ['', 'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 'APPROVE', 'REJECT', 'COLLECT', 'CANCEL'];
   const entities = ['', 'User', 'Unit', 'Product', 'ProductRequest', 'PurchaseRequest', 'InwardEntry', 'Notification', 'StockAdjustment'];
 
+  const formatDetails = (details) => {
+    if (!details) return '—';
+    if (typeof details === 'string') return details;
+    const parts = [];
+    if (details.method) parts.push(details.method);
+    if (details.path) {
+      const clean = details.path.replace(/^\/api\//, '').replace(/\/[a-f0-9-]{36}/g, '/:id');
+      parts.push(clean);
+    }
+    if (details.reason) parts.push(details.reason);
+    if (details.status) parts.push(`→ ${details.status}`);
+    if (details.amount) parts.push(`₹${Number(details.amount).toLocaleString('en-IN')}`);
+    if (details.quantity) parts.push(`qty: ${details.quantity}`);
+    if (details.productName) parts.push(details.productName);
+    if (details.orderNumber) parts.push(details.orderNumber);
+    if (details.requestNumber) parts.push(details.requestNumber);
+    if (parts.length > 0) return parts.join(' · ');
+    const keys = Object.keys(details).filter(k => !['method', 'path'].includes(k));
+    if (keys.length === 0 && details.method) return `${details.method} ${(details.path || '').replace(/^\/api\//, '')}`;
+    return keys.map(k => `${k}: ${details[k]}`).join(', ');
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -45,7 +72,7 @@ export default function AuditLogs() {
         <span className="text-sm text-gray-500">{total} total entries</span>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3 items-end">
         <Select value={filters.action} onChange={(e) => { setFilters({ ...filters, action: e.target.value }); setPage(1); }} className="w-40">
           <option value="">All Actions</option>
           {actions.filter(Boolean).map(a => <option key={a} value={a}>{a}</option>)}
@@ -54,6 +81,7 @@ export default function AuditLogs() {
           <option value="">All Entities</option>
           {entities.filter(Boolean).map(e => <option key={e} value={e}>{e}</option>)}
         </Select>
+        <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={(v) => { setFromDate(v); setPage(1); }} onToChange={(v) => { setToDate(v); setPage(1); }} />
       </div>
 
       <Card>
@@ -91,8 +119,8 @@ export default function AuditLogs() {
                       <td className="px-3 py-2 text-gray-500 text-xs">{log.user?.unit?.code || '—'}</td>
                       <td className="px-3 py-2"><Badge color={actionColors[log.action] || 'gray'}>{log.action}</Badge></td>
                       <td className="px-3 py-2 text-gray-600">{log.entity}</td>
-                      <td className="px-3 py-2 text-gray-500 text-xs max-w-64 truncate">
-                        {log.details ? JSON.stringify(log.details) : '—'}
+                      <td className="px-3 py-2 text-gray-500 text-xs max-w-64 truncate" title={log.details ? JSON.stringify(log.details) : ''}>
+                        {formatDetails(log.details)}
                       </td>
                     </tr>
                   ))}

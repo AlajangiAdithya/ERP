@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Trash2, FlaskConical, Send, CheckCircle2, Users } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Input, { Select, Textarea } from '../components/ui/Input';
@@ -39,10 +40,12 @@ export default function InterOfficeNote() {
   const [showCreate, setShowCreate] = useState(false);
   const [detail, setDetail] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const load = () => {
     setLoading(true);
-    const params = { limit: 100 };
+    const params = { limit: 100, fromDate: fromDate || undefined, toDate: toDate || undefined };
     if (tab !== 'ALL') params.status = tab;
     api.get('/ion', { params })
       .then(({ data }) => setIons(data.ions || []))
@@ -50,7 +53,7 @@ export default function InterOfficeNote() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [tab, refreshKey]);
+  useEffect(load, [tab, refreshKey, fromDate, toDate]);
 
   return (
     <div className="space-y-6">
@@ -74,17 +77,20 @@ export default function InterOfficeNote() {
         )}
       </div>
 
-      <div className="flex gap-2 border-b border-gray-200">
-        {STATUS_TABS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              tab === key ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}>
-            {label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="flex gap-2 border-b border-gray-200">
+          {STATUS_TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                tab === key ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
       </div>
 
       {loading ? (

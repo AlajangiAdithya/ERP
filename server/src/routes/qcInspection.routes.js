@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate } = require('../utils/helpers');
+const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -32,10 +32,11 @@ const INSPECTION_INCLUDE = {
 // GET /api/qc-inspections — list inspections
 router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER'), async (req, res) => {
   try {
-    const { status, page, limit } = req.query;
+    const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
 
     const where = {};
+    applyDateFilter(where, { fromDate, toDate });
     if (status) where.result = status;
 
     const [inspections, total] = await Promise.all([

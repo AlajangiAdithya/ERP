@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { CreditCard, CheckCircle, XCircle, Eye } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -205,13 +206,15 @@ export default function PaymentRequests() {
   const [loading, setLoading] = useState(true);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [tab, setTab] = useState('ALL');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const isAccounting = ['ACCOUNTING', 'ADMIN'].includes(user?.role);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const params = { limit: 50 };
+      const params = { limit: 50, fromDate: fromDate || undefined, toDate: toDate || undefined };
       if (tab !== 'ALL') params.status = tab;
       const { data } = await api.get('/payment-requests', { params });
       setPayments(data.requests);
@@ -221,7 +224,7 @@ export default function PaymentRequests() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, [tab]);
+  useEffect(() => { fetchData(); }, [tab, fromDate, toDate]);
 
   const tabs = ['ALL', 'PENDING', 'APPROVED', 'PAID', 'REJECTED'];
 
@@ -231,15 +234,17 @@ export default function PaymentRequests() {
         {isAccounting ? 'Payment Requests' : 'My Payment Requests'}
       </h1>
 
-      {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
-        {tabs.map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-              tab === t ? 'bg-white text-navy-700 font-medium shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >{t === 'ALL' ? 'All' : t.charAt(0) + t.slice(1).toLowerCase()}</button>
-        ))}
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+          {tabs.map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                tab === t ? 'bg-white text-navy-700 font-medium shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >{t === 'ALL' ? 'All' : t.charAt(0) + t.slice(1).toLowerCase()}</button>
+          ))}
+        </div>
+        <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
       </div>
 
       <Card>

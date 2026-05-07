@@ -7,11 +7,14 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import SearchBar from '../components/shared/SearchBar';
+import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { formatDateTime } from '../utils/formatters';
 
 export default function MyRequests() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState(null);
   const [products, setProducts] = useState([]);
@@ -26,12 +29,12 @@ export default function MyRequests() {
 
   const fetchRequests = () => {
     setLoading(true);
-    api.get('/requests', { params: { limit: 50 } })
+    api.get('/requests', { params: { limit: 50, fromDate: fromDate || undefined, toDate: toDate || undefined } })
       .then(({ data }) => setRequests(data.requests))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchRequests(); }, []);
+  useEffect(() => { fetchRequests(); }, [fromDate, toDate]);
 
   const openCreate = () => {
     api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products));
@@ -168,6 +171,8 @@ export default function MyRequests() {
         <h1 className="text-2xl font-bold text-gray-900">My Requests</h1>
         <Button onClick={openCreate}><Plus size={16} /> New Request</Button>
       </div>
+
+      <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
 
       <Card>
         {loading ? (

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -843,6 +844,8 @@ export default function PurchaseRequests() {
   const [selectedForPurchase, setSelectedForPurchase] = useState(null);
   const [selectedForDetail, setSelectedForDetail] = useState(null);
   const [tab, setTab] = useState('ALL');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const isManager = ['MANAGER', 'LAB'].includes(user?.role);
   const isAdmin = user?.role === 'ADMIN';
@@ -852,7 +855,7 @@ export default function PurchaseRequests() {
 
   const fetchRequests = () => {
     setLoading(true);
-    const params = { limit: 50 };
+    const params = { limit: 50, fromDate: fromDate || undefined, toDate: toDate || undefined };
     if (tab !== 'ALL' && !isPO) params.status = tab;
     api.get('/purchase-requests', { params })
       .then(({ data }) => setRequests(data.requests))
@@ -860,7 +863,7 @@ export default function PurchaseRequests() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchRequests(); }, [tab]);
+  useEffect(() => { fetchRequests(); }, [tab, fromDate, toDate]);
 
   const handleRowClick = (r) => {
     if (isAdmin) {
@@ -905,18 +908,21 @@ export default function PurchaseRequests() {
         )}
       </div>
 
-      {/* Tabs */}
-      {tabs.length > 1 && (
-        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit flex-wrap">
-          {tabs.map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                tab === t ? 'bg-white text-navy-700 font-medium shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >{t === 'ALL' ? 'All' : statusLabel(t)}</button>
-          ))}
-        </div>
-      )}
+      <div className="flex flex-wrap items-end gap-4">
+        {/* Tabs */}
+        {tabs.length > 1 && (
+          <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit flex-wrap">
+            {tabs.map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  tab === t ? 'bg-white text-navy-700 font-medium shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >{t === 'ALL' ? 'All' : statusLabel(t)}</button>
+            ))}
+          </div>
+        )}
+        <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
+      </div>
 
       <Card>
         {loading ? (

@@ -2,7 +2,7 @@ const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { paginate } = require('../utils/helpers');
+const { paginate, applyDateFilter } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -145,18 +145,14 @@ router.get('/unit-usage', authenticate, authorize('ADMIN'), async (req, res) => 
 // GET /api/reports/audit-logs — Admin: full audit logs
 router.get('/audit-logs', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
-    const { userId, action, entity, page, limit, startDate, endDate } = req.query;
+    const { userId, action, entity, page, limit, fromDate, toDate, startDate, endDate } = req.query;
     const { skip, take } = paginate(page, limit);
 
     const where = {};
     if (userId) where.userId = userId;
     if (action) where.action = action;
     if (entity) where.entity = entity;
-    if (startDate || endDate) {
-      where.createdAt = {};
-      if (startDate) where.createdAt.gte = new Date(startDate);
-      if (endDate) where.createdAt.lte = new Date(endDate);
-    }
+    applyDateFilter(where, { fromDate: fromDate || startDate, toDate: toDate || endDate });
 
     const [logs, total] = await Promise.all([
       prisma.auditLog.findMany({

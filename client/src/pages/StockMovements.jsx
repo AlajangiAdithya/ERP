@@ -3,8 +3,9 @@ import { ArrowDown, ArrowUp, RefreshCw } from 'lucide-react';
 import api from '../api/axios';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
-import Input, { Select } from '../components/ui/Input';
+import { Select } from '../components/ui/Input';
 import Pagination from '../components/shared/Pagination';
+import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { formatDateTime, formatNotes } from '../utils/formatters';
 import StockStatementPdf from '../components/pdf/StockStatementPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
@@ -22,31 +23,18 @@ export default function StockMovements() {
 
   useEffect(() => {
     setLoading(true);
-    api.get('/inventory/movements', { params: { page, limit: 25, type: typeFilter || undefined } })
+    api.get('/inventory/movements', { params: { page, limit: 25, type: typeFilter || undefined, fromDate: fromDate || undefined, toDate: toDate || undefined } })
       .then(({ data }) => { setMovements(data.movements); setTotalPages(data.totalPages); })
       .finally(() => setLoading(false));
-  }, [page, typeFilter]);
+  }, [page, typeFilter, fromDate, toDate]);
 
-  // Client-side date filtering for the currently loaded page
-  const filteredMovements = movements.filter(m => {
-    if (fromDate && new Date(m.createdAt) < new Date(fromDate)) return false;
-    if (toDate && new Date(m.createdAt) > new Date(new Date(toDate).getTime() + 86399999)) return false;
-    return true;
-  });
-
-  // Build full dataset for PDF export (fetches all pages matching filters)
   const prepareExport = async () => {
     setExportLoading(true);
     try {
       const { data } = await api.get('/inventory/movements', {
-        params: { page: 1, limit: 1000, type: typeFilter || undefined },
+        params: { page: 1, limit: 1000, type: typeFilter || undefined, fromDate: fromDate || undefined, toDate: toDate || undefined },
       });
-      const all = (data.movements || []).filter(m => {
-        if (fromDate && new Date(m.createdAt) < new Date(fromDate)) return false;
-        if (toDate && new Date(m.createdAt) > new Date(new Date(toDate).getTime() + 86399999)) return false;
-        return true;
-      });
-      setExportList(all);
+      setExportList(data.movements || []);
     } catch (err) {
       console.error(err);
       setExportList([]);
@@ -65,8 +53,7 @@ export default function StockMovements() {
           <option value="OUT">OUT</option>
           <option value="ADJUSTMENT">ADJUSTMENT</option>
         </Select>
-        <Input type="date" label="From" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        <Input type="date" label="To" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+        <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={(v) => { setFromDate(v); setPage(1); }} onToChange={(v) => { setToDate(v); setPage(1); }} />
         <div className="flex gap-2 items-center">
           {exportList.length === 0 ? (
             <button
@@ -116,9 +103,9 @@ export default function StockMovements() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredMovements.length === 0 ? (
+                  {movements.length === 0 ? (
                     <tr><td colSpan={7} className="px-3 py-4 text-center text-gray-400">No movements found</td></tr>
-                  ) : filteredMovements.map(m => (
+                  ) : movements.map(m => (
                     <tr key={m.id} className="border-b border-gray-50 hover:bg-gray-50">
                       <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">{formatDateTime(m.createdAt)}</td>
                       <td className="px-3 py-2 font-medium text-gray-700">{m.product?.name}</td>

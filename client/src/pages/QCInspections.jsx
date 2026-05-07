@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ClipboardCheck, CheckCircle, XCircle, Plus, Eye, FileCheck, X } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -653,6 +654,8 @@ export default function QCInspections() {
   const [createForOrder, setCreateForOrder] = useState(null);
   const [fillReportFor, setFillReportFor] = useState(null);
   const [viewInspection, setViewInspection] = useState(null);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const isQC = user?.role === 'QC';
   const isPO = user?.role === 'PURCHASE_OFFICER';
@@ -663,7 +666,7 @@ export default function QCInspections() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get('/qc-inspections', { params: { limit: 50 } });
+      const { data } = await api.get('/qc-inspections', { params: { limit: 50, fromDate: fromDate || undefined, toDate: toDate || undefined } });
       setInspections(data.inspections);
       setPendingOrders(data.pendingOrders || []);
     } catch (err) {
@@ -672,7 +675,7 @@ export default function QCInspections() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [fromDate, toDate]);
 
   // Orders needing a new inspection request (no PENDING inspection for current batch)
   const ordersNeedingRequest = pendingOrders.filter(
@@ -689,6 +692,8 @@ export default function QCInspections() {
         <h1 className="text-2xl font-bold text-gray-900">QC Inspections</h1>
         <span className="text-xs text-gray-500">Role: {user?.role}</span>
       </div>
+
+      <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
 
       {/* Section 1: Orders Awaiting Inspection Request (PO / SM only) */}
       {canCreateRequest && ordersNeedingRequest.length > 0 && (

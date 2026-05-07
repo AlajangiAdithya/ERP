@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -697,6 +698,8 @@ export default function PurchaseOrders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [tab, setTab] = useState('ALL');
   const [search, setSearch] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isAdmin = user?.role === 'ADMIN';
@@ -704,7 +707,7 @@ export default function PurchaseOrders() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const params = { limit: 100 };
+      const params = { limit: 100, fromDate: fromDate || undefined, toDate: toDate || undefined };
       if (tab !== 'ALL') params.status = tab;
       const [ordersRes, dashRes] = await Promise.all([
         api.get('/purchase-orders', { params }),
@@ -718,7 +721,7 @@ export default function PurchaseOrders() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, [tab]);
+  useEffect(() => { fetchData(); }, [tab, fromDate, toDate]);
 
   const openDetail = async (order) => {
     try {
@@ -798,7 +801,7 @@ export default function PurchaseOrders() {
       )}
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center">
+      <div className="flex flex-wrap gap-3 items-end">
         <div className="flex gap-1 p-1 bg-gray-100 rounded-lg flex-wrap">
           {tabs.map(t => (
             <button key={t} onClick={() => setTab(t)}
@@ -815,6 +818,7 @@ export default function PurchaseOrders() {
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-[200px] px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:border-navy-400"
         />
+        <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
       </div>
 
       {/* Grouped list */}

@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate } = require('../utils/helpers');
+const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -27,10 +27,11 @@ const createSchema = z.object({
 // GET /api/inventory-transfers — list (scope: STORE_MANAGER sees only their own unit's in/out; ADMIN sees all)
 router.get('/', authenticate, authorize('MANAGER'), async (req, res) => {
   try {
-    const { status, direction, page, limit } = req.query;
+    const { status, direction, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
 
     const where = {};
+    applyDateFilter(where, { fromDate, toDate });
     if (status && ['PENDING', 'APPROVED', 'REJECTED', 'TRANSFERRED'].includes(status)) {
       where.status = status;
     }

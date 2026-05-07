@@ -2,7 +2,7 @@ const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate } = require('../utils/helpers');
+const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -16,10 +16,11 @@ const PASS_TYPES = ['RETURNABLE', 'NON_RETURNABLE', 'DELIVERY_CHALLAN'];
 // GET /api/gatepasses — list
 router.get('/', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
-    const { passType, status, page, limit } = req.query;
+    const { passType, status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
 
     const where = {};
+    applyDateFilter(where, { fromDate, toDate });
     if (passType && PASS_TYPES.includes(passType)) where.passType = passType;
     if (status && ['OPEN', 'RETURNED', 'CLOSED'].includes(status)) where.status = status;
 

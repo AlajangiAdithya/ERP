@@ -6,6 +6,7 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input, { Select, Textarea } from '../components/ui/Input';
+import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { useAuth } from '../context/AuthContext';
 import { formatDateTime } from '../utils/formatters';
 
@@ -22,6 +23,8 @@ export default function InventoryTransfers() {
 
   const [tab, setTab] = useState('incoming');
   const [statusFilter, setStatusFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [transfers, setTransfers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -42,7 +45,7 @@ export default function InventoryTransfers() {
 
   const load = () => {
     setLoading(true);
-    const params = { limit: 100 };
+    const params = { limit: 100, fromDate: fromDate || undefined, toDate: toDate || undefined };
     if (tab !== 'all') params.direction = tab;
     if (statusFilter) params.status = statusFilter;
     api.get('/inventory-transfers', { params })
@@ -51,7 +54,7 @@ export default function InventoryTransfers() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, statusFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, statusFilter, fromDate, toDate]);
 
   useEffect(() => {
     api.get('/units').then(({ data }) => setUnits(data || [])).catch(() => setUnits([]));
@@ -172,6 +175,8 @@ export default function InventoryTransfers() {
           </select>
         </div>
       </div>
+
+      <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
 
       <p className="text-xs text-gray-400">{activeTabMeta?.hint}</p>
 

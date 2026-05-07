@@ -4,7 +4,7 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorizeMinRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
-const { paginate } = require('../utils/helpers');
+const { paginate, applyDateFilter } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -80,10 +80,11 @@ router.post('/inward', authenticate, authorizeMinRole('STORE_MANAGER'), async (r
 // GET /api/inventory/movements
 router.get('/movements', authenticate, async (req, res) => {
   try {
-    const { productId, type, page, limit } = req.query;
+    const { productId, type, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
 
     const where = {};
+    applyDateFilter(where, { fromDate, toDate });
     if (productId) where.productId = productId;
     if (type) where.type = type;
 
