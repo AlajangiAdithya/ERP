@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Truck, CreditCard, CheckCircle, Eye, PackagePlus,
-  ChevronRight, ChevronDown, Phone, Building2, FileText, Package,
+  ChevronRight, ChevronDown, Phone, Building2, FileText, Package, Layers,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -16,17 +16,6 @@ import POPdf from '../components/pdf/POPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 
 const formatCurrency = (amt) => `₹${Number(amt || 0).toLocaleString('en-IN')}`;
-
-// ─── Tier helpers (mirror server logic) ───
-const ONE_LAKH = 100000;
-const TEN_LAKHS = 1000000;
-const getTier = (amt) => (amt < ONE_LAKH ? 'L1' : amt < TEN_LAKHS ? 'L2' : 'L3');
-const tierLabel = (t) => ({
-  L1: 'Accounting (or any tiered admin)',
-  L2: 'Madhubabu, Suresh, or Rameshbabu',
-  L3: 'Rameshbabu only',
-}[t] || '');
-const tierColor = (t) => ({ L1: 'blue', L2: 'yellow', L3: 'red' }[t] || 'gray');
 
 const statusColor = (s) => ({
   PENDING_ACCOUNTING: 'yellow',
@@ -143,7 +132,6 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
 
   const remaining = order.totalAmount - order.totalPaid;
   const isPendingAccounting = order.status === 'PENDING_ACCOUNTING';
-  const tier = getTier(order.totalAmount);
 
   const placeOrder = async () => {
     if (!paymentAmount || parseFloat(paymentAmount) <= 0) return alert('Enter the payment amount.');
@@ -234,17 +222,30 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
 
         {/* Header Info */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm bg-gray-50 rounded-md p-4">
-          <div><span className="text-gray-500">Order #:</span> <span className="font-medium">{order.orderNumber}</span></div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500">Order #:</span> <span className="font-medium">{order.orderNumber}</span>
+            {order.isUnion && <Badge color="purple"><Layers size={10} className="inline mr-0.5" /> UNION</Badge>}
+          </div>
           <div><span className="text-gray-500">Supplier:</span> <span className="font-medium">{order.supplierName}</span></div>
           <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(order.status)}>{statusLabel(order.status)}</Badge></div>
           <div><span className="text-gray-500">Total:</span> <span className="font-bold text-navy-700">{formatCurrency(order.totalAmount)}</span></div>
-          <div><span className="text-gray-500">PR:</span> <span className="font-medium">{order.purchaseRequest?.requestNumber}</span></div>
-          <div><span className="text-gray-500">Manager:</span> <span>{order.purchaseRequest?.manager?.name}</span></div>
-          <div className="col-span-2 md:col-span-3">
-            <span className="text-gray-500">Approval tier: </span>
-            <Badge color={tierColor(tier)}>{tier}</Badge>
-            <span className="text-xs text-gray-500 ml-2">{tierLabel(tier)}</span>
-          </div>
+          {order.isUnion ? (
+            <div className="col-span-2 md:col-span-2">
+              <span className="text-gray-500">Source PRs:</span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {(order.sourceRequests || []).map(s => (
+                  <Badge key={s.id} color="navy">
+                    {s.purchaseRequest?.requestNumber} · {s.purchaseRequest?.unit?.code || s.purchaseRequest?.unit?.name}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div><span className="text-gray-500">PR:</span> <span className="font-medium">{order.purchaseRequest?.requestNumber}</span></div>
+              <div><span className="text-gray-500">Manager:</span> <span>{order.purchaseRequest?.manager?.name}</span></div>
+            </>
+          )}
         </div>
 
         {/* Supplier contact (for accounting) */}
@@ -296,6 +297,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit Price</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Total</th>
+                {order.isUnion && <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Sources</th>}
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Item Status</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Received</th>
                 {isSM && order.status === 'QC_PASSED' && (
@@ -312,6 +314,24 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                     <td className="px-3 py-2 text-gray-600">{item.quantity} {item.productUnit}</td>
                     <td className="px-3 py-2 text-gray-600">{formatCurrency(item.unitPrice)}</td>
                     <td className="px-3 py-2 text-gray-600">{formatCurrency(item.totalPrice)}</td>
+                    {order.isUnion && (
+                      <td className="px-3 py-2">
+                        <div className="space-y-0.5 text-[11px] text-gray-700">
+                          {(item.allocations || []).map(a => {
+                            const pr = a.purchaseRequestItem?.request;
+                            return (
+                              <div key={a.id} className="flex items-center gap-1">
+                                <Badge color="navy">{pr?.requestNumber || 'PR'}{pr?.unit?.code ? ` · ${pr.unit.code}` : ''}</Badge>
+                                <span>
+                                  <strong>{a.allocatedQty}</strong> {item.productUnit}
+                                  {a.receivedQty > 0 && <span className="text-green-600"> (rcv {a.receivedQty})</span>}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    )}
                     <td className="px-3 py-2">
                       {canEditItemStatus ? (
                         <select
@@ -457,7 +477,6 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
               ) : (
                 <div className="w-full bg-amber-50 border border-amber-200 rounded-md p-4 space-y-3">
                   <h4 className="text-sm font-semibold text-amber-900">Place Order — First Payment Request</h4>
-                  <p className="text-xs text-amber-700">This payment will route to: <strong>{tierLabel(getTier(parseFloat(paymentAmount) || order.totalAmount))}</strong></p>
                   <div className="grid grid-cols-3 gap-3">
                     <Input label="Amount (₹)" type="number" value={paymentAmount}
                       onChange={(e) => setPaymentAmount(e.target.value)} min="1" max={order.totalAmount} />
@@ -490,7 +509,6 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
               ) : (
                 <div className="w-full bg-blue-50 rounded-md p-4 space-y-3">
                   <h4 className="text-sm font-semibold">New Payment Request</h4>
-                  <p className="text-xs text-blue-700">This payment will route to: <strong>{tierLabel(getTier(parseFloat(paymentAmount) || remaining))}</strong></p>
                   <div className="grid grid-cols-3 gap-3">
                     <Input label="Amount (₹)" type="number" value={paymentAmount}
                       onChange={(e) => setPaymentAmount(e.target.value)} min="1" max={remaining} />
@@ -537,7 +555,6 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
   const [open, setOpen] = useState(false);
   const groupTotal = orders.reduce((s, o) => s + o.totalAmount, 0);
   const groupPaid = orders.reduce((s, o) => s + o.totalPaid, 0);
-  const tier = getTier(groupTotal);
 
   // Pull contact info from any order item that has it (server includes items)
   const contact = orders.flatMap(o => o.items || []).find(i => i.supplierContact)?.supplierContact;
@@ -561,7 +578,6 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Badge color={tierColor(tier)}>{tier}</Badge>
           <div className="text-right">
             <div className="font-bold text-navy-700">{formatCurrency(groupTotal)}</div>
             <div className="text-xs text-gray-500">{formatCurrency(groupPaid)} paid</div>
@@ -621,7 +637,7 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
 }
 
 // ─── PR group (top level accordion) ───
-function PRGroup({ prNumber, prInfo, orders, onOpenOrder, defaultOpen = false }) {
+function PRGroup({ prNumber, prInfo, isUnion = false, sourceRequests = [], orders, onOpenOrder, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   const totalAmount = orders.reduce((s, o) => s + o.totalAmount, 0);
   const totalPaid = orders.reduce((s, o) => s + o.totalPaid, 0);
@@ -645,17 +661,42 @@ function PRGroup({ prNumber, prInfo, orders, onOpenOrder, defaultOpen = false })
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-gradient-to-r from-navy-50 to-white hover:from-navy-100 transition-colors"
+        className={`w-full flex items-center justify-between px-4 py-3 transition-colors ${
+          isUnion
+            ? 'bg-gradient-to-r from-purple-50 to-white hover:from-purple-100'
+            : 'bg-gradient-to-r from-navy-50 to-white hover:from-navy-100'
+        }`}
       >
         <div className="flex items-center gap-3 text-left">
-          {open ? <ChevronDown size={18} className="text-navy-700" /> : <ChevronRight size={18} className="text-navy-700" />}
-          <FileText size={18} className="text-navy-700" />
+          {open ? <ChevronDown size={18} className={isUnion ? 'text-purple-700' : 'text-navy-700'} /> : <ChevronRight size={18} className={isUnion ? 'text-purple-700' : 'text-navy-700'} />}
+          {isUnion ? <Layers size={18} className="text-purple-700" /> : <FileText size={18} className="text-navy-700" />}
           <div>
-            <div className="font-bold text-navy-800">{prInfo?.requestId || prNumber}</div>
+            <div className={`font-bold flex items-center gap-2 ${isUnion ? 'text-purple-800' : 'text-navy-800'}`}>
+              {isUnion ? (orders[0]?.customName || 'Union Order') : (prInfo?.requestId || prNumber)}
+              {isUnion && <Badge color="purple">UNION</Badge>}
+            </div>
             <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
-              <span className="font-mono">{prNumber}</span>
-              {prInfo?.manager?.name && <span>• {prInfo.manager.name}</span>}
-              {prInfo?.unit?.name && <span>• {prInfo.unit.name}</span>}
+              {isUnion ? (
+                <>
+                  <span className="font-mono">{prNumber}</span>
+                  {sourceRequests.length > 0 && (
+                    <span>
+                      • {sourceRequests.length} PRs:{' '}
+                      {sourceRequests
+                        .slice(0, 5)
+                        .map(s => `${s.purchaseRequest?.requestNumber} (${s.purchaseRequest?.unit?.code || s.purchaseRequest?.unit?.name || '—'})`)
+                        .join(', ')}
+                      {sourceRequests.length > 5 && ` +${sourceRequests.length - 5} more`}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="font-mono">{prNumber}</span>
+                  {prInfo?.manager?.name && <span>• {prInfo.manager.name}</span>}
+                  {prInfo?.unit?.name && <span>• {prInfo.unit.name}</span>}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -746,11 +787,19 @@ export default function PurchaseOrders() {
 
     const map = new Map();
     for (const o of filtered) {
-      const prNum = o.purchaseRequest?.requestNumber || 'Unassigned';
-      if (!map.has(prNum)) {
-        map.set(prNum, { prInfo: o.purchaseRequest, orders: [] });
+      // Union POs get their own synthetic group so we don't mis-attach them to a single PR
+      const groupKey = o.isUnion
+        ? `__UNION__:${o.orderNumber || o.id}`
+        : (o.purchaseRequest?.requestNumber || 'Unassigned');
+      if (!map.has(groupKey)) {
+        map.set(groupKey, {
+          isUnion: !!o.isUnion,
+          prInfo: o.isUnion ? null : o.purchaseRequest,
+          sourceRequests: o.isUnion ? (o.sourceRequests || []) : [],
+          orders: [],
+        });
       }
-      map.get(prNum).orders.push(o);
+      map.get(groupKey).orders.push(o);
     }
     return Array.from(map.entries()).sort((a, b) => {
       const aDate = Math.max(...a[1].orders.map(o => new Date(o.createdAt).getTime()));
@@ -836,11 +885,13 @@ export default function PurchaseOrders() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {grouped.map(([prNum, { prInfo, orders: prOrders }], idx) => (
+          {grouped.map(([groupKey, { isUnion, prInfo, sourceRequests, orders: prOrders }], idx) => (
             <PRGroup
-              key={prNum}
-              prNumber={prNum}
+              key={groupKey}
+              prNumber={isUnion ? prOrders[0]?.orderNumber : groupKey}
               prInfo={prInfo}
+              isUnion={isUnion}
+              sourceRequests={sourceRequests}
               orders={prOrders}
               onOpenOrder={openDetail}
               defaultOpen={idx === 0}

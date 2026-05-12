@@ -88,7 +88,7 @@ export default function App() {
 
               {/* Purchase Requests — Admin, Manager, Lab, Purchase Officer, Accounting, QC */}
               <Route path="/purchase-requests" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'ACCOUNTING', 'QC', 'LAB']}><PurchaseRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'ACCOUNTING', 'QC', 'LAB', 'PURCHASE_OFFICER']}><PurchaseRequests /></PrivateRoute>
               } />
 
               {/* Quotation Management — PO submits, ADMIN approves (no accounting tier) */}
@@ -119,7 +119,7 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER']}><StockMovements /></PrivateRoute>
               } />
               <Route path="/gate-pass" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER']}><GatePass /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING']}><GatePass /></PrivateRoute>
               } />
               {/* Inventory Transfers — MANAGER only: destination requests, source approves */}
               <Route path="/inventory-transfers" element={

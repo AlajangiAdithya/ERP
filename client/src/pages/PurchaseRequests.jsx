@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp } from 'lucide-react';
+import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
@@ -681,11 +681,22 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
 
 // ─── Procurement Journey Timeline ───
 function ProcurementJourney({ request }) {
+  const unionPOs = (request?.purchaseOrderSources || [])
+    .map(s => s.purchaseOrder)
+    .filter(po => po?.isUnion);
+  const activeUnionPO = unionPOs[0];
+  const activePO = activeUnionPO || request?.purchaseOrders?.[0];
+  const poDetail = activePO
+    ? (activePO.isUnion
+      ? `Union PO ${activePO.orderNumber} with ${(activePO.sourceRequests?.length || 0)} units`
+      : `PO: ${activePO.customName}`)
+    : null;
+
   const statusOrder = [
     { key: 'PENDING_ADMIN', label: 'Submitted', detail: request?.createdAt ? formatDateTime(request.createdAt) : null },
     { key: 'APPROVED', label: 'Admin Approved', detail: request?.adminApprovedBy ? `${request.adminApprovedBy.name} • ${formatDateTime(request.adminApprovedAt)}` : null },
     { key: 'QUOTATION_SUBMITTED', label: 'Quotations Collected', detail: null },
-    { key: 'QUOTATION_APPROVED', label: 'Quotation Approved', detail: request?.purchaseOrders?.[0] ? `PO: ${request.purchaseOrders[0].customName}` : null },
+    { key: 'QUOTATION_APPROVED', label: 'Quotation Approved', detail: poDetail },
     { key: 'ORDER_PLACED', label: 'Order Placed', detail: null },
     { key: 'GOODS_ARRIVED', label: 'Goods Arrived', detail: null },
     { key: 'QC_PASSED', label: 'QC Passed', detail: null },
@@ -735,7 +746,22 @@ function ProcurementJourney({ request }) {
 function DetailModal({ request, onClose }) {
   if (!request) return null;
 
-  const primaryPO = request.purchaseOrders?.[0];
+  const unionPOs = (request.purchaseOrderSources || [])
+    .map(s => s.purchaseOrder)
+    .filter(po => po?.isUnion);
+  const primaryPO = unionPOs[0] || request.purchaseOrders?.[0];
+
+  // Map: prItemId → first union PO that has an allocation for it
+  const unionPOByItem = new Map();
+  for (const po of unionPOs) {
+    for (const poItem of (po.items || [])) {
+      for (const alloc of (poItem.allocations || [])) {
+        if (alloc.purchaseRequestItemId && !unionPOByItem.has(alloc.purchaseRequestItemId)) {
+          unionPOByItem.set(alloc.purchaseRequestItemId, { po, allocation: alloc, poItem });
+        }
+      }
+    }
+  }
 
   return (
     <Modal isOpen={!!request} onClose={onClose} title={`Purchase Request ${request.requestNumber}`} size="xl">
@@ -760,7 +786,16 @@ function DetailModal({ request, onClose }) {
             </>
           )}
           {primaryPO && (
-            <div className="col-span-2"><span className="text-gray-500">PO:</span> <span className="font-medium">{primaryPO.orderNumber}</span> <Badge color="gray">₹{primaryPO.totalAmount?.toLocaleString('en-IN')}</Badge></div>
+            <div className="col-span-2 flex items-center gap-2 flex-wrap">
+              <span className="text-gray-500">PO:</span>
+              <span className="font-medium">{primaryPO.orderNumber}</span>
+              <Badge color="gray">₹{primaryPO.totalAmount?.toLocaleString('en-IN')}</Badge>
+              {primaryPO.isUnion && (
+                <Badge color="purple">
+                  <Layers size={10} className="inline mr-0.5" /> Union with {(primaryPO.sourceRequests?.length || 0)} units
+                </Badge>
+              )}
+            </div>
           )}
         </div>
 
@@ -793,9 +828,19 @@ function DetailModal({ request, onClose }) {
             <tbody>
               {request.items?.map(item => {
                 const approvedQty = item.adminApprovedQty ?? item.requestedQty;
+                const unionRef = unionPOByItem.get(item.id);
                 return (
                   <tr key={item.id} className="border-b border-gray-50">
-                    <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
+                    <td className="px-3 py-2 font-medium text-gray-700">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span>{item.productName}</span>
+                        {unionRef && (
+                          <Badge color="purple" title={`Part of Union PO ${unionRef.po.orderNumber} (${(unionRef.po.sourceRequests?.length || 0)} units) — your allocation: ${unionRef.allocation.allocatedQty} ${item.productUnit}`}>
+                            <Layers size={10} className="inline mr-0.5" /> Union {unionRef.po.orderNumber}
+                          </Badge>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-3 py-2 text-gray-600">{item.requestedQty} {item.productUnit}</td>
                     <td className="px-3 py-2 text-gray-600">
                       {item.adminApprovedQty != null ? `${item.adminApprovedQty} ${item.productUnit}` : '—'}

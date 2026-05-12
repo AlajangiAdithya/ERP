@@ -30,6 +30,13 @@ const typeRoutes = {
   QC_FAILED: '/qc-inspections',
   ION_RECEIVED: '/ion',
   ION_STATUS_UPDATE: '/ion',
+  NEW_PURCHASE_REQUEST: '/purchase-requests',
+  PURCHASE_REQUEST_APPROVED: '/purchase-requests',
+  PURCHASE_REQUEST_REJECTED: '/purchase-requests',
+  NEW_PURCHASE_ASSIGNMENT: '/purchase-requests',
+  PURCHASE_COMPLETED: '/purchase-requests',
+  QUOTATION_REVIEW: '/quotations',
+  QUOTATION_APPROVED: '/quotations',
 };
 
 const typeColors = {

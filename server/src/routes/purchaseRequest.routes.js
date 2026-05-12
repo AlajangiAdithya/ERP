@@ -71,8 +71,62 @@ router.get('/', authenticate, async (req, res) => {
               product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
             },
           },
-          quotations: { select: { id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true } },
-          purchaseOrders: { select: { id: true, orderNumber: true, customName: true, status: true, totalAmount: true, totalPaid: true } },
+          quotations: {
+            select: {
+              id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true,
+              sourceRequests: {
+                include: {
+                  purchaseRequest: {
+                    select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                  },
+                },
+              },
+            },
+          },
+          purchaseOrders: {
+            select: {
+              id: true, orderNumber: true, customName: true, status: true, totalAmount: true, totalPaid: true, isUnion: true,
+              sourceRequests: {
+                include: {
+                  purchaseRequest: {
+                    select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                  },
+                },
+              },
+            },
+          },
+          quotationSources: {
+            include: {
+              quotation: {
+                select: {
+                  id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true,
+                  sourceRequests: {
+                    include: {
+                      purchaseRequest: {
+                        select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          purchaseOrderSources: {
+            include: {
+              purchaseOrder: {
+                select: {
+                  id: true, orderNumber: true, customName: true, status: true, totalAmount: true, totalPaid: true, isUnion: true,
+                  sourceRequests: {
+                    include: {
+                      purchaseRequest: {
+                        select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -152,6 +206,90 @@ router.get('/:id', authenticate, async (req, res) => {
         items: {
           include: {
             product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
+          },
+        },
+        quotations: {
+          select: {
+            id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true,
+            sourceRequests: {
+              include: {
+                purchaseRequest: {
+                  select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                },
+              },
+            },
+          },
+        },
+        purchaseOrders: {
+          select: {
+            id: true, orderNumber: true, customName: true, status: true, totalAmount: true, totalPaid: true, isUnion: true,
+            sourceRequests: {
+              include: {
+                purchaseRequest: {
+                  select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                },
+              },
+            },
+            items: {
+              select: {
+                id: true, productName: true, productUnit: true, quantity: true, receivedQty: true, itemStatus: true, purchaseRequestItemId: true,
+                allocations: {
+                  select: {
+                    id: true, purchaseRequestItemId: true, allocatedQty: true, receivedQty: true,
+                    purchaseRequestItem: {
+                      select: {
+                        id: true,
+                        request: {
+                          select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        quotationSources: {
+          include: {
+            quotation: {
+              select: {
+                id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true,
+                sourceRequests: {
+                  include: {
+                    purchaseRequest: {
+                      select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        purchaseOrderSources: {
+          include: {
+            purchaseOrder: {
+              select: {
+                id: true, orderNumber: true, customName: true, status: true, totalAmount: true, totalPaid: true, isUnion: true,
+                sourceRequests: {
+                  include: {
+                    purchaseRequest: {
+                      select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                    },
+                  },
+                },
+                items: {
+                  select: {
+                    id: true, productName: true, productUnit: true, quantity: true, receivedQty: true, itemStatus: true, purchaseRequestItemId: true,
+                    allocations: {
+                      select: {
+                        id: true, purchaseRequestItemId: true, allocatedQty: true, receivedQty: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },

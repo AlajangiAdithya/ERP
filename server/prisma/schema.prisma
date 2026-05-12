@@ -10,36 +10,40 @@ datasource db {
 
 // ──── USERS & AUTH ────
 model User {
-  id                String           @id @default(uuid())
-  username          String           @unique
-  passwordHash      String
-  plainPassword     String?
-  name              String
-  role              Role             @default(MANAGER)
-  unitId            String?
-  unit              Unit?            @relation(fields: [unitId], references: [id])
-  isActive          Boolean          @default(true)
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  sessions          Session[]
-  auditLogs         AuditLog[]
-  productRequests   ProductRequest[]
-  sentNotifications Notification[]   @relation("SentBy")
-  purchaseRequests         PurchaseRequest[]  @relation("PurchaseRequestManager")
-  purchaseRequestApprovals PurchaseRequest[]  @relation("PurchaseRequestApprover")
+  id                         String                     @id @default(uuid())
+  username                   String                     @unique
+  passwordHash               String
+  plainPassword              String?
+  name                       String
+  role                       Role                       @default(MANAGER)
+  unitId                     String?
+  unit                       Unit?                      @relation(fields: [unitId], references: [id])
+  isActive                   Boolean                    @default(true)
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
+  sessions                   Session[]
+  auditLogs                  AuditLog[]
+  productRequests            ProductRequest[]
+  sentNotifications          Notification[]             @relation("SentBy")
+  purchaseRequests           PurchaseRequest[]          @relation("PurchaseRequestManager")
+  purchaseRequestApprovals   PurchaseRequest[]          @relation("PurchaseRequestApprover")
   // New relations for procurement workflow
-  targetedNotifications    Notification[]     @relation("TargetUser")
-  quotationsCreated        Quotation[]        @relation("QuotationCreator")
-  purchaseOrdersCreated    PurchaseOrder[]    @relation("POCreator")
-  paymentRequestsCreated   PaymentRequest[]   @relation("PaymentCreator")
-  paymentRequestsProcessed PaymentRequest[]   @relation("PaymentProcessor")
-  qcInspections            QCInspection[]     @relation("QCInspector")
-  qcInspectionRequests     QCInspection[]     @relation("QCInspectionRequestor")
-  gatePassesCreated        GatePass[]         @relation("GatePassCreator")
-  ionsCreated              InterOfficeNote[]  @relation("IONCreator")
-  ionsAssigned             InterOfficeNote[]  @relation("IONAssignee")
-  transferRequestsCreated  InventoryTransferRequest[] @relation("TransferRequester")
-  transferRequestsApproved InventoryTransferRequest[] @relation("TransferApprover")
+  targetedNotifications      Notification[]             @relation("TargetUser")
+  quotationsCreated          Quotation[]                @relation("QuotationCreator")
+  purchaseOrdersCreated      PurchaseOrder[]            @relation("POCreator")
+  paymentRequestsCreated     PaymentRequest[]           @relation("PaymentCreator")
+  paymentRequestsProcessed   PaymentRequest[]           @relation("PaymentProcessor")
+  qcInspections              QCInspection[]             @relation("QCInspector")
+  qcInspectionRequests       QCInspection[]             @relation("QCInspectionRequestor")
+  gatePassesCreated          GatePass[]                 @relation("GatePassCreator")
+  gatePassesSiteApproved     GatePass[]                 @relation("GatePassSiteIncharge")
+  gatePassesStoreApproved    GatePass[]                 @relation("GatePassStoreIncharge")
+  gatePassesAccountsApproved GatePass[]                 @relation("GatePassAccountsApprover")
+  gatePassesFinalApproved    GatePass[]                 @relation("GatePassFinalApprover")
+  ionsCreated                InterOfficeNote[]          @relation("IONCreator")
+  ionsAssigned               InterOfficeNote[]          @relation("IONAssignee")
+  transferRequestsCreated    InventoryTransferRequest[] @relation("TransferRequester")
+  transferRequestsApproved   InventoryTransferRequest[] @relation("TransferApprover")
 }
 
 model Session {
@@ -63,14 +67,14 @@ enum Role {
 
 // ──── UNITS ────
 model Unit {
-  id              String           @id @default(uuid())
-  name            String           @unique
-  code            String           @unique
-  isActive        Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  users           User[]
-  productRequests ProductRequest[]
+  id               String                     @id @default(uuid())
+  name             String                     @unique
+  code             String                     @unique
+  isActive         Boolean                    @default(true)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  users            User[]
+  productRequests  ProductRequest[]
   purchaseRequests PurchaseRequest[]
   transfersFrom    InventoryTransferRequest[] @relation("TransferFromUnit")
   transfersTo      InventoryTransferRequest[] @relation("TransferToUnit")
@@ -78,36 +82,36 @@ model Unit {
 
 // ──── AUDIT LOG ────
 model AuditLog {
-  id         String   @id @default(uuid())
-  userId     String?
-  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action     String
-  entity     String
-  entityId   String?
-  details    Json?
-  ipAddress  String?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
 }
 
 // ──── PRODUCTS / INVENTORY ────
 model Product {
-  id             String          @id @default(uuid())
-  name           String
-  sku            String          @unique
-  description    String?
-  category       String?
-  unit           String          @default("pcs")
-  currentStock   Float           @default(0)
-  minStockLevel  Float           @default(0)
-  maxStockLevel  Float?
-  isActive       Boolean         @default(true)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  stockMovements StockMovement[]
-  requestItems   RequestItem[]
+  id                   String                     @id @default(uuid())
+  name                 String
+  sku                  String                     @unique
+  description          String?
+  category             String?
+  unit                 String                     @default("pcs")
+  currentStock         Float                      @default(0)
+  minStockLevel        Float                      @default(0)
+  maxStockLevel        Float?
+  isActive             Boolean                    @default(true)
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  stockMovements       StockMovement[]
+  requestItems         RequestItem[]
   purchaseRequestItems PurchaseRequestItem[]
-  batches        ProductBatch[]
-  transfers      InventoryTransferRequest[]
+  batches              ProductBatch[]
+  transfers            InventoryTransferRequest[]
 }
 
 // ──── PRODUCT BATCHES (FIFO lot tracking) ────
@@ -117,10 +121,10 @@ model ProductBatch {
   product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   batchNo       String?
   receivedDate  DateTime @default(now())
-  quantity      Float                                 // original inward qty
-  remaining     Float                                 // qty still in stock
+  quantity      Float // original inward qty
+  remaining     Float // qty still in stock
   unitCost      Float?
-  referenceType String?                               // InwardEntry, PurchaseOrder, InwardEntryNewProduct
+  referenceType String? // InwardEntry, PurchaseOrder, InwardEntryNewProduct
   referenceId   String?
   notes         String?
   createdById   String?
@@ -157,17 +161,17 @@ enum MovementType {
 model ProductRequest {
   id             String        @id @default(uuid())
   requestNumber  String        @unique
-  referenceNo    String?                      // Reference No. & Date (from MIV form)
-  mirNo          String?                      // MIR NO. (from MIV form)
-  issueNo        String?                      // Issue No.
-  issueDate      DateTime?                    // Issue Date
+  referenceNo    String? // Reference No. & Date (from MIV form)
+  mirNo          String? // MIR NO. (from MIV form)
+  issueNo        String? // Issue No.
+  issueDate      DateTime? // Issue Date
   managerId      String?
   manager        User?         @relation(fields: [managerId], references: [id], onDelete: SetNull)
   unitId         String
   unit           Unit          @relation(fields: [unitId], references: [id])
   status         RequestStatus @default(PENDING)
   notes          String?
-  remarks        String?                      // Remarks field from MIV form
+  remarks        String? // Remarks field from MIV form
   clearanceNotes String?
   clearedById    String?
   clearedAt      DateTime?
@@ -185,10 +189,10 @@ model RequestItem {
   product         Product        @relation(fields: [productId], references: [id])
   quantity        Float
   approvedQty     Float?
-  collectedQty    Float          @default(0)  // cumulative qty actually taken (partial collection)
-  purpose         String?                     // Purpose (Production fills)
-  qtyIssued       Float?                      // Qty Issue (Store fills)
-  materialBatchNo String?                     // Material Batch No. If any (Store fills)
+  collectedQty    Float          @default(0) // cumulative qty actually taken (partial collection)
+  purpose         String? // Purpose (Production fills)
+  qtyIssued       Float? // Qty Issue (Store fills)
+  materialBatchNo String? // Material Batch No. If any (Store fills)
 }
 
 enum RequestStatus {
@@ -202,51 +206,54 @@ enum RequestStatus {
 
 // ──── PURCHASE REQUESTS (Requester → Admin → PO → Quotation → Order workflow) ────
 model PurchaseRequest {
-  id                String                @id @default(uuid())
-  requestNumber     String                @unique
-  requestId         String                                           // Order name (required, locked after create) — filled by unit manager only
-  managerId         String?
-  manager           User?                 @relation("PurchaseRequestManager", fields: [managerId], references: [id], onDelete: SetNull)
-  unitId            String
-  unit              Unit                  @relation(fields: [unitId], references: [id])
-  status            PurchaseRequestStatus @default(PENDING_ADMIN)
-  notes             String?
-  adminNotes        String?
-  adminApprovedById String?
-  adminApprovedBy   User?                 @relation("PurchaseRequestApprover", fields: [adminApprovedById], references: [id])
-  adminApprovedAt   DateTime?
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-  items             PurchaseRequestItem[]
-  quotations        Quotation[]
-  purchaseOrders    PurchaseOrder[]
+  id                   String                @id @default(uuid())
+  requestNumber        String                @unique
+  requestId            String // Order name (required, locked after create) — filled by unit manager only
+  managerId            String?
+  manager              User?                 @relation("PurchaseRequestManager", fields: [managerId], references: [id], onDelete: SetNull)
+  unitId               String
+  unit                 Unit                  @relation(fields: [unitId], references: [id])
+  status               PurchaseRequestStatus @default(PENDING_ADMIN)
+  notes                String?
+  adminNotes           String?
+  adminApprovedById    String?
+  adminApprovedBy      User?                 @relation("PurchaseRequestApprover", fields: [adminApprovedById], references: [id])
+  adminApprovedAt      DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  items                PurchaseRequestItem[]
+  quotations           Quotation[]
+  purchaseOrders       PurchaseOrder[]
+  quotationSources     QuotationSource[]
+  purchaseOrderSources PurchaseOrderSource[]
 }
 
 // Form No: RAPS/PRF Rev no. 02 Date: 31/08/2024
 model PurchaseRequestItem {
-  id                    String          @id @default(uuid())
+  id                    String                        @id @default(uuid())
   requestId             String
-  request               PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  request               PurchaseRequest               @relation(fields: [requestId], references: [id], onDelete: Cascade)
   productId             String?
-  product               Product?        @relation(fields: [productId], references: [id])
-  productName           String                         // Material Description
-  productUnit           String          @default("pcs") // UOM
-  requestedQty          Float                          // Required Quantity
+  product               Product?                      @relation(fields: [productId], references: [id])
+  productName           String // Material Description
+  productUnit           String                        @default("pcs") // UOM
+  requestedQty          Float // Required Quantity
   adminApprovedQty      Float?
-  purchasedQty          Float           @default(0)
-  itemStatus            ItemOrderStatus?                // Set once ORDER_PLACED; mirrored from PO items
+  purchasedQty          Float                         @default(0)
+  itemStatus            ItemOrderStatus? // Set once ORDER_PLACED; mirrored from PO items
   // PRF form fields
-  materialType          String?                        // Raw material / Consumable / Tooling / Others
-  materialSpecification String?                        // Material specification data
-  qapNo                 String?                        // QAP no. & QAP attachment reference
-  drawingNo             String?                        // Drawing no. & detailed drawing reference
-  materialRequiredFor   String?                        // SO no. / R&D
-  purpose               String?                        // Purpose
-  sourceOfSupply        String?                        // Source of supply if any
-  scopeOfWork           String?                        // Scope of work details
-  inspectionType        String?                        // Inhouse / External (RAPS QC/Customer QC)
-  requiredByDate        DateTime?                      // Required by date
-  itemRemarks           String?                        // Other details/Remarks
+  materialType          String? // Raw material / Consumable / Tooling / Others
+  materialSpecification String? // Material specification data
+  qapNo                 String? // QAP no. & QAP attachment reference
+  drawingNo             String? // Drawing no. & detailed drawing reference
+  materialRequiredFor   String? // SO no. / R&D
+  purpose               String? // Purpose
+  sourceOfSupply        String? // Source of supply if any
+  scopeOfWork           String? // Scope of work details
+  inspectionType        String? // Inhouse / External (RAPS QC/Customer QC)
+  requiredByDate        DateTime? // Required by date
+  itemRemarks           String? // Other details/Remarks
+  poItemAllocations     PurchaseOrderItemAllocation[]
 }
 
 enum PurchaseRequestStatus {
@@ -265,77 +272,125 @@ enum PurchaseRequestStatus {
 
 // ──── QUOTATIONS (PO collects from suppliers) ────
 model Quotation {
-  id                String          @id @default(uuid())
-  quotationNumber   String          @unique
-  purchaseRequestId String
-  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
+  id                String            @id @default(uuid())
+  quotationNumber   String            @unique
+  purchaseRequestId String?
+  purchaseRequest   PurchaseRequest?  @relation(fields: [purchaseRequestId], references: [id])
+  isUnion           Boolean           @default(false)
   supplierName      String?
   supplierContact   String?
   supplierAddress   String?
   totalAmount       Float
   notes             String?
-  isSelected        Boolean         @default(false)
+  isSelected        Boolean           @default(false)
   createdById       String
-  createdBy         User            @relation("QuotationCreator", fields: [createdById], references: [id])
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  createdBy         User              @relation("QuotationCreator", fields: [createdById], references: [id])
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
   items             QuotationItem[]
   purchaseOrders    PurchaseOrder[]
+  sourceRequests    QuotationSource[]
+}
+
+// Junction: links a union Quotation to its source PurchaseRequests
+model QuotationSource {
+  id                String          @id @default(uuid())
+  quotationId       String
+  quotation         Quotation       @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
+  createdAt         DateTime        @default(now())
+
+  @@unique([quotationId, purchaseRequestId])
 }
 
 model QuotationItem {
-  id              String    @id @default(uuid())
-  quotationId     String
-  quotation       Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
-  productName     String
-  productUnit     String    @default("pcs")
-  quantity        Float
-  unitPrice       Float
-  totalPrice      Float
-  supplierName    String
-  supplierContact String?
-  supplierAddress String?
+  id                String    @id @default(uuid())
+  quotationId       String
+  quotation         Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  productName       String
+  productUnit       String    @default("pcs")
+  quantity          Float
+  unitPrice         Float
+  totalPrice        Float
+  supplierName      String
+  supplierContact   String?
+  supplierAddress   String?
+  // For union quotations: per-PR-item allocation breakdown captured at quotation creation
+  // so it can be carried into PurchaseOrderItemAllocation when the quotation is approved.
+  // Shape: [{ purchaseRequestItemId: string, allocatedQty: number }]
+  sourceAllocations Json?
 }
 
 // ──── PURCHASE ORDERS (created when quotation is selected) ────
 model PurchaseOrder {
-  id                String              @id @default(uuid())
-  orderNumber       String              @unique
+  id                String                @id @default(uuid())
+  orderNumber       String                @unique
   customName        String
-  purchaseRequestId String
-  purchaseRequest   PurchaseRequest     @relation(fields: [purchaseRequestId], references: [id])
+  purchaseRequestId String?
+  purchaseRequest   PurchaseRequest?      @relation(fields: [purchaseRequestId], references: [id])
+  isUnion           Boolean               @default(false)
   quotationId       String
-  quotation         Quotation           @relation(fields: [quotationId], references: [id])
+  quotation         Quotation             @relation(fields: [quotationId], references: [id])
   supplierName      String
   totalAmount       Float
-  advancePaid       Float               @default(0)
-  totalPaid         Float               @default(0)
-  goodsArrived      Boolean             @default(false)
+  advancePaid       Float                 @default(0)
+  totalPaid         Float                 @default(0)
+  goodsArrived      Boolean               @default(false)
   goodsArrivedAt    DateTime?
-  status            PurchaseOrderStatus @default(PENDING_ACCOUNTING)
+  status            PurchaseOrderStatus   @default(PENDING_ACCOUNTING)
   createdById       String
-  createdBy         User                @relation("POCreator", fields: [createdById], references: [id])
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  createdBy         User                  @relation("POCreator", fields: [createdById], references: [id])
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
   items             PurchaseOrderItem[]
   paymentRequests   PaymentRequest[]
   qcInspections     QCInspection[]
+  sourceRequests    PurchaseOrderSource[]
+}
+
+// Junction: links a union PurchaseOrder to its source PurchaseRequests
+model PurchaseOrderSource {
+  id                String          @id @default(uuid())
+  purchaseOrderId   String
+  purchaseOrder     PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
+  createdAt         DateTime        @default(now())
+
+  @@unique([purchaseOrderId, purchaseRequestId])
 }
 
 model PurchaseOrderItem {
-  id              String        @id @default(uuid())
-  purchaseOrderId String
-  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  productName     String
-  productUnit     String        @default("pcs")
-  quantity        Float
-  unitPrice       Float
-  totalPrice      Float
-  receivedQty     Float         @default(0)
-  itemStatus      ItemOrderStatus @default(WAITING)
+  id                    String                        @id @default(uuid())
+  purchaseOrderId       String
+  purchaseOrder         PurchaseOrder                 @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productName           String
+  productUnit           String                        @default("pcs")
+  quantity              Float
+  unitPrice             Float
+  totalPrice            Float
+  receivedQty           Float                         @default(0)
+  itemStatus            ItemOrderStatus               @default(WAITING)
   purchaseRequestItemId String?
-  statusUpdatedAt DateTime?
-  statusUpdatedBy String?
+  statusUpdatedAt       DateTime?
+  statusUpdatedBy       String?
+  allocations           PurchaseOrderItemAllocation[]
+}
+
+// For union PO items: tracks per-PR-item allocation of the consolidated quantity.
+// Non-union items leave this empty and use PurchaseOrderItem.purchaseRequestItemId.
+model PurchaseOrderItemAllocation {
+  id                    String              @id @default(uuid())
+  purchaseOrderItemId   String
+  purchaseOrderItem     PurchaseOrderItem   @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Cascade)
+  purchaseRequestItemId String
+  purchaseRequestItem   PurchaseRequestItem @relation(fields: [purchaseRequestItemId], references: [id])
+  allocatedQty          Float
+  receivedQty           Float               @default(0)
+  createdAt             DateTime            @default(now())
+
+  @@unique([purchaseOrderItemId, purchaseRequestItemId])
 }
 
 enum ItemOrderStatus {
@@ -396,51 +451,51 @@ enum PaymentRequestStatus {
 // ──── QC INSPECTIONS ────
 // Form No: RAPS/IIR Rev 01, Dt: 01/09/2024 (Inward Inspection Request + Report)
 model QCInspection {
-  id               String        @id @default(uuid())
-  inspectionNumber String        @unique          // ION No.
-  purchaseOrderId  String
-  purchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
-  result           QCResult      @default(PENDING)
-  parameters       Json?                          // Flexible inspection parameters
-  notes            String?
-  requestCreatedById String?                      // Who created the inspection request (Purchase/Stores)
-  requestCreatedBy   User?         @relation("QCInspectionRequestor", fields: [requestCreatedById], references: [id])
-  inspectedById    String?                        // Who filled the inspection report (QC)
-  inspectedBy      User?         @relation("QCInspector", fields: [inspectedById], references: [id])
-  inspectedAt      DateTime?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id                   String        @id @default(uuid())
+  inspectionNumber     String        @unique // ION No.
+  purchaseOrderId      String
+  purchaseOrder        PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  result               QCResult      @default(PENDING)
+  parameters           Json? // Flexible inspection parameters
+  notes                String?
+  requestCreatedById   String? // Who created the inspection request (Purchase/Stores)
+  requestCreatedBy     User?         @relation("QCInspectionRequestor", fields: [requestCreatedById], references: [id])
+  inspectedById        String? // Who filled the inspection report (QC)
+  inspectedBy          User?         @relation("QCInspector", fields: [inspectedById], references: [id])
+  inspectedAt          DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
   // ── Page 1: Inward Inspection Request fields ──
-  invoiceNo          String?                      // 11. Invoice no. & date
-  invoiceDate        DateTime?
-  dcNo               String?                      // 12. DC no. if any
-  gatePassNo         String?                      // 13. Gate pass no. (FIM/Others)
-  gatePassType       String?                      // 14. Gate pass type
-  probableDateOfReturn DateTime?                  // 15. Probable date of Return
-  materialReceiptDate  DateTime?                  // 16. Material receipt date @ RAPS Store
+  invoiceNo            String? // 11. Invoice no. & date
+  invoiceDate          DateTime?
+  dcNo                 String? // 12. DC no. if any
+  gatePassNo           String? // 13. Gate pass no. (FIM/Others)
+  gatePassType         String? // 14. Gate pass type
+  probableDateOfReturn DateTime? // 15. Probable date of Return
+  materialReceiptDate  DateTime? // 16. Material receipt date @ RAPS Store
   // ── Page 2: Inward Inspection Report fields ──
-  reportNo           String?                      // Inspection report no.
-  reportDate         DateTime?
-  materialDescription String?                     // Material description and specification
-  materialCategory   String?                      // Raw materials / Consumables / Tooling & Fixtures / FIM
-  documentTypes      Json?                        // Checkboxes: Test Report, COC, COA, 3rd Party/Customer Clearance
-  inspectionLocation String?                      // Dimensional Inspection at Supplier Place / at RAPS Inward
-  reportReferenceNo  String?                      // Report reference no.
-  packingCondition   String?                      // Sealed / Broken
-  packingDamageNotes String?                      // If damages, mention
-  batchNo            String?                      // Batch no./Identification
-  dateOfManufacturing DateTime?                   // Date of manufacturing
-  dateOfExpiry       DateTime?                    // Date of Expiry
-  tappedHolesCondition String?                    // Check condition of tapped holes, weld lugs
+  reportNo             String? // Inspection report no.
+  reportDate           DateTime?
+  materialDescription  String? // Material description and specification
+  materialCategory     String? // Raw materials / Consumables / Tooling & Fixtures / FIM
+  documentTypes        Json? // Checkboxes: Test Report, COC, COA, 3rd Party/Customer Clearance
+  inspectionLocation   String? // Dimensional Inspection at Supplier Place / at RAPS Inward
+  reportReferenceNo    String? // Report reference no.
+  packingCondition     String? // Sealed / Broken
+  packingDamageNotes   String? // If damages, mention
+  batchNo              String? // Batch no./Identification
+  dateOfManufacturing  DateTime? // Date of manufacturing
+  dateOfExpiry         DateTime? // Date of Expiry
+  tappedHolesCondition String? // Check condition of tapped holes, weld lugs
   // Quantity tracking
-  qtyAsPerPR         Float?                       // Quantity as per PR
-  qtyOrdered         Float?                       // Quantity ordered
-  qtyReceived        Float?                       // Quantity Received
-  qtyAccepted        Float?                       // Quantity Accepted
-  qtyRejected        Float?                       // Quantity Rejected
-  rejectionReason    String?                      // Reason for Rejection/Non conformity
-  remarks            String?                      // Remarks
-  mirNo              String?                      // MIR No. (Store to be filled)
+  qtyAsPerPR           Float? // Quantity as per PR
+  qtyOrdered           Float? // Quantity ordered
+  qtyReceived          Float? // Quantity Received
+  qtyAccepted          Float? // Quantity Accepted
+  qtyRejected          Float? // Quantity Rejected
+  rejectionReason      String? // Reason for Rejection/Non conformity
+  remarks              String? // Remarks
+  mirNo                String? // MIR No. (Store to be filled)
 }
 
 enum QCResult {
@@ -450,41 +505,70 @@ enum QCResult {
   PARTIAL
 }
 
-// ──── GATE PASS (Stores: returnable / non-returnable / delivery challan) ────
+// ──── GATE PASS REQUEST (RAMS/GPR/01) ────
+// Workflow: Unit Manager (Site Incharge) → Store Incharge → Accounts → Final Approval
+// Approved passes can later be marked RETURNED (returnable items) or CLOSED.
 model GatePass {
   id                 String         @id @default(uuid())
-  passNumber         String         @unique
-  passType           GatePassType
+  passNumber         String         @unique // Doc/Request No
+  passType           GatePassType? // Dominant / legacy type (per-item overrides)
   date               DateTime       @default(now())
-  partyName          String                                // Vendor / Customer
+  siteName           String? // Site (header)
+  partyName          String? // Auto-derived from items.dispatchedTo (legacy column)
   partyContact       String?
-  vehicleNo          String?
+  vehicleNo          String? // Filled by Store Incharge when arranging the vehicle
+  driverName         String? // Filled by Store Incharge when arranging the vehicle
   invoiceNo          String?
   dcNo               String?
-  purpose            String?
-  status             GatePassStatus @default(OPEN)
-  expectedReturnDate DateTime?                             // For returnable
+  purpose            String? // Legacy (now per-item)
+  status             GatePassStatus @default(PENDING_STORE)
+  expectedReturnDate DateTime? // Legacy (now per-item)
   actualReturnDate   DateTime?
   returnedBy         String?
   issuedToName       String?
   issuedToDept       String?
-  requisitionNo      String?                               // Gate Pass Requisition No (FIM etc.)
+  requisitionNo      String?
   remarks            String?
-  createdById        String
-  createdBy          User           @relation("GatePassCreator", fields: [createdById], references: [id])
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
-  items              GatePassItem[]
+  rejectedReason     String?
+
+  // Approval trail
+  siteInchargeById  String?
+  siteInchargeAt    DateTime?
+  storeInchargeById String?
+  storeInchargeAt   DateTime?
+  accountsById      String?
+  accountsAt        DateTime?
+  approvedById      String?
+  approvedAt        DateTime?
+
+  createdById      String
+  createdBy        User   @relation("GatePassCreator", fields: [createdById], references: [id])
+  siteIncharge     User?  @relation("GatePassSiteIncharge", fields: [siteInchargeById], references: [id])
+  storeIncharge    User?  @relation("GatePassStoreIncharge", fields: [storeInchargeById], references: [id])
+  accountsApprover User?  @relation("GatePassAccountsApprover", fields: [accountsById], references: [id])
+  finalApprover    User?  @relation("GatePassFinalApprover", fields: [approvedById], references: [id])
+
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  items     GatePassItem[]
 }
 
 model GatePassItem {
-  id          String   @id @default(uuid())
-  gatePassId  String
-  gatePass    GatePass @relation(fields: [gatePassId], references: [id], onDelete: Cascade)
-  description String
-  quantity    Float    @default(1)
-  unit        String   @default("pcs")
-  remarks     String?
+  id                   String        @id @default(uuid())
+  gatePassId           String
+  gatePass             GatePass      @relation(fields: [gatePassId], references: [id], onDelete: Cascade)
+  description          String // Name of components
+  quantity             Float         @default(1)
+  unit                 String        @default("pcs")
+  // Per-row fields matching RAMS/GPR/01
+  dispatchedTo         String?
+  itemPurpose          String?
+  probableReturnDate   DateTime?
+  itemPassType         GatePassType?
+  gatePassDetails      String?
+  transportation       String?
+  contactPersonDetails String?
+  remarks              String? // Legacy
 }
 
 enum GatePassType {
@@ -494,9 +578,16 @@ enum GatePassType {
 }
 
 enum GatePassStatus {
-  OPEN
+  DRAFT
+  PENDING_STORE
+  PENDING_ACCOUNTS
+  PENDING_APPROVAL
+  APPROVED
   RETURNED
   CLOSED
+  REJECTED
+  // Legacy
+  OPEN
 }
 
 // ──── INTER OFFICE NOTE (ION) — MANAGER ↔ LAB secret workflow ────

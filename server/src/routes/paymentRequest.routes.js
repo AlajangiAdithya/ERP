@@ -4,7 +4,6 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
-const { canApprove, getTier, getTierLabel } = require('../utils/approvalTiers');
 
 const router = express.Router();
 
@@ -121,14 +120,11 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
       },
     });
 
-    const tier = getTier(data.amount);
-    const tierLabel = getTierLabel(tier);
-
     await prisma.notification.create({
       data: {
         type: 'PAYMENT_REQUEST',
-        title: `Payment Request (${tier}): ${order.customName}`,
-        message: `${data.paymentType} payment of ₹${data.amount.toLocaleString('en-IN')} requested for order "${order.customName}" (${order.orderNumber}) to ${order.supplierName}. Approval tier: ${tier} — ${tierLabel}. Please approve to send to Accounting.${data.notes ? ' Notes: ' + data.notes : ''}`,
+        title: `Payment Request: ${order.customName}`,
+        message: `${data.paymentType} payment of ₹${data.amount.toLocaleString('en-IN')} requested for order "${order.customName}" (${order.orderNumber}) to ${order.supplierName}. Please approve to send to Accounting.${data.notes ? ' Notes: ' + data.notes : ''}`,
         targetRole: 'ADMIN',
         sentById: req.user.id,
       },
@@ -168,15 +164,6 @@ router.put('/:id/approve', authenticate, authorize('ADMIN'), async (req, res) =>
       return res.status(400).json({ error: 'Can only approve pending requests' });
     }
 
-    const tier = getTier(request.amount);
-    if (!canApprove(req.user, request.amount)) {
-      return res.status(403).json({
-        error: `This payment is ₹${request.amount.toLocaleString('en-IN')} (${tier}). Approval required from: ${getTierLabel(tier)}.`,
-        tier,
-        requiredApprovers: getTierLabel(tier),
-      });
-    }
-
     const updated = await prisma.paymentRequest.update({
       where: { id: req.params.id },
       data: { status: 'APPROVED' },
@@ -202,7 +189,7 @@ router.put('/:id/approve', authenticate, authorize('ADMIN'), async (req, res) =>
         action: 'APPROVE_PAYMENT',
         entity: 'PaymentRequest',
         entityId: request.id,
-        details: { paymentNumber: request.paymentNumber, amount: request.amount, tier },
+        details: { paymentNumber: request.paymentNumber, amount: request.amount },
         ipAddress: req.ip,
       },
     });
@@ -219,7 +206,19 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
   try {
     const request = await prisma.paymentRequest.findUnique({
       where: { id: req.params.id },
-      include: { purchaseOrder: { include: { items: true, purchaseRequest: { select: { id: true, managerId: true, requestNumber: true } } } } },
+      include: {
+        purchaseOrder: {
+          include: {
+            items: { include: { allocations: true } },
+            purchaseRequest: { select: { id: true, managerId: true, requestNumber: true } },
+            sourceRequests: {
+              include: {
+                purchaseRequest: { select: { id: true, managerId: true, requestNumber: true } },
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!request) return res.status(404).json({ error: 'Payment request not found' });
@@ -277,17 +276,32 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
             where: { id: item.id },
             data: { itemStatus: 'ORDERED', statusUpdatedAt: new Date(), statusUpdatedBy: req.user.id },
           });
-          if (item.purchaseRequestItemId) {
+          if (order.isUnion) {
+            const prItemIds = (item.allocations || []).map((a) => a.purchaseRequestItemId);
+            if (prItemIds.length) {
+              await tx.purchaseRequestItem.updateMany({
+                where: { id: { in: prItemIds } },
+                data: { itemStatus: 'ORDERED' },
+              });
+            }
+          } else if (item.purchaseRequestItemId) {
             await tx.purchaseRequestItem.update({
               where: { id: item.purchaseRequestItemId },
               data: { itemStatus: 'ORDERED' },
             });
           }
         }
-        await tx.purchaseRequest.update({
-          where: { id: order.purchaseRequest.id },
-          data: { status: 'ORDER_PLACED' },
-        });
+
+        const sourcePRIds = order.isUnion
+          ? (order.sourceRequests || []).map((s) => s.purchaseRequest.id)
+          : (order.purchaseRequest ? [order.purchaseRequest.id] : []);
+
+        if (sourcePRIds.length) {
+          await tx.purchaseRequest.updateMany({
+            where: { id: { in: sourcePRIds } },
+            data: { status: 'ORDER_PLACED' },
+          });
+        }
       }
 
       return result;
@@ -303,16 +317,26 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
       },
     });
 
-    if (wasPendingAccounting && order.purchaseRequest?.managerId) {
-      await prisma.notification.create({
-        data: {
-          type: 'ORDER_PLACED',
-          title: `Order Placed: ${order.customName}`,
-          message: `Payment for your purchase request ${order.purchaseRequest.requestNumber} has been processed. The order has been placed with ${order.supplierName}.`,
-          targetUserId: order.purchaseRequest.managerId,
-          sentById: req.user.id,
-        },
-      });
+    if (wasPendingAccounting) {
+      const recipients = order.isUnion
+        ? (order.sourceRequests || []).map((s) => s.purchaseRequest).filter((pr) => pr?.managerId)
+        : (order.purchaseRequest?.managerId ? [order.purchaseRequest] : []);
+
+      for (const pr of recipients) {
+        await prisma.notification.create({
+          data: {
+            type: 'ORDER_PLACED',
+            title: order.isUnion
+              ? `Union Order Placed: ${order.customName}`
+              : `Order Placed: ${order.customName}`,
+            message: order.isUnion
+              ? `Your purchase request ${pr.requestNumber} is part of Union PO ${order.orderNumber}. Payment has been processed and the order has been placed with ${order.supplierName}.`
+              : `Payment for your purchase request ${pr.requestNumber} has been processed. The order has been placed with ${order.supplierName}.`,
+            targetUserId: pr.managerId,
+            sentById: req.user.id,
+          },
+        });
+      }
     }
 
     await prisma.auditLog.create({

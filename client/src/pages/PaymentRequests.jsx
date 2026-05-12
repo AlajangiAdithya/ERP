@@ -12,33 +12,6 @@ import { formatDateTime } from '../utils/formatters';
 
 const formatCurrency = (amt) => `₹${Number(amt).toLocaleString('en-IN')}`;
 
-const ONE_LAKH = 100000;
-const TEN_LAKHS = 1000000;
-const getTier = (amt) => (amt < ONE_LAKH ? 'L1' : amt < TEN_LAKHS ? 'L2' : 'L3');
-const tierLabel = (t) => ({
-  L1: 'Accounting (or any tiered admin)',
-  L2: 'Madhubabu, Suresh, or Rameshbabu',
-  L3: 'Rameshbabu only',
-}[t] || '');
-const tierColor = (t) => ({ L1: 'blue', L2: 'yellow', L3: 'red' }[t] || 'gray');
-
-// Mirror of server canApprove — used to disable the Pay button when current user lacks tier authority
-const APPROVERS_L2 = ['madhubabu', 'suresh', 'rameshbabu'];
-const APPROVERS_L3 = ['rameshbabu'];
-const normName = (n) => (n || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-function canApprove(user, amount) {
-  if (!user) return false;
-  const tier = getTier(amount);
-  const n = normName(user.name);
-  if (tier === 'L1') {
-    if (user.role === 'ACCOUNTING') return true;
-    if (user.role === 'ADMIN' && APPROVERS_L2.some(a => n.includes(a))) return true;
-    return false;
-  }
-  if (tier === 'L2') return user.role === 'ADMIN' && APPROVERS_L2.some(a => n.includes(a));
-  return user.role === 'ADMIN' && APPROVERS_L3.some(a => n.includes(a));
-}
-
 const statusColor = (s) => ({
   PENDING: 'yellow',
   APPROVED: 'blue',
@@ -60,8 +33,6 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
   const isAccounting = currentUser?.role === 'ACCOUNTING';
 
   if (!payment) return null;
-  const tier = getTier(payment.amount);
-  const userCanApprove = canApprove(currentUser, payment.amount);
 
   const adminApprove = async () => {
     if (!confirm('Approve this payment and send to Accounting?')) return;
@@ -112,11 +83,6 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
           <div><span className="text-gray-500">Type:</span> <Badge color={typeColor(payment.paymentType)}>{payment.paymentType}</Badge></div>
           <div><span className="text-gray-500">Amount:</span> <span className="font-bold text-navy-700 text-lg">{formatCurrency(payment.amount)}</span></div>
           <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(payment.status)}>{payment.status}</Badge></div>
-          <div className="col-span-2">
-            <span className="text-gray-500">Approval tier: </span>
-            <Badge color={tierColor(tier)}>{tier}</Badge>
-            <span className="text-xs text-gray-500 ml-2">{tierLabel(tier)}</span>
-          </div>
           <div><span className="text-gray-500">Requested by:</span> <span>{payment.createdBy?.name}</span></div>
           <div><span className="text-gray-500">Date:</span> <span>{formatDateTime(payment.createdAt)}</span></div>
           {payment.processedBy && (
@@ -148,16 +114,11 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
         {/* Step 1: Admin approves PENDING payments */}
         {isAdmin && payment.status === 'PENDING' && (
           <div className="flex flex-col gap-3 pt-2 border-t">
-            {!userCanApprove && (
-              <div className="bg-red-50 border border-red-200 text-red-800 text-xs rounded-md px-3 py-2">
-                You don't have authority to approve this payment. Required: <strong>{tierLabel(tier)}</strong>.
-              </div>
-            )}
             <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-md px-3 py-2">
               Approve this payment to send it to Accounting for processing.
             </div>
             <div className="flex gap-3">
-              <Button onClick={adminApprove} disabled={processing || !userCanApprove}>
+              <Button onClick={adminApprove} disabled={processing}>
                 <CheckCircle size={16} className="mr-1" /> {processing ? 'Approving...' : 'Approve & Send to Accounting'}
               </Button>
               <Button variant="danger" onClick={reject} disabled={processing}>
@@ -264,44 +225,33 @@ export default function PaymentRequests() {
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Supplier</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Type</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Amount</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Tier</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {payments.map(p => {
-                  const t = getTier(p.amount);
-                  const userCanPay = canApprove(user, p.amount);
-                  return (
-                    <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
-                      <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => setSelectedPayment(p)}>
-                        {p.paymentNumber}
-                      </td>
-                      <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.customName}</td>
-                      <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.supplierName}</td>
-                      <td className="px-3 py-2"><Badge color={typeColor(p.paymentType)}>{p.paymentType}</Badge></td>
-                      <td className="px-3 py-2 font-medium">{formatCurrency(p.amount)}</td>
-                      <td className="px-3 py-2">
-                        <Badge color={tierColor(t)}>{t}</Badge>
-                        {p.status === 'PENDING' && !userCanPay && isAccounting && (
-                          <span className="ml-1 text-xs text-gray-400" title={tierLabel(t)}>(escalated)</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2"><Badge color={statusColor(p.status)}>{p.status}</Badge></td>
-                      <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(p.createdAt)}</td>
-                      <td className="px-3 py-2">
-                        <Button size="sm" variant="secondary" onClick={() => setSelectedPayment(p)}>
-                          <Eye size={14} className="mr-1" /> {
-                            user?.role === 'ADMIN' && p.status === 'PENDING' ? 'Review' :
-                            isAccounting && p.status === 'APPROVED' ? 'Process' : 'View'
-                          }
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {payments.map(p => (
+                  <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => setSelectedPayment(p)}>
+                      {p.paymentNumber}
+                    </td>
+                    <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.customName}</td>
+                    <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.supplierName}</td>
+                    <td className="px-3 py-2"><Badge color={typeColor(p.paymentType)}>{p.paymentType}</Badge></td>
+                    <td className="px-3 py-2 font-medium">{formatCurrency(p.amount)}</td>
+                    <td className="px-3 py-2"><Badge color={statusColor(p.status)}>{p.status}</Badge></td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(p.createdAt)}</td>
+                    <td className="px-3 py-2">
+                      <Button size="sm" variant="secondary" onClick={() => setSelectedPayment(p)}>
+                        <Eye size={14} className="mr-1" /> {
+                          user?.role === 'ADMIN' && p.status === 'PENDING' ? 'Review' :
+                          isAccounting && p.status === 'APPROVED' ? 'Process' : 'View'
+                        }
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

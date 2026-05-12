@@ -4,13 +4,12 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
-const { getTier, getTierLabel } = require('../utils/approvalTiers');
 
 const router = express.Router();
 
 const ORDER_INCLUDE = {
   createdBy: { select: { id: true, name: true } },
-  quotation: { select: { id: true, quotationNumber: true, supplierName: true, totalAmount: true } },
+  quotation: { select: { id: true, quotationNumber: true, supplierName: true, totalAmount: true, isUnion: true } },
   purchaseRequest: {
     select: {
       id: true, requestNumber: true, status: true, managerId: true,
@@ -18,7 +17,36 @@ const ORDER_INCLUDE = {
       unit: { select: { id: true, name: true, code: true } },
     },
   },
-  items: true,
+  sourceRequests: {
+    include: {
+      purchaseRequest: {
+        select: {
+          id: true, requestNumber: true, status: true, managerId: true,
+          manager: { select: { id: true, name: true, role: true } },
+          unit: { select: { id: true, name: true, code: true } },
+        },
+      },
+    },
+  },
+  items: {
+    include: {
+      allocations: {
+        include: {
+          purchaseRequestItem: {
+            select: {
+              id: true, productId: true, productName: true, productUnit: true, requestedQty: true,
+              request: {
+                select: {
+                  id: true, requestNumber: true,
+                  unit: { select: { id: true, name: true, code: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   paymentRequests: {
     include: { createdBy: { select: { id: true, name: true } }, processedBy: { select: { id: true, name: true } } },
     orderBy: { createdAt: 'desc' },
@@ -139,7 +167,10 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
       where: { id: req.params.id },
       include: {
         items: true,
-        purchaseRequest: { select: { id: true, requestNumber: true } },
+        purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } },
+        sourceRequests: {
+          include: { purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } } },
+        },
       },
     });
 
@@ -158,6 +189,11 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
     const totalReceived = order.items.reduce((s, i) => s + (i.receivedQty || 0), 0);
     const isPartial = totalReceived > 0;
 
+    const sourcePRs = order.isUnion
+      ? (order.sourceRequests || []).map((s) => s.purchaseRequest)
+      : (order.purchaseRequest ? [order.purchaseRequest] : []);
+    const sourcePRIds = sourcePRs.map((p) => p.id);
+
     const updated = await prisma.$transaction(async (tx) => {
       const result = await tx.purchaseOrder.update({
         where: { id: req.params.id },
@@ -169,10 +205,12 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
         include: ORDER_INCLUDE,
       });
 
-      await tx.purchaseRequest.update({
-        where: { id: order.purchaseRequest.id },
-        data: { status: 'GOODS_ARRIVED' },
-      });
+      if (sourcePRIds.length) {
+        await tx.purchaseRequest.updateMany({
+          where: { id: { in: sourcePRIds } },
+          data: { status: 'GOODS_ARRIVED' },
+        });
+      }
 
       return result;
     });
@@ -191,15 +229,18 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
       },
     });
 
-    if (updated.purchaseRequest?.managerId) {
+    for (const pr of sourcePRs) {
+      if (!pr.managerId) continue;
       await prisma.notification.create({
         data: {
           type: 'GOODS_ARRIVED',
-          title: `${isPartial ? 'More ' : ''}Goods Arrived: Your PR ${order.purchaseRequest.requestNumber}`,
-          message: isPartial
-            ? `More goods for "${order.customName}" (${order.purchaseRequest.requestNumber}) have arrived (${totalReceived} of ${totalOrdered} already received).`
-            : `Goods for your purchase request "${order.customName}" (${order.purchaseRequest.requestNumber}) have arrived and are being inspected.`,
-          targetUserId: updated.purchaseRequest.managerId,
+          title: `${isPartial ? 'More ' : ''}Goods Arrived: Your PR ${pr.requestNumber}`,
+          message: order.isUnion
+            ? `Goods for Union PO "${order.customName}" (${order.orderNumber}) — your PR ${pr.requestNumber} — have arrived and are being inspected.`
+            : (isPartial
+              ? `More goods for "${order.customName}" (${pr.requestNumber}) have arrived (${totalReceived} of ${totalOrdered} already received).`
+              : `Goods for your purchase request "${order.customName}" (${pr.requestNumber}) have arrived and are being inspected.`),
+          targetUserId: pr.managerId,
           sentById: req.user.id,
         },
       });
@@ -238,13 +279,31 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
     const order = await prisma.purchaseOrder.findUnique({
       where: { id: req.params.id },
       include: {
-        items: true,
+        items: {
+          include: {
+            allocations: {
+              include: {
+                purchaseRequestItem: {
+                  select: {
+                    id: true, productId: true, productName: true, productUnit: true,
+                    request: {
+                      select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
         purchaseRequest: {
           select: {
             id: true, requestNumber: true, managerId: true,
             manager: { select: { id: true, name: true, role: true } },
             items: { select: { id: true, productId: true, productName: true, productUnit: true } },
           },
+        },
+        sourceRequests: {
+          include: { purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } } },
         },
       },
     });
@@ -254,6 +313,11 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
       return res.status(400).json({ error: 'Inward entry can only be done after QC approval' });
     }
 
+    const sourcePRs = order.isUnion
+      ? (order.sourceRequests || []).map((s) => s.purchaseRequest)
+      : (order.purchaseRequest ? [order.purchaseRequest] : []);
+    const sourcePRIds = sourcePRs.map((p) => p.id);
+
     const updated = await prisma.$transaction(async (tx) => {
       for (const item of items) {
         const orderItem = order.items.find(i => i.id === item.id);
@@ -262,27 +326,52 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
         const receivedQty = parseFloat(item.receivedQty) || 0;
         if (receivedQty <= 0) continue;
 
-        // Increment receivedQty (not replace) for partial delivery support
+        // Increment aggregate receivedQty on the PO item (works for both union and non-union)
         await tx.purchaseOrderItem.update({
           where: { id: item.id },
           data: { receivedQty: { increment: receivedQty } },
         });
 
-        let productId = null;
+        const isUnionItem = orderItem.allocations && orderItem.allocations.length > 0;
 
-        if (orderItem.purchaseRequestItemId) {
-          const prItem = order.purchaseRequest.items.find(
-            i => i.id === orderItem.purchaseRequestItemId
-          );
+        // Build per-allocation share list. For non-union items, this is a single synthetic share
+        // covering the original purchaseRequestItemId path.
+        let shares;
+        if (isUnionItem) {
+          const totalAllocated = orderItem.allocations.reduce((s, a) => s + a.allocatedQty, 0);
+          // Pro-rata share, rounded to 2 decimals to avoid float drift in stock counts
+          const rawShares = orderItem.allocations.map((a) => ({
+            allocation: a,
+            share: Math.round((receivedQty * (a.allocatedQty / totalAllocated)) * 100) / 100,
+          }));
+          // Push the rounding remainder onto the largest-allocation share so the supplier total is exact
+          const distributed = rawShares.reduce((s, x) => s + x.share, 0);
+          const remainder = Math.round((receivedQty - distributed) * 100) / 100;
+          if (remainder !== 0) {
+            const largestIdx = rawShares.reduce(
+              (best, cur, idx, arr) => (cur.allocation.allocatedQty > arr[best].allocation.allocatedQty ? idx : best),
+              0,
+            );
+            rawShares[largestIdx].share = Math.round((rawShares[largestIdx].share + remainder) * 100) / 100;
+          }
+          shares = rawShares;
+        } else {
+          shares = [{ allocation: null, share: receivedQty }];
+        }
+
+        // Resolve / create the product (shared across allocations — products are global)
+        let productId = null;
+        if (isUnionItem) {
+          const firstPrItem = orderItem.allocations[0]?.purchaseRequestItem;
+          if (firstPrItem?.productId) productId = firstPrItem.productId;
+        } else if (orderItem.purchaseRequestItemId) {
+          const prItem = order.purchaseRequest?.items.find(i => i.id === orderItem.purchaseRequestItemId);
           if (prItem?.productId) productId = prItem.productId;
         }
 
         if (!productId) {
           const existing = await tx.product.findFirst({
-            where: {
-              name: { equals: orderItem.productName, mode: 'insensitive' },
-              isActive: true,
-            },
+            where: { name: { equals: orderItem.productName, mode: 'insensitive' }, isActive: true },
           });
           if (existing) productId = existing.id;
         }
@@ -300,7 +389,17 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           });
           productId = newProduct.id;
 
-          if (orderItem.purchaseRequestItemId) {
+          if (isUnionItem) {
+            const prItemIds = orderItem.allocations
+              .map((a) => a.purchaseRequestItem?.id)
+              .filter(Boolean);
+            if (prItemIds.length) {
+              await tx.purchaseRequestItem.updateMany({
+                where: { id: { in: prItemIds } },
+                data: { productId },
+              });
+            }
+          } else if (orderItem.purchaseRequestItemId) {
             await tx.purchaseRequestItem.update({
               where: { id: orderItem.purchaseRequestItemId },
               data: { productId },
@@ -308,36 +407,52 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           }
         }
 
+        // One Product stock update for the aggregate received qty
         await tx.product.update({
           where: { id: productId },
           data: { currentStock: { increment: receivedQty } },
         });
 
-        const movement = await tx.stockMovement.create({
-          data: {
-            productId,
-            type: 'IN',
-            quantity: receivedQty,
-            batchNumber: item.batchNumber || null,
-            referenceType: 'PurchaseOrder',
-            referenceId: order.id,
-            notes: `PO ${order.orderNumber} — ${order.supplierName}`,
-            performedBy: req.user.id,
-          },
-        });
+        // One stock movement + batch per share so the audit trail attributes each unit's slice
+        for (const { allocation, share } of shares) {
+          if (share <= 0) continue;
+          const prRef = allocation?.purchaseRequestItem?.purchaseRequest;
+          const unitTag = prRef?.unit?.code ? ` [${prRef.unit.code}]` : '';
+          const prTag = prRef?.requestNumber ? ` — ${prRef.requestNumber}` : '';
 
-        await tx.productBatch.create({
-          data: {
-            productId,
-            batchNo: item.batchNumber || null,
-            quantity: receivedQty,
-            remaining: receivedQty,
-            referenceType: 'PurchaseOrder',
-            referenceId: movement.id,
-            notes: `PO ${order.orderNumber} — ${orderItem.productName}`,
-            createdById: req.user.id,
-          },
-        });
+          const movement = await tx.stockMovement.create({
+            data: {
+              productId,
+              type: 'IN',
+              quantity: share,
+              batchNumber: item.batchNumber || null,
+              referenceType: 'PurchaseOrder',
+              referenceId: order.id,
+              notes: `PO ${order.orderNumber} — ${order.supplierName}${prTag}${unitTag}`,
+              performedBy: req.user.id,
+            },
+          });
+
+          await tx.productBatch.create({
+            data: {
+              productId,
+              batchNo: item.batchNumber || null,
+              quantity: share,
+              remaining: share,
+              referenceType: 'PurchaseOrder',
+              referenceId: movement.id,
+              notes: `PO ${order.orderNumber} — ${orderItem.productName}${prTag}${unitTag}`,
+              createdById: req.user.id,
+            },
+          });
+
+          if (allocation) {
+            await tx.purchaseOrderItemAllocation.update({
+              where: { id: allocation.id },
+              data: { receivedQty: { increment: share } },
+            });
+          }
+        }
       }
 
       // Check if ALL items are now fully received
@@ -353,10 +468,12 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           data: { status: 'INWARD_DONE' },
           include: ORDER_INCLUDE,
         });
-        await tx.purchaseRequest.update({
-          where: { id: order.purchaseRequest.id },
-          data: { status: 'INWARD_DONE' },
-        });
+        if (sourcePRIds.length) {
+          await tx.purchaseRequest.updateMany({
+            where: { id: { in: sourcePRIds } },
+            data: { status: 'INWARD_DONE' },
+          });
+        }
       } else {
         // Partial delivery: reset to ORDERED so PO can mark next batch as arrived
         result = await tx.purchaseOrder.update({
@@ -373,16 +490,21 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
     const totalReceived = refreshedItems.reduce((s, i) => s + i.receivedQty, 0);
     const totalOrdered = refreshedItems.reduce((s, i) => s + i.quantity, 0);
 
-    if (order.purchaseRequest.managerId) {
+    for (const pr of sourcePRs) {
+      if (!pr.managerId) continue;
       const inwardMsg = allFullyReceived
-        ? `All items for order "${order.customName}" (${order.purchaseRequest.requestNumber}) have been received and entered into stores. Please send MIV to collect your items.`
-        : `Partial delivery: ${totalReceived} of ${totalOrdered} items for order "${order.customName}" (${order.purchaseRequest.requestNumber}) have been received. Remaining items will follow.`;
+        ? (order.isUnion
+          ? `All items for Union PO "${order.customName}" (${order.orderNumber}) — your PR ${pr.requestNumber} — have been received and entered into stores. Please send MIV to collect your items.`
+          : `All items for order "${order.customName}" (${pr.requestNumber}) have been received and entered into stores. Please send MIV to collect your items.`)
+        : (order.isUnion
+          ? `Partial delivery for Union PO "${order.customName}" (${order.orderNumber}): ${totalReceived} of ${totalOrdered} items received. Your PR ${pr.requestNumber} share has been incremented pro-rata. Remaining items will follow.`
+          : `Partial delivery: ${totalReceived} of ${totalOrdered} items for order "${order.customName}" (${pr.requestNumber}) have been received. Remaining items will follow.`);
       await prisma.notification.create({
         data: {
           type: 'INWARD_COMPLETE',
           title: `${allFullyReceived ? 'All ' : 'Partial '}Items Received: ${order.customName}`,
           message: inwardMsg,
-          targetUserId: order.purchaseRequest.managerId,
+          targetUserId: pr.managerId,
           sentById: req.user.id,
         },
       });
@@ -467,14 +589,11 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
       include: { createdBy: { select: { id: true, name: true } } },
     });
 
-    const tier = getTier(data.amount);
-    const tierLabel = getTierLabel(tier);
-
     await prisma.notification.create({
       data: {
         type: 'PAYMENT_REQUEST',
-        title: `Payment Request (${tier}): ${order.customName}`,
-        message: `New ${data.paymentType.toLowerCase()} payment request of ₹${data.amount.toLocaleString('en-IN')} for order "${order.customName}" (${order.orderNumber}). Supplier: ${order.supplierName}. Approval tier: ${tier} — ${tierLabel}. Please approve to send to Accounting.`,
+        title: `Payment Request: ${order.customName}`,
+        message: `New ${data.paymentType.toLowerCase()} payment request of ₹${data.amount.toLocaleString('en-IN')} for order "${order.customName}" (${order.orderNumber}). Supplier: ${order.supplierName}. Please approve to send to Accounting.`,
         targetRole: 'ADMIN',
         sentById: req.user.id,
       },
@@ -519,8 +638,11 @@ router.put('/:id/items/:itemId/status', authenticate, authorize('PURCHASE_OFFICE
     const order = await prisma.purchaseOrder.findUnique({
       where: { id: req.params.id },
       include: {
-        items: true,
+        items: { include: { allocations: true } },
         purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } },
+        sourceRequests: {
+          include: { purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } } },
+        },
       },
     });
 
@@ -542,7 +664,13 @@ router.put('/:id/items/:itemId/status', authenticate, authorize('PURCHASE_OFFICE
           statusUpdatedBy: req.user.id,
         },
       });
-      if (item.purchaseRequestItemId) {
+      if (item.allocations && item.allocations.length > 0) {
+        const prItemIds = item.allocations.map((a) => a.purchaseRequestItemId);
+        await tx.purchaseRequestItem.updateMany({
+          where: { id: { in: prItemIds } },
+          data: { itemStatus },
+        });
+      } else if (item.purchaseRequestItemId) {
         await tx.purchaseRequestItem.update({
           where: { id: item.purchaseRequestItemId },
           data: { itemStatus },
@@ -567,13 +695,16 @@ router.put('/:id/items/:itemId/status', authenticate, authorize('PURCHASE_OFFICE
     });
 
     if (itemStatus === 'ON_THE_WAY' || itemStatus === 'RECEIVED') {
-      if (order.purchaseRequest?.managerId) {
+      const recipients = order.isUnion
+        ? (order.sourceRequests || []).map((s) => s.purchaseRequest).filter((p) => p?.managerId)
+        : (order.purchaseRequest?.managerId ? [order.purchaseRequest] : []);
+      for (const pr of recipients) {
         await prisma.notification.create({
           data: {
             type: 'ITEM_STATUS_UPDATE',
             title: `${item.productName} is ${itemStatus === 'ON_THE_WAY' ? 'on the way' : 'received'}`,
-            message: `Item "${item.productName}" on order "${order.customName}" (${order.purchaseRequest.requestNumber}) is now ${itemStatus.replace('_', ' ').toLowerCase()}.`,
-            targetUserId: order.purchaseRequest.managerId,
+            message: `Item "${item.productName}" on order "${order.customName}" (${pr.requestNumber}) is now ${itemStatus.replace('_', ' ').toLowerCase()}.`,
+            targetUserId: pr.managerId,
             sentById: req.user.id,
           },
         });
