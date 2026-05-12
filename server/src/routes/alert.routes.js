@@ -142,38 +142,35 @@ router.get('/notifications/unread-count', authenticate, async (req, res) => {
   }
 });
 
-// PUT /api/alerts/notifications/:id/read — mark as read
-router.put('/notifications/:id/read', authenticate, async (req, res) => {
+// DELETE /api/alerts/notifications/clear-all — dismiss all notifications for user
+router.delete('/notifications/clear-all', authenticate, async (req, res) => {
   try {
-    await prisma.notification.update({
-      where: { id: req.params.id },
-      data: { isRead: true },
-    });
-    res.json({ message: 'Marked as read' });
-  } catch (error) {
-    if (error.code === 'P2025') return res.status(404).json({ error: 'Notification not found' });
-    console.error('Mark read error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// PUT /api/alerts/notifications/mark-all-read
-router.put('/notifications/mark-all-read', authenticate, async (req, res) => {
-  try {
-    await prisma.notification.updateMany({
+    await prisma.notification.deleteMany({
       where: {
-        isRead: false,
         OR: [
           { targetRole: req.user.role },
           { targetUserId: req.user.id },
           { targetRole: null, targetUserId: null },
         ],
       },
-      data: { isRead: true },
     });
-    res.json({ message: 'All marked as read' });
+    res.json({ message: 'All notifications cleared' });
   } catch (error) {
-    console.error('Mark all read error:', error);
+    console.error('Clear all notifications error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/alerts/notifications/:id — dismiss (delete) a single notification
+router.delete('/notifications/:id', authenticate, async (req, res) => {
+  try {
+    await prisma.notification.delete({
+      where: { id: req.params.id },
+    });
+    res.json({ message: 'Notification dismissed' });
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Notification not found' });
+    console.error('Dismiss notification error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
