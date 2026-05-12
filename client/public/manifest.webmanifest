@@ -1,0 +1,30 @@
+{
+  "name": "RAPS ERP",
+  "short_name": "RAPS ERP",
+  "description": "RAPS ERP desktop application",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/rapslogo6.png",
+      "sizes": "1536x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/rapslogo6.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/rapslogo6.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
