@@ -225,6 +225,21 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
       return res.status(400).json({ error: 'Result must be PASSED, FAILED, or PARTIAL' });
     }
 
+    // Validate quantities: accepted cannot exceed received; rejected is derived
+    const recNum = qtyReceived != null && qtyReceived !== '' ? parseFloat(qtyReceived) : null;
+    const accNum = qtyAccepted != null && qtyAccepted !== '' ? parseFloat(qtyAccepted) : null;
+    if (recNum == null || isNaN(recNum) || recNum <= 0) {
+      return res.status(400).json({ error: 'Qty Received is required' });
+    }
+    if (accNum == null || isNaN(accNum) || accNum < 0) {
+      return res.status(400).json({ error: 'Qty Accepted is required' });
+    }
+    if (accNum > recNum) {
+      return res.status(400).json({ error: 'Qty Accepted cannot exceed Qty Received' });
+    }
+    // Force qtyRejected to be derived from received - accepted (single source of truth)
+    const derivedRejected = Math.max(0, recNum - accNum);
+
     const inspection = await prisma.qCInspection.findUnique({
       where: { id: req.params.id },
       include: {
@@ -267,9 +282,9 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
       if (tappedHolesCondition !== undefined) updateData.tappedHolesCondition = tappedHolesCondition || null;
       if (qtyAsPerPR !== undefined) updateData.qtyAsPerPR = qtyAsPerPR;
       if (qtyOrdered !== undefined) updateData.qtyOrdered = qtyOrdered;
-      if (qtyReceived !== undefined) updateData.qtyReceived = qtyReceived;
-      if (qtyAccepted !== undefined) updateData.qtyAccepted = qtyAccepted;
-      if (qtyRejected !== undefined) updateData.qtyRejected = qtyRejected;
+      updateData.qtyReceived = recNum;
+      updateData.qtyAccepted = accNum;
+      updateData.qtyRejected = derivedRejected;
       if (rejectionReason !== undefined) updateData.rejectionReason = rejectionReason || null;
       if (remarks !== undefined) updateData.remarks = remarks || null;
       if (mirNo !== undefined) updateData.mirNo = mirNo || null;
@@ -280,16 +295,19 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
         include: INSPECTION_INCLUDE,
       });
 
-      // Update order and PR status based on result
-      if (result === 'PASSED') {
+      // Update order and PR status based on result.
+      // PARTIAL also flows to QC_PASSED so only the QC-accepted qty can be inwarded.
+      if (result === 'PASSED' || result === 'PARTIAL') {
         await tx.purchaseOrder.update({
           where: { id: order.id },
           data: { status: 'QC_PASSED' },
         });
-        await tx.purchaseRequest.update({
-          where: { id: order.purchaseRequest.id },
-          data: { status: 'QC_PASSED' },
-        });
+        if (order.purchaseRequest?.id) {
+          await tx.purchaseRequest.update({
+            where: { id: order.purchaseRequest.id },
+            data: { status: 'QC_PASSED' },
+          });
+        }
       } else if (result === 'FAILED') {
         await tx.purchaseOrder.update({
           where: { id: order.id },
@@ -307,6 +325,16 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
           type: 'QC_PASSED',
           title: `QC Passed: ${order.customName}`,
           message: `Quality inspection passed for order "${order.customName}" (${order.orderNumber}). Please proceed with inward entry into stores.`,
+          targetRole: 'STORE_MANAGER',
+          sentById: req.user.id,
+        },
+      });
+    } else if (result === 'PARTIAL') {
+      await prisma.notification.create({
+        data: {
+          type: 'QC_PASSED',
+          title: `QC Partially Passed: ${order.customName}`,
+          message: `QC accepted ${accNum} of ${recNum} received for "${order.customName}" (${order.orderNumber}). Only the accepted quantity will be inwarded. ${derivedRejected} unit(s) rejected.`,
           targetRole: 'STORE_MANAGER',
           sentById: req.user.id,
         },

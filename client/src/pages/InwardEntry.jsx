@@ -132,17 +132,37 @@ function FromPOMode({ onSuccess, refreshKey }) {
 }
 
 function POInwardForm({ order, onCancel, onComplete }) {
+  // Pull latest QC inspection (qcInspections come sorted desc from API)
+  const latestInspection = (order.qcInspections || []).find(
+    i => i.result === 'PASSED' || i.result === 'PARTIAL'
+  );
+  const qcAccepted = latestInspection?.qtyAccepted;
+  const qcOrdered = latestInspection?.qtyOrdered;
+  const totalOrderedQty = (order.items || []).reduce((s, i) => s + (i.quantity || 0), 0);
+  // Ratio of accepted to ordered — used to distribute accepted qty across items proportionally
+  const acceptRatio = (qcAccepted != null && qcOrdered > 0)
+    ? (qcAccepted / qcOrdered)
+    : (qcAccepted != null && totalOrderedQty > 0)
+      ? (qcAccepted / totalOrderedQty)
+      : null;
+
   const [items, setItems] = useState(
-    (order.items || []).map(i => ({
-      id: i.id,
-      productName: i.productName,
-      quantity: i.quantity,
-      productUnit: i.productUnit,
-      receivedQty: i.quantity,
-      batchNumber: '',
-    }))
+    (order.items || []).map(i => {
+      const prefill = acceptRatio != null
+        ? Math.round(i.quantity * acceptRatio * 100) / 100
+        : i.quantity;
+      return {
+        id: i.id,
+        productName: i.productName,
+        quantity: i.quantity,
+        productUnit: i.productUnit,
+        receivedQty: prefill,
+        batchNumber: '',
+      };
+    })
   );
   const [saving, setSaving] = useState(false);
+  const totalAllowed = qcAccepted != null ? qcAccepted : totalOrderedQty;
 
   const updateItem = (idx, field, value) => {
     const copy = [...items];
@@ -153,6 +173,15 @@ function POInwardForm({ order, onCancel, onComplete }) {
   const submit = async () => {
     if (items.some(i => !i.receivedQty || parseFloat(i.receivedQty) <= 0)) {
       return alert('Enter received quantity for all items');
+    }
+    if (items.some(i => parseFloat(i.receivedQty) > i.quantity)) {
+      return alert('Received qty cannot exceed ordered qty for any item');
+    }
+    if (qcAccepted != null) {
+      const totalReceiving = items.reduce((s, i) => s + parseFloat(i.receivedQty || 0), 0);
+      if (totalReceiving > qcAccepted + 0.001) {
+        return alert(`Total inward qty (${totalReceiving}) cannot exceed QC-accepted qty (${qcAccepted}). Only QC-accepted material can be entered into stores.`);
+      }
     }
     setSaving(true);
     try {
@@ -199,6 +228,22 @@ function POInwardForm({ order, onCancel, onComplete }) {
         </div>
         <Button variant="secondary" onClick={onCancel}>Back to list</Button>
       </div>
+
+      {latestInspection && qcAccepted != null && (
+        <div className={`mb-3 rounded-md border p-3 text-xs ${
+          qcAccepted < qcOrdered
+            ? 'bg-yellow-50 border-yellow-300 text-yellow-800'
+            : 'bg-green-50 border-green-300 text-green-800'
+        }`}>
+          <strong>QC Report ({latestInspection.inspectionNumber}):</strong>{' '}
+          Received <strong>{latestInspection.qtyReceived ?? '—'}</strong>,{' '}
+          Accepted <strong>{qcAccepted}</strong>,{' '}
+          Rejected <strong>{latestInspection.qtyRejected ?? 0}</strong>.
+          {qcAccepted < qcOrdered
+            ? ' Only the QC-accepted quantity has been pre-filled below for inward entry.'
+            : ' Full ordered quantity accepted by QC.'}
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">

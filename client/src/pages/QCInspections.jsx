@@ -261,9 +261,32 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
     setParameters(updated);
   };
 
+  // Auto-derive qtyRejected from received - accepted
+  useEffect(() => {
+    const rec = parseFloat(qtyReceived);
+    const acc = parseFloat(qtyAccepted);
+    if (!isNaN(rec) && !isNaN(acc)) {
+      const rej = Math.max(0, rec - acc);
+      setQtyRejected(rej);
+    } else if (qtyReceived === '' && qtyAccepted === '') {
+      setQtyRejected('');
+    }
+  }, [qtyReceived, qtyAccepted]);
+
   const submit = async (resultValue) => {
     if (!inspection) return;
     if (!reportNo.trim()) return alert('Report No. is required');
+    const recNum = parseFloat(qtyReceived);
+    const accNum = parseFloat(qtyAccepted);
+    if (isNaN(recNum) || recNum <= 0) return alert('Qty Received is required');
+    if (isNaN(accNum) || accNum < 0) return alert('Qty Accepted is required');
+    if (accNum > recNum) return alert('Qty Accepted cannot exceed Qty Received');
+    if (resultValue === 'PASSED' && accNum < recNum) {
+      return alert('For PASSED result, Qty Accepted must equal Qty Received. Use PARTIAL if some qty is rejected.');
+    }
+    if (resultValue === 'FAILED' && accNum > 0) {
+      return alert('For FAILED result, Qty Accepted must be 0.');
+    }
     if (!confirm(`Submit inspection result as ${resultValue}?`)) return;
     setProcessing(true);
     try {
@@ -434,13 +457,19 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
               onChange={(e) => setQtyAsPerPR(e.target.value)} />
             <Input label="Qty Ordered" type="number" value={qtyOrdered}
               onChange={(e) => setQtyOrdered(e.target.value)} />
-            <Input label="Qty Received" type="number" value={qtyReceived}
+            <Input label="Qty Received *" type="number" value={qtyReceived}
               onChange={(e) => setQtyReceived(e.target.value)} />
-            <Input label="Qty Accepted" type="number" value={qtyAccepted}
+            <Input label="Qty Accepted *" type="number" value={qtyAccepted}
               onChange={(e) => setQtyAccepted(e.target.value)} />
-            <Input label="Qty Rejected" type="number" value={qtyRejected}
-              onChange={(e) => setQtyRejected(e.target.value)} />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Qty Rejected (auto)</label>
+              <input type="number" value={qtyRejected} readOnly tabIndex={-1}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-100 text-gray-700 cursor-not-allowed" />
+            </div>
           </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Only the <strong>Qty Accepted</strong> will flow to Inward Entry. Rejected = Received − Accepted (auto-calculated).
+          </p>
         </div>
 
         {/* Dimensional parameters */}
