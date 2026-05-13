@@ -32,8 +32,14 @@ app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
-      // @react-pdf/renderer compiles a Yoga WASM module at runtime
+      // @react-pdf/renderer compiles a Yoga WASM module at runtime,
+      // fetches the .wasm bytes as a data: URI, and runs in a blob: worker.
       'script-src': ["'self'", "'wasm-unsafe-eval'"],
+      'worker-src': ["'self'", 'blob:'],
+      'connect-src': ["'self'", 'data:', 'blob:'],
+      'img-src': ["'self'", 'data:', 'blob:'],
+      'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
+      'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
     },
   },
 }));
