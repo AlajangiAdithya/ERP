@@ -98,7 +98,7 @@ export default function App() {
 
               {/* Purchase Orders */}
               <Route path="/purchase-orders" element={
-                <PrivateRoute allowedRoles={['PURCHASE_OFFICER', 'ADMIN', 'ACCOUNTING', 'STORE_MANAGER', 'QC']}><PurchaseOrders /></PrivateRoute>
+                <PrivateRoute allowedRoles={['PURCHASE_OFFICER', 'ADMIN', 'ACCOUNTING', 'STORE_MANAGER', 'QC', 'MANAGER', 'LAB']}><PurchaseOrders /></PrivateRoute>
               } />
 
               {/* Payment Requests */}

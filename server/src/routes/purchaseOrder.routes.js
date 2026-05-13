@@ -71,6 +71,12 @@ router.get('/', authenticate, async (req, res) => {
       where.status = { in: ['GOODS_ARRIVED', 'QC_PENDING'] };
     } else if (req.user.role === 'STORE_MANAGER') {
       where.status = { in: ['QC_PASSED'] };
+    } else if (req.user.role === 'MANAGER' || req.user.role === 'LAB') {
+      // Unit managers/labs only see POs originating from their own purchase requests
+      where.OR = [
+        { purchaseRequest: { managerId: req.user.id } },
+        { sourceRequests: { some: { purchaseRequest: { managerId: req.user.id } } } },
+      ];
     }
 
     if (status && !['QC', 'STORE_MANAGER'].includes(req.user.role)) {
@@ -153,6 +159,18 @@ router.get('/:id', authenticate, async (req, res) => {
     });
 
     if (!order) return res.status(404).json({ error: 'Purchase order not found' });
+
+    // Manager/Lab can only view POs tied to their own purchase requests
+    if (req.user.role === 'MANAGER' || req.user.role === 'LAB') {
+      const ownsPrimary = order.purchaseRequest?.managerId === req.user.id;
+      const ownsSource = (order.sourceRequests || []).some(
+        (s) => s.purchaseRequest?.managerId === req.user.id
+      );
+      if (!ownsPrimary && !ownsSource) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+
     res.json(order);
   } catch (error) {
     console.error('Get purchase order error:', error);
