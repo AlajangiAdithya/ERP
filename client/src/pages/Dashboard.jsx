@@ -745,19 +745,24 @@ function AccountingDashboard() {
     let cancelled = false;
     const load = async () => {
       const results = await Promise.allSettled([
-        api.get('/payment-requests?limit=10'),
-        api.get('/quotations?limit=10'),
+        api.get('/payment-requests', { params: { limit: 50 } }),
+        api.get('/payment-requests', { params: { status: 'PENDING', limit: 1 } }),
+        api.get('/quotations', { params: { limit: 50 } }),
       ]);
 
       if (cancelled) return;
 
-      const [payRes, quotRes] = results;
-      const payments = payRes.status === 'fulfilled' ? (payRes.value.data.paymentRequests || []) : [];
+      const [payRes, pendingPayRes, quotRes] = results;
+      const payments = payRes.status === 'fulfilled' ? (payRes.value.data.requests || []) : [];
       setPaymentRequests(payments);
+
+      const pendingTotal = pendingPayRes.status === 'fulfilled'
+        ? (pendingPayRes.value.data.total ?? payments.filter(p => p.status === 'PENDING').length)
+        : payments.filter(p => p.status === 'PENDING').length;
 
       const quotations = quotRes.status === 'fulfilled' ? (quotRes.value.data.quotations || []) : [];
       setStats({
-        pendingPayments: payments.filter(p => p.status === 'PENDING').length,
+        pendingPayments: pendingTotal,
         pendingQuotations: quotations.filter(q => !q.isSelected).length,
       });
       setLoading(false);

@@ -1,7 +1,7 @@
 import { StyleSheet, View, Text, Image } from '@react-pdf/renderer';
 import React from 'react';
 
-export const LOGO_URL = `${window.location.origin}/rapslogo6.png`;
+export const LOGO_URL = `${window.location.origin}/raps-logo-pdf.png`;
 
 export const formatDate = (d) => {
   if (!d) return '—';
