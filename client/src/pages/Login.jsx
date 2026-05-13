@@ -32,9 +32,8 @@ export default function Login() {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-lg shadow-sm p-8 animate-fade-in">
           <div className="flex flex-col items-center mb-8">
-            <img src="/rapslogo6.png" alt="RAPS" className="h-16 w-16 object-contain mb-4" />
-            <h1 className="text-2xl font-bold text-navy-700">RAPS ERP</h1>
-            <p className="text-sm text-gray-500 mt-1">Sign in to your account</p>
+            <img src="/rapslogo6.png" alt="RAPS" className="h-24 w-auto object-contain mb-3" />
+            <p className="text-sm text-gray-500">Sign in to your account</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">

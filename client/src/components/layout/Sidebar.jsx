@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Package, PackagePlus, Users, UserCog,
+  LayoutDashboard, Package, PackagePlus, UserCog,
   FileText, BarChart3, Settings, ChevronLeft, ChevronRight, Menu, X,
   ClipboardList, CheckSquare, ScrollText, Bell, History, ShoppingCart,
   FileSearch, Truck, CreditCard, ClipboardCheck, DoorOpen, FlaskConical, ArrowLeftRight
@@ -44,66 +44,53 @@ export default function Sidebar() {
 
   const navItems = getNavItems(user?.role);
 
-  const roleLabel = (role) => ({
-    ADMIN: 'Admin',
-    MANAGER: 'Manager',
-    STORE_MANAGER: 'Store Manager',
-    PURCHASE_OFFICER: 'Purchase Officer',
-    ACCOUNTING: 'Accounting',
-    QC: 'Quality Control',
-    LAB: 'Lab',
-  }[role] || role);
-
   const sidebarContent = (
     <>
-      <div className="flex items-center justify-between p-4 border-b border-navy-600">
-        <div className={`flex items-center gap-3 ${collapsed ? 'justify-center w-full' : ''}`}>
-          <img
-            src="/rapslogo6.png"
-            alt="RAPS"
-            className={collapsed ? "h-9 w-9 object-contain bg-white rounded p-0.5" : "h-10 w-auto bg-white rounded px-1.5 py-1"}
-          />
-          {!collapsed && <span className="text-white font-bold text-base">ERP</span>}
-        </div>
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="hidden lg:block text-white/70 hover:text-white p-1"
-        >
-          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-        </button>
-      </div>
-
-      {/* User info */}
       {!collapsed && (
-        <div className="px-4 py-3 border-b border-navy-600">
-          <p className="text-white text-sm font-medium truncate">{user?.name}</p>
-          <p className="text-white/50 text-xs">{roleLabel(user?.role)}</p>
-          {user?.unit && (
-            <p className="text-blue-300 text-xs mt-0.5">{user.unit.name}</p>
-          )}
+        <div className="px-5 pt-5 pb-2">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/35 font-semibold">
+            Menu
+          </p>
         </div>
       )}
 
-      <nav className="flex-1 py-4 overflow-y-auto">
+      <nav className={`flex-1 ${collapsed ? 'pt-4' : 'pt-1'} pb-4 overflow-y-auto`}>
         {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.to === '/'}
             onClick={() => setMobileOpen(false)}
+            title={collapsed ? item.label : undefined}
             className={({ isActive }) =>
-              `flex items-center gap-3 px-4 py-2.5 mx-2 rounded-md text-sm transition-colors mb-0.5
+              `group flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg text-sm transition-all duration-150 mb-0.5
               ${isActive
-                ? 'bg-white/15 text-white font-medium'
-                : 'text-white/70 hover:bg-white/10 hover:text-white'
+                ? 'bg-white/10 text-white font-medium shadow-[inset_3px_0_0_theme(colors.blue.400)]'
+                : 'text-white/60 hover:bg-white/[0.04] hover:text-white'
               } ${collapsed ? 'justify-center' : ''}`
             }
           >
-            <item.icon size={20} className="flex-shrink-0" />
-            {!collapsed && <span>{item.label}</span>}
+            <item.icon size={19} className="flex-shrink-0" strokeWidth={2} />
+            {!collapsed && <span className="truncate">{item.label}</span>}
           </NavLink>
         ))}
       </nav>
+
+      <div className="hidden lg:block border-t border-white/5 p-2">
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className={`w-full flex items-center ${collapsed ? 'justify-center' : 'justify-end'} gap-1.5 text-white/50 hover:text-white hover:bg-white/[0.04] rounded-md p-2 transition-colors`}
+        >
+          {collapsed ? (
+            <ChevronRight size={18} />
+          ) : (
+            <>
+              <span className="text-[11px] font-medium uppercase tracking-wider">Collapse</span>
+              <ChevronLeft size={16} />
+            </>
+          )}
+        </button>
+      </div>
     </>
   );
 
@@ -112,7 +99,7 @@ export default function Sidebar() {
       {/* Mobile menu button */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-navy-700 text-white rounded-md shadow-lg"
+        className="lg:hidden fixed top-3 left-3 z-50 p-2 bg-navy-700 text-white rounded-md shadow-lg"
       >
         <Menu size={20} />
       </button>
@@ -121,7 +108,7 @@ export default function Sidebar() {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-40">
           <div className="fixed inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <div className="fixed left-0 top-0 bottom-0 w-64 bg-navy-700 flex flex-col z-50">
+          <div className="fixed left-0 top-0 bottom-0 w-64 bg-gradient-to-b from-navy-700 to-navy-800 flex flex-col z-50">
             <button
               onClick={() => setMobileOpen(false)}
               className="absolute top-4 right-4 text-white/70 hover:text-white"
@@ -134,7 +121,7 @@ export default function Sidebar() {
       )}
 
       {/* Desktop sidebar */}
-      <aside className={`hidden lg:flex flex-col bg-navy-700 h-screen sticky top-0 transition-all duration-300
+      <aside className={`hidden lg:flex flex-col bg-gradient-to-b from-navy-700 to-navy-800 h-screen sticky top-0 transition-all duration-300 shadow-xl
         ${collapsed ? 'w-16' : 'w-64'}`}>
         {sidebarContent}
       </aside>
