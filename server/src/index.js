@@ -71,8 +71,23 @@ app.get('/api/health', (req, res) => {
 // ── Serve React SPA (production only) ─────────────────
 if (process.env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../../client/dist');
-  app.use(express.static(clientDist, { maxAge: '1y', immutable: true }));
+  // Vite emits content-hashed filenames under /assets/* — safe to cache forever.
+  app.use('/assets', express.static(path.join(clientDist, 'assets'), { maxAge: '1y', immutable: true }));
+  // Top-level files (index.html, sw.js, manifest, logo PNGs) keep stable URLs across
+  // deploys, so they must NOT be marked immutable or browsers serve stale copies.
+  app.use(express.static(clientDist, {
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      } else {
+        res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      }
+    },
+  }));
   app.get('*', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
