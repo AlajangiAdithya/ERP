@@ -112,6 +112,8 @@ model Product {
   purchaseRequestItems PurchaseRequestItem[]
   batches              ProductBatch[]
   transfers            InventoryTransferRequest[]
+  quotationItems       QuotationItem[]
+  purchaseOrderItems   PurchaseOrderItem[]
 }
 
 // ──── PRODUCT BATCHES (FIFO lot tracking) ────
@@ -270,6 +272,26 @@ enum PurchaseRequestStatus {
   IN_PROGRESS
 }
 
+// ──── SUPPLIERS (normalised supplier directory) ────
+// Quotation/PO rows still snapshot supplierName/Contact/Address so historical
+// records survive supplier renames. The supplierId FK is for lookups + history.
+model Supplier {
+  id                 String              @id @default(uuid())
+  name               String              @unique
+  contact            String?
+  address            String?
+  gstNumber          String?
+  email              String?
+  isActive           Boolean             @default(true)
+  notes              String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  quotations         Quotation[]
+  quotationItems     QuotationItem[]
+  purchaseOrders     PurchaseOrder[]
+  purchaseOrderItems PurchaseOrderItem[]
+}
+
 // ──── QUOTATIONS (PO collects from suppliers) ────
 model Quotation {
   id                String            @id @default(uuid())
@@ -277,6 +299,8 @@ model Quotation {
   purchaseRequestId String?
   purchaseRequest   PurchaseRequest?  @relation(fields: [purchaseRequestId], references: [id])
   isUnion           Boolean           @default(false)
+  supplierId        String?
+  supplier          Supplier?         @relation(fields: [supplierId], references: [id])
   supplierName      String?
   supplierContact   String?
   supplierAddress   String?
@@ -308,11 +332,15 @@ model QuotationItem {
   id                String    @id @default(uuid())
   quotationId       String
   quotation         Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  productId         String?
+  product           Product?  @relation(fields: [productId], references: [id])
   productName       String
   productUnit       String    @default("pcs")
   quantity          Float
   unitPrice         Float
   totalPrice        Float
+  supplierId        String?
+  supplier          Supplier? @relation(fields: [supplierId], references: [id])
   supplierName      String
   supplierContact   String?
   supplierAddress   String?
@@ -332,6 +360,8 @@ model PurchaseOrder {
   isUnion           Boolean               @default(false)
   quotationId       String
   quotation         Quotation             @relation(fields: [quotationId], references: [id])
+  supplierId        String?
+  supplier          Supplier?             @relation(fields: [supplierId], references: [id])
   supplierName      String
   totalAmount       Float
   advancePaid       Float                 @default(0)
@@ -365,6 +395,8 @@ model PurchaseOrderItem {
   id                    String                        @id @default(uuid())
   purchaseOrderId       String
   purchaseOrder         PurchaseOrder                 @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId             String?
+  product               Product?                      @relation(fields: [productId], references: [id])
   productName           String
   productUnit           String                        @default("pcs")
   quantity              Float
@@ -373,6 +405,8 @@ model PurchaseOrderItem {
   receivedQty           Float                         @default(0)
   itemStatus            ItemOrderStatus               @default(WAITING)
   purchaseRequestItemId String?
+  supplierId            String?
+  supplier              Supplier?                     @relation(fields: [supplierId], references: [id])
   statusUpdatedAt       DateTime?
   statusUpdatedBy       String?
   allocations           PurchaseOrderItemAllocation[]

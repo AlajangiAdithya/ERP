@@ -12,67 +12,96 @@ import { formatDateTime } from '../utils/formatters';
 const formatCurrency = (amt) => `₹${Number(amt).toLocaleString('en-IN')}`;
 
 // ─── Add Quotation Modal ───
+// Per-row supplier picker: "Existing supplier" (dropdown of past suppliers for
+// THIS product, with last unit price shown) or "New supplier" (free-text fields).
+// Match priority: productId → product name (case-insensitive).
 function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState([]);
   const [saving, setSaving] = useState(false);
-  const [supplierSuggestions, setSupplierSuggestions] = useState([]);
+  // history[productKey] = [{ supplierId, supplierName, supplierContact, supplierAddress, lastUnitPrice, lastDate, timesUsed, wasSelected }]
+  const [history, setHistory] = useState({});
+
+  // Normalised key for a row's product: prefer productId, fall back to name-lower.
+  const rowKey = (row) => row.productId ? `id:${row.productId}` : `name:${(row.productName || '').toLowerCase().trim()}`;
 
   useEffect(() => {
     if (isOpen && purchaseRequest) {
       setNotes('');
-      // Pre-fill items from PR items
       const prItems = purchaseRequest.items?.map(i => ({
+        productId: i.productId || null,
         productName: i.productName,
         productUnit: i.productUnit || 'pcs',
         quantity: i.adminApprovedQty || i.requestedQty,
         unitPrice: 0,
+        supplierMode: 'existing', // 'existing' | 'new'
+        supplierId: null,
         supplierName: '',
         supplierContact: '',
         supplierAddress: '',
-      })) || [{ productName: '', productUnit: 'pcs', quantity: 1, unitPrice: 0, supplierName: '', supplierContact: '', supplierAddress: '' }];
+      })) || [{ productId: null, productName: '', productUnit: 'pcs', quantity: 1, unitPrice: 0, supplierMode: 'new', supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '' }];
       setItems(prItems);
 
-      // Fetch supplier history — map supplier → usage count/contact, matched by product name
-      api.get('/quotations', { params: { limit: 200 } })
-        .then(({ data }) => {
-          const productNames = new Set(prItems.map(i => i.productName.toLowerCase().trim()).filter(Boolean));
-          const byName = new Map();
-          for (const q of data.quotations || []) {
-            for (const it of q.items || []) {
-              const supplier = (it.supplierName || q.supplierName || '').trim();
-              if (!supplier) continue;
-              if (productNames.size && !productNames.has((it.productName || '').toLowerCase().trim())) continue;
-              const key = supplier.toLowerCase();
-              const existing = byName.get(key) || { supplierName: supplier, contact: '', address: '', products: new Set(), lastUsedAt: q.createdAt, count: 0, selected: false };
-              existing.contact = existing.contact || it.supplierContact || q.supplierContact || '';
-              existing.address = existing.address || it.supplierAddress || q.supplierAddress || '';
-              existing.products.add(it.productName);
-              existing.count += 1;
-              if (q.isSelected) existing.selected = true;
-              if (new Date(q.createdAt) > new Date(existing.lastUsedAt)) existing.lastUsedAt = q.createdAt;
-              byName.set(key, existing);
+      // For each PR item with a productId, fetch supplier history (purchased + quoted).
+      // Build a per-product list of suppliers + last unit price.
+      const productIds = [...new Set(prItems.map(i => i.productId).filter(Boolean))];
+      const productNames = [...new Set(prItems.map(i => (i.productName || '').toLowerCase().trim()).filter(Boolean))];
+
+      const acc = {};
+      const addEntry = (key, entry) => {
+        if (!acc[key]) acc[key] = new Map();
+        const map = acc[key];
+        const sk = (entry.supplierId || entry.supplierName || '').toString().toLowerCase();
+        if (!sk) return;
+        const existing = map.get(sk) || { supplierId: entry.supplierId || null, supplierName: entry.supplierName, supplierContact: entry.supplierContact || '', supplierAddress: entry.supplierAddress || '', lastUnitPrice: entry.unitPrice, lastDate: entry.date, timesUsed: 0, wasPurchased: false };
+        existing.timesUsed += 1;
+        if (entry.wasPurchased) existing.wasPurchased = true;
+        if (new Date(entry.date) > new Date(existing.lastDate)) {
+          existing.lastDate = entry.date;
+          existing.lastUnitPrice = entry.unitPrice;
+          if (entry.supplierContact) existing.supplierContact = entry.supplierContact;
+          if (entry.supplierAddress) existing.supplierAddress = entry.supplierAddress;
+        }
+        if (entry.supplierId && !existing.supplierId) existing.supplierId = entry.supplierId;
+        map.set(sk, existing);
+      };
+
+      // Fetch per-product supplier history in parallel.
+      const fetches = productIds.map(pid =>
+        api.get(`/products/${pid}/supplier-history`)
+          .then(({ data }) => {
+            const productKey = `id:${pid}`;
+            const nameKey = `name:${(data.product?.name || '').toLowerCase().trim()}`;
+            for (const r of data.purchased || []) {
+              const entry = { ...r, wasPurchased: true };
+              addEntry(productKey, entry);
+              addEntry(nameKey, entry);
             }
-          }
-          const list = [...byName.values()]
-            .map(s => ({ ...s, products: [...s.products] }))
-            .sort((a, b) => new Date(b.lastUsedAt) - new Date(a.lastUsedAt));
-          setSupplierSuggestions(list);
-        })
-        .catch(() => setSupplierSuggestions([]));
+            for (const r of data.quoted || []) {
+              const entry = { ...r, wasPurchased: false };
+              addEntry(productKey, entry);
+              addEntry(nameKey, entry);
+            }
+          })
+          .catch(() => {})
+      );
+
+      Promise.all(fetches).then(() => {
+        const finalised = {};
+        for (const [k, m] of Object.entries(acc)) {
+          finalised[k] = [...m.values()].sort((a, b) => new Date(b.lastDate) - new Date(a.lastDate));
+        }
+        setHistory(finalised);
+
+        // Auto-default mode to 'new' for rows with no history; 'existing' if history exists.
+        setItems(prev => prev.map(row => {
+          const key = rowKey(row);
+          const list = finalised[key] || [];
+          return { ...row, supplierMode: list.length > 0 ? 'existing' : 'new' };
+        }));
+      });
     }
   }, [isOpen, purchaseRequest]);
-
-  const applySupplierToRow = (idx, s) => {
-    const updated = [...items];
-    updated[idx] = {
-      ...updated[idx],
-      supplierName: s.supplierName,
-      supplierContact: updated[idx].supplierContact || s.contact || '',
-      supplierAddress: updated[idx].supplierAddress || s.address || '',
-    };
-    setItems(updated);
-  };
 
   const updateItem = (idx, field, value) => {
     const updated = [...items];
@@ -80,7 +109,45 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     setItems(updated);
   };
 
-  const addItem = () => setItems([...items, { productName: '', productUnit: 'pcs', quantity: 1, unitPrice: 0, supplierName: '', supplierContact: '', supplierAddress: '' }]);
+  // Select an existing supplier on a row — pre-fills name/contact/address + lastUnitPrice.
+  const applyExistingSupplier = (idx, supplierKey) => {
+    if (!supplierKey) {
+      updateItem(idx, 'supplierId', null);
+      updateItem(idx, 'supplierName', '');
+      return;
+    }
+    const row = items[idx];
+    const list = history[rowKey(row)] || [];
+    const s = list.find(x => (x.supplierId || x.supplierName).toString().toLowerCase() === supplierKey);
+    if (!s) return;
+    const updated = [...items];
+    updated[idx] = {
+      ...row,
+      supplierId: s.supplierId || null,
+      supplierName: s.supplierName,
+      supplierContact: s.supplierContact || '',
+      supplierAddress: s.supplierAddress || '',
+      unitPrice: row.unitPrice && row.unitPrice > 0 ? row.unitPrice : (s.lastUnitPrice || 0),
+    };
+    setItems(updated);
+  };
+
+  const switchMode = (idx, mode) => {
+    const updated = [...items];
+    updated[idx] = { ...updated[idx], supplierMode: mode };
+    if (mode === 'new') {
+      // Switching to new — keep typed name if any, but drop the supplierId link.
+      updated[idx].supplierId = null;
+    } else {
+      // Switching to existing — clear name so the dropdown forces a re-select.
+      updated[idx].supplierName = '';
+      updated[idx].supplierContact = '';
+      updated[idx].supplierAddress = '';
+    }
+    setItems(updated);
+  };
+
+  const addItem = () => setItems([...items, { productId: null, productName: '', productUnit: 'pcs', quantity: 1, unitPrice: 0, supplierMode: 'new', supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '' }]);
   const removeItem = (idx) => items.length > 1 && setItems(items.filter((_, i) => i !== idx));
 
   const totalAmount = items.reduce((sum, i) => sum + (i.quantity * i.unitPrice), 0);
@@ -98,10 +165,12 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
         purchaseRequestId: purchaseRequest.id,
         notes: notes || undefined,
         items: validItems.map(i => ({
+          productId: i.productId || undefined,
           productName: i.productName.trim(),
           productUnit: i.productUnit,
           quantity: parseFloat(i.quantity) || 1,
           unitPrice: parseFloat(i.unitPrice) || 0,
+          supplierId: i.supplierId || undefined,
           supplierName: i.supplierName.trim(),
           supplierContact: i.supplierContact?.trim() || undefined,
           supplierAddress: i.supplierAddress?.trim() || undefined,
@@ -123,27 +192,9 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
           <div className="text-xs text-gray-500">Enter a supplier name beside each product. Products sharing one supplier become a single Purchase Order on approval.</div>
         </div>
 
-        {supplierSuggestions.length > 0 && (
-          <details className="bg-amber-50 border border-amber-200 rounded-md p-3">
-            <summary className="text-xs font-semibold text-amber-900 cursor-pointer">
-              Previously used suppliers ({supplierSuggestions.length}) — click a pill, then click a product row to apply
-            </summary>
-            <p className="text-[11px] text-amber-800 mt-2 mb-2">Tip: paste a supplier into any row directly, or click to copy to the focused row.</p>
-            <div className="flex flex-wrap gap-2">
-              {supplierSuggestions.slice(0, 12).map(s => (
-                <span
-                  key={s.supplierName}
-                  className="text-xs px-3 py-1.5 rounded-md border border-amber-300 bg-white text-amber-900"
-                  title={`Products: ${s.products.join(', ')}${s.contact ? '\nContact: ' + s.contact : ''}`}
-                >
-                  <span className="font-medium">{s.supplierName}</span>
-                  {s.selected && <span className="ml-1 text-green-600">✓</span>}
-                  <span className="ml-1 text-gray-500">({s.count})</span>
-                </span>
-              ))}
-            </div>
-          </details>
-        )}
+        <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
+          For each product below, choose <strong>Existing supplier</strong> (dropdown of past suppliers for that product, with last price) or <strong>New supplier</strong> (type a name). Last unit price is pre-filled — edit before submitting.
+        </div>
 
         <div>
           <div className="flex items-center justify-between mb-2">
@@ -152,78 +203,109 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
               <Plus size={12} /> Add Item
             </button>
           </div>
-          <div className="overflow-x-auto border rounded-md">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr className="border-b">
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">Product</th>
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">Unit</th>
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">Qty</th>
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">Unit Price (₹)</th>
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">Supplier *</th>
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">Contact</th>
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">Address</th>
-                  <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">Total</th>
-                  <th className="px-2 py-2 w-8"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item, idx) => (
-                  <tr key={idx} className="border-b border-gray-100 hover:bg-amber-50/30">
-                    <td className="px-2 py-1">
+          <div className="space-y-3">
+            {items.map((item, idx) => {
+              const suggestions = history[rowKey(item)] || [];
+              return (
+                <div key={idx} className="border rounded-md p-3 bg-white space-y-2">
+                  {/* Product row */}
+                  <div className="grid grid-cols-12 gap-2 items-end">
+                    <div className="col-span-5">
+                      <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Product</label>
                       <input value={item.productName} onChange={(e) => updateItem(idx, 'productName', e.target.value)}
-                        className="w-40 px-2 py-1 border rounded text-sm" placeholder="Product name" />
-                    </td>
-                    <td className="px-2 py-1">
+                        className="w-full px-2 py-1.5 border rounded text-sm" placeholder="Product name" />
+                    </div>
+                    <div className="col-span-1">
+                      <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Unit</label>
                       <input value={item.productUnit} onChange={(e) => updateItem(idx, 'productUnit', e.target.value)}
-                        className="w-16 px-2 py-1 border rounded text-sm" />
-                    </td>
-                    <td className="px-2 py-1">
+                        className="w-full px-2 py-1.5 border rounded text-sm" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Qty</label>
                       <input type="number" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
-                        className="w-20 px-2 py-1 border rounded text-sm" min="0.01" step="0.01" />
-                    </td>
-                    <td className="px-2 py-1">
+                        className="w-full px-2 py-1.5 border rounded text-sm" min="0.01" step="0.01" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Unit Price (₹)</label>
                       <input type="number" value={item.unitPrice} onChange={(e) => updateItem(idx, 'unitPrice', e.target.value)}
-                        className="w-24 px-2 py-1 border rounded text-sm" min="0" step="0.01" />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input
-                        list={`supplier-options-${idx}`}
-                        value={item.supplierName}
-                        onChange={(e) => {
-                          updateItem(idx, 'supplierName', e.target.value);
-                          const match = supplierSuggestions.find(s => s.supplierName.toLowerCase() === e.target.value.toLowerCase());
-                          if (match) applySupplierToRow(idx, match);
-                        }}
-                        className="w-40 px-2 py-1 border rounded text-sm"
-                        placeholder="Supplier name"
-                      />
-                      <datalist id={`supplier-options-${idx}`}>
-                        {supplierSuggestions.map(s => (
-                          <option key={s.supplierName} value={s.supplierName} />
-                        ))}
-                      </datalist>
-                    </td>
-                    <td className="px-2 py-1">
-                      <input value={item.supplierContact} onChange={(e) => updateItem(idx, 'supplierContact', e.target.value)}
-                        className="w-32 px-2 py-1 border rounded text-sm" placeholder="Phone/Email" />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input value={item.supplierAddress} onChange={(e) => updateItem(idx, 'supplierAddress', e.target.value)}
-                        className="w-40 px-2 py-1 border rounded text-sm" placeholder="Address" />
-                    </td>
-                    <td className="px-2 py-1 text-gray-700 font-medium whitespace-nowrap">
-                      {formatCurrency((item.quantity || 0) * (item.unitPrice || 0))}
-                    </td>
-                    <td className="px-2 py-1">
+                        className="w-full px-2 py-1.5 border rounded text-sm" min="0" step="0.01" />
+                    </div>
+                    <div className="col-span-2 flex items-center justify-between">
+                      <div>
+                        <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Total</label>
+                        <div className="text-sm font-semibold text-navy-700">
+                          {formatCurrency((item.quantity || 0) * (item.unitPrice || 0))}
+                        </div>
+                      </div>
                       {items.length > 1 && (
-                        <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600"><X size={14} /></button>
+                        <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600 self-end pb-1" title="Remove row"><X size={16} /></button>
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                  </div>
+
+                  {/* Supplier picker */}
+                  <div className="bg-gray-50 border rounded p-2">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-xs font-medium text-gray-700">Supplier:</span>
+                      <label className="flex items-center gap-1 text-xs cursor-pointer">
+                        <input type="radio" checked={item.supplierMode === 'existing'} onChange={() => switchMode(idx, 'existing')} disabled={suggestions.length === 0} />
+                        <span className={suggestions.length === 0 ? 'text-gray-400' : ''}>
+                          Existing {suggestions.length > 0 && <span className="text-gray-500">({suggestions.length} past)</span>}
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-1 text-xs cursor-pointer">
+                        <input type="radio" checked={item.supplierMode === 'new'} onChange={() => switchMode(idx, 'new')} />
+                        <span>New supplier</span>
+                      </label>
+                    </div>
+
+                    {item.supplierMode === 'existing' && suggestions.length > 0 ? (
+                      <div className="grid grid-cols-12 gap-2">
+                        <div className="col-span-12">
+                          <select
+                            value={item.supplierId || (item.supplierName ? `name:${item.supplierName.toLowerCase()}` : '')}
+                            onChange={(e) => applyExistingSupplier(idx, e.target.value)}
+                            className="w-full px-2 py-1.5 border rounded text-sm bg-white"
+                          >
+                            <option value="">— Select past supplier —</option>
+                            {suggestions.map(s => {
+                              const key = (s.supplierId || s.supplierName).toString().toLowerCase();
+                              return (
+                                <option key={key} value={key}>
+                                  {s.supplierName} · last @ ₹{Number(s.lastUnitPrice).toLocaleString('en-IN')}/{item.productUnit} on {new Date(s.lastDate).toLocaleDateString('en-IN')} {s.wasPurchased ? '· purchased' : '· quoted'} ({s.timesUsed}×)
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                        {item.supplierName && (
+                          <div className="col-span-12 text-xs text-gray-600">
+                            <span className="font-medium">{item.supplierName}</span>
+                            {item.supplierContact && <> · {item.supplierContact}</>}
+                            {item.supplierAddress && <> · {item.supplierAddress}</>}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-12 gap-2">
+                        <div className="col-span-4">
+                          <input value={item.supplierName} onChange={(e) => updateItem(idx, 'supplierName', e.target.value)}
+                            className="w-full px-2 py-1.5 border rounded text-sm" placeholder="Supplier name *" />
+                        </div>
+                        <div className="col-span-3">
+                          <input value={item.supplierContact} onChange={(e) => updateItem(idx, 'supplierContact', e.target.value)}
+                            className="w-full px-2 py-1.5 border rounded text-sm" placeholder="Phone/Email" />
+                        </div>
+                        <div className="col-span-5">
+                          <input value={item.supplierAddress} onChange={(e) => updateItem(idx, 'supplierAddress', e.target.value)}
+                            className="w-full px-2 py-1.5 border rounded text-sm" placeholder="Address" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
           <div className="flex justify-between items-center mt-2 text-sm">
             <div className="text-xs text-gray-500">

@@ -12,10 +12,12 @@ const createSchema = z.object({
   purchaseRequestId: z.string().uuid(),
   notes: z.string().optional(),
   items: z.array(z.object({
+    productId: z.string().uuid().optional().nullable(),
     productName: z.string().min(1),
     productUnit: z.string().min(1).default('pcs'),
     quantity: z.number().positive(),
     unitPrice: z.number().nonnegative(),
+    supplierId: z.string().uuid().optional().nullable(),
     supplierName: z.string().min(1),
     supplierContact: z.string().optional(),
     supplierAddress: z.string().optional(),
@@ -26,10 +28,12 @@ const unionCreateSchema = z.object({
   purchaseRequestIds: z.array(z.string().uuid()).min(2),
   notes: z.string().optional(),
   items: z.array(z.object({
+    productId: z.string().uuid().optional().nullable(),
     productName: z.string().min(1),
     productUnit: z.string().min(1).default('pcs'),
     quantity: z.number().positive(),
     unitPrice: z.number().nonnegative(),
+    supplierId: z.string().uuid().optional().nullable(),
     supplierName: z.string().min(1),
     supplierContact: z.string().optional(),
     supplierAddress: z.string().optional(),
@@ -39,6 +43,26 @@ const unionCreateSchema = z.object({
     })).min(2),
   })).min(1),
 });
+
+// Given a free-text supplier name (+ optional supplierId from client), return a
+// canonical supplier id by upserting on case-insensitive name. Used to attach
+// supplierId to every Quotation/QuotationItem so the supplier history stays accurate.
+async function resolveSupplierId(name, contact, address, hintId) {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return null;
+  if (hintId) {
+    const ok = await prisma.supplier.findUnique({ where: { id: hintId } });
+    if (ok) return ok.id;
+  }
+  const existing = await prisma.supplier.findFirst({
+    where: { name: { equals: trimmed, mode: 'insensitive' } },
+  });
+  if (existing) return existing.id;
+  const created = await prisma.supplier.create({
+    data: { name: trimmed, contact: (contact || '').trim() || null, address: (address || '').trim() || null },
+  });
+  return created.id;
+}
 
 // Tolerance for float-sum vs total comparison (kg/litre/pcs all use Float)
 const QTY_TOLERANCE = 0.001;
@@ -146,6 +170,20 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
     const totalAmount = data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
     const quotationNumber = generateOrderNumber('QT');
 
+    // Resolve supplierId for each item (upsert by case-insensitive name).
+    const itemsWithSupplier = [];
+    for (const item of data.items) {
+      const supplierId = await resolveSupplierId(item.supplierName, item.supplierContact, item.supplierAddress, item.supplierId);
+      itemsWithSupplier.push({ ...item, supplierId });
+    }
+
+    // Use the most common supplierId for the top-level Quotation snapshot.
+    const supplierCounts = new Map();
+    for (const it of itemsWithSupplier) {
+      if (it.supplierId) supplierCounts.set(it.supplierId, (supplierCounts.get(it.supplierId) || 0) + 1);
+    }
+    const topLevelSupplierId = [...supplierCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
     const quotation = await prisma.quotation.create({
       data: {
         quotationNumber,
@@ -153,13 +191,16 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
         totalAmount,
         notes: data.notes || null,
         createdById: req.user.id,
+        supplierId: topLevelSupplierId,
         items: {
-          create: data.items.map(item => ({
+          create: itemsWithSupplier.map(item => ({
+            productId: item.productId || null,
             productName: item.productName,
             productUnit: item.productUnit || 'pcs',
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             totalPrice: item.quantity * item.unitPrice,
+            supplierId: item.supplierId,
             supplierName: item.supplierName.trim(),
             supplierContact: item.supplierContact || null,
             supplierAddress: item.supplierAddress || null,
@@ -248,6 +289,17 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), async (req, r
     const totalAmount = data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
     const quotationNumber = generateOrderNumber('QT');
 
+    const itemsWithSupplier = [];
+    for (const item of data.items) {
+      const supplierId = await resolveSupplierId(item.supplierName, item.supplierContact, item.supplierAddress, item.supplierId);
+      itemsWithSupplier.push({ ...item, supplierId });
+    }
+    const supplierCounts = new Map();
+    for (const it of itemsWithSupplier) {
+      if (it.supplierId) supplierCounts.set(it.supplierId, (supplierCounts.get(it.supplierId) || 0) + 1);
+    }
+    const topLevelSupplierId = [...supplierCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
     const quotation = await prisma.quotation.create({
       data: {
         quotationNumber,
@@ -256,13 +308,16 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), async (req, r
         totalAmount,
         notes: data.notes || null,
         createdById: req.user.id,
+        supplierId: topLevelSupplierId,
         items: {
-          create: data.items.map(item => ({
+          create: itemsWithSupplier.map(item => ({
+            productId: item.productId || null,
             productName: item.productName,
             productUnit: item.productUnit || 'pcs',
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             totalPrice: item.quantity * item.unitPrice,
+            supplierId: item.supplierId,
             supplierName: item.supplierName.trim(),
             supplierContact: item.supplierContact || null,
             supplierAddress: item.supplierAddress || null,
@@ -336,18 +391,26 @@ router.put('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, res)
       await prisma.quotationItem.deleteMany({ where: { quotationId: req.params.id } });
       const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
 
+      const itemsWithSupplier = [];
+      for (const item of items) {
+        const supplierId = await resolveSupplierId(item.supplierName, item.supplierContact, item.supplierAddress, item.supplierId);
+        itemsWithSupplier.push({ ...item, supplierId });
+      }
+
       const updated = await prisma.quotation.update({
         where: { id: req.params.id },
         data: {
           notes: notes !== undefined ? notes : quotation.notes,
           totalAmount,
           items: {
-            create: items.map(item => ({
+            create: itemsWithSupplier.map(item => ({
+              productId: item.productId || null,
               productName: item.productName,
               productUnit: item.productUnit || 'pcs',
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               totalPrice: item.quantity * item.unitPrice,
+              supplierId: item.supplierId,
               supplierName: String(item.supplierName).trim(),
               supplierContact: item.supplierContact || null,
               supplierAddress: item.supplierAddress || null,
@@ -642,13 +705,16 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
       if (!key) continue;
       if (!groups.has(key)) {
         groups.set(key, {
+          supplierId: item.supplierId || null,
           supplierName: item.supplierName.trim(),
           supplierContact: item.supplierContact || null,
           supplierAddress: item.supplierAddress || null,
           items: [],
         });
       }
-      groups.get(key).items.push(item);
+      const g = groups.get(key);
+      if (!g.supplierId && item.supplierId) g.supplierId = item.supplierId;
+      g.items.push(item);
     }
 
     if (groups.size === 0) {
@@ -671,12 +737,14 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         // purchaseRequestItemId field.
         const itemCreates = g.items.map((item) => {
           const base = {
+            productId: item.productId || null,
             productName: item.productName,
             productUnit: item.productUnit,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             totalPrice: item.totalPrice,
             itemStatus: 'WAITING',
+            supplierId: item.supplierId || g.supplierId || null,
           };
           if (quotation.isUnion && Array.isArray(item.sourceAllocations) && item.sourceAllocations.length > 0) {
             return {
@@ -705,6 +773,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
             purchaseRequestId: quotation.isUnion ? null : sourcePRs[0].id,
             isUnion: quotation.isUnion,
             quotationId: quotation.id,
+            supplierId: g.supplierId || null,
             supplierName: g.supplierName,
             totalAmount: groupTotal,
             status: 'PENDING_ACCOUNTING',

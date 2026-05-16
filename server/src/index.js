@@ -22,6 +22,7 @@ const qcInspectionRoutes = require('./routes/qcInspection.routes');
 const gatePassRoutes = require('./routes/gatepass.routes');
 const ionRoutes = require('./routes/ion.routes');
 const inventoryTransferRoutes = require('./routes/inventoryTransfer.routes');
+const supplierRoutes = require('./routes/supplier.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -77,6 +78,7 @@ app.use('/api/qc-inspections', qcInspectionRoutes);
 app.use('/api/gatepasses', gatePassRoutes);
 app.use('/api/ion', ionRoutes);
 app.use('/api/inventory-transfers', inventoryTransferRoutes);
+app.use('/api/suppliers', supplierRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
