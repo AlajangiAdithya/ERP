@@ -69,9 +69,10 @@ export default function PRPdf({ request }) {
           {row('Drawing No.', it => it.drawingNo)}
           {row('QAP No.', it => it.qapNo)}
           {row('Required For', it => it.materialRequiredFor)}
+          {row('Internal Work Order', it => it.internalWorkOrder)}
           {row('Purpose', it => it.purpose)}
           {row('Source of Supply', it => it.sourceOfSupply)}
-          {row('Scope of Work', it => it.scopeOfWork)}
+          {row('Reports Required / Scope of Work', it => it.scopeOfWork)}
           {row('Inspection Type', it => it.inspectionType)}
           {row('Required By Date', it => formatDate(it.requiredByDate))}
           {row('Purchased Qty', it => it.purchasedQty || 0)}

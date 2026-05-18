@@ -22,4 +22,29 @@ const applyDateFilter = (where, { fromDate, toDate }, field = 'createdAt') => {
   }
 };
 
-module.exports = { generateOrderNumber, paginate, applyDateFilter };
+// Generates a daily-reset MIR number MIR-YYYYMMDD-NNN.
+// Counter resets each day by counting existing MIRs assigned for today's date.
+// Pass a Prisma client to query the live counter.
+const generateMirNumber = async (prisma) => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const datePart = `${y}${m}${d}`;
+  const prefix = `MIR-${datePart}-`;
+
+  // Find the highest existing counter for today's prefix across PurchaseOrder.mirNo
+  const todays = await prisma.purchaseOrder.findMany({
+    where: { mirNo: { startsWith: prefix } },
+    select: { mirNo: true },
+  });
+  let max = 0;
+  for (const { mirNo } of todays) {
+    const n = parseInt(mirNo.slice(prefix.length), 10);
+    if (!isNaN(n) && n > max) max = n;
+  }
+  const next = String(max + 1).padStart(3, '0');
+  return `${prefix}${next}`;
+};
+
+module.exports = { generateOrderNumber, paginate, applyDateFilter, generateMirNumber };

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Send, CheckCircle, Trash2, Eye, FileText, X, Layers } from 'lucide-react';
+import { Plus, Send, CheckCircle, Trash2, Eye, FileText, X, Layers, Paperclip, Download } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -19,6 +20,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [quotationPdf, setQuotationPdf] = useState(null);
   // history[productKey] = [{ supplierId, supplierName, supplierContact, supplierAddress, lastUnitPrice, lastDate, timesUsed, wasSelected }]
   const [history, setHistory] = useState({});
 
@@ -28,6 +30,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
   useEffect(() => {
     if (isOpen && purchaseRequest) {
       setNotes('');
+      setQuotationPdf(null);
       const prItems = purchaseRequest.items?.map(i => ({
         productId: i.productId || null,
         productName: i.productName,
@@ -158,10 +161,13 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     if (validItems.length === 0) return alert('At least one item with pricing is required');
     const missingSupplier = validItems.find(i => !i.supplierName.trim());
     if (missingSupplier) return alert(`Supplier is required for every item (missing for "${missingSupplier.productName}")`);
+    if (quotationPdf && quotationPdf.type !== 'application/pdf') {
+      return alert('Quotation attachment must be a PDF file');
+    }
 
     setSaving(true);
     try {
-      await api.post('/quotations', {
+      const payload = {
         purchaseRequestId: purchaseRequest.id,
         notes: notes || undefined,
         items: validItems.map(i => ({
@@ -175,7 +181,16 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
           supplierContact: i.supplierContact?.trim() || undefined,
           supplierAddress: i.supplierAddress?.trim() || undefined,
         })),
-      });
+      };
+
+      if (quotationPdf) {
+        const form = new FormData();
+        form.append('payload', JSON.stringify(payload));
+        form.append('quotationPdf', quotationPdf);
+        await api.post('/quotations', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      } else {
+        await api.post('/quotations', payload);
+      }
       onClose();
       onCreated();
     } catch (err) {
@@ -321,6 +336,25 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
 
         <Input label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" />
 
+        <div className="border rounded-md p-3 bg-blue-50/40">
+          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+            <Paperclip size={14} /> Quotation PDF <span className="text-xs text-gray-500 font-normal">(optional, one per supplier quote, PDF only ≤10 MB)</span>
+          </label>
+          <input
+            type="file"
+            accept="application/pdf"
+            onChange={(e) => setQuotationPdf(e.target.files?.[0] || null)}
+            className="text-sm"
+          />
+          {quotationPdf && (
+            <div className="mt-1 text-xs text-gray-600 flex items-center gap-2">
+              <span className="font-medium">{quotationPdf.name}</span>
+              <span className="text-gray-400">({(quotationPdf.size / 1024).toFixed(1)} KB)</span>
+              <button type="button" onClick={() => setQuotationPdf(null)} className="text-red-500 hover:text-red-700"><X size={12} /></button>
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>{saving ? 'Saving...' : 'Add Quotation'}</Button>
@@ -336,10 +370,12 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
   const [unionLines, setUnionLines] = useState([]);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [quotationPdf, setQuotationPdf] = useState(null);
 
   useEffect(() => {
     if (!isOpen || !purchaseRequests?.length) return;
     setNotes('');
+    setQuotationPdf(null);
 
     // Group PR items by normalised product name + unit. Each group becomes one union line.
     const groups = new Map();
@@ -416,10 +452,13 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
     if (usedPRIds.size < 2) {
       return alert('Union must aggregate items from at least 2 distinct PRs.');
     }
+    if (quotationPdf && quotationPdf.type !== 'application/pdf') {
+      return alert('Quotation attachment must be a PDF file');
+    }
 
     setSaving(true);
     try {
-      await api.post('/quotations/union', {
+      const payload = {
         purchaseRequestIds: [...usedPRIds],
         notes: notes || undefined,
         items: eligible.map(l => {
@@ -438,7 +477,15 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
             })),
           };
         }),
-      });
+      };
+      if (quotationPdf) {
+        const form = new FormData();
+        form.append('payload', JSON.stringify(payload));
+        form.append('quotationPdf', quotationPdf);
+        await api.post('/quotations/union', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      } else {
+        await api.post('/quotations/union', payload);
+      }
       onClose();
       onCreated();
     } catch (err) {
@@ -578,6 +625,25 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
 
         <Input label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" />
 
+        <div className="border rounded-md p-3 bg-blue-50/40">
+          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+            <Paperclip size={14} /> Quotation PDF <span className="text-xs text-gray-500 font-normal">(optional, one per supplier quote, PDF only ≤10 MB)</span>
+          </label>
+          <input
+            type="file"
+            accept="application/pdf"
+            onChange={(e) => setQuotationPdf(e.target.files?.[0] || null)}
+            className="text-sm"
+          />
+          {quotationPdf && (
+            <div className="mt-1 text-xs text-gray-600 flex items-center gap-2">
+              <span className="font-medium">{quotationPdf.name}</span>
+              <span className="text-gray-400">({(quotationPdf.size / 1024).toFixed(1)} KB)</span>
+              <button type="button" onClick={() => setQuotationPdf(null)} className="text-red-500 hover:text-red-700"><X size={12} /></button>
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-between items-center pt-2 border-t">
           <div className="text-sm">
             Grand total: <span className="font-bold text-navy-700">{formatCurrency(grandTotal)}</span>
@@ -598,6 +664,7 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const [processing, setProcessing] = useState(false);
+  const [selectionNote, setSelectionNote] = useState('');
 
   useEffect(() => {
     if (purchaseRequest) {
@@ -607,15 +674,18 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
         .catch(console.error)
         .finally(() => setLoading(false));
       setSelectedId(null);
+      setSelectionNote('');
     }
   }, [purchaseRequest]);
 
   const selectQuotation = async () => {
     if (!selectedId) return alert('Select a quotation first');
+    const note = selectionNote.trim();
+    if (!note) return alert('Please write a selection note explaining why you chose this quotation. It is visible to admin, manager and purchase officer.');
 
     setProcessing(true);
     try {
-      await api.put(`/quotations/${selectedId}/select`);
+      await api.put(`/quotations/${selectedId}/select`, { selectionNote: note });
       onClose();
       onUpdated();
     } catch (err) {
@@ -684,6 +754,22 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
                         </div>
                       )}
                       {q.notes && <p className="text-xs text-gray-400 mt-1">Notes: {q.notes}</p>}
+                      {q.quotationPdfUrl && (
+                        <a
+                          href={q.quotationPdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 mt-1 text-xs text-blue-600 hover:text-blue-800 underline"
+                        >
+                          <Download size={12} /> Supplier quotation PDF
+                        </a>
+                      )}
+                      {q.selectionNote && (
+                        <div className="mt-2 bg-green-50 border border-green-200 rounded p-2 text-xs text-green-900">
+                          <span className="font-semibold">Admin note: </span>{q.selectionNote}
+                        </div>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="text-lg font-bold text-navy-700">{formatCurrency(q.totalAmount)}</p>
@@ -752,6 +838,20 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
 
         {quotations.length > 0 && isApprover && (
           <div className="border-t pt-4 space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Selection Note <span className="text-red-500">*</span>
+                <span className="text-xs text-gray-500 font-normal ml-2">(why this supplier — visible to admin, manager and purchase officer)</span>
+              </label>
+              <textarea
+                value={selectionNote}
+                onChange={(e) => setSelectionNote(e.target.value)}
+                placeholder="e.g. Cheapest of the three quotations, supplier has a long track record on this product, delivery time matches the required-by date…"
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-navy-500"
+                disabled={!selectedId}
+              />
+            </div>
             <div className="text-xs text-gray-500">
               {selectedSuppliers.length > 1 ? (
                 <>Approving will create <span className="font-semibold text-navy-700">{selectedSuppliers.length} Purchase Orders</span> (one per supplier) all named <span className="font-semibold text-navy-700">"{purchaseRequest.requestId}"</span>.</>
@@ -762,7 +862,7 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
             </div>
             <div className="flex justify-end gap-3">
               <Button variant="secondary" onClick={onClose}>Cancel</Button>
-              <Button onClick={selectQuotation} disabled={processing || !selectedId}>
+              <Button onClick={selectQuotation} disabled={processing || !selectedId || !selectionNote.trim()}>
                 <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : `Approve & Create ${selectedSuppliers.length > 1 ? selectedSuppliers.length + ' Orders' : 'Order'}`}
               </Button>
             </div>
@@ -779,6 +879,7 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const [processing, setProcessing] = useState(false);
+  const [selectionNote, setSelectionNote] = useState('');
 
   useEffect(() => {
     if (!unionGroup) return;
@@ -788,13 +889,16 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
       .catch((err) => { console.error(err); setUnions([]); })
       .finally(() => setLoading(false));
     setSelectedId(null);
+    setSelectionNote('');
   }, [unionGroup]);
 
   const selectQuotation = async () => {
     if (!selectedId) return alert('Select a union quotation first');
+    const note = selectionNote.trim();
+    if (!note) return alert('Please write a selection note explaining why you chose this union quotation. It is visible to admin, manager and purchase officer.');
     setProcessing(true);
     try {
-      await api.put(`/quotations/${selectedId}/select`);
+      await api.put(`/quotations/${selectedId}/select`, { selectionNote: note });
       onClose();
       onUpdated();
     } catch (err) {
@@ -850,6 +954,22 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
                         {suppliers.length} supplier{suppliers.length !== 1 ? 's' : ''}: {suppliers.join(', ')}
                       </p>
                       {q.notes && <p className="text-xs text-gray-400 mt-1">Notes: {q.notes}</p>}
+                      {q.quotationPdfUrl && (
+                        <a
+                          href={q.quotationPdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 mt-1 text-xs text-blue-600 hover:text-blue-800 underline"
+                        >
+                          <Download size={12} /> Supplier quotation PDF
+                        </a>
+                      )}
+                      {q.selectionNote && (
+                        <div className="mt-2 bg-green-50 border border-green-200 rounded p-2 text-xs text-green-900">
+                          <span className="font-semibold">Admin note: </span>{q.selectionNote}
+                        </div>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="text-lg font-bold text-purple-700">{formatCurrency(q.totalAmount)}</p>
@@ -913,12 +1033,26 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
 
         {unions.length > 0 && isApprover && (
           <div className="border-t pt-4 space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Selection Note <span className="text-red-500">*</span>
+                <span className="text-xs text-gray-500 font-normal ml-2">(why this union — visible to admin, manager and purchase officer)</span>
+              </label>
+              <textarea
+                value={selectionNote}
+                onChange={(e) => setSelectionNote(e.target.value)}
+                placeholder="e.g. Lowest aggregate cost across the bundled PRs; supplier already serves both units…"
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                disabled={!selectedId}
+              />
+            </div>
             <div className="text-xs text-gray-500">
               Approving will create one union Purchase Order per supplier across the {unionGroup.prSet.length} source PRs. The unselected competing unions will be skipped.
             </div>
             <div className="flex justify-end gap-3">
               <Button variant="secondary" onClick={onClose}>Cancel</Button>
-              <Button onClick={selectQuotation} disabled={processing || !selectedId}>
+              <Button onClick={selectQuotation} disabled={processing || !selectedId || !selectionNote.trim()}>
                 <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Approve Union & Create POs'}
               </Button>
             </div>
@@ -945,6 +1079,7 @@ export default function QuotationManagement() {
 
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isApprover = user?.role === 'ADMIN';
+  const refreshKey = useAutoRefresh();
 
   const fetchData = async () => {
     setLoading(true);
@@ -974,7 +1109,7 @@ export default function QuotationManagement() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [refreshKey]);
 
   const togglePR = (id) => {
     setSelectedPRIds(prev => {

@@ -188,6 +188,43 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
       return res.status(400).json({ error: 'Only pending requests can be approved' });
     }
 
+    // Phase 6: Validate per-unit stock — material must be indented to the requesting unit.
+    // If a unit hasn't received stock via a PR + inward yet, they must request an
+    // InventoryTransferRequest from a unit that has stock.
+    const fullItems = await prisma.requestItem.findMany({
+      where: { requestId: request.id },
+      include: { product: { select: { id: true, name: true, sku: true } } },
+    });
+    const stockShortages = [];
+    for (const ri of fullItems) {
+      const wantQty = (() => {
+        if (items && Array.isArray(items)) {
+          const override = items.find((x) => x.id === ri.id);
+          if (override?.approvedQty !== undefined) return Number(override.approvedQty) || 0;
+        }
+        return ri.quantity;
+      })();
+      if (wantQty <= 0) continue;
+      const pus = await prisma.productUnitStock.findUnique({
+        where: { productId_unitId: { productId: ri.productId, unitId: request.unitId } },
+      });
+      const have = pus?.quantity || 0;
+      if (have < wantQty - 0.001) {
+        stockShortages.push({
+          product: ri.product?.name || 'Unknown',
+          sku: ri.product?.sku,
+          requested: wantQty,
+          available: have,
+        });
+      }
+    }
+    if (stockShortages.length > 0) {
+      return res.status(400).json({
+        error: 'Your unit does not have enough stock for one or more items. Raise an Inventory Transfer Request from a unit that holds the stock.',
+        shortages: stockShortages,
+      });
+    }
+
     // Update approved quantities, qtyIssued, and materialBatchNo if provided
     if (items && Array.isArray(items)) {
       for (const item of items) {
@@ -399,6 +436,18 @@ router.put('/:id/collect', authenticate, authorize('MANAGER', 'LAB'), async (req
         await tx.product.update({
           where: { id: item.productId },
           data: { currentStock: { decrement: take } },
+        });
+
+        // Phase 6: decrement per-unit stock (issuing from the requesting unit's bucket)
+        const pus = await tx.productUnitStock.findUnique({
+          where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
+        });
+        if (!pus || pus.quantity < take - 0.001) {
+          throw new Error(`Unit ${request.unit?.code || request.unitId} stock for ${item.product?.name || 'product'} is insufficient — please raise an inventory transfer first.`);
+        }
+        await tx.productUnitStock.update({
+          where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
+          data: { quantity: { decrement: take } },
         });
 
         await tx.requestItem.update({

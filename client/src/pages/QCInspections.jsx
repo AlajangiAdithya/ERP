@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { ClipboardCheck, CheckCircle, XCircle, Plus, Eye, FileCheck, X } from 'lucide-react';
+import { ClipboardCheck, CheckCircle, XCircle, Plus, Eye, FileCheck, X, Paperclip, Upload, AlertCircle, RotateCcw, Download } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { useAutoRefresh } from '../context/NotificationContext';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -17,7 +18,16 @@ const resultColor = (r) => ({
   PASSED: 'green',
   FAILED: 'red',
   PARTIAL: 'navy',
+  ON_HOLD: 'orange',
 }[r] || 'gray');
+
+const resultLabel = (r) => ({
+  PENDING: 'Pending',
+  PASSED: 'Accepted',
+  FAILED: 'Rejected',
+  PARTIAL: 'Partial',
+  ON_HOLD: 'On Hold',
+}[r] || r);
 
 // Short date only
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
@@ -53,7 +63,7 @@ function OrderInfoHeader({ order }) {
               <div><span className="text-gray-500">Delivery Required By:</span> <span>{fmtDate(requiredBy)}</span></div>
             )}
             {scopes.length > 0 && (
-              <div className="col-span-2"><span className="text-gray-500">Scope of Work:</span> <span>{scopes.join(' / ')}</span></div>
+              <div className="col-span-2"><span className="text-gray-500">Reports Required / Scope of Work:</span> <span>{scopes.join(' / ')}</span></div>
             )}
           </>
         )}
@@ -96,6 +106,9 @@ function CreateRequestModal({ order, onClose, onCreated }) {
   const [probableDateOfReturn, setProbableDateOfReturn] = useState('');
   const [materialReceiptDate, setMaterialReceiptDate] = useState('');
   const [notes, setNotes] = useState('');
+  const [docRequirement, setDocRequirement] = useState('NONE');
+  const [docRequirementNote, setDocRequirementNote] = useState('');
+  const [incomingDocs, setIncomingDocs] = useState([]);
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
@@ -105,6 +118,9 @@ function CreateRequestModal({ order, onClose, onCreated }) {
       setProbableDateOfReturn('');
       setMaterialReceiptDate(new Date().toISOString().slice(0, 10));
       setNotes('');
+      setDocRequirement('NONE');
+      setDocRequirementNote('');
+      setIncomingDocs([]);
     }
   }, [order]);
 
@@ -113,9 +129,12 @@ function CreateRequestModal({ order, onClose, onCreated }) {
     if (!invoiceNo.trim() && !dcNo.trim()) {
       return alert('Invoice No. or DC No. is required');
     }
+    if (['COA', 'COC', 'ANY_REPORTS'].includes(docRequirement) && !docRequirementNote.trim()) {
+      return alert('Please describe which documents/reports QC should expect.');
+    }
     setProcessing(true);
     try {
-      await api.post('/qc-inspections', {
+      const { data: created } = await api.post('/qc-inspections', {
         purchaseOrderId: order.id,
         invoiceNo: invoiceNo || undefined,
         invoiceDate: invoiceDate || undefined,
@@ -125,7 +144,21 @@ function CreateRequestModal({ order, onClose, onCreated }) {
         probableDateOfReturn: probableDateOfReturn || undefined,
         materialReceiptDate: materialReceiptDate || undefined,
         notes: notes || undefined,
+        docRequirement,
+        docRequirementNote: docRequirementNote || undefined,
       });
+
+      // If PO attached incoming docs at request time, upload them straight away.
+      if (incomingDocs.length > 0 && created?.id) {
+        const fd = new FormData();
+        for (const f of incomingDocs) fd.append('docs', f);
+        try {
+          await api.put(`/qc-inspections/${created.id}/upload-docs`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+        } catch (err) {
+          alert(`Inspection request created but document upload failed: ${err.response?.data?.error || err.message}`);
+        }
+      }
+
       onClose();
       onCreated();
     } catch (err) {
@@ -182,6 +215,55 @@ function CreateRequestModal({ order, onClose, onCreated }) {
             placeholder="Any additional info for QC..." />
         </div>
 
+        {/* Phase 4: PO declares which docs QC should expect */}
+        <div className="border border-amber-200 bg-amber-50 rounded-md p-3 space-y-2">
+          <div className="text-xs font-semibold text-amber-900">Documentation Required for QC</div>
+          <div className="flex flex-wrap gap-4 text-xs">
+            {[
+              { v: 'NONE', label: 'No additional documents' },
+              { v: 'COA', label: 'COA (Certificate of Analysis)' },
+              { v: 'COC', label: 'COC (Certificate of Conformity)' },
+              { v: 'ANY_REPORTS', label: 'Any other reports' },
+            ].map(opt => (
+              <label key={opt.v} className="flex items-center gap-1">
+                <input type="radio" name="docRequirement" value={opt.v}
+                  checked={docRequirement === opt.v}
+                  onChange={() => setDocRequirement(opt.v)} />
+                {opt.label}
+              </label>
+            ))}
+          </div>
+          {['COA', 'COC', 'ANY_REPORTS'].includes(docRequirement) && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Note for QC — what to verify *
+                </label>
+                <textarea value={docRequirementNote}
+                  onChange={(e) => setDocRequirementNote(e.target.value)}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-xs focus:ring-2 focus:ring-amber-500"
+                  placeholder="e.g., Mill certificate for SS316L, batch traceability required..." />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1">
+                  <Paperclip size={12} /> Attach Incoming Documents (optional)
+                </label>
+                <input type="file" multiple
+                  accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx"
+                  onChange={(e) => setIncomingDocs(Array.from(e.target.files || []))}
+                  className="block w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-amber-100 file:text-amber-900 hover:file:bg-amber-200" />
+                {incomingDocs.length > 0 && (
+                  <div className="mt-1 text-xs text-gray-600">
+                    {incomingDocs.length} file{incomingDocs.length !== 1 ? 's' : ''} selected:{' '}
+                    {incomingDocs.map(f => f.name).join(', ')}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
         <div className="flex justify-end gap-3 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={processing}>
@@ -218,6 +300,7 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
   const [remarks, setRemarks] = useState('');
   const [mirNo, setMirNo] = useState('');
   const [parameters, setParameters] = useState([{ name: '', expected: '', actual: '', passed: true }]);
+  const [pendingReason, setPendingReason] = useState('');
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
@@ -250,6 +333,7 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
           ? inspection.parameters
           : [{ name: '', expected: '', actual: '', passed: true }]
       );
+      setPendingReason(inspection.pendingReason || '');
     }
   }, [inspection]);
 
@@ -275,6 +359,43 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
 
   const submit = async (resultValue) => {
     if (!inspection) return;
+    // ON_HOLD only needs a reason — short-circuit before qty validation.
+    if (resultValue === 'ON_HOLD') {
+      if (!pendingReason.trim()) {
+        return alert('Please describe what is missing or unverifiable so PO can address it.');
+      }
+      if (!confirm('Place this inspection on hold and bounce it back to Purchase Officer for action?')) return;
+      setProcessing(true);
+      try {
+        await api.put(`/qc-inspections/${inspection.id}/result`, {
+          result: 'ON_HOLD',
+          pendingReason: pendingReason.trim(),
+          // Persist any partial work QC has already done.
+          parameters: parameters.filter(p => p.name.trim()),
+          reportNo: reportNo || undefined,
+          reportDate: reportDate || undefined,
+          materialDescription: materialDescription || undefined,
+          materialCategory: materialCategory || undefined,
+          documentTypes,
+          inspectionLocation: inspectionLocation || undefined,
+          reportReferenceNo: reportReferenceNo || undefined,
+          packingCondition: packingCondition || undefined,
+          packingDamageNotes: packingDamageNotes || undefined,
+          batchNo: batchNo || undefined,
+          dateOfManufacturing: dateOfManufacturing || undefined,
+          dateOfExpiry: dateOfExpiry || undefined,
+          tappedHolesCondition: tappedHolesCondition || undefined,
+          remarks: remarks || undefined,
+        });
+        onClose();
+        onUpdated();
+      } catch (err) {
+        alert(err.response?.data?.error || 'Failed to place inspection on hold');
+      }
+      setProcessing(false);
+      return;
+    }
+
     if (!reportNo.trim()) return alert('Report No. is required');
     const recNum = parseFloat(qtyReceived);
     const accNum = parseFloat(qtyAccepted);
@@ -282,12 +403,12 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
     if (isNaN(accNum) || accNum < 0) return alert('Qty Accepted is required');
     if (accNum > recNum) return alert('Qty Accepted cannot exceed Qty Received');
     if (resultValue === 'PASSED' && accNum < recNum) {
-      return alert('For PASSED result, Qty Accepted must equal Qty Received. Use PARTIAL if some qty is rejected.');
+      return alert('For Accepted result, Qty Accepted must equal Qty Received. Use Partial if some qty is rejected.');
     }
     if (resultValue === 'FAILED' && accNum > 0) {
-      return alert('For FAILED result, Qty Accepted must be 0.');
+      return alert('For Rejected result, Qty Accepted must be 0.');
     }
-    if (!confirm(`Submit inspection result as ${resultValue}?`)) return;
+    if (!confirm(`Submit inspection result as ${resultLabel(resultValue)}?`)) return;
     setProcessing(true);
     try {
       await api.put(`/qc-inspections/${inspection.id}/result`, {
@@ -353,6 +474,34 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
             )}
             {inspection.notes && (
               <div className="col-span-3"><span className="text-gray-500">Notes:</span> <span>{inspection.notes}</span></div>
+            )}
+            {inspection.docRequirement && inspection.docRequirement !== 'NONE' && (
+              <div className="col-span-3">
+                <span className="text-gray-500">Docs Expected:</span>{' '}
+                <span className="font-medium text-amber-800">{inspection.docRequirement.replace('_', ' ')}</span>
+                {inspection.docRequirementNote && (
+                  <span className="text-gray-700"> — {inspection.docRequirementNote}</span>
+                )}
+              </div>
+            )}
+            {Array.isArray(inspection.uploadedDocs) && inspection.uploadedDocs.length > 0 && (
+              <div className="col-span-3">
+                <span className="text-gray-500">Uploaded by PO:</span>{' '}
+                <span className="inline-flex flex-wrap gap-x-3 gap-y-1 align-middle">
+                  {inspection.uploadedDocs.map((d, idx) => (
+                    <a key={idx} href={d.url} target="_blank" rel="noreferrer"
+                      className="text-blue-600 hover:underline inline-flex items-center gap-1">
+                      <Download size={11} /> {d.filename}
+                    </a>
+                  ))}
+                </span>
+              </div>
+            )}
+            {inspection.iteration > 0 && (
+              <div className="col-span-3">
+                <span className="text-gray-500">Re-review Iteration:</span>{' '}
+                <span className="font-medium text-orange-700">#{inspection.iteration}</span>
+              </div>
             )}
           </div>
         </div>
@@ -532,18 +681,165 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
             placeholder="MIR number" />
         </div>
 
+        {/* On Hold reason (only required when placing on hold) */}
+        <div className="border border-orange-200 bg-orange-50 rounded-md p-3">
+          <label className="block text-xs font-semibold text-orange-900 mb-1 flex items-center gap-1">
+            <AlertCircle size={12} /> Reason to Place On Hold (only when bouncing back to PO)
+          </label>
+          <textarea value={pendingReason}
+            onChange={(e) => setPendingReason(e.target.value)}
+            rows={2}
+            className="w-full px-3 py-2 border border-orange-300 rounded-md text-xs focus:ring-2 focus:ring-orange-500 bg-white"
+            placeholder="e.g., COA not provided / batch mismatch — needs supplier clarification..." />
+          <p className="text-xs text-gray-500 mt-1">
+            Use this when documents/conditions are insufficient to decide Accept/Reject. PO will be notified to address and resubmit.
+          </p>
+        </div>
+
         {/* Submit actions */}
         <div className="flex flex-wrap gap-3 pt-3 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <div className="flex-1" />
+          <Button variant="secondary" onClick={() => submit('ON_HOLD')} disabled={processing}
+            className="border border-orange-400 text-orange-700 hover:bg-orange-50">
+            <AlertCircle size={16} className="mr-1" /> On Hold
+          </Button>
           <Button onClick={() => submit('PASSED')} disabled={processing}>
-            <CheckCircle size={16} className="mr-1" /> Pass
+            <CheckCircle size={16} className="mr-1" /> Accept
           </Button>
           <Button variant="secondary" onClick={() => submit('PARTIAL')} disabled={processing}>
             Partial
           </Button>
           <Button variant="danger" onClick={() => submit('FAILED')} disabled={processing}>
-            <XCircle size={16} className="mr-1" /> Fail
+            <XCircle size={16} className="mr-1" /> Reject
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── PO / SM: Address On-Hold Inspection ───
+function HoldActionModal({ inspection, onClose, onActioned }) {
+  const [docs, setDocs] = useState([]);
+  const [responseNote, setResponseNote] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+
+  useEffect(() => {
+    if (inspection) {
+      setDocs([]);
+      setResponseNote('');
+    }
+  }, [inspection]);
+
+  if (!inspection) return null;
+
+  const uploadDocs = async () => {
+    if (docs.length === 0) return alert('Select at least one document.');
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      for (const f of docs) fd.append('docs', f);
+      await api.put(`/qc-inspections/${inspection.id}/upload-docs`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setDocs([]);
+      onActioned();
+      alert('Documents uploaded successfully. You may now send for re-review.');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to upload documents');
+    }
+    setUploading(false);
+  };
+
+  const sendForReReview = async () => {
+    if (!confirm('Send this inspection back to QC for re-review?')) return;
+    setReviewing(true);
+    try {
+      await api.put(`/qc-inspections/${inspection.id}/re-review`, {
+        responseNote: responseNote.trim() || undefined,
+      });
+      onClose();
+      onActioned();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to send for re-review');
+    }
+    setReviewing(false);
+  };
+
+  const order = inspection.purchaseOrder;
+  return (
+    <Modal isOpen={!!inspection} onClose={onClose}
+      title={`Address On-Hold — ${inspection.inspectionNumber}`} size="lg">
+      <div className="space-y-4">
+        <div className="border-l-4 border-orange-500 bg-orange-50 rounded-r-md p-3">
+          <div className="text-xs font-semibold text-orange-900 flex items-center gap-1">
+            <AlertCircle size={12} /> QC placed this inspection on hold
+          </div>
+          <p className="text-sm text-orange-900 mt-1 whitespace-pre-wrap">{inspection.pendingReason || '—'}</p>
+          {inspection.iteration > 0 && (
+            <p className="text-xs text-orange-800 mt-1">Re-review iteration so far: #{inspection.iteration}</p>
+          )}
+        </div>
+
+        <OrderInfoHeader order={order} />
+
+        {inspection.docRequirement && inspection.docRequirement !== 'NONE' && (
+          <div className="border border-amber-200 bg-amber-50 rounded-md p-3 text-xs">
+            <div className="font-semibold text-amber-900">QC Expected: {inspection.docRequirement.replace('_', ' ')}</div>
+            {inspection.docRequirementNote && (
+              <div className="text-gray-700 mt-1">{inspection.docRequirementNote}</div>
+            )}
+          </div>
+        )}
+
+        {Array.isArray(inspection.uploadedDocs) && inspection.uploadedDocs.length > 0 && (
+          <div className="text-xs">
+            <div className="font-semibold text-gray-700 mb-1">Already Uploaded</div>
+            <ul className="space-y-1">
+              {inspection.uploadedDocs.map((d, idx) => (
+                <li key={idx}>
+                  <a href={d.url} target="_blank" rel="noreferrer"
+                    className="text-blue-600 hover:underline inline-flex items-center gap-1">
+                    <Download size={11} /> {d.filename}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="border border-gray-200 rounded-md p-3 space-y-2">
+          <label className="block text-xs font-medium text-gray-700 flex items-center gap-1">
+            <Upload size={12} /> Upload Additional Documents
+          </label>
+          <input type="file" multiple
+            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx"
+            onChange={(e) => setDocs(Array.from(e.target.files || []))}
+            className="block w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-blue-100 file:text-blue-900 hover:file:bg-blue-200" />
+          {docs.length > 0 && (
+            <div className="text-xs text-gray-600">
+              {docs.length} file{docs.length !== 1 ? 's' : ''}: {docs.map(f => f.name).join(', ')}
+            </div>
+          )}
+          <Button size="sm" onClick={uploadDocs} disabled={uploading || docs.length === 0}>
+            <Upload size={14} className="mr-1" /> {uploading ? 'Uploading...' : 'Upload Now'}
+          </Button>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Response Note for QC (optional)</label>
+          <textarea value={responseNote} onChange={(e) => setResponseNote(e.target.value)}
+            rows={2}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-xs focus:ring-2 focus:ring-navy-500"
+            placeholder="e.g., COA attached from supplier; batch traceability confirmed." />
+        </div>
+
+        <div className="flex justify-end gap-3 pt-2 border-t">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+          <Button onClick={sendForReReview} disabled={reviewing}>
+            <RotateCcw size={16} className="mr-1" /> {reviewing ? 'Sending...' : 'Send for Re-review'}
           </Button>
         </div>
       </div>
@@ -567,17 +863,34 @@ function ViewInspectionModal({ inspection, onClose }) {
     <Modal isOpen={!!inspection} onClose={onClose}
       title={`Inspection ${inspection.inspectionNumber}`} size="lg">
       <div className="space-y-4">
-        <div className="flex items-center justify-between bg-gray-50 rounded-md p-3">
+        <div className="flex items-center justify-between bg-gray-50 rounded-md p-3 flex-wrap gap-2">
           <div>
             <span className="text-xs text-gray-500">Result:</span>{' '}
-            <Badge color={resultColor(inspection.result)}>{inspection.result}</Badge>
+            <Badge color={resultColor(inspection.result)}>{resultLabel(inspection.result)}</Badge>
+            {inspection.iteration > 0 && (
+              <Badge color="orange" className="ml-2">Re-review #{inspection.iteration}</Badge>
+            )}
             {inspection.inspectedBy && (
               <span className="text-xs text-gray-500 ml-3">
                 by {inspection.inspectedBy.name} • {formatDateTime(inspection.inspectedAt)}
               </span>
             )}
           </div>
+          <div className="text-xs text-gray-600 space-x-3">
+            <span>PR Created: <strong>{fmtDate(order?.purchaseRequest?.createdAt) === '—' ? fmtDate(inspection.createdAt) : fmtDate(order?.purchaseRequest?.createdAt)}</strong></span>
+            <span>PO Placed: <strong>{fmtDate(order?.createdAt)}</strong></span>
+            <span>Inspection Created: <strong>{fmtDate(inspection.createdAt)}</strong></span>
+          </div>
         </div>
+
+        {inspection.result === 'ON_HOLD' && inspection.pendingReason && (
+          <div className="border-l-4 border-orange-500 bg-orange-50 rounded-r-md p-3">
+            <div className="text-xs font-semibold text-orange-900 flex items-center gap-1">
+              <AlertCircle size={12} /> On Hold — Pending PO Action
+            </div>
+            <p className="text-xs text-orange-900 mt-1 whitespace-pre-wrap">{inspection.pendingReason}</p>
+          </div>
+        )}
 
         <OrderInfoHeader order={order} />
 
@@ -599,11 +912,33 @@ function ViewInspectionModal({ inspection, onClose }) {
             {inspection.notes && (
               <div className="col-span-3"><span className="text-gray-500">Notes:</span> <span>{inspection.notes}</span></div>
             )}
+            {inspection.docRequirement && inspection.docRequirement !== 'NONE' && (
+              <div className="col-span-3">
+                <span className="text-gray-500">Docs Expected:</span>{' '}
+                <span className="font-medium text-amber-800">{inspection.docRequirement.replace('_', ' ')}</span>
+                {inspection.docRequirementNote && (
+                  <span className="text-gray-700"> — {inspection.docRequirementNote}</span>
+                )}
+              </div>
+            )}
+            {Array.isArray(inspection.uploadedDocs) && inspection.uploadedDocs.length > 0 && (
+              <div className="col-span-3">
+                <span className="text-gray-500">Uploaded Docs:</span>{' '}
+                <span className="inline-flex flex-wrap gap-x-3 gap-y-1 align-middle">
+                  {inspection.uploadedDocs.map((d, idx) => (
+                    <a key={idx} href={d.url} target="_blank" rel="noreferrer"
+                      className="text-blue-600 hover:underline inline-flex items-center gap-1">
+                      <Download size={11} /> {d.filename}
+                    </a>
+                  ))}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Page 2 — Report */}
-        {inspection.result !== 'PENDING' && (
+        {/* Page 2 — Report (rendered for any non-pending result, including ON_HOLD with partial data) */}
+        {(inspection.result !== 'PENDING' || inspection.reportNo) && (
           <div className="border border-gray-300 rounded-md overflow-hidden">
             <div className="bg-gray-100 px-3 py-1.5 border-b border-gray-300 text-xs font-bold text-gray-700">
               Page 2 — Inspection Report
@@ -683,6 +1018,7 @@ export default function QCInspections() {
   const [createForOrder, setCreateForOrder] = useState(null);
   const [fillReportFor, setFillReportFor] = useState(null);
   const [viewInspection, setViewInspection] = useState(null);
+  const [holdActionFor, setHoldActionFor] = useState(null);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
@@ -691,6 +1027,7 @@ export default function QCInspections() {
   const isSM = user?.role === 'STORE_MANAGER';
   const isAdmin = user?.role === 'ADMIN';
   const canCreateRequest = isPO || isSM || isQC;
+  const refreshKey = useAutoRefresh();
 
   const fetchData = async () => {
     setLoading(true);
@@ -704,16 +1041,18 @@ export default function QCInspections() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, [fromDate, toDate]);
+  useEffect(() => { fetchData(); }, [fromDate, toDate, refreshKey]);
 
-  // Orders needing a new inspection request (no PENDING inspection for current batch)
+  // Orders needing a new inspection request (no PENDING or ON_HOLD inspection for current batch)
   const ordersNeedingRequest = pendingOrders.filter(
-    o => !inspections.some(i => i.purchaseOrder?.id === o.id && i.result === 'PENDING')
+    o => !inspections.some(i => i.purchaseOrder?.id === o.id && (i.result === 'PENDING' || i.result === 'ON_HOLD'))
   );
   // Inspections awaiting QC report
   const pendingInspections = inspections.filter(i => i.result === 'PENDING');
-  // Historic completed
-  const completedInspections = inspections.filter(i => i.result !== 'PENDING');
+  // Inspections placed on hold — PO/SM must act
+  const onHoldInspections = inspections.filter(i => i.result === 'ON_HOLD');
+  // Historic completed (excludes PENDING + ON_HOLD)
+  const completedInspections = inspections.filter(i => i.result !== 'PENDING' && i.result !== 'ON_HOLD');
 
   return (
     <div className="space-y-6">
@@ -793,6 +1132,60 @@ export default function QCInspections() {
         </div>
       )}
 
+      {/* Section 2b: On-Hold Inspections (PO / SM action required + QC visibility) */}
+      {(isPO || isSM || isQC || isAdmin) && onHoldInspections.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+            <AlertCircle size={18} className="text-orange-500" />
+            On-Hold Inspections
+            <span className="text-xs font-normal text-gray-500">
+              ({onHoldInspections.length}) — {isQC ? 'awaiting PO action' : 'PO must upload docs / address reason and resubmit'}
+            </span>
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {onHoldInspections.map(insp => (
+              <Card key={insp.id} className="border-l-4 border-orange-400">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-start">
+                    <h3 className="font-semibold text-navy-700">{insp.inspectionNumber}</h3>
+                    <Badge color="orange">On Hold</Badge>
+                  </div>
+                  <p className="text-sm text-gray-700">{insp.purchaseOrder?.customName}</p>
+                  <p className="text-xs text-gray-500">Supplier: {insp.purchaseOrder?.supplierName}</p>
+                  <p className="text-xs text-gray-500">PR: {insp.purchaseOrder?.purchaseRequest?.requestNumber || '—'} • PO: {insp.purchaseOrder?.orderNumber}</p>
+                  {insp.iteration > 0 && (
+                    <p className="text-xs text-orange-700">Iteration: #{insp.iteration}</p>
+                  )}
+                  <div className="bg-orange-50 border border-orange-200 rounded-md p-2 text-xs text-orange-900">
+                    <strong>Reason:</strong> {insp.pendingReason || '—'}
+                  </div>
+                  {Array.isArray(insp.uploadedDocs) && insp.uploadedDocs.length > 0 && (
+                    <p className="text-xs text-gray-500">
+                      Docs uploaded: {insp.uploadedDocs.length}
+                    </p>
+                  )}
+                  <div className="flex gap-2 mt-2">
+                    <Button size="sm" variant="secondary" onClick={() => setViewInspection(insp)} className="flex-1">
+                      <Eye size={14} className="mr-1" /> View
+                    </Button>
+                    {(isPO || isSM) && (
+                      <Button size="sm" onClick={() => setHoldActionFor(insp)} className="flex-1">
+                        <Upload size={14} className="mr-1" /> Address
+                      </Button>
+                    )}
+                    {isQC && (
+                      <Button size="sm" onClick={() => setFillReportFor(insp)} className="flex-1">
+                        <FileCheck size={14} className="mr-1" /> Re-inspect
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Section 3: Inspection History (everyone) */}
       <div>
         <h2 className="text-lg font-semibold text-gray-800 mb-3">
@@ -830,7 +1223,7 @@ export default function QCInspections() {
                       <td className="px-3 py-2 text-gray-500 text-xs">
                         {insp.invoiceNo || '—'} / {insp.dcNo || '—'}
                       </td>
-                      <td className="px-3 py-2"><Badge color={resultColor(insp.result)}>{insp.result}</Badge></td>
+                      <td className="px-3 py-2"><Badge color={resultColor(insp.result)}>{resultLabel(insp.result)}</Badge></td>
                       <td className="px-3 py-2 text-gray-600 text-xs">{insp.requestCreatedBy?.name || '—'}</td>
                       <td className="px-3 py-2 text-gray-600 text-xs">{insp.inspectedBy?.name || '—'}</td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(insp.inspectedAt || insp.createdAt)}</td>
@@ -858,6 +1251,7 @@ export default function QCInspections() {
       {/* Modals */}
       <CreateRequestModal order={createForOrder} onClose={() => setCreateForOrder(null)} onCreated={fetchData} />
       <FillReportModal inspection={fillReportFor} onClose={() => setFillReportFor(null)} onUpdated={fetchData} />
+      <HoldActionModal inspection={holdActionFor} onClose={() => setHoldActionFor(null)} onActioned={fetchData} />
       <ViewInspectionModal inspection={viewInspection} onClose={() => setViewInspection(null)} />
     </div>
   );

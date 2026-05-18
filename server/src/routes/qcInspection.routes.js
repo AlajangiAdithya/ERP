@@ -4,8 +4,17 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
+const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
+
+// Accept up to 10 supporting documents per PO upload action.
+function acceptQcDocs(req, res, next) {
+  qcDocsUpload.array('docs', 10)(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Document upload failed' });
+    next();
+  });
+}
 
 const INSPECTION_INCLUDE = {
   inspectedBy: { select: { id: true, name: true } },
@@ -111,10 +120,15 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
       dateOfManufacturing, dateOfExpiry, tappedHolesCondition,
       qtyAsPerPR, qtyOrdered, qtyReceived, qtyAccepted, qtyRejected,
       rejectionReason, remarks, mirNo,
+      // Phase 4: PO-driven request fields
+      docRequirement, docRequirementNote,
     } = req.body;
 
     if (!purchaseOrderId) {
       return res.status(400).json({ error: 'Purchase order ID is required' });
+    }
+    if (docRequirement && !['COA', 'COC', 'ANY_REPORTS', 'NONE'].includes(docRequirement)) {
+      return res.status(400).json({ error: 'docRequirement must be COA, COC, ANY_REPORTS, or NONE' });
     }
 
     const order = await prisma.purchaseOrder.findUnique({
@@ -166,6 +180,8 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
           rejectionReason: rejectionReason || null,
           remarks: remarks || null,
           mirNo: mirNo || null,
+          docRequirement: docRequirement || null,
+          docRequirementNote: docRequirementNote || null,
         },
         include: INSPECTION_INCLUDE,
       });
@@ -219,26 +235,36 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
       dateOfManufacturing, dateOfExpiry, tappedHolesCondition,
       qtyAsPerPR, qtyOrdered, qtyReceived, qtyAccepted, qtyRejected,
       rejectionReason, remarks, mirNo,
+      // Phase 4: QC can also mark ON_HOLD bouncing back to PO with pendingReason
+      pendingReason,
     } = req.body;
 
-    if (!result || !['PASSED', 'FAILED', 'PARTIAL'].includes(result)) {
-      return res.status(400).json({ error: 'Result must be PASSED, FAILED, or PARTIAL' });
+    if (!result || !['PASSED', 'FAILED', 'PARTIAL', 'ON_HOLD'].includes(result)) {
+      return res.status(400).json({ error: 'Result must be PASSED, FAILED, PARTIAL, or ON_HOLD' });
     }
 
-    // Validate quantities: accepted cannot exceed received; rejected is derived
-    const recNum = qtyReceived != null && qtyReceived !== '' ? parseFloat(qtyReceived) : null;
-    const accNum = qtyAccepted != null && qtyAccepted !== '' ? parseFloat(qtyAccepted) : null;
-    if (recNum == null || isNaN(recNum) || recNum <= 0) {
-      return res.status(400).json({ error: 'Qty Received is required' });
+    if (result === 'ON_HOLD') {
+      if (!pendingReason || !String(pendingReason).trim()) {
+        return res.status(400).json({ error: 'pendingReason is required when placing inspection on hold' });
+      }
     }
-    if (accNum == null || isNaN(accNum) || accNum < 0) {
-      return res.status(400).json({ error: 'Qty Accepted is required' });
+
+    // Validate quantities only for finalized results
+    let recNum = null, accNum = null, derivedRejected = 0;
+    if (result !== 'ON_HOLD') {
+      recNum = qtyReceived != null && qtyReceived !== '' ? parseFloat(qtyReceived) : null;
+      accNum = qtyAccepted != null && qtyAccepted !== '' ? parseFloat(qtyAccepted) : null;
+      if (recNum == null || isNaN(recNum) || recNum <= 0) {
+        return res.status(400).json({ error: 'Qty Received is required' });
+      }
+      if (accNum == null || isNaN(accNum) || accNum < 0) {
+        return res.status(400).json({ error: 'Qty Accepted is required' });
+      }
+      if (accNum > recNum) {
+        return res.status(400).json({ error: 'Qty Accepted cannot exceed Qty Received' });
+      }
+      derivedRejected = Math.max(0, recNum - accNum);
     }
-    if (accNum > recNum) {
-      return res.status(400).json({ error: 'Qty Accepted cannot exceed Qty Received' });
-    }
-    // Force qtyRejected to be derived from received - accepted (single source of truth)
-    const derivedRejected = Math.max(0, recNum - accNum);
 
     const inspection = await prisma.qCInspection.findUnique({
       where: { id: req.params.id },
@@ -252,7 +278,8 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
     });
 
     if (!inspection) return res.status(404).json({ error: 'Inspection not found' });
-    if (inspection.result !== 'PENDING') {
+    // ON_HOLD can be set repeatedly when QC keeps requesting fixes; allow if PENDING or ON_HOLD.
+    if (inspection.result !== 'PENDING' && inspection.result !== 'ON_HOLD') {
       return res.status(400).json({ error: 'Inspection result already submitted' });
     }
 
@@ -282,12 +309,19 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
       if (tappedHolesCondition !== undefined) updateData.tappedHolesCondition = tappedHolesCondition || null;
       if (qtyAsPerPR !== undefined) updateData.qtyAsPerPR = qtyAsPerPR;
       if (qtyOrdered !== undefined) updateData.qtyOrdered = qtyOrdered;
-      updateData.qtyReceived = recNum;
-      updateData.qtyAccepted = accNum;
-      updateData.qtyRejected = derivedRejected;
+      if (result !== 'ON_HOLD') {
+        updateData.qtyReceived = recNum;
+        updateData.qtyAccepted = accNum;
+        updateData.qtyRejected = derivedRejected;
+      }
       if (rejectionReason !== undefined) updateData.rejectionReason = rejectionReason || null;
       if (remarks !== undefined) updateData.remarks = remarks || null;
       if (mirNo !== undefined) updateData.mirNo = mirNo || null;
+      if (result === 'ON_HOLD') {
+        updateData.pendingReason = String(pendingReason).trim();
+      } else {
+        updateData.pendingReason = null;
+      }
 
       const inspResult = await tx.qCInspection.update({
         where: { id: req.params.id },
@@ -314,6 +348,7 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
           data: { status: 'QC_FAILED' },
         });
       }
+      // ON_HOLD keeps PO status as QC_PENDING so PO can take action and re-submit.
 
       return inspResult;
     });
@@ -349,6 +384,16 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
           sentById: req.user.id,
         },
       });
+    } else if (result === 'ON_HOLD') {
+      await prisma.notification.create({
+        data: {
+          type: 'QC_ON_HOLD',
+          title: `QC On Hold: ${order.customName}`,
+          message: `QC placed inspection ${inspection.inspectionNumber} on hold pending more information. Reason: ${pendingReason}. Please upload required documents or address the issue and re-submit for review.`,
+          targetRole: 'PURCHASE_OFFICER',
+          sentById: req.user.id,
+        },
+      });
     }
 
     await prisma.auditLog.create({
@@ -365,6 +410,107 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('QC result error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/qc-inspections/:id/upload-docs — PO uploads supporting documents for QC verification
+router.put('/:id/upload-docs', authenticate, authorize('PURCHASE_OFFICER', 'STORE_MANAGER'), acceptQcDocs, async (req, res) => {
+  try {
+    const inspection = await prisma.qCInspection.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!inspection) return res.status(404).json({ error: 'Inspection not found' });
+
+    const files = req.files || [];
+    if (files.length === 0) {
+      return res.status(400).json({ error: 'At least one document is required' });
+    }
+
+    const existing = Array.isArray(inspection.uploadedDocs) ? inspection.uploadedDocs : [];
+    const newDocs = files.map((f) => ({
+      filename: f.originalname,
+      url: publicUrlFor('qc-docs', f.filename),
+      mimetype: f.mimetype,
+      size: f.size,
+      uploadedById: req.user.id,
+      uploadedAt: new Date().toISOString(),
+    }));
+
+    const updated = await prisma.qCInspection.update({
+      where: { id: req.params.id },
+      data: { uploadedDocs: [...existing, ...newDocs] },
+      include: INSPECTION_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'UPLOAD_QC_DOCS',
+        entity: 'QCInspection',
+        entityId: inspection.id,
+        details: { inspectionNumber: inspection.inspectionNumber, count: files.length },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Upload QC docs error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/qc-inspections/:id/re-review — PO sends an ON_HOLD inspection back to QC for re-review
+router.put('/:id/re-review', authenticate, authorize('PURCHASE_OFFICER', 'STORE_MANAGER'), async (req, res) => {
+  try {
+    const { responseNote } = req.body || {};
+    const inspection = await prisma.qCInspection.findUnique({
+      where: { id: req.params.id },
+      include: { purchaseOrder: { select: { id: true, orderNumber: true, customName: true } } },
+    });
+    if (!inspection) return res.status(404).json({ error: 'Inspection not found' });
+    if (inspection.result !== 'ON_HOLD') {
+      return res.status(400).json({ error: 'Only on-hold inspections can be sent for re-review' });
+    }
+
+    const updated = await prisma.qCInspection.update({
+      where: { id: req.params.id },
+      data: {
+        result: 'PENDING',
+        iteration: { increment: 1 },
+        pendingReason: null,
+        notes: responseNote
+          ? `${inspection.notes ? inspection.notes + '\n' : ''}[Re-review iteration ${inspection.iteration + 1}] PO response: ${responseNote}`
+          : inspection.notes,
+      },
+      include: INSPECTION_INCLUDE,
+    });
+
+    await prisma.notification.create({
+      data: {
+        type: 'QC_RE_REVIEW',
+        title: `Re-review Requested: ${inspection.purchaseOrder.customName}`,
+        message: `PO has addressed the hold reason and resubmitted inspection ${inspection.inspectionNumber} for re-review.${responseNote ? ' Note: ' + responseNote : ''}`,
+        targetRole: 'QC',
+        sentById: req.user.id,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'QC_RE_REVIEW',
+        entity: 'QCInspection',
+        entityId: inspection.id,
+        details: { inspectionNumber: inspection.inspectionNumber, iteration: inspection.iteration + 1 },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('QC re-review error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -4,6 +4,15 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
+const { prSpecsUpload, publicUrlFor } = require('../middleware/upload');
+
+// Wrap multer so file-validation errors return 400 instead of bubbling to the 500 handler.
+const acceptSpecsPdf = (req, res, next) => {
+  prSpecsUpload.single('materialSpecsPdf')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'File upload failed' });
+    next();
+  });
+};
 
 const router = express.Router();
 
@@ -24,6 +33,7 @@ const createSchema = z.object({
     qapNo: z.string().optional(),
     drawingNo: z.string().optional(),
     materialRequiredFor: z.string().optional(),
+    internalWorkOrder: z.string().optional(),
     purpose: z.string().optional(),
     sourceOfSupply: z.string().optional(),
     scopeOfWork: z.string().optional(),
@@ -143,6 +153,50 @@ router.get('/', authenticate, async (req, res) => {
     });
   } catch (error) {
     console.error('Get purchase requests error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/purchase-requests/in-progress-summary — floating in-progress PR/PO counts visible to ALL roles
+router.get('/in-progress-summary', authenticate, async (req, res) => {
+  try {
+    // PR statuses considered "in progress" (anything not COMPLETED/REJECTED)
+    const prInProgressStatuses = [
+      'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED',
+      'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'IN_PROGRESS',
+    ];
+    const poInProgressStatuses = [
+      'PENDING_ACCOUNTING', 'ORDERED', 'PLACED', 'ADVANCE_PAID',
+      'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'INWARD_DONE',
+    ];
+
+    const [prCount, poCount, prSamples, poSamples] = await Promise.all([
+      prisma.purchaseRequest.count({ where: { status: { in: prInProgressStatuses } } }),
+      prisma.purchaseOrder.count({ where: { status: { in: poInProgressStatuses } } }),
+      prisma.purchaseRequest.findMany({
+        where: { status: { in: prInProgressStatuses } },
+        select: {
+          id: true, requestNumber: true, requestId: true, status: true, createdAt: true,
+          manager: { select: { name: true } },
+          unit: { select: { name: true, code: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+      }),
+      prisma.purchaseOrder.findMany({
+        where: { status: { in: poInProgressStatuses } },
+        select: {
+          id: true, orderNumber: true, customName: true, supplierName: true,
+          status: true, totalAmount: true, createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+      }),
+    ]);
+
+    res.json({ prCount, poCount, prSamples, poSamples });
+  } catch (error) {
+    console.error('In-progress summary error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -309,16 +363,22 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/purchase-requests — Requester creates
-router.post('/', authenticate, authorize('MANAGER', 'LAB'), async (req, res) => {
+// POST /api/purchase-requests — Requester creates.
+// Accepts multipart/form-data (when a material-specs PDF is attached) or JSON.
+// In multipart mode the JSON body lives in `payload`.
+router.post('/', authenticate, authorize('MANAGER', 'LAB'), acceptSpecsPdf, async (req, res) => {
   try {
-    const data = createSchema.parse(req.body);
+    const rawBody = req.is('multipart/form-data') && req.body?.payload
+      ? JSON.parse(req.body.payload)
+      : req.body;
+    const data = createSchema.parse(rawBody);
 
     if (!req.user.unitId) {
       return res.status(400).json({ error: 'You must be assigned to a unit to create purchase requests' });
     }
 
     const requestNumber = generateOrderNumber('PR');
+    const materialSpecsPdfUrl = req.file ? publicUrlFor('pr-specs', req.file.filename) : null;
 
     const request = await prisma.purchaseRequest.create({
       data: {
@@ -327,6 +387,7 @@ router.post('/', authenticate, authorize('MANAGER', 'LAB'), async (req, res) => 
         managerId: req.user.id,
         unitId: req.user.unitId,
         notes: data.notes || null,
+        materialSpecsPdfUrl,
         items: {
           create: data.items.map(item => ({
             productName: item.productName,
@@ -338,6 +399,7 @@ router.post('/', authenticate, authorize('MANAGER', 'LAB'), async (req, res) => 
             qapNo: item.qapNo || null,
             drawingNo: item.drawingNo || null,
             materialRequiredFor: item.materialRequiredFor || null,
+            internalWorkOrder: item.internalWorkOrder || null,
             purpose: item.purpose || null,
             sourceOfSupply: item.sourceOfSupply || null,
             scopeOfWork: item.scopeOfWork || null,

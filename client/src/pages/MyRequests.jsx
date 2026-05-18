@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, PackageCheck, X, Scissors } from 'lucide-react';
 import api from '../api/axios';
+import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -26,6 +27,7 @@ export default function MyRequests() {
   const [saving, setSaving] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [collectModal, setCollectModal] = useState(null); // { request, rows: [{id, productName, unit, approved, alreadyTaken, remaining, take}] }
+  const refreshKey = useAutoRefresh();
 
   const fetchRequests = () => {
     setLoading(true);
@@ -34,7 +36,7 @@ export default function MyRequests() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchRequests(); }, [fromDate, toDate]);
+  useEffect(() => { fetchRequests(); }, [fromDate, toDate, refreshKey]);
 
   const openCreate = () => {
     api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products));

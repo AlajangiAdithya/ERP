@@ -78,6 +78,7 @@ model Unit {
   purchaseRequests PurchaseRequest[]
   transfersFrom    InventoryTransferRequest[] @relation("TransferFromUnit")
   transfersTo      InventoryTransferRequest[] @relation("TransferToUnit")
+  productStocks    ProductUnitStock[]
 }
 
 // ──── AUDIT LOG ────
@@ -114,6 +115,25 @@ model Product {
   transfers            InventoryTransferRequest[]
   quotationItems       QuotationItem[]
   purchaseOrderItems   PurchaseOrderItem[]
+  unitStocks           ProductUnitStock[]
+}
+
+// ──── PER-UNIT INVENTORY (Phase 6) ────
+// When a PR is created for a unit and inward is done, product quantity is
+// indented to that owning unit. Other units must use InventoryTransferRequest
+// to move stock between units.
+model ProductUnitStock {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  unitId    String
+  unit      Unit     @relation(fields: [unitId], references: [id])
+  quantity  Float    @default(0)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([productId, unitId])
+  @@index([unitId])
 }
 
 // ──── PRODUCT BATCHES (FIFO lot tracking) ────
@@ -217,6 +237,7 @@ model PurchaseRequest {
   unit                 Unit                  @relation(fields: [unitId], references: [id])
   status               PurchaseRequestStatus @default(PENDING_ADMIN)
   notes                String?
+  materialSpecsPdfUrl  String? // Optional material specs PDF attached at PR creation
   adminNotes           String?
   adminApprovedById    String?
   adminApprovedBy      User?                 @relation("PurchaseRequestApprover", fields: [adminApprovedById], references: [id])
@@ -249,9 +270,10 @@ model PurchaseRequestItem {
   qapNo                 String? // QAP no. & QAP attachment reference
   drawingNo             String? // Drawing no. & detailed drawing reference
   materialRequiredFor   String? // SO no. / R&D
+  internalWorkOrder     String? // Internal Work Order (free text)
   purpose               String? // Purpose
   sourceOfSupply        String? // Source of supply if any
-  scopeOfWork           String? // Scope of work details
+  scopeOfWork           String? // Reports Required / Scope of Work
   inspectionType        String? // Inhouse / External (RAPS QC/Customer QC)
   requiredByDate        DateTime? // Required by date
   itemRemarks           String? // Other details/Remarks
@@ -306,6 +328,8 @@ model Quotation {
   supplierAddress   String?
   totalAmount       Float
   notes             String?
+  quotationPdfUrl   String? // Optional supplier-quote PDF uploaded by PO
+  selectionNote     String? // Admin's note explaining why this quote was chosen
   isSelected        Boolean           @default(false)
   createdById       String
   createdBy         User              @relation("QuotationCreator", fields: [createdById], references: [id])
@@ -368,6 +392,9 @@ model PurchaseOrder {
   totalPaid         Float                 @default(0)
   goodsArrived      Boolean               @default(false)
   goodsArrivedAt    DateTime?
+  delayNote         String? // Optional note when PO placed ≥3 days after PR creation
+  mirNo             String? // Auto-generated at stores inward (MIR-YYYYMMDD-NNN)
+  inwardedAt        DateTime? // Timestamp of stores inward
   status            PurchaseOrderStatus   @default(PENDING_ACCOUNTING)
   createdById       String
   createdBy         User                  @relation("POCreator", fields: [createdById], references: [id])
@@ -513,6 +540,12 @@ model QCInspection {
   materialDescription  String? // Material description and specification
   materialCategory     String? // Raw materials / Consumables / Tooling & Fixtures / FIM
   documentTypes        Json? // Checkboxes: Test Report, COC, COA, 3rd Party/Customer Clearance
+  // ── Phase 4: PO-driven inspection request + QC re-review flow ──
+  docRequirement       String? // COA / COC / ANY_REPORTS chosen at inspection request
+  docRequirementNote   String? // Free text note alongside docRequirement
+  uploadedDocs         Json? // Array of {filename, url, uploadedById, uploadedAt} from PO
+  pendingReason        String? // Reason QC marked Pending; bounces back to PO
+  iteration            Int       @default(1) // Increment each re-review cycle
   inspectionLocation   String? // Dimensional Inspection at Supplier Place / at RAPS Inward
   reportReferenceNo    String? // Report reference no.
   packingCondition     String? // Sealed / Broken
@@ -537,6 +570,7 @@ enum QCResult {
   PASSED
   FAILED
   PARTIAL
+  ON_HOLD
 }
 
 // ──── GATE PASS REQUEST (RAMS/GPR/01) ────

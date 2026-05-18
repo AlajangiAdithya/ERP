@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../api/axios';
+import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
@@ -17,13 +18,14 @@ export default function AllRequests() {
   const [showDetail, setShowDetail] = useState(null);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const refreshKey = useAutoRefresh();
 
   useEffect(() => {
     setLoading(true);
     api.get('/requests', { params: { status: statusFilter || undefined, page, limit: 20, fromDate: fromDate || undefined, toDate: toDate || undefined } })
       .then(({ data }) => { setRequests(data.requests); setTotalPages(data.totalPages); })
       .finally(() => setLoading(false));
-  }, [page, statusFilter, fromDate, toDate]);
+  }, [page, statusFilter, fromDate, toDate, refreshKey]);
 
   const statusColor = (s) => ({
     PENDING: 'yellow', APPROVED: 'green', PARTIAL: 'orange', COLLECTED: 'blue', REJECTED: 'red', CANCELLED: 'gray'

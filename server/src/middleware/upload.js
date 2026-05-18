@@ -1,0 +1,46 @@
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+
+const UPLOAD_ROOT = path.join(__dirname, '..', '..', 'uploads');
+if (!fs.existsSync(UPLOAD_ROOT)) fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
+
+function makeStorage(subdir) {
+  const dir = path.join(UPLOAD_ROOT, subdir);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, dir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase() || '.bin';
+      const id = crypto.randomBytes(8).toString('hex');
+      cb(null, `${Date.now()}-${id}${ext}`);
+    },
+  });
+}
+
+const pdfOnly = (_req, file, cb) => {
+  if (file.mimetype === 'application/pdf') cb(null, true);
+  else cb(new Error('Only PDF files are allowed'), false);
+};
+
+const prSpecsUpload = multer({
+  storage: makeStorage('pr-specs'),
+  fileFilter: pdfOnly,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+const quotationUpload = multer({
+  storage: makeStorage('quotations'),
+  fileFilter: pdfOnly,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+const qcDocsUpload = multer({
+  storage: makeStorage('qc-docs'),
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
+
+const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
+
+module.exports = { prSpecsUpload, quotationUpload, qcDocsUpload, publicUrlFor, UPLOAD_ROOT };

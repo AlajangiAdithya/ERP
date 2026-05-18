@@ -36,7 +36,7 @@ export default function Products() {
 
   const fetchProducts = () => {
     setLoading(true);
-    const params = { page, limit: 100, search: search || undefined, category: catFilter || undefined };
+    const params = { page, limit: 100, search: search || undefined, category: catFilter || undefined, includeUnitStock: 'true' };
     api.get('/products', { params })
       .then(({ data }) => {
         setProducts(data.products);
@@ -76,7 +76,7 @@ export default function Products() {
     { key: 'name', label: 'Name' },
     { key: 'category', label: 'Category', render: (v) => v || '—' },
     {
-      key: 'currentStock', label: 'Stock',
+      key: 'currentStock', label: 'Total Stock',
       render: (v, row) => (
         <span className="flex items-center gap-2">
           {v} {row.unit}
@@ -87,6 +87,26 @@ export default function Products() {
           ) : null}
         </span>
       )
+    },
+    {
+      key: 'unitStocks', label: 'Per Unit',
+      render: (v, row) => {
+        const list = Array.isArray(v) ? v.filter(u => u.quantity > 0) : [];
+        if (list.length === 0) {
+          return <span className="text-xs text-gray-400">—</span>;
+        }
+        return (
+          <div className="flex flex-wrap gap-1">
+            {list.map(us => (
+              <span key={us.id}
+                className="text-xs px-1.5 py-0.5 rounded bg-navy-50 text-navy-700 border border-navy-100"
+                title={`${us.unit?.name || us.unit?.code || 'Unit'}: ${us.quantity} ${row.unit}`}>
+                {us.unit?.code || us.unit?.name || '—'}: <strong>{us.quantity}</strong>
+              </span>
+            ))}
+          </div>
+        );
+      }
     },
     { key: 'minStockLevel', label: 'Min Level', render: (v, row) => v > 0 ? `${v} ${row.unit}` : '—' },
   ];

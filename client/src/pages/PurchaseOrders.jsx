@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { useAutoRefresh } from '../context/NotificationContext';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -89,6 +90,8 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentType, setPaymentType] = useState('ADVANCE');
   const [paymentNotes, setPaymentNotes] = useState('');
+  const [delayAcknowledged, setDelayAcknowledged] = useState(false);
+  const [delayNote, setDelayNote] = useState('');
   const [processing, setProcessing] = useState(false);
   const [inwardItems, setInwardItems] = useState([]);
   const [prQuotations, setPrQuotations] = useState([]);
@@ -133,8 +136,18 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const remaining = order.totalAmount - order.totalPaid;
   const isPendingAccounting = order.status === 'PENDING_ACCOUNTING';
 
+  // Phase 2: detect placement delay vs PR creation
+  const prCreatedAt = order?.purchaseRequest?.createdAt || order?.sourceRequests?.[0]?.purchaseRequest?.createdAt;
+  const daysSincePr = prCreatedAt
+    ? Math.floor((Date.now() - new Date(prCreatedAt).getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
+  const isDelayed = daysSincePr >= 3;
+
   const placeOrder = async () => {
     if (!paymentAmount || parseFloat(paymentAmount) <= 0) return alert('Enter the payment amount.');
+    if (isDelayed && delayAcknowledged && !delayNote.trim()) {
+      return alert('Please write a brief reason for the delay before placing the order.');
+    }
     if (!confirm(`Send ${paymentType} payment request of ₹${parseFloat(paymentAmount).toLocaleString('en-IN')} to Accounting?`)) return;
     setProcessing(true);
     try {
@@ -142,10 +155,13 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
         paymentType,
         amount: parseFloat(paymentAmount),
         notes: paymentNotes || undefined,
+        delayNote: isDelayed && delayAcknowledged ? delayNote.trim() : undefined,
       });
       setShowPaymentForm(false);
       setPaymentAmount('');
       setPaymentNotes('');
+      setDelayNote('');
+      setDelayAcknowledged(false);
       onClose();
       onUpdated();
     } catch (err) {
@@ -247,6 +263,19 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             </>
           )}
         </div>
+
+        {order.delayNote && (
+          <div className="bg-orange-50 border border-orange-200 rounded-md p-3 text-sm">
+            <div className="text-xs font-semibold text-orange-900 uppercase tracking-wide mb-1">Order Placement Delay Note</div>
+            <div className="text-gray-700">{order.delayNote}</div>
+          </div>
+        )}
+        {order.mirNo && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 text-sm">
+            <span className="text-xs font-semibold text-emerald-900 uppercase tracking-wide">MIR No: </span>
+            <span className="font-mono font-bold text-emerald-700">{order.mirNo}</span>
+          </div>
+        )}
 
         {/* Supplier contact (for accounting) */}
         {supplierFromQuotation && (supplierFromQuotation.contact || supplierFromQuotation.address) && (
@@ -491,6 +520,44 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                     </div>
                     <Input label="Notes" value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} placeholder="Optional" />
                   </div>
+
+                  {isDelayed && (
+                    <div className="border border-orange-300 bg-orange-50 rounded-md p-3 space-y-2">
+                      <div className="text-xs font-semibold text-orange-800">
+                        Placement delay detected — PR was created {daysSincePr} day(s) ago.
+                      </div>
+                      <div className="flex items-center gap-4 text-sm">
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="delay-ack"
+                            checked={delayAcknowledged === true}
+                            onChange={() => setDelayAcknowledged(true)}
+                          />
+                          <span>Delayed by 3 days or more — add reason</span>
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="delay-ack"
+                            checked={delayAcknowledged === false}
+                            onChange={() => { setDelayAcknowledged(false); setDelayNote(''); }}
+                          />
+                          <span>No comment</span>
+                        </label>
+                      </div>
+                      {delayAcknowledged && (
+                        <textarea
+                          value={delayNote}
+                          onChange={(e) => setDelayNote(e.target.value)}
+                          placeholder="Reason for delay in placing the order…"
+                          rows={2}
+                          className="w-full px-3 py-2 border rounded-md text-sm"
+                        />
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex gap-2">
                     <Button size="sm" onClick={placeOrder} disabled={processing}>{processing ? 'Placing...' : 'Place Order & Request Payment'}</Button>
                     <Button size="sm" variant="secondary" onClick={() => setShowPaymentForm(false)}>Cancel</Button>
@@ -744,6 +811,7 @@ export default function PurchaseOrders() {
 
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isAdmin = user?.role === 'ADMIN';
+  const refreshKey = useAutoRefresh();
 
   const fetchData = async () => {
     setLoading(true);
@@ -762,7 +830,7 @@ export default function PurchaseOrders() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, [tab, fromDate, toDate]);
+  useEffect(() => { fetchData(); }, [tab, fromDate, toDate, refreshKey]);
 
   const openDetail = async (order) => {
     try {

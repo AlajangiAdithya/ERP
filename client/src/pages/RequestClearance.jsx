@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle, XCircle } from 'lucide-react';
 import api from '../api/axios';
+import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -19,6 +20,7 @@ export default function RequestClearance() {
   const [adjustedItems, setAdjustedItems] = useState([]);
   const [processing, setProcessing] = useState(false);
   const [tab, setTab] = useState('PENDING');
+  const refreshKey = useAutoRefresh();
 
   const fetchRequests = () => {
     setLoading(true);
@@ -27,7 +29,7 @@ export default function RequestClearance() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchRequests(); }, [tab]);
+  useEffect(() => { fetchRequests(); }, [tab, refreshKey]);
 
   const openRequest = (request) => {
     setSelectedRequest(request);

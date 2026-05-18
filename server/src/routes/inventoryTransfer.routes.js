@@ -286,6 +286,23 @@ router.put('/:id/complete', authenticate, authorize('MANAGER'), async (req, res)
     }
 
     await prisma.$transaction(async (tx) => {
+      // Phase 6: validate source unit has the stock, then move per-unit quantity
+      const fromStock = await tx.productUnitStock.findUnique({
+        where: { productId_unitId: { productId: t.productId, unitId: t.fromUnitId } },
+      });
+      if (!fromStock || fromStock.quantity < t.quantity - 0.001) {
+        throw new Error(`Source unit ${t.fromUnit.code} no longer holds ${t.quantity} ${t.product.unit} of ${t.product.name}`);
+      }
+      await tx.productUnitStock.update({
+        where: { productId_unitId: { productId: t.productId, unitId: t.fromUnitId } },
+        data: { quantity: { decrement: t.quantity } },
+      });
+      await tx.productUnitStock.upsert({
+        where: { productId_unitId: { productId: t.productId, unitId: t.toUnitId } },
+        update: { quantity: { increment: t.quantity } },
+        create: { productId: t.productId, unitId: t.toUnitId, quantity: t.quantity },
+      });
+
       // OUT from source unit
       await tx.stockMovement.create({
         data: {

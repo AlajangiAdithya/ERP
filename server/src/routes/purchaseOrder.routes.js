@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
+const { generateOrderNumber, paginate, applyDateFilter, generateMirNumber } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -315,13 +315,13 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
         },
         purchaseRequest: {
           select: {
-            id: true, requestNumber: true, managerId: true,
+            id: true, requestNumber: true, managerId: true, unitId: true,
             manager: { select: { id: true, name: true, role: true } },
             items: { select: { id: true, productId: true, productName: true, productUnit: true } },
           },
         },
         sourceRequests: {
-          include: { purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } } },
+          include: { purchaseRequest: { select: { id: true, requestNumber: true, managerId: true, unitId: true } } },
         },
       },
     });
@@ -330,6 +330,9 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
     if (order.status !== 'QC_PASSED') {
       return res.status(400).json({ error: 'Inward entry can only be done after QC approval' });
     }
+
+    // Auto-generate MIR number (daily reset) on first inward only
+    const mirNo = order.mirNo || (await generateMirNumber(prisma));
 
     const sourcePRs = order.isUnion
       ? (order.sourceRequests || []).map((s) => s.purchaseRequest)
@@ -431,35 +434,42 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           data: { currentStock: { increment: receivedQty } },
         });
 
-        // One stock movement + batch per share so the audit trail attributes each unit's slice
+        // One stock movement + batch per share so the audit trail attributes each unit's slice.
+        // Also increment per-unit stock (Phase 6) using the owning PR's unitId so material is
+        // indented only to the requesting unit.
         for (const { allocation, share } of shares) {
           if (share <= 0) continue;
           const prRef = allocation?.purchaseRequestItem?.purchaseRequest;
           const unitTag = prRef?.unit?.code ? ` [${prRef.unit.code}]` : '';
           const prTag = prRef?.requestNumber ? ` — ${prRef.requestNumber}` : '';
 
+          // Owning unit for this slice: union → from allocation's PR; single → from PO's PR
+          const owningUnitId = allocation
+            ? prRef?.unit?.id || null
+            : order.purchaseRequest?.unitId || null;
+
           const movement = await tx.stockMovement.create({
             data: {
               productId,
               type: 'IN',
               quantity: share,
-              batchNumber: item.batchNumber || null,
               referenceType: 'PurchaseOrder',
               referenceId: order.id,
-              notes: `PO ${order.orderNumber} — ${order.supplierName}${prTag}${unitTag}`,
+              notes: `PO ${order.orderNumber} — ${order.supplierName}${prTag}${unitTag} (MIR ${mirNo})`,
               performedBy: req.user.id,
+              unitId: owningUnitId,
             },
           });
 
           await tx.productBatch.create({
             data: {
               productId,
-              batchNo: item.batchNumber || null,
+              receivedDate: new Date(),
               quantity: share,
               remaining: share,
               referenceType: 'PurchaseOrder',
               referenceId: movement.id,
-              notes: `PO ${order.orderNumber} — ${orderItem.productName}${prTag}${unitTag}`,
+              notes: `PO ${order.orderNumber} — ${orderItem.productName}${prTag}${unitTag} (MIR ${mirNo})`,
               createdById: req.user.id,
             },
           });
@@ -468,6 +478,15 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
             await tx.purchaseOrderItemAllocation.update({
               where: { id: allocation.id },
               data: { receivedQty: { increment: share } },
+            });
+          }
+
+          // Phase 6: per-unit stock update
+          if (owningUnitId) {
+            await tx.productUnitStock.upsert({
+              where: { productId_unitId: { productId, unitId: owningUnitId } },
+              update: { quantity: { increment: share } },
+              create: { productId, unitId: owningUnitId, quantity: share },
             });
           }
         }
@@ -483,7 +502,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
       if (allFullyReceived) {
         result = await tx.purchaseOrder.update({
           where: { id: req.params.id },
-          data: { status: 'INWARD_DONE' },
+          data: { status: 'INWARD_DONE', mirNo, inwardedAt: new Date() },
           include: ORDER_INCLUDE,
         });
         if (sourcePRIds.length) {
@@ -493,10 +512,11 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           });
         }
       } else {
-        // Partial delivery: reset to ORDERED so PO can mark next batch as arrived
+        // Partial delivery: reset to ORDERED so PO can mark next batch as arrived.
+        // Save MIR so subsequent partial inwards share the same MIR number.
         result = await tx.purchaseOrder.update({
           where: { id: req.params.id },
-          data: { status: 'ORDERED', goodsArrived: false },
+          data: { status: 'ORDERED', goodsArrived: false, mirNo },
           include: ORDER_INCLUDE,
         });
       }
@@ -570,6 +590,7 @@ const placeOrderSchema = z.object({
   paymentType: z.enum(['ADVANCE', 'PARTIAL', 'FINAL']),
   amount: z.number().positive(),
   notes: z.string().optional(),
+  delayNote: z.string().optional(),
 });
 
 router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
@@ -606,6 +627,14 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
       },
       include: { createdBy: { select: { id: true, name: true } } },
     });
+
+    // Save optional delay note on the order itself (separate from payment notes)
+    if (data.delayNote && data.delayNote.trim()) {
+      await prisma.purchaseOrder.update({
+        where: { id: order.id },
+        data: { delayNote: data.delayNote.trim() },
+      });
+    }
 
     await prisma.notification.create({
       data: {

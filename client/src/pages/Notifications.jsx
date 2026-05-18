@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, X, Trash2 } from 'lucide-react';
 import api from '../api/axios';
+import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
@@ -70,6 +71,7 @@ export default function Notifications() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const navigate = useNavigate();
+  const refreshKey = useAutoRefresh();
 
   const fetchNotifications = () => {
     setLoading(true);
@@ -82,7 +84,7 @@ export default function Notifications() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchNotifications(); }, [page]);
+  useEffect(() => { fetchNotifications(); }, [page, refreshKey]);
 
   const dismiss = async (id, e) => {
     e.stopPropagation();

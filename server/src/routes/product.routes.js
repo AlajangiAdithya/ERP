@@ -21,7 +21,7 @@ const productSchema = z.object({
 // GET /api/products
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { search, category, page, limit } = req.query;
+    const { search, category, page, limit, includeUnitStock } = req.query;
 
     const where = { isActive: true };
     if (search) {
@@ -32,11 +32,14 @@ router.get('/', authenticate, async (req, res) => {
     }
     if (category) where.category = category;
 
+    const wantUnitStock = includeUnitStock === 'true' || includeUnitStock === '1';
+
     // Support limit=all to bypass pagination (for product selection dropdowns)
     if (limit === 'all') {
       const products = await prisma.product.findMany({
         where,
         orderBy: { name: 'asc' },
+        include: wantUnitStock ? { unitStocks: { include: { unit: { select: { id: true, name: true, code: true } } } } } : undefined,
       });
       return res.json({ products, total: products.length, page: 1, totalPages: 1 });
     }
@@ -49,6 +52,7 @@ router.get('/', authenticate, async (req, res) => {
         orderBy: { createdAt: 'desc' },
         skip,
         take,
+        include: wantUnitStock ? { unitStocks: { include: { unit: { select: { id: true, name: true, code: true } } } } } : undefined,
       }),
       prisma.product.count({ where }),
     ]);

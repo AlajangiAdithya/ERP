@@ -1,5 +1,6 @@
 import Sidebar from './Sidebar';
 import Header from './Header';
+import InProgressBadge from '../shared/InProgressBadge';
 
 export default function MainLayout({ children }) {
   return (
@@ -11,6 +12,7 @@ export default function MainLayout({ children }) {
           {children}
         </main>
       </div>
+      <InProgressBadge />
     </div>
   );
 }

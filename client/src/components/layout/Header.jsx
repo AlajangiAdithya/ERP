@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
 import { LogOut, User, ChevronDown, Bell, Building2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useNotificationCenter } from '../../context/NotificationContext';
 import Dropdown, { DropdownItem } from '../ui/Dropdown';
 import { useNavigate } from 'react-router-dom';
-import api from '../../api/axios';
 
 const ROLE_LABELS = {
   ADMIN: 'Administrator',
@@ -25,19 +24,7 @@ const getInitials = (name) => {
 export default function Header() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [unreadCount, setUnreadCount] = useState(0);
-
-  useEffect(() => {
-    const fetchCount = () => {
-      api.get('/alerts/notifications/unread-count')
-        .then(({ data }) => setUnreadCount(data.count))
-        .catch(() => {});
-    };
-
-    fetchCount();
-    const interval = setInterval(fetchCount, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  const { unreadCount } = useNotificationCenter();
 
   const handleLogout = async () => {
     await logout();

@@ -8,6 +8,7 @@ import Modal from '../components/ui/Modal';
 import Input, { Select, Textarea } from '../components/ui/Input';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { useAuth } from '../context/AuthContext';
+import { useAutoRefresh } from '../context/NotificationContext';
 import { formatDateTime } from '../utils/formatters';
 
 const TABS = [
@@ -33,6 +34,7 @@ export default function InventoryTransfers() {
   const [products, setProducts] = useState([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const refreshKey = useAutoRefresh();
 
   const [form, setForm] = useState({
     fromUnitId: '',
@@ -54,11 +56,11 @@ export default function InventoryTransfers() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, statusFilter, fromDate, toDate]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, statusFilter, fromDate, toDate, refreshKey]);
 
   useEffect(() => {
     api.get('/units').then(({ data }) => setUnits(data || [])).catch(() => setUnits([]));
-    api.get('/products', { params: { limit: 'all' } })
+    api.get('/products', { params: { limit: 'all', includeUnitStock: 'true' } })
       .then(({ data }) => setProducts(data.products || []))
       .catch(() => setProducts([]));
   }, []);
@@ -87,6 +89,12 @@ export default function InventoryTransfers() {
     const qty = parseFloat(form.quantity);
     if (!Number.isFinite(qty) || qty <= 0) {
       return setFormError('Quantity must be a positive number.');
+    }
+    // Block if source unit doesn't hold enough of this product
+    const selectedProduct = products.find(p => p.id === form.productId);
+    const sourceQty = (selectedProduct?.unitStocks || []).find(u => u.unitId === form.fromUnitId)?.quantity ?? 0;
+    if (qty > sourceQty) {
+      return setFormError(`Source unit only holds ${sourceQty} ${selectedProduct?.unit || ''}. Cannot transfer ${qty}.`);
     }
     setSaving(true);
     try {
@@ -135,6 +143,15 @@ export default function InventoryTransfers() {
   };
 
   const activeTabMeta = useMemo(() => TABS.find((t) => t.key === tab), [tab]);
+
+  // Per-unit stock helper for the source unit in the create form
+  const stockAtFromUnit = useMemo(() => {
+    if (!form.fromUnitId || !form.productId) return null;
+    const product = products.find(p => p.id === form.productId);
+    if (!product) return null;
+    const us = (product.unitStocks || []).find(u => u.unitId === form.fromUnitId);
+    return { qty: us?.quantity ?? 0, unit: product.unit, total: product.currentStock };
+  }, [products, form.fromUnitId, form.productId]);
 
   const canApprove = (t) => t.status === 'PENDING' && t.fromUnitId === user?.unitId;
   const canComplete = (t) => t.status === 'APPROVED' && (t.toUnitId === user?.unitId || t.fromUnitId === user?.unitId);
@@ -232,6 +249,7 @@ export default function InventoryTransfers() {
         <div className="space-y-4">
           <p className="text-xs text-gray-500">
             As a Unit Manager, you can only pull stock INTO your own unit. The source unit's Manager must approve.
+            Stock is tracked <strong>per unit</strong> — you can only request what the source unit actually holds.
           </p>
           <div className="grid grid-cols-2 gap-4">
             <Select
@@ -265,10 +283,38 @@ export default function InventoryTransfers() {
             onChange={(e) => setForm({ ...form, productId: e.target.value })}
           >
             <option value="">Select product…</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>{p.name} — stock: {p.currentStock} {p.unit}</option>
-            ))}
+            {products.map((p) => {
+              const atSource = form.fromUnitId
+                ? ((p.unitStocks || []).find(u => u.unitId === form.fromUnitId)?.quantity ?? 0)
+                : null;
+              return (
+                <option key={p.id} value={p.id}>
+                  {p.name} — total: {p.currentStock} {p.unit}
+                  {form.fromUnitId ? ` • at source: ${atSource} ${p.unit}` : ''}
+                </option>
+              );
+            })}
           </Select>
+
+          {stockAtFromUnit && (
+            <div className={`text-xs px-3 py-2 rounded-md border ${
+              stockAtFromUnit.qty <= 0
+                ? 'bg-red-50 border-red-200 text-red-800'
+                : 'bg-blue-50 border-blue-200 text-blue-800'
+            }`}>
+              {stockAtFromUnit.qty <= 0 ? (
+                <>
+                  <strong>Source unit has 0 {stockAtFromUnit.unit} on hand.</strong>{' '}
+                  This unit cannot ship what it does not hold. Total across all units: {stockAtFromUnit.total} {stockAtFromUnit.unit}.
+                </>
+              ) : (
+                <>
+                  Source unit currently holds <strong>{stockAtFromUnit.qty} {stockAtFromUnit.unit}</strong> of this product.
+                  Total across all units: {stockAtFromUnit.total} {stockAtFromUnit.unit}.
+                </>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <Input

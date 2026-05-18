@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers } from 'lucide-react';
+import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { useAutoRefresh } from '../context/NotificationContext';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -83,12 +84,15 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
   const emptyItem = {
     productName: '', productUnit: 'kg', requestedQty: '',
     materialType: '', materialSpecification: '', qapNo: '', drawingNo: '',
-    materialRequiredFor: '', purpose: '', sourceOfSupply: '', scopeOfWork: '',
+    materialRequiredFor: '', internalWorkOrder: '',
+    purpose: '', sourceOfSupply: '', scopeOfWork: '',
     inspectionType: '', requiredByDate: '', itemRemarks: '',
   };
   const [items, setItems] = useState([{ ...emptyItem }]);
   const [notes, setNotes] = useState('');
   const [requestId, setRequestId] = useState('');
+  const [specsPdf, setSpecsPdf] = useState(null);
+  const [specsPdfError, setSpecsPdfError] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -96,8 +100,21 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
       setItems([{ ...emptyItem }]);
       setNotes('');
       setRequestId('');
+      setSpecsPdf(null);
+      setSpecsPdfError('');
     }
   }, [isOpen]);
+
+  // "Fabric" materials get a 2-month default required-by date (overridable).
+  const fabricDefaultDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 60);
+    return d.toISOString().split('T')[0];
+  };
+  const looksLikeFabric = (item) => {
+    const hay = `${item.materialType} ${item.productName} ${item.materialSpecification}`.toLowerCase();
+    return hay.includes('fabric');
+  };
 
   const addItem = () => setItems([...items, { ...emptyItem }]);
   const removeItem = (idx) => {
@@ -107,7 +124,31 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
   const updateItem = (idx, field, value) => {
     const updated = [...items];
     updated[idx] = { ...updated[idx], [field]: value };
+    // Auto-fill required-by date to today+60 days when the row turns into a fabric
+    // and the user hasn't already chosen a date.
+    if (!updated[idx].requiredByDate && looksLikeFabric(updated[idx])) {
+      updated[idx].requiredByDate = fabricDefaultDate();
+    }
     setItems(updated);
+  };
+
+  const handleSpecsPdfChange = (e) => {
+    setSpecsPdfError('');
+    const file = e.target.files?.[0] || null;
+    if (!file) { setSpecsPdf(null); return; }
+    if (file.type !== 'application/pdf') {
+      setSpecsPdf(null);
+      setSpecsPdfError('Only PDF files are allowed');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setSpecsPdf(null);
+      setSpecsPdfError('PDF must be under 10 MB');
+      e.target.value = '';
+      return;
+    }
+    setSpecsPdf(file);
   };
 
   const submit = async () => {
@@ -116,7 +157,7 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
     if (!requestId.trim()) return alert('Order Name is required — this will identify your order throughout the system.');
     setSaving(true);
     try {
-      await api.post('/purchase-requests', {
+      const payload = {
         notes: notes || undefined,
         requestId: requestId.trim(),
         items: validItems.map(i => ({
@@ -128,6 +169,7 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
           qapNo: i.qapNo || undefined,
           drawingNo: i.drawingNo || undefined,
           materialRequiredFor: i.materialRequiredFor || undefined,
+          internalWorkOrder: i.internalWorkOrder || undefined,
           purpose: i.purpose || undefined,
           sourceOfSupply: i.sourceOfSupply || undefined,
           scopeOfWork: i.scopeOfWork || undefined,
@@ -135,7 +177,17 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
           requiredByDate: i.requiredByDate || undefined,
           itemRemarks: i.itemRemarks || undefined,
         })),
-      });
+      };
+      if (specsPdf) {
+        const fd = new FormData();
+        fd.append('payload', JSON.stringify(payload));
+        fd.append('materialSpecsPdf', specsPdf);
+        await api.post('/purchase-requests', fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      } else {
+        await api.post('/purchase-requests', payload);
+      }
       onClose();
       onCreated();
     } catch (err) {
@@ -198,6 +250,25 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
                 />
               </td>
             </tr>
+            <tr>
+              <td className={labelCell}>Material Specs (PDF)</td>
+              <td className={dataCell} colSpan={3}>
+                <div className="flex items-center gap-2 px-2 py-1">
+                  <input
+                    type="file" accept="application/pdf"
+                    onChange={handleSpecsPdfChange}
+                    className="text-xs"
+                  />
+                  {specsPdf && (
+                    <span className="text-xs text-gray-600 truncate">
+                      {specsPdf.name} ({(specsPdf.size / 1024).toFixed(0)} KB)
+                    </span>
+                  )}
+                  {specsPdfError && <span className="text-xs text-red-600">{specsPdfError}</span>}
+                  <span className="text-[10px] text-gray-400 ml-auto">Optional · max 10 MB</span>
+                </div>
+              </td>
+            </tr>
           </tbody>
         </table>
 
@@ -250,6 +321,7 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
                       <option value="Raw Material">Raw Material</option>
                       <option value="Consumable">Consumable</option>
                       <option value="Tooling">Tooling</option>
+                      <option value="Fabric">Fabric</option>
                       <option value="Others">Others</option>
                     </select>
                   </td>
@@ -318,6 +390,16 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
                 ))}
               </tr>
               <tr>
+                <td className={labelCell}>Internal Work Order</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    <input type="text" value={item.internalWorkOrder}
+                      onChange={(e) => updateItem(idx, 'internalWorkOrder', e.target.value)}
+                      className={cellInput} />
+                  </td>
+                ))}
+              </tr>
+              <tr>
                 <td className={labelCell}>Purpose</td>
                 {items.map((item, idx) => (
                   <td key={idx} className={dataCell}>
@@ -338,7 +420,7 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
                 ))}
               </tr>
               <tr>
-                <td className={labelCell}>Scope of Work</td>
+                <td className={labelCell}>Reports Required / Scope of Work</td>
                 {items.map((item, idx) => (
                   <td key={idx} className={dataCell}>
                     <input type="text" value={item.scopeOfWork}
@@ -488,6 +570,15 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
         {request.notes && (
           <div className="bg-yellow-50 rounded-md p-3 text-sm">
             <span className="text-yellow-700 font-medium">Manager's Note:</span> <span>{request.notes}</span>
+          </div>
+        )}
+
+        {request.materialSpecsPdfUrl && (
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm flex items-center gap-2">
+            <FileText size={16} className="text-blue-600" />
+            <span className="text-blue-700 font-medium">Material Specs:</span>
+            <a href={request.materialSpecsPdfUrl} target="_blank" rel="noreferrer"
+              className="text-blue-700 underline hover:text-blue-900">View / Download PDF</a>
           </div>
         )}
 
@@ -898,6 +989,8 @@ export default function PurchaseRequests() {
   const isAccounting = user?.role === 'ACCOUNTING';
   const isQC = user?.role === 'QC';
 
+  const refreshKey = useAutoRefresh();
+
   const fetchRequests = () => {
     setLoading(true);
     const params = { limit: 50, fromDate: fromDate || undefined, toDate: toDate || undefined };
@@ -908,7 +1001,7 @@ export default function PurchaseRequests() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchRequests(); }, [tab, fromDate, toDate]);
+  useEffect(() => { fetchRequests(); }, [tab, fromDate, toDate, refreshKey]);
 
   const handleRowClick = (r) => {
     if (isAdmin) {
@@ -1042,12 +1135,12 @@ export default function PurchaseRequests() {
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
+                          <Button size="sm" variant="secondary" onClick={() => setSelectedForDetail(r)}>
+                            <Eye size={14} className="mr-1" /> View Details
+                          </Button>
                           {isAdmin && r.status === 'PENDING_ADMIN' && (
-                            <Button size="sm" variant="secondary" onClick={() => setSelectedForReview(r)}>Review</Button>
-                          )}
-                          {isAdmin && r.status !== 'PENDING_ADMIN' && (
-                            <Button size="sm" variant="secondary" onClick={() => setSelectedForReview(r)}>View</Button>
+                            <Button size="sm" onClick={() => setSelectedForReview(r)}>Review</Button>
                           )}
                           {isPO && r.status === 'APPROVED' && (
                             <Button size="sm" onClick={() => window.location.href = '/quotations'}>
@@ -1059,14 +1152,8 @@ export default function PurchaseRequests() {
                               <ShoppingCart size={14} className="mr-1" /> Update
                             </Button>
                           )}
-                          {isManager && (
-                            <Button size="sm" variant="secondary" onClick={() => setSelectedForDetail(r)}>View</Button>
-                          )}
                           {isManager && r.status === 'PENDING_ADMIN' && (
                             <Button size="sm" variant="danger" onClick={() => cancelRequest(r.id)}>Cancel</Button>
-                          )}
-                          {!isAdmin && !isPO && !isManager && (
-                            <Button size="sm" variant="secondary" onClick={() => setSelectedForDetail(r)}>View</Button>
                           )}
                         </div>
                       </td>

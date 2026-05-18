@@ -5,8 +5,23 @@ const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { generateOrderNumber, paginate } = require('../utils/helpers');
 const { canApprove, getTier, getTierLabel } = require('../utils/approvalTiers');
+const { quotationUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
+
+// Wrap multer single-file middleware to convert multer errors into proper 400s
+// (rather than the global 500 handler). Field name: `quotationPdf`.
+function acceptQuotationPdf(req, res, next) {
+  quotationUpload.single('quotationPdf')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Quotation upload failed' });
+    // When sent as multipart, body fields arrive as strings — parse `payload` JSON.
+    if (req.body && typeof req.body.payload === 'string') {
+      try { req.body = JSON.parse(req.body.payload); }
+      catch { return res.status(400).json({ error: 'Invalid payload JSON' }); }
+    }
+    next();
+  });
+}
 
 const createSchema = z.object({
   purchaseRequestId: z.string().uuid(),
@@ -154,7 +169,7 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // POST /api/quotations — PO creates a single-PR quotation
-router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
+router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf, async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
 
@@ -184,12 +199,15 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
     }
     const topLevelSupplierId = [...supplierCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 
+    const quotationPdfUrl = req.file ? publicUrlFor('quotations', req.file.filename) : null;
+
     const quotation = await prisma.quotation.create({
       data: {
         quotationNumber,
         purchaseRequestId: data.purchaseRequestId,
         totalAmount,
         notes: data.notes || null,
+        quotationPdfUrl,
         createdById: req.user.id,
         supplierId: topLevelSupplierId,
         items: {
@@ -235,7 +253,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
 // POST /api/quotations/union — PO creates a union quotation aggregating items from multiple PRs.
 // Each item carries `sources: [{ purchaseRequestItemId, allocatedQty }]` so the per-unit slice
 // is preserved end-to-end (carried to PurchaseOrderItemAllocation on admin approval).
-router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
+router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf, async (req, res) => {
   try {
     const data = unionCreateSchema.parse(req.body);
     const uniquePrIds = [...new Set(data.purchaseRequestIds)];
@@ -300,6 +318,8 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), async (req, r
     }
     const topLevelSupplierId = [...supplierCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 
+    const quotationPdfUrl = req.file ? publicUrlFor('quotations', req.file.filename) : null;
+
     const quotation = await prisma.quotation.create({
       data: {
         quotationNumber,
@@ -307,6 +327,7 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), async (req, r
         isUnion: true,
         totalAmount,
         notes: data.notes || null,
+        quotationPdfUrl,
         createdById: req.user.id,
         supplierId: topLevelSupplierId,
         items: {
@@ -630,6 +651,11 @@ router.post('/union/submit', authenticate, authorize('PURCHASE_OFFICER'), async 
 // PUT /api/quotations/:id/select — ADMIN approves a quotation + creates PurchaseOrder(s)
 router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
+    const selectionNote = typeof req.body?.selectionNote === 'string' ? req.body.selectionNote.trim() : '';
+    if (!selectionNote) {
+      return res.status(400).json({ error: 'Selection note is required when approving a quotation' });
+    }
+
     const quotation = await prisma.quotation.findUnique({
       where: { id: req.params.id },
       include: {
@@ -724,7 +750,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
     const createdOrders = await prisma.$transaction(async (tx) => {
       await tx.quotation.update({
         where: { id: req.params.id },
-        data: { isSelected: true },
+        data: { isSelected: true, selectionNote },
       });
 
       const orders = [];

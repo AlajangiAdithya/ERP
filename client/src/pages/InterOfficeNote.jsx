@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Trash2, FlaskConical, Send, CheckCircle2, Users } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { useAutoRefresh } from '../context/NotificationContext';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -42,6 +43,7 @@ export default function InterOfficeNote() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const globalRefreshKey = useAutoRefresh();
 
   const load = () => {
     setLoading(true);
@@ -53,7 +55,7 @@ export default function InterOfficeNote() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [tab, refreshKey, fromDate, toDate]);
+  useEffect(load, [tab, refreshKey, fromDate, toDate, globalRefreshKey]);
 
   return (
     <div className="space-y-6">

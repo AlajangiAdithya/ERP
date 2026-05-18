@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { CreditCard, CheckCircle, XCircle, Eye } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { useAutoRefresh } from '../context/NotificationContext';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -171,6 +172,7 @@ export default function PaymentRequests() {
   const [toDate, setToDate] = useState('');
 
   const isAccounting = ['ACCOUNTING', 'ADMIN'].includes(user?.role);
+  const refreshKey = useAutoRefresh();
 
   const fetchData = async () => {
     setLoading(true);
@@ -185,7 +187,7 @@ export default function PaymentRequests() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, [tab, fromDate, toDate]);
+  useEffect(() => { fetchData(); }, [tab, fromDate, toDate, refreshKey]);
 
   const tabs = ['ALL', 'PENDING', 'APPROVED', 'PAID', 'REJECTED'];
 

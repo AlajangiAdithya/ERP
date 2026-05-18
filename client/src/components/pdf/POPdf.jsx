@@ -17,12 +17,6 @@ export default function POPdf({ order }) {
 
         <View style={styles.table}>
           <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '18%' }]}><Text>Order Name</Text></View>
-            <View style={[styles.cell, { width: '32%' }]}><Text>{order?.customName || '—'}</Text></View>
-            <View style={[styles.cellLabel, { width: '18%' }]}><Text>Order No.</Text></View>
-            <View style={[styles.cell, { width: '32%' }]}><Text>{order?.orderNumber || '—'}</Text></View>
-          </View>
-          <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '18%' }]}><Text>Date</Text></View>
             <View style={[styles.cell, { width: '32%' }]}><Text>{formatDate(order?.createdAt)}</Text></View>
             <View style={[styles.cellLabel, { width: '18%' }]}><Text>Status</Text></View>
@@ -31,14 +25,14 @@ export default function POPdf({ order }) {
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '18%' }]}><Text>PR No.</Text></View>
             <View style={[styles.cell, { width: '32%' }]}><Text>{order?.purchaseRequest?.requestNumber || '—'}</Text></View>
-            <View style={[styles.cellLabel, { width: '18%' }]}><Text>Request/Work ID</Text></View>
-            <View style={[styles.cell, { width: '32%' }]}><Text>{order?.purchaseRequest?.requestId || '—'}</Text></View>
-          </View>
-          <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '18%' }]}><Text>Indenter</Text></View>
             <View style={[styles.cell, { width: '32%' }]}><Text>{order?.purchaseRequest?.manager?.name || '—'}</Text></View>
+          </View>
+          <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '18%' }]}><Text>Unit</Text></View>
             <View style={[styles.cell, { width: '32%' }]}><Text>{order?.purchaseRequest?.unit?.name || '—'}</Text></View>
+            <View style={[styles.cellLabel, { width: '18%' }]}><Text>MIR No.</Text></View>
+            <View style={[styles.cell, { width: '32%' }]}><Text>{order?.mirNo || '—'}</Text></View>
           </View>
         </View>
 
