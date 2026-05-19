@@ -28,9 +28,11 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-brand-gray flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-lg shadow-sm p-8 animate-fade-in">
+    <div className="min-h-screen bg-gradient-to-br from-navy-700 via-navy-800 to-navy-900 flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="absolute -top-24 -left-24 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl" />
+      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl" />
+      <div className="w-full max-w-md relative">
+        <div className="bg-white rounded-2xl shadow-cardHover border border-navy-100 p-8 animate-fade-in">
           <div className="flex flex-col items-center mb-8">
             <img src="/rapslogo6.png" alt="RAPS" className="h-24 w-auto object-contain mb-3" />
             <p className="text-sm text-gray-500">Sign in to your account</p>
