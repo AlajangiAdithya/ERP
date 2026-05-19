@@ -9,12 +9,23 @@ const router = express.Router();
 
 const ORDER_INCLUDE = {
   createdBy: { select: { id: true, name: true } },
-  quotation: { select: { id: true, quotationNumber: true, supplierName: true, totalAmount: true, isUnion: true } },
+  quotation: {
+    select: {
+      id: true, quotationNumber: true, supplierName: true, supplierContact: true,
+      supplierAddress: true, totalAmount: true, isUnion: true, createdAt: true,
+    },
+  },
   purchaseRequest: {
     select: {
-      id: true, requestNumber: true, status: true, managerId: true,
+      id: true, requestNumber: true, status: true, managerId: true, createdAt: true,
       manager: { select: { id: true, name: true, role: true } },
       unit: { select: { id: true, name: true, code: true } },
+      items: {
+        select: {
+          id: true, productName: true, productUnit: true, requestedQty: true,
+          materialSpecification: true, drawingNo: true, qapNo: true, itemRemarks: true,
+        },
+      },
     },
   },
   sourceRequests: {
@@ -35,6 +46,7 @@ const ORDER_INCLUDE = {
           purchaseRequestItem: {
             select: {
               id: true, productId: true, productName: true, productUnit: true, requestedQty: true,
+              materialSpecification: true, drawingNo: true, qapNo: true, itemRemarks: true,
               request: {
                 select: {
                   id: true, requestNumber: true,

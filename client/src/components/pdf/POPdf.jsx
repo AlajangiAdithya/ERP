@@ -1,115 +1,229 @@
-import { Document, Page, View, Text } from '@react-pdf/renderer';
-import { styles, formatDate, formatDateTime, formatCurrency, CompanyHeader, AuditTrail } from './shared';
+import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer';
+import { LOGO_URL, formatDate } from './shared';
+
+// Indian-style amount: 23,20,000-00 (rupees with locale grouping, dash, two-digit paise).
+const formatINR = (n) => {
+  const num = Number(n || 0);
+  const rupees = Math.floor(num);
+  const paise = Math.round((num - rupees) * 100);
+  return `${rupees.toLocaleString('en-IN')}-${String(paise).padStart(2, '0')}`;
+};
+
+// Letter-style PO modelled on RAPS/PO Rev 01 (sample format Dt: 05/06/2024).
+const s = StyleSheet.create({
+  page: { padding: 36, paddingBottom: 60, fontSize: 10, fontFamily: 'Times-Roman', color: '#111' },
+  brandRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  brandLogo: { width: 110, height: 30, objectFit: 'contain', marginRight: 8 },
+  brandBlock: { flex: 1 },
+  brandName: { fontSize: 13, fontFamily: 'Times-Bold', color: '#0a2540' },
+  brandSub: { fontSize: 8, color: '#555' },
+  stampBlock: { textAlign: 'right' },
+  stampLine: { fontSize: 8, fontFamily: 'Times-Bold' },
+  hr: { borderBottomWidth: 1, borderBottomColor: '#222', marginVertical: 6 },
+
+  refRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
+  refText: { fontSize: 10, fontFamily: 'Times-Bold' },
+
+  block: { marginTop: 10 },
+  toLabel: { fontSize: 10 },
+  toLine: { fontSize: 10, fontFamily: 'Times-Bold' },
+  toSub: { fontSize: 10 },
+
+  salutation: { marginTop: 10, fontSize: 10 },
+  subject: { marginTop: 10, fontSize: 10, fontFamily: 'Times-Bold' },
+  refQuote: { marginTop: 2, fontSize: 10 },
+
+  intro: { marginTop: 10, fontSize: 10 },
+
+  // Items table
+  table: { marginTop: 8, borderWidth: 1, borderColor: '#222' },
+  tRow: { flexDirection: 'row' },
+  tRowBordered: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#222' },
+  th: {
+    fontFamily: 'Times-Bold', fontSize: 9, padding: 4, textAlign: 'center',
+    borderRightWidth: 1, borderRightColor: '#222', backgroundColor: '#eee',
+  },
+  thLast: {
+    fontFamily: 'Times-Bold', fontSize: 9, padding: 4, textAlign: 'center', backgroundColor: '#eee',
+  },
+  td: { fontSize: 9, padding: 4, borderRightWidth: 1, borderRightColor: '#222' },
+  tdLast: { fontSize: 9, padding: 4 },
+  tdCenter: { fontSize: 9, padding: 4, borderRightWidth: 1, borderRightColor: '#222', textAlign: 'center' },
+  tdRight: { fontSize: 9, padding: 4, borderRightWidth: 1, borderRightColor: '#222', textAlign: 'right' },
+  tdRightLast: { fontSize: 9, padding: 4, textAlign: 'right' },
+
+  desc: { fontSize: 9 },
+  descMeta: { fontSize: 8, color: '#333' },
+
+  totalLabel: {
+    fontFamily: 'Times-Bold', fontSize: 9, padding: 4, textAlign: 'right',
+    borderRightWidth: 1, borderRightColor: '#222',
+  },
+  totalAmt: { fontFamily: 'Times-Bold', fontSize: 9, padding: 4, textAlign: 'right' },
+
+  termsTitle: { marginTop: 12, fontSize: 10, fontFamily: 'Times-Bold' },
+  termsLine: { marginTop: 2, fontSize: 9 },
+  note: { marginTop: 10, fontSize: 9, fontStyle: 'italic' },
+
+  closing: { marginTop: 18, fontSize: 10 },
+  signBlock: { marginTop: 36, fontSize: 10 },
+  footer: {
+    position: 'absolute', bottom: 20, left: 36, right: 36, fontSize: 7,
+    color: '#888', textAlign: 'center', borderTopWidth: 1, borderTopColor: '#ddd', paddingTop: 4,
+  },
+});
+
+// Column widths (sum to 100%)
+const COL = { sl: '7%', desc: '49%', qty: '14%', rate: '15%', amt: '15%' };
 
 export default function POPdf({ order }) {
   const items = order?.items || [];
-  const totalPaid = order?.totalPaid || 0;
-  const remaining = (order?.totalAmount || 0) - totalPaid;
+  const pr = order?.purchaseRequest;
+  const quotation = order?.quotation;
+  const prItemsById = new Map((pr?.items || []).map((i) => [i.id, i]));
+
+  // Resolve spec details for each PO item: prefer direct purchaseRequestItemId,
+  // fall back to first allocation (union POs).
+  const resolveSpec = (item) => {
+    if (item.purchaseRequestItemId && prItemsById.has(item.purchaseRequestItemId)) {
+      return prItemsById.get(item.purchaseRequestItemId);
+    }
+    const first = item.allocations?.[0]?.purchaseRequestItem;
+    return first || null;
+  };
+
+  const supplierAddress = quotation?.supplierAddress || '';
+  const supplierContact = quotation?.supplierContact || '';
+  const addressLines = supplierAddress
+    ? supplierAddress.split(/\r?\n|,\s*/).map((x) => x.trim()).filter(Boolean)
+    : [];
+
+  // Subject summary — first 3 product names, comma-separated.
+  const subjectMaterials = items.slice(0, 3).map((i) => i.productName).filter(Boolean).join(', ');
+  const subjectMore = items.length > 3 ? `, +${items.length - 3} more` : '';
+  const subject = order?.customName
+    ? `Purchase Order for Supply of ${order.customName}`
+    : `Purchase Order for Supply of ${subjectMaterials}${subjectMore}`;
 
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
-        <CompanyHeader docType="PURCHASE ORDER" docNumber={order?.orderNumber} />
-        <View style={styles.header}>
-          <Text style={styles.title}>PURCHASE ORDER</Text>
-          <Text style={styles.subtitle}>Form No: RAPS/PO  RAPS ERP</Text>
-        </View>
-
-        <View style={styles.table}>
-          <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '18%' }]}><Text>Date</Text></View>
-            <View style={[styles.cell, { width: '32%' }]}><Text>{formatDate(order?.createdAt)}</Text></View>
-            <View style={[styles.cellLabel, { width: '18%' }]}><Text>Status</Text></View>
-            <View style={[styles.cell, { width: '32%' }]}><Text>{order?.status || '—'}</Text></View>
+      <Page size="A4" style={s.page}>
+        {/* Letterhead */}
+        <View style={s.brandRow}>
+          <Image src={LOGO_URL} style={s.brandLogo} />
+          <View style={s.brandBlock}>
+            <Text style={s.brandName}>Ramesh's Aerospace Products & Services Pvt. Ltd.</Text>
+            <Text style={s.brandSub}>Aerospace · Defence · Precision Manufacturing</Text>
           </View>
-          <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '18%' }]}><Text>PR No.</Text></View>
-            <View style={[styles.cell, { width: '32%' }]}><Text>{order?.purchaseRequest?.requestNumber || '—'}</Text></View>
-            <View style={[styles.cellLabel, { width: '18%' }]}><Text>Indenter</Text></View>
-            <View style={[styles.cell, { width: '32%' }]}><Text>{order?.purchaseRequest?.manager?.name || '—'}</Text></View>
-          </View>
-          <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '18%' }]}><Text>Unit</Text></View>
-            <View style={[styles.cell, { width: '32%' }]}><Text>{order?.purchaseRequest?.unit?.name || '—'}</Text></View>
-            <View style={[styles.cellLabel, { width: '18%' }]}><Text>MIR No.</Text></View>
-            <View style={[styles.cell, { width: '32%' }]}><Text>{order?.mirNo || '—'}</Text></View>
+          <View style={s.stampBlock}>
+            <Text style={s.stampLine}>Form no.: RAPS/PO Rev 01</Text>
+            <Text style={s.stampLine}>Dt: 05/06/2024</Text>
           </View>
         </View>
+        <View style={s.hr} />
 
-        <Text style={styles.sectionTitle}>Supplier</Text>
-        <View style={styles.table}>
-          <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '18%' }]}><Text>Name</Text></View>
-            <View style={[styles.cell, { width: '82%' }]}><Text>{order?.supplierName || '—'}</Text></View>
-          </View>
-          {order?.quotation?.supplierContact && (
-            <View style={styles.row}>
-              <View style={[styles.cellLabel, { width: '18%' }]}><Text>Contact</Text></View>
-              <View style={[styles.cell, { width: '82%' }]}><Text>{order.quotation.supplierContact}</Text></View>
-            </View>
-          )}
-          {order?.quotation?.supplierAddress && (
-            <View style={styles.row}>
-              <View style={[styles.cellLabel, { width: '18%' }]}><Text>Address</Text></View>
-              <View style={[styles.cell, { width: '82%' }]}><Text>{order.quotation.supplierAddress}</Text></View>
-            </View>
-          )}
+        {/* Ref + Date */}
+        <View style={s.refRow}>
+          <Text style={s.refText}>Ref: {order?.orderNumber || '—'}</Text>
+          <Text style={s.refText}>Date: {formatDate(order?.createdAt)}</Text>
+        </View>
+        <View style={s.refRow}>
+          <Text style={s.refText}>
+            PR No: {pr?.requestNumber || '—'}  Dt: {formatDate(pr?.createdAt)}
+          </Text>
+          <Text style={s.refText}> </Text>
         </View>
 
-        <Text style={styles.sectionTitle}>Items</Text>
-        <View style={styles.table}>
-          <View style={styles.row}>
-            <View style={[styles.cellHeader, { width: '6%' }]}><Text>#</Text></View>
-            <View style={[styles.cellHeader, { width: '38%' }]}><Text>Product</Text></View>
-            <View style={[styles.cellHeader, { width: '12%' }]}><Text>Qty</Text></View>
-            <View style={[styles.cellHeader, { width: '10%' }]}><Text>UOM</Text></View>
-            <View style={[styles.cellHeader, { width: '17%' }]}><Text>Unit Price</Text></View>
-            <View style={[styles.cellHeader, { width: '17%' }]}><Text>Total</Text></View>
-          </View>
-          {items.map((item, idx) => (
-            <View key={item.id || idx} style={styles.row} wrap={false}>
-              <View style={[styles.cell, { width: '6%' }]}><Text>{idx + 1}</Text></View>
-              <View style={[styles.cell, { width: '38%' }]}><Text>{item.productName}</Text></View>
-              <View style={[styles.cell, { width: '12%' }]}><Text>{item.quantity}</Text></View>
-              <View style={[styles.cell, { width: '10%' }]}><Text>{item.productUnit}</Text></View>
-              <View style={[styles.cell, { width: '17%' }]}><Text>{formatCurrency(item.unitPrice)}</Text></View>
-              <View style={[styles.cell, { width: '17%' }]}><Text>{formatCurrency(item.totalPrice)}</Text></View>
-            </View>
+        {/* To block */}
+        <View style={s.block}>
+          <Text style={s.toLabel}>To,</Text>
+          <Text style={s.toLine}>M/s {order?.supplierName || quotation?.supplierName || '—'}</Text>
+          {addressLines.map((line, i) => (
+            <Text key={i} style={s.toSub}>{line}</Text>
           ))}
-          <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '83%', textAlign: 'right' }]}><Text>Grand Total</Text></View>
-            <View style={[styles.cellLabel, { width: '17%' }]}><Text>{formatCurrency(order?.totalAmount)}</Text></View>
+          {supplierContact && (
+            <Text style={s.toSub}>Kind Attn: {supplierContact}</Text>
+          )}
+        </View>
+
+        {/* Salutation + Subject */}
+        <Text style={s.salutation}>Dear Sir,</Text>
+        <Text style={s.subject}>Subject: {subject}.</Text>
+        {quotation?.quotationNumber && (
+          <Text style={s.refQuote}>
+            Ref: Your Quotation No: {quotation.quotationNumber} Dt: {formatDate(quotation.createdAt)}
+          </Text>
+        )}
+
+        <Text style={s.intro}>
+          With reference to the above and subsequent discussions, we are pleased to place an order on you for the supply of the following.
+        </Text>
+
+        {/* Items table */}
+        <View style={s.table}>
+          <View style={s.tRow}>
+            <Text style={[s.th, { width: COL.sl }]}>Sl. No.</Text>
+            <Text style={[s.th, { width: COL.desc }]}>Material Description and Specification</Text>
+            <Text style={[s.th, { width: COL.qty }]}>Qty</Text>
+            <Text style={[s.th, { width: COL.rate }]}>Rate</Text>
+            <Text style={[s.thLast, { width: COL.amt }]}>Amount</Text>
+          </View>
+          {items.map((item, idx) => {
+            const spec = resolveSpec(item);
+            return (
+              <View key={item.id || idx} style={s.tRowBordered} wrap={false}>
+                <Text style={[s.tdCenter, { width: COL.sl }]}>{idx + 1}</Text>
+                <View style={[s.td, { width: COL.desc }]}>
+                  <Text style={s.desc}>{item.productName}</Text>
+                  {spec?.drawingNo ? (
+                    <Text style={s.descMeta}>Drg No: {spec.drawingNo}</Text>
+                  ) : null}
+                  {spec?.materialSpecification ? (
+                    <Text style={s.descMeta}>Material: {spec.materialSpecification}</Text>
+                  ) : null}
+                  {spec?.qapNo ? (
+                    <Text style={s.descMeta}>QAP: {spec.qapNo}</Text>
+                  ) : null}
+                </View>
+                <Text style={[s.tdCenter, { width: COL.qty }]}>
+                  {item.quantity} {item.productUnit}
+                </Text>
+                <Text style={[s.tdRight, { width: COL.rate }]}>{formatINR(item.unitPrice)}</Text>
+                <Text style={[s.tdRightLast, { width: COL.amt }]}>{formatINR(item.totalPrice)}</Text>
+              </View>
+            );
+          })}
+          {/* Total row */}
+          <View style={s.tRowBordered}>
+            <Text style={[s.totalLabel, { width: '85%' }]}>Total</Text>
+            <Text style={[s.totalAmt, { width: COL.amt }]}>{formatINR(order?.totalAmount)}</Text>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Payment Summary</Text>
-        <View style={styles.table}>
-          <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '33%' }]}><Text>Advance Paid</Text></View>
-            <View style={[styles.cellLabel, { width: '33%' }]}><Text>Total Paid</Text></View>
-            <View style={[styles.cellLabel, { width: '34%' }]}><Text>Balance</Text></View>
-          </View>
-          <View style={styles.row}>
-            <View style={[styles.cell, { width: '33%' }]}><Text>{formatCurrency(order?.advancePaid)}</Text></View>
-            <View style={[styles.cell, { width: '33%' }]}><Text>{formatCurrency(totalPaid)}</Text></View>
-            <View style={[styles.cell, { width: '34%' }]}><Text>{formatCurrency(remaining)}</Text></View>
-          </View>
-        </View>
+        <Text style={s.note}>
+          Note: Test reports / inspection certificates shall be provided along with the invoice at the time of delivery.
+        </Text>
 
-        <AuditTrail entries={[
-          { label: 'PO created by', value: order?.createdBy?.name ? `${order.createdBy.name} • ${formatDateTime(order.createdAt)}` : null },
-          { label: 'Quotation approved', value: order?.quotation?.selectedBy?.name ? `${order.quotation.selectedBy.name} • ${formatDateTime(order.quotation.selectedAt)}` : null },
-          { label: 'Goods arrived', value: order?.goodsArrivedAt ? formatDateTime(order.goodsArrivedAt) : null },
-        ]} />
+        {/* Terms */}
+        <Text style={s.termsTitle}>Terms & Conditions:</Text>
+        <Text style={s.termsLine}>GST: Extra @18% or as applicable.</Text>
+        <Text style={s.termsLine}>Payment: Mutually agreeable terms.</Text>
+        <Text style={s.termsLine}>Delivery: As mutually agreed from the date of PO.</Text>
+        <Text style={s.termsLine}>Packing: Standard packing to avoid transit damage.</Text>
+        <Text style={s.termsLine}>Inspection: As per RAPS QA / Customer QA standard.</Text>
+        <Text style={s.termsLine}>Please mention our PO number in the invoice copy.</Text>
+        <Text style={s.termsLine}>For all other terms and conditions refer annexure attached.</Text>
+        <Text style={s.termsLine}>Jurisdiction: Any disputes shall be subject to the jurisdiction of Vijayawada.</Text>
 
-        <View style={styles.sigRow}>
-          <View style={styles.sigBox}><Text>Purchase Officer</Text></View>
-          <View style={styles.sigBox}><Text>Admin / Approver</Text></View>
-          <View style={styles.sigBox}><Text>Supplier Acknowledgement</Text></View>
-        </View>
+        <Text style={s.closing}>Thanking you,</Text>
+        <Text style={s.closing}>Yours sincerely,</Text>
+        <Text style={s.closing}>For Ramesh's Aerospace Products & Services Pvt. Ltd.,</Text>
+        <Text style={s.signBlock}>
+          ({order?.createdBy?.name || 'Authorised Signatory'})
+        </Text>
 
-        <Text style={styles.footer} fixed>
-          Generated {formatDateTime(new Date())}  RAPS ERP  PO {order?.orderNumber}
+        <Text style={s.footer} fixed>
+          Generated by RAPS ERP · PO {order?.orderNumber}
         </Text>
       </Page>
     </Document>
