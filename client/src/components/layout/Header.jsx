@@ -1,4 +1,4 @@
-import { LogOut, User, ChevronDown, Bell, Building2 } from 'lucide-react';
+import { LogOut, User, ChevronDown, Bell } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotificationCenter } from '../../context/NotificationContext';
 import Dropdown, { DropdownItem } from '../ui/Dropdown';
@@ -37,20 +37,6 @@ export default function Header() {
     <header className="bg-white border-b border-gray-200 px-4 sm:px-6 h-16 flex items-center justify-between sticky top-0 z-30">
       <div className="flex items-center gap-3 min-w-0">
         <div className="lg:hidden w-10 flex-shrink-0" /> {/* Spacer for mobile menu button */}
-        <img
-          src="/rapslogo6.png"
-          alt="RAPS"
-          className="h-11 w-auto object-contain flex-shrink-0"
-        />
-        {user?.unit && (
-          <>
-            <span className="hidden md:inline-block h-6 w-px bg-gray-200 mx-1" />
-            <div className="hidden md:flex items-center gap-1.5 text-navy-700 min-w-0">
-              <Building2 size={15} className="text-navy-500 flex-shrink-0" />
-              <span className="text-sm font-medium truncate">{user.unit.name}</span>
-            </div>
-          </>
-        )}
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2">

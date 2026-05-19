@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Package, PackagePlus, UserCog,
-  FileText, BarChart3, Settings, ChevronLeft, ChevronRight, Menu, X,
+  FileText, BarChart3, Settings, Menu, X,
   ClipboardList, CheckSquare, ScrollText, Bell, History, ShoppingCart,
-  FileSearch, Truck, CreditCard, ClipboardCheck, DoorOpen, FlaskConical, ArrowLeftRight
+  FileSearch, Truck, CreditCard, ClipboardCheck, DoorOpen, FlaskConical, ArrowLeftRight,
+  Building2
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -38,7 +39,6 @@ const getNavItems = (role) => {
 };
 
 export default function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user } = useAuth();
 
@@ -46,51 +46,47 @@ export default function Sidebar() {
 
   const sidebarContent = (
     <>
-      {!collapsed && (
-        <div className="px-5 pt-5 pb-2">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-white/60 font-semibold">
-            Menu
-          </p>
+      <div className="px-5 pt-6 pb-4">
+        <div className="relative">
+          <div className="absolute inset-0 bg-white/30 blur-2xl rounded-2xl" aria-hidden="true" />
+          <div className="relative bg-white rounded-xl px-4 py-3 shadow-[0_0_24px_rgba(255,255,255,0.25)] flex items-center justify-center">
+            <img
+              src="/rapslogo6.png"
+              alt="RAPS"
+              className="h-12 w-auto object-contain"
+            />
+          </div>
         </div>
-      )}
+        {user?.unit && (
+          <div className="mt-3.5 flex items-center gap-2 text-white/90 px-1">
+            <Building2 size={14} className="text-blue-300 flex-shrink-0" />
+            <span className="text-sm font-medium truncate">{user.unit.name}</span>
+          </div>
+        )}
+      </div>
 
-      <nav className={`flex-1 ${collapsed ? 'pt-4' : 'pt-1'} pb-4 overflow-y-auto`}>
+      <div className="mx-5 border-t border-white/10" />
+
+      <nav className="flex-1 pt-3 pb-4 overflow-y-auto">
         {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.to === '/'}
             onClick={() => setMobileOpen(false)}
-            title={collapsed ? item.label : undefined}
             className={({ isActive }) =>
               `group flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg text-sm transition-all duration-150 mb-0.5
               ${isActive
                 ? 'bg-white/15 text-white font-medium shadow-[inset_3px_0_0_theme(colors.blue.400)]'
                 : 'text-white hover:bg-white/[0.08]'
-              } ${collapsed ? 'justify-center' : ''}`
+              }`
             }
           >
             <item.icon size={19} className="flex-shrink-0" strokeWidth={2} />
-            {!collapsed && <span className="truncate">{item.label}</span>}
+            <span className="truncate">{item.label}</span>
           </NavLink>
         ))}
       </nav>
-
-      <div className="hidden lg:block border-t border-white/10 p-2">
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className={`w-full flex items-center ${collapsed ? 'justify-center' : 'justify-end'} gap-1.5 text-white hover:bg-white/[0.08] rounded-md p-2 transition-colors`}
-        >
-          {collapsed ? (
-            <ChevronRight size={18} />
-          ) : (
-            <>
-              <span className="text-[11px] font-medium uppercase tracking-wider">Collapse</span>
-              <ChevronLeft size={16} />
-            </>
-          )}
-        </button>
-      </div>
     </>
   );
 
@@ -121,8 +117,7 @@ export default function Sidebar() {
       )}
 
       {/* Desktop sidebar */}
-      <aside className={`hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 h-screen sticky top-0 transition-all duration-300 shadow-xl
-        ${collapsed ? 'w-16' : 'w-64'}`}>
+      <aside className="hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 h-screen sticky top-0 w-64 shadow-xl">
         {sidebarContent}
       </aside>
     </>
