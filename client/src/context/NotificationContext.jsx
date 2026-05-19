@@ -10,7 +10,6 @@ const PUSH_ICON = '/rapslogo6-app.png';
 
 export function NotificationProvider({ children }) {
   const { user } = useAuth();
-  const [refreshKey, setRefreshKey] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
 
   const knownIdsRef = useRef(new Set());
@@ -113,7 +112,9 @@ export function NotificationProvider({ children }) {
       } catch {
         // network blip — swallow and try again next tick
       }
-      if (alive) setRefreshKey(k => k + 1);
+      // Auto-reload of consumer tables intentionally disabled — the polling
+      // here still powers unread badge + sound + push, but pages must reload
+      // their own data via tab/filter changes or an explicit Refresh button.
     };
 
     poll();
@@ -132,16 +133,19 @@ export function NotificationProvider({ children }) {
   }, [user, playSound, showPush]);
 
   return (
-    <NotificationContext.Provider value={{ refreshKey, unreadCount }}>
+    <NotificationContext.Provider value={{ unreadCount }}>
       {children}
     </NotificationContext.Provider>
   );
 }
 
 export function useNotificationCenter() {
-  return useContext(NotificationContext) || { refreshKey: 0, unreadCount: 0 };
+  return useContext(NotificationContext) || { unreadCount: 0 };
 }
 
+// Auto-refresh hook is kept as a no-op for backward compatibility with
+// pages that still list it in their effect dependencies. It always returns
+// the same value, so referencing it never triggers a re-fetch.
 export function useAutoRefresh() {
-  return useNotificationCenter().refreshKey;
+  return 0;
 }
