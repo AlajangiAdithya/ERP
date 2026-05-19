@@ -56,27 +56,6 @@ const itemStatusLabel = (s) => ({
   CANCELLED: 'Cancelled',
 }[s] || s);
 
-function ProgressBar({ purchased, total }) {
-  const pct = total > 0 ? Math.min(100, (purchased / total) * 100) : 0;
-  return (
-    <div className="w-full">
-      <div className="flex justify-between text-xs mb-1">
-        <span className="text-gray-600">{purchased} / {total}</span>
-        <span className={pct >= 100 ? 'text-green-600 font-semibold' : 'text-amber-600 font-semibold'}>{Math.round(pct)}%</span>
-      </div>
-      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-green-500' : pct > 0 ? 'bg-amber-500' : 'bg-gray-300'}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      {pct < 100 && total > 0 && (
-        <p className="text-xs text-red-500 mt-0.5 font-medium">{total - purchased} pending</p>
-      )}
-    </div>
-  );
-}
-
 // ─── Manager: Create New Request (paper-table format) ───
 function CreateRequestModal({ isOpen, onClose, onCreated }) {
   const { user } = useAuth();
@@ -596,7 +575,6 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
                   <>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purchased</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Progress</th>
                   </>
                 )}
               </tr>
@@ -626,9 +604,6 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
                       <>
                         <td className="px-3 py-2 text-gray-600">{approvedQty} {item.productUnit}</td>
                         <td className="px-3 py-2 text-gray-600">{item.purchasedQty} {item.productUnit}</td>
-                        <td className="px-3 py-2 w-40">
-                          <ProgressBar purchased={item.purchasedQty} total={approvedQty} />
-                        </td>
                       </>
                     )}
                   </tr>
@@ -737,7 +712,6 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
               <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved Qty</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Already Purchased</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Total Purchased</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Progress</th>
             </tr>
           </thead>
           <tbody>
@@ -757,9 +731,6 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
                     }}
                     className="w-28"
                   />
-                </td>
-                <td className="px-3 py-2 w-36">
-                  <ProgressBar purchased={item.newPurchasedQty} total={item.approvedQty} />
                 </td>
               </tr>
             ))}
@@ -928,12 +899,10 @@ function DetailModal({ request, onClose }) {
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Item Status</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purchased</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Progress</th>
               </tr>
             </thead>
             <tbody>
               {request.items?.map(item => {
-                const approvedQty = item.adminApprovedQty ?? item.requestedQty;
                 const unionRef = unionPOByItem.get(item.id);
                 return (
                   <tr key={item.id} className="border-b border-gray-50">
@@ -959,13 +928,6 @@ function DetailModal({ request, onClose }) {
                       )}
                     </td>
                     <td className="px-3 py-2 text-gray-600">{item.purchasedQty || 0} {item.productUnit}</td>
-                    <td className="px-3 py-2 w-40">
-                      {item.adminApprovedQty != null ? (
-                        <ProgressBar purchased={item.purchasedQty || 0} total={approvedQty} />
-                      ) : (
-                        <span className="text-gray-400 text-xs">Awaiting approval</span>
-                      )}
-                    </td>
                   </tr>
                 );
               })}
@@ -1100,7 +1062,6 @@ export default function PurchaseRequests() {
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Progress</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Required By</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
@@ -1108,9 +1069,6 @@ export default function PurchaseRequests() {
               </thead>
               <tbody>
                 {filteredRequests.map(r => {
-                  // Calculate overall progress
-                  const totalApproved = r.items.reduce((sum, i) => sum + (i.adminApprovedQty || 0), 0);
-                  const totalPurchased = r.items.reduce((sum, i) => sum + (i.purchasedQty || 0), 0);
                   // Earliest Required By date across items
                   const requiredDates = r.items.map(i => i.requiredByDate).filter(Boolean);
                   const earliestRequired = requiredDates.length > 0
@@ -1133,15 +1091,6 @@ export default function PurchaseRequests() {
                       <td className="px-3 py-2"><Badge color="blue">{r.unit?.code}</Badge></td>
                       <td className="px-3 py-2 text-gray-600">{r.items?.length}</td>
                       <td className="px-3 py-2"><Badge color={statusColor(r.status)}>{statusLabel(r.status)}</Badge></td>
-                      <td className="px-3 py-2 w-32">
-                        {r.purchaseOrders?.length > 0 ? (
-                          <span className="text-xs text-navy-700 font-medium">{r.purchaseOrders[0].customName}</span>
-                        ) : ['APPROVED', 'IN_PROGRESS', 'COMPLETED'].includes(r.status) ? (
-                          <ProgressBar purchased={totalPurchased} total={totalApproved} />
-                        ) : (
-                          <span className="text-gray-400 text-xs">—</span>
-                        )}
-                      </td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
                       <td className="px-3 py-2 text-gray-500 text-xs">
                         {earliestRequired ? (

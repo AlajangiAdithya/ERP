@@ -471,23 +471,17 @@ function ManagerDashboard() {
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Request #</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Progress</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
                 </tr>
               </thead>
               <tbody>
                 {purchaseRequests.filter(r => ['APPROVED', 'IN_PROGRESS'].includes(r.status)).map(r => {
-                  const totalApproved = r.items.reduce((sum, i) => sum + (i.adminApprovedQty || 0), 0);
-                  const totalPurchased = r.items.reduce((sum, i) => sum + (i.purchasedQty || 0), 0);
                   return (
                     <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/purchase-requests')}>
                       <td className="px-3 py-2 font-medium text-navy-700">{r.requestNumber}</td>
                       <td className="px-3 py-2 text-gray-600">{r.items?.length}</td>
                       <td className="px-3 py-2">
                         <Badge color={r.status === 'APPROVED' ? 'blue' : 'navy'}>{r.status === 'IN_PROGRESS' ? 'In Progress' : r.status}</Badge>
-                      </td>
-                      <td className="px-3 py-2 w-36">
-                        <ProgressBar purchased={totalPurchased} total={totalApproved} />
                       </td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
                     </tr>
