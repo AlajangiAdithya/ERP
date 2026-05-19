@@ -48,7 +48,7 @@ export default function Sidebar() {
     <>
       {!collapsed && (
         <div className="px-5 pt-5 pb-2">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-white/35 font-semibold">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/60 font-semibold">
             Menu
           </p>
         </div>
@@ -65,8 +65,8 @@ export default function Sidebar() {
             className={({ isActive }) =>
               `group flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg text-sm transition-all duration-150 mb-0.5
               ${isActive
-                ? 'bg-white/10 text-white font-medium shadow-[inset_3px_0_0_theme(colors.blue.400)]'
-                : 'text-white/60 hover:bg-white/[0.04] hover:text-white'
+                ? 'bg-white/15 text-white font-medium shadow-[inset_3px_0_0_theme(colors.blue.400)]'
+                : 'text-white hover:bg-white/[0.08]'
               } ${collapsed ? 'justify-center' : ''}`
             }
           >
@@ -76,10 +76,10 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="hidden lg:block border-t border-white/5 p-2">
+      <div className="hidden lg:block border-t border-white/10 p-2">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className={`w-full flex items-center ${collapsed ? 'justify-center' : 'justify-end'} gap-1.5 text-white/50 hover:text-white hover:bg-white/[0.04] rounded-md p-2 transition-colors`}
+          className={`w-full flex items-center ${collapsed ? 'justify-center' : 'justify-end'} gap-1.5 text-white hover:bg-white/[0.08] rounded-md p-2 transition-colors`}
         >
           {collapsed ? (
             <ChevronRight size={18} />
@@ -99,7 +99,7 @@ export default function Sidebar() {
       {/* Mobile menu button */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-3 left-3 z-50 p-2 bg-navy-700 text-white rounded-md shadow-lg"
+        className="lg:hidden fixed top-3 left-3 z-50 p-2 bg-navy-800 text-white rounded-md shadow-lg"
       >
         <Menu size={20} />
       </button>
@@ -108,7 +108,7 @@ export default function Sidebar() {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-40">
           <div className="fixed inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <div className="fixed left-0 top-0 bottom-0 w-64 bg-gradient-to-b from-navy-700 to-navy-800 flex flex-col z-50">
+          <div className="fixed left-0 top-0 bottom-0 w-64 bg-gradient-to-b from-navy-800 to-navy-900 flex flex-col z-50">
             <button
               onClick={() => setMobileOpen(false)}
               className="absolute top-4 right-4 text-white/70 hover:text-white"
@@ -121,7 +121,7 @@ export default function Sidebar() {
       )}
 
       {/* Desktop sidebar */}
-      <aside className={`hidden lg:flex flex-col bg-gradient-to-b from-navy-700 to-navy-800 h-screen sticky top-0 transition-all duration-300 shadow-xl
+      <aside className={`hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 h-screen sticky top-0 transition-all duration-300 shadow-xl
         ${collapsed ? 'w-16' : 'w-64'}`}>
         {sidebarContent}
       </aside>

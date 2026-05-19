@@ -4,7 +4,7 @@
 
 body {
   font-family: 'DM Sans', system-ui, sans-serif;
-  background-color: #F5F6FA;
+  background-color: #ECEFF4;
 }
 
 @layer utilities {
@@ -23,7 +23,7 @@ body {
   width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #F5F6FA;
+  background: #ECEFF4;
 }
 ::-webkit-scrollbar-thumb {
   background: #C5D0E6;
