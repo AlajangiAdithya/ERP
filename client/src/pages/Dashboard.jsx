@@ -11,6 +11,11 @@ import Button from '../components/ui/Button';
 import { formatDateTime } from '../utils/formatters';
 import { useNavigate } from 'react-router-dom';
 
+const greet = (user, roleLabel) => {
+  const unit = user?.unit?.name;
+  return unit ? `Hello, ${unit} ${roleLabel}` : `Hello, ${roleLabel}`;
+};
+
 function InProgressButton() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -158,6 +163,7 @@ function ProgressBar({ purchased, total, showPending = true }) {
 }
 
 function AdminDashboard() {
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [unitSummary, setUnitSummary] = useState([]);
@@ -223,7 +229,7 @@ function AdminDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+        <h1 className="text-2xl font-bold text-navy-800">{greet(user, 'Administrator')}</h1>
         <InProgressButton />
       </div>
 
@@ -436,9 +442,9 @@ function ManagerDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">{
-          { MANAGER: 'Manager', LAB: 'Lab' }[user?.role] || 'Manager'
-        } Dashboard</h1>
+        <h1 className="text-2xl font-bold text-navy-800">{
+          greet(user, { MANAGER: 'Manager', LAB: 'Lab' }[user?.role] || 'Manager')
+        }</h1>
         <div className="flex gap-2">
           <InProgressButton />
           <Button variant="secondary" onClick={() => navigate('/my-requests')}>
@@ -569,6 +575,7 @@ function ManagerDashboard() {
 }
 
 function StoreManagerDashboard() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [lowStock, setLowStock] = useState([]);
@@ -631,7 +638,7 @@ function StoreManagerDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Store Manager Dashboard</h1>
+        <h1 className="text-2xl font-bold text-navy-800">{greet(user, 'Store Manager')}</h1>
         <div className="flex gap-2">
           <InProgressButton />
           <Button onClick={() => navigate('/request-clearance')}>
@@ -752,6 +759,7 @@ function StoreManagerDashboard() {
 }
 
 function PurchaseOfficerDashboard() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [requests, setRequests] = useState([]);
@@ -781,7 +789,7 @@ function PurchaseOfficerDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Purchase Officer Dashboard</h1>
+        <h1 className="text-2xl font-bold text-navy-800">{greet(user, 'Purchase Officer')}</h1>
         <div className="flex gap-2">
           <InProgressButton />
           <Button onClick={() => navigate('/purchase-requests')}>
@@ -865,6 +873,7 @@ function PurchaseOfficerDashboard() {
 }
 
 function AccountingDashboard() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [paymentRequests, setPaymentRequests] = useState([]);
@@ -905,7 +914,7 @@ function AccountingDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Accounting Dashboard</h1>
+        <h1 className="text-2xl font-bold text-navy-800">{greet(user, 'Accounting')}</h1>
         <div className="flex gap-2">
           <InProgressButton />
           <Button onClick={() => navigate('/payment-requests')}>
@@ -965,6 +974,7 @@ function AccountingDashboard() {
 }
 
 function QCDashboard() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [inspections, setInspections] = useState([]);
   const [pendingOrders, setPendingOrders] = useState([]);
@@ -992,7 +1002,7 @@ function QCDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">QC Dashboard</h1>
+        <h1 className="text-2xl font-bold text-navy-800">{greet(user, 'QC')}</h1>
         <div className="flex gap-2">
           <InProgressButton />
           <Button onClick={() => navigate('/qc-inspections')}>

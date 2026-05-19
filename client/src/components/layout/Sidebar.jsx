@@ -1,15 +1,32 @@
 import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Package, PackagePlus, UserCog,
   FileText, BarChart3, Settings, Menu, X,
   ClipboardList, CheckSquare, ScrollText, Bell, History, ShoppingCart,
   FileSearch, Truck, CreditCard, ClipboardCheck, DoorOpen, FlaskConical, ArrowLeftRight,
-  Building2
+  Building2, LogOut, User
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const ALL_ROLES = ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB'];
+
+const ROLE_LABELS = {
+  ADMIN: 'Administrator',
+  MANAGER: 'Manager',
+  STORE_MANAGER: 'Store Manager',
+  PURCHASE_OFFICER: 'Purchase Officer',
+  ACCOUNTING: 'Accounting',
+  QC: 'Quality Control',
+  LAB: 'Lab',
+};
+
+const getInitials = (name) => {
+  if (!name) return 'U';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+};
 
 const getNavItems = (role) => {
   const items = [
@@ -40,34 +57,43 @@ const getNavItems = (role) => {
 
 export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const navItems = getNavItems(user?.role);
+  const roleLabel = ROLE_LABELS[user?.role] || user?.role?.replace(/_/g, ' ');
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+    setMobileOpen(false);
+  };
 
   const sidebarContent = (
     <>
-      <div className="px-5 pt-6 pb-4">
-        <div className="relative">
-          <div className="absolute inset-0 bg-white/30 blur-2xl rounded-2xl" aria-hidden="true" />
-          <div className="relative bg-white rounded-xl px-4 py-3 shadow-[0_0_24px_rgba(255,255,255,0.25)] flex items-center justify-center">
-            <img
-              src="/rapslogo6.png"
-              alt="RAPS"
-              className="h-12 w-auto object-contain"
-            />
-          </div>
+      <div className="px-5 pt-5 pb-3">
+        <div className="relative flex items-center justify-center">
+          <div className="absolute inset-x-2 inset-y-0 bg-white/25 blur-2xl rounded-full" aria-hidden="true" />
+          <div className="absolute inset-x-6 inset-y-1 bg-blue-300/30 blur-xl rounded-full" aria-hidden="true" />
+          <img
+            src="/rapslogo6.png"
+            alt="RAPS"
+            className="relative h-12 w-auto object-contain rounded-md"
+          />
         </div>
         {user?.unit && (
-          <div className="mt-3.5 flex items-center gap-2 text-white/90 px-1">
-            <Building2 size={14} className="text-blue-300 flex-shrink-0" />
-            <span className="text-sm font-medium truncate">{user.unit.name}</span>
+          <div className="mt-3 flex items-center justify-center gap-1.5">
+            <Building2 size={13} className="text-blue-300 flex-shrink-0" />
+            <span className="text-[11px] font-semibold tracking-[0.18em] uppercase text-blue-100 truncate">
+              {user.unit.name}
+            </span>
           </div>
         )}
       </div>
 
       <div className="mx-5 border-t border-white/10" />
 
-      <nav className="flex-1 pt-3 pb-4 overflow-y-auto">
+      <nav className="flex-1 pt-3 pb-3 overflow-y-auto">
         {navItems.map((item) => (
           <NavLink
             key={item.to}
@@ -78,7 +104,7 @@ export default function Sidebar() {
               `group flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg text-sm transition-all duration-150 mb-0.5
               ${isActive
                 ? 'bg-white/15 text-white font-medium shadow-[inset_3px_0_0_theme(colors.blue.400)]'
-                : 'text-white hover:bg-white/[0.08]'
+                : 'text-white/90 hover:bg-white/[0.08] hover:text-white'
               }`
             }
           >
@@ -87,6 +113,34 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      <div className="mx-3 mb-3 mt-1 rounded-xl bg-white/[0.06] border border-white/10 p-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-navy-700 rounded-full flex items-center justify-center text-white text-[12px] font-semibold shadow-md ring-2 ring-white/20 flex-shrink-0">
+            {getInitials(user?.name)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-white truncate leading-tight">
+              {user?.name}
+            </p>
+            <p className="text-[10.5px] text-blue-200 truncate mt-0.5">{roleLabel}</p>
+          </div>
+        </div>
+        <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+          <button
+            onClick={() => { navigate('/settings'); setMobileOpen(false); }}
+            className="flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-white/85 hover:bg-white/10 hover:text-white rounded-md transition-colors"
+          >
+            <User size={12} /> Profile
+          </button>
+          <button
+            onClick={handleLogout}
+            className="flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-red-200 hover:bg-red-500/15 hover:text-red-100 rounded-md transition-colors"
+          >
+            <LogOut size={12} /> Sign Out
+          </button>
+        </div>
+      </div>
     </>
   );
 
@@ -95,7 +149,7 @@ export default function Sidebar() {
       {/* Mobile menu button */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-3 left-3 z-50 p-2 bg-navy-800 text-white rounded-md shadow-lg"
+        className="lg:hidden fixed top-2.5 left-3 z-50 p-2 bg-navy-800 text-white rounded-md shadow-lg"
       >
         <Menu size={20} />
       </button>
