@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye } from 'lucide-react';
+import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
-import { useAutoRefresh } from '../context/NotificationContext';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -721,6 +720,14 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
           {request.notes && (
             <div className="mt-1"><span className="text-blue-700 font-medium">Note:</span> {request.notes}</div>
           )}
+          {request.materialSpecsPdfUrl && (
+            <div className="mt-1 flex items-center gap-1">
+              <FileText size={14} className="text-blue-600" />
+              <span className="text-blue-700 font-medium">Specs:</span>
+              <a href={request.materialSpecsPdfUrl} target="_blank" rel="noreferrer"
+                className="text-blue-700 underline hover:text-blue-900">View / Download PDF</a>
+            </div>
+          )}
         </div>
 
         <table className="w-full text-sm">
@@ -900,6 +907,14 @@ function DetailModal({ request, onClose }) {
             <span className="text-blue-600 font-medium">Admin Notes:</span> <span>{request.adminNotes}</span>
           </div>
         )}
+        {request.materialSpecsPdfUrl && (
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm flex items-center gap-2">
+            <FileText size={16} className="text-blue-600" />
+            <span className="text-blue-700 font-medium">Material Specs:</span>
+            <a href={request.materialSpecsPdfUrl} target="_blank" rel="noreferrer"
+              className="text-blue-700 underline hover:text-blue-900">View / Download PDF</a>
+          </div>
+        )}
 
         <ProcurementJourney request={request} />
 
@@ -989,8 +1004,6 @@ export default function PurchaseRequests() {
   const isAccounting = user?.role === 'ACCOUNTING';
   const isQC = user?.role === 'QC';
 
-  const refreshKey = useAutoRefresh();
-
   const fetchRequests = () => {
     setLoading(true);
     const params = { limit: 50, fromDate: fromDate || undefined, toDate: toDate || undefined };
@@ -1001,7 +1014,7 @@ export default function PurchaseRequests() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchRequests(); }, [tab, fromDate, toDate, refreshKey]);
+  useEffect(() => { fetchRequests(); }, [tab, fromDate, toDate]);
 
   const handleRowClick = (r) => {
     if (isAdmin) {
@@ -1039,11 +1052,16 @@ export default function PurchaseRequests() {
         <h1 className="text-2xl font-bold text-gray-900">
           {isPO ? 'Purchase Assignments' : 'Purchase Requests'}
         </h1>
-        {isManager && (
-          <Button onClick={() => setShowCreate(true)}>
-            <Plus size={16} /> New Purchase Request
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={fetchRequests} disabled={loading}>
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
           </Button>
-        )}
+          {isManager && (
+            <Button onClick={() => setShowCreate(true)}>
+              <Plus size={16} /> New Purchase Request
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-end gap-4">

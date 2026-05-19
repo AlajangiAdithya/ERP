@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Plus, CheckCircle2, XCircle, PackageCheck, ListOrdered } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Plus, CheckCircle2, XCircle, PackageCheck, ListOrdered, RefreshCw } from 'lucide-react';
 import api from '../api/axios';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -8,7 +8,6 @@ import Modal from '../components/ui/Modal';
 import Input, { Select, Textarea } from '../components/ui/Input';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { useAuth } from '../context/AuthContext';
-import { useAutoRefresh } from '../context/NotificationContext';
 import { formatDateTime } from '../utils/formatters';
 
 const TABS = [
@@ -34,7 +33,6 @@ export default function InventoryTransfers() {
   const [products, setProducts] = useState([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
-  const refreshKey = useAutoRefresh();
 
   const [form, setForm] = useState({
     fromUnitId: '',
@@ -56,7 +54,7 @@ export default function InventoryTransfers() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, statusFilter, fromDate, toDate, refreshKey]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, statusFilter, fromDate, toDate]);
 
   useEffect(() => {
     api.get('/units').then(({ data }) => setUnits(data || [])).catch(() => setUnits([]));
@@ -163,7 +161,12 @@ export default function InventoryTransfers() {
           <h1 className="text-2xl font-bold text-gray-900">Inventory Transfers</h1>
           <p className="text-sm text-gray-500">Request and track stock movements between units.</p>
         </div>
-        <Button onClick={openCreate}><Plus size={16} /> New Transfer Request</Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={load} disabled={loading}>
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
+          </Button>
+          <Button onClick={openCreate}><Plus size={16} /> New Transfer Request</Button>
+        </div>
       </div>
 
       <div className="flex gap-2 border-b border-gray-200">
@@ -255,7 +258,7 @@ export default function InventoryTransfers() {
             <Select
               label="From Unit (source)"
               value={form.fromUnitId}
-              onChange={(e) => setForm({ ...form, fromUnitId: e.target.value })}
+              onChange={(e) => setForm({ ...form, fromUnitId: e.target.value, productId: '' })}
             >
               <option value="">Select source unit…</option>
               {units
@@ -281,20 +284,26 @@ export default function InventoryTransfers() {
             label="Product"
             value={form.productId}
             onChange={(e) => setForm({ ...form, productId: e.target.value })}
+            disabled={!form.fromUnitId}
           >
-            <option value="">Select product…</option>
-            {products.map((p) => {
-              const atSource = form.fromUnitId
-                ? ((p.unitStocks || []).find(u => u.unitId === form.fromUnitId)?.quantity ?? 0)
-                : null;
-              return (
+            <option value="">
+              {form.fromUnitId ? 'Select product…' : 'Select a source unit first'}
+            </option>
+            {form.fromUnitId && products
+              .map((p) => ({
+                p,
+                atSource: (p.unitStocks || []).find(u => u.unitId === form.fromUnitId)?.quantity ?? 0,
+              }))
+              .filter(({ atSource }) => atSource > 0)
+              .map(({ p, atSource }) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} — total: {p.currentStock} {p.unit}
-                  {form.fromUnitId ? ` • at source: ${atSource} ${p.unit}` : ''}
+                  {p.name} — at source: {atSource} {p.unit}
                 </option>
-              );
-            })}
+              ))}
           </Select>
+          {form.fromUnitId && products.every(p => ((p.unitStocks || []).find(u => u.unitId === form.fromUnitId)?.quantity ?? 0) <= 0) && (
+            <p className="text-xs text-amber-600 -mt-2">This source unit currently holds no products.</p>
+          )}
 
           {stockAtFromUnit && (
             <div className={`text-xs px-3 py-2 rounded-md border ${

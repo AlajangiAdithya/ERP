@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Send, CheckCircle, Trash2, Eye, FileText, X, Layers, Paperclip, Download } from 'lucide-react';
+import { Plus, Send, CheckCircle, Trash2, Eye, FileText, X, Layers, Paperclip, Download, RefreshCw } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
-import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -23,6 +22,8 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
   const [quotationPdf, setQuotationPdf] = useState(null);
   // history[productKey] = [{ supplierId, supplierName, supplierContact, supplierAddress, lastUnitPrice, lastDate, timesUsed, wasSelected }]
   const [history, setHistory] = useState({});
+  // Common supplier fields applied across all rows on demand
+  const [common, setCommon] = useState({ supplierName: '', supplierContact: '', supplierAddress: '' });
 
   // Normalised key for a row's product: prefer productId, fall back to name-lower.
   const rowKey = (row) => row.productId ? `id:${row.productId}` : `name:${(row.productName || '').toLowerCase().trim()}`;
@@ -31,6 +32,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     if (isOpen && purchaseRequest) {
       setNotes('');
       setQuotationPdf(null);
+      setCommon({ supplierName: '', supplierContact: '', supplierAddress: '' });
       const prItems = purchaseRequest.items?.map(i => ({
         productId: i.productId || null,
         productName: i.productName,
@@ -205,10 +207,50 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
         <div className="bg-gray-50 p-3 rounded-md text-sm flex flex-wrap gap-x-6 gap-y-1">
           <div><span className="text-gray-500">For PR:</span>{' '}<span className="font-medium">{purchaseRequest?.requestNumber}</span></div>
           <div className="text-xs text-gray-500">Enter a supplier name beside each product. Products sharing one supplier become a single Purchase Order on approval.</div>
+          {purchaseRequest?.materialSpecsPdfUrl && (
+            <a href={purchaseRequest.materialSpecsPdfUrl} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-blue-700 underline hover:text-blue-900">
+              <FileText size={14} /> Material specs PDF
+            </a>
+          )}
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
           For each product below, choose <strong>Existing supplier</strong> (dropdown of past suppliers for that product, with last price) or <strong>New supplier</strong> (type a name). Last unit price is pre-filled — edit before submitting.
+        </div>
+
+        {/* Same-supplier quick fill — one click sets the supplier on every row */}
+        <div className="border border-blue-200 bg-blue-50/40 rounded-md p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-semibold text-blue-800">Single supplier for the whole quote?</span>
+            <span className="text-[11px] text-blue-700">Fill these once, then "Apply to all items".</span>
+          </div>
+          <div className="grid grid-cols-12 gap-2">
+            <input value={common.supplierName} onChange={(e) => setCommon({ ...common, supplierName: e.target.value })}
+              className="col-span-4 px-2 py-1.5 border rounded text-sm" placeholder="Supplier name" />
+            <input value={common.supplierContact} onChange={(e) => setCommon({ ...common, supplierContact: e.target.value })}
+              className="col-span-3 px-2 py-1.5 border rounded text-sm" placeholder="Phone/Email" />
+            <input value={common.supplierAddress} onChange={(e) => setCommon({ ...common, supplierAddress: e.target.value })}
+              className="col-span-3 px-2 py-1.5 border rounded text-sm" placeholder="Address" />
+            <Button
+              size="sm"
+              variant="secondary"
+              className="col-span-2"
+              disabled={!common.supplierName.trim()}
+              onClick={() => {
+                setItems(items.map(row => ({
+                  ...row,
+                  supplierMode: 'new',
+                  supplierId: null,
+                  supplierName: common.supplierName.trim(),
+                  supplierContact: common.supplierContact.trim(),
+                  supplierAddress: common.supplierAddress.trim(),
+                })));
+              }}
+            >
+              Apply to all items
+            </Button>
+          </div>
         </div>
 
         <div>
@@ -1079,7 +1121,6 @@ export default function QuotationManagement() {
 
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isApprover = user?.role === 'ADMIN';
-  const refreshKey = useAutoRefresh();
 
   const fetchData = async () => {
     setLoading(true);
@@ -1109,7 +1150,7 @@ export default function QuotationManagement() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, [refreshKey]);
+  useEffect(() => { fetchData(); }, []);
 
   const togglePR = (id) => {
     setSelectedPRIds(prev => {
@@ -1154,7 +1195,12 @@ export default function QuotationManagement() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Quotation Management</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">Quotation Management</h1>
+        <Button variant="secondary" onClick={fetchData} disabled={loading}>
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
+        </Button>
+      </div>
 
       {/* PO: Approved PRs needing quotations */}
       {isPO && (

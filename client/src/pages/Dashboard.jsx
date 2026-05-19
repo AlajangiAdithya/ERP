@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, Users, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck } from 'lucide-react';
+import { Package, AlertTriangle, Users, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +10,131 @@ import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
 import { formatDateTime } from '../utils/formatters';
 import { useNavigate } from 'react-router-dom';
+
+function InProgressButton() {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const openModal = async () => {
+    setOpen(true);
+    setLoading(true);
+    try {
+      const { data } = await api.get('/purchase-requests/in-progress-summary');
+      setSummary(data);
+    } catch {
+      setSummary(null);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <>
+      <Button variant="secondary" onClick={openModal}>
+        <Activity size={16} className="mr-1 animate-pulse text-amber-500" /> In Progress
+      </Button>
+      <Modal isOpen={open} onClose={() => setOpen(false)} title="In Progress — PRs & POs" size="lg">
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : !summary ? (
+          <p className="text-center text-gray-400 py-6">Could not load in-progress items.</p>
+        ) : (
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+                <div className="flex items-center gap-2 text-blue-700">
+                  <FileText size={16} /> <span className="text-xs uppercase font-semibold">Purchase Requests</span>
+                </div>
+                <div className="text-2xl font-bold text-blue-700 mt-1">{summary.prCount || 0}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-green-50 border border-green-200">
+                <div className="flex items-center gap-2 text-green-700">
+                  <ShoppingCart size={16} /> <span className="text-xs uppercase font-semibold">Purchase Orders</span>
+                </div>
+                <div className="text-2xl font-bold text-green-700 mt-1">{summary.poCount || 0}</div>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-gray-700">Active Purchase Requests</h4>
+                <Button size="sm" variant="secondary" onClick={() => { setOpen(false); navigate('/purchase-requests'); }}>
+                  Open page
+                </Button>
+              </div>
+              {(summary.prSamples || []).length === 0 ? (
+                <p className="text-xs text-gray-400 px-1">No active PRs.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-xs text-gray-500">
+                      <th className="px-3 py-1.5 text-left font-medium">PR #</th>
+                      <th className="px-3 py-1.5 text-left font-medium">Manager</th>
+                      <th className="px-3 py-1.5 text-left font-medium">Unit</th>
+                      <th className="px-3 py-1.5 text-left font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.prSamples.map(pr => (
+                      <tr key={pr.id} className="border-b border-gray-50">
+                        <td className="px-3 py-1.5 font-medium text-navy-700">{pr.requestNumber}</td>
+                        <td className="px-3 py-1.5 text-gray-600">{pr.manager?.name || '—'}</td>
+                        <td className="px-3 py-1.5"><Badge color="blue">{pr.unit?.code || pr.unit?.name || '—'}</Badge></td>
+                        <td className="px-3 py-1.5"><Badge color="yellow">{pr.status}</Badge></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {summary.prCount > (summary.prSamples?.length || 0) && (
+                <p className="text-xs text-gray-400 px-3 pt-1">+ {summary.prCount - summary.prSamples.length} more on the Purchase Requests page</p>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-gray-700">Active Purchase Orders</h4>
+                <Button size="sm" variant="secondary" onClick={() => { setOpen(false); navigate('/purchase-orders'); }}>
+                  Open page
+                </Button>
+              </div>
+              {(summary.poSamples || []).length === 0 ? (
+                <p className="text-xs text-gray-400 px-1">No active POs.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-xs text-gray-500">
+                      <th className="px-3 py-1.5 text-left font-medium">PO #</th>
+                      <th className="px-3 py-1.5 text-left font-medium">Supplier</th>
+                      <th className="px-3 py-1.5 text-left font-medium">Amount</th>
+                      <th className="px-3 py-1.5 text-left font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.poSamples.map(po => (
+                      <tr key={po.id} className="border-b border-gray-50">
+                        <td className="px-3 py-1.5 font-medium text-navy-700">{po.orderNumber}</td>
+                        <td className="px-3 py-1.5 text-gray-600">{po.supplierName || '—'}</td>
+                        <td className="px-3 py-1.5 text-gray-700">{po.totalAmount != null ? `₹${Number(po.totalAmount).toLocaleString('en-IN')}` : '—'}</td>
+                        <td className="px-3 py-1.5"><Badge color="navy">{po.status}</Badge></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {summary.poCount > (summary.poSamples?.length || 0) && (
+                <p className="text-xs text-gray-400 px-3 pt-1">+ {summary.poCount - summary.poSamples.length} more on the Purchase Orders page</p>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+    </>
+  );
+}
 
 function ProgressBar({ purchased, total, showPending = true }) {
   const pct = total > 0 ? Math.min(100, (purchased / total) * 100) : 0;
@@ -97,7 +222,10 @@ function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+        <InProgressButton />
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard title="Total Products" value={stats.totalProducts} icon={Package} color="navy" onClick={() => navigate('/products')} />
@@ -312,6 +440,7 @@ function ManagerDashboard() {
           { MANAGER: 'Manager', LAB: 'Lab' }[user?.role] || 'Manager'
         } Dashboard</h1>
         <div className="flex gap-2">
+          <InProgressButton />
           <Button variant="secondary" onClick={() => navigate('/my-requests')}>
             <ClipboardList size={16} className="mr-1" /> MIV Requests
           </Button>
@@ -509,9 +638,12 @@ function StoreManagerDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Store Manager Dashboard</h1>
-        <Button onClick={() => navigate('/request-clearance')}>
-          <ClipboardList size={16} className="mr-1" /> Pending Clearances
-        </Button>
+        <div className="flex gap-2">
+          <InProgressButton />
+          <Button onClick={() => navigate('/request-clearance')}>
+            <ClipboardList size={16} className="mr-1" /> Pending Clearances
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -656,9 +788,12 @@ function PurchaseOfficerDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Purchase Officer Dashboard</h1>
-        <Button onClick={() => navigate('/purchase-requests')}>
-          <ShoppingCart size={16} className="mr-1" /> All Assignments
-        </Button>
+        <div className="flex gap-2">
+          <InProgressButton />
+          <Button onClick={() => navigate('/purchase-requests')}>
+            <ShoppingCart size={16} className="mr-1" /> All Assignments
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -777,9 +912,12 @@ function AccountingDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Accounting Dashboard</h1>
-        <Button onClick={() => navigate('/payment-requests')}>
-          <ShoppingCart size={16} className="mr-1" /> All Payments
-        </Button>
+        <div className="flex gap-2">
+          <InProgressButton />
+          <Button onClick={() => navigate('/payment-requests')}>
+            <ShoppingCart size={16} className="mr-1" /> All Payments
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -861,9 +999,12 @@ function QCDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">QC Dashboard</h1>
-        <Button onClick={() => navigate('/qc-inspections')}>
-          <ClipboardCheck size={16} className="mr-1" /> All Inspections
-        </Button>
+        <div className="flex gap-2">
+          <InProgressButton />
+          <Button onClick={() => navigate('/qc-inspections')}>
+            <ClipboardCheck size={16} className="mr-1" /> All Inspections
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
