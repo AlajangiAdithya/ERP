@@ -299,7 +299,6 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
                       <option value="Raw Material">Raw Material</option>
                       <option value="Consumable">Consumable</option>
                       <option value="Tooling">Tooling</option>
-                      <option value="Fabric">Fabric</option>
                       <option value="Others">Others</option>
                     </select>
                   </td>
@@ -666,6 +665,12 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
         approvedQty: i.adminApprovedQty || i.requestedQty,
         currentPurchased: i.purchasedQty || 0,
         newPurchasedQty: i.purchasedQty || 0,
+        // Specs visible to PO so they can match the right supplier/spec.
+        materialType: i.materialType,
+        materialSpecification: i.materialSpecification,
+        drawingNo: i.drawingNo,
+        qapNo: i.qapNo,
+        itemRemarks: i.itemRemarks,
       })));
     }
   }, [request]);
@@ -716,8 +721,26 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
           </thead>
           <tbody>
             {items.map((item, idx) => (
-              <tr key={item.id} className="border-b border-gray-50">
-                <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
+              <tr key={item.id} className="border-b border-gray-50 align-top">
+                <td className="px-3 py-2 font-medium text-gray-700">
+                  <div>{item.productName}</div>
+                  {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo) && (
+                    <div className="mt-1 text-xs text-gray-500 space-y-0.5">
+                      {item.materialType && (
+                        <div><span className="font-medium text-gray-600">Type:</span> {item.materialType}</div>
+                      )}
+                      {item.materialSpecification && (
+                        <div><span className="font-medium text-gray-600">Spec:</span> {item.materialSpecification}</div>
+                      )}
+                      {item.drawingNo && (
+                        <div><span className="font-medium text-gray-600">Drawing #:</span> {item.drawingNo}</div>
+                      )}
+                      {item.qapNo && (
+                        <div><span className="font-medium text-gray-600">QAP #:</span> {item.qapNo}</div>
+                      )}
+                    </div>
+                  )}
+                </td>
                 <td className="px-3 py-2 text-gray-700">{item.approvedQty} {item.productUnit}</td>
                 <td className="px-3 py-2 text-gray-500">{item.currentPurchased} {item.productUnit}</td>
                 <td className="px-3 py-2">
@@ -905,16 +928,35 @@ function DetailModal({ request, onClose }) {
               {request.items?.map(item => {
                 const unionRef = unionPOByItem.get(item.id);
                 return (
-                  <tr key={item.id} className="border-b border-gray-50">
+                  <tr key={item.id} className="border-b border-gray-50 align-top">
                     <td className="px-3 py-2 font-medium text-gray-700">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span>{item.productName}</span>
+                        {item.product?.sku && (
+                          <Badge color="gray" title="Product SKU">{item.product.sku}</Badge>
+                        )}
                         {unionRef && (
                           <Badge color="purple" title={`Part of Union PO ${unionRef.po.orderNumber} (${(unionRef.po.sourceRequests?.length || 0)} units) — your allocation: ${unionRef.allocation.allocatedQty} ${item.productUnit}`}>
                             <Layers size={10} className="inline mr-0.5" /> Union {unionRef.po.orderNumber}
                           </Badge>
                         )}
                       </div>
+                      {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo) && (
+                        <div className="mt-1 text-xs text-gray-500 space-y-0.5">
+                          {item.materialType && (
+                            <div><span className="font-medium text-gray-600">Type:</span> {item.materialType}</div>
+                          )}
+                          {item.materialSpecification && (
+                            <div><span className="font-medium text-gray-600">Spec:</span> {item.materialSpecification}</div>
+                          )}
+                          {item.drawingNo && (
+                            <div><span className="font-medium text-gray-600">Drawing #:</span> {item.drawingNo}</div>
+                          )}
+                          {item.qapNo && (
+                            <div><span className="font-medium text-gray-600">QAP #:</span> {item.qapNo}</div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-gray-600">{item.requestedQty} {item.productUnit}</td>
                     <td className="px-3 py-2 text-gray-600">

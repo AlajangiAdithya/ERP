@@ -44,6 +44,12 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
         supplierName: '',
         supplierContact: '',
         supplierAddress: '',
+        // PR specs flow through to PO — read-only for quotation/PO creators.
+        materialType: i.materialType || '',
+        materialSpecification: i.materialSpecification || '',
+        drawingNo: i.drawingNo || '',
+        qapNo: i.qapNo || '',
+        itemRemarks: i.itemRemarks || '',
       })) || [{ productId: null, productName: '', productUnit: 'pcs', quantity: 1, unitPrice: 0, supplierMode: 'new', supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '' }];
       setItems(prItems);
 
@@ -271,6 +277,15 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
                       <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Product</label>
                       <input value={item.productName} onChange={(e) => updateItem(idx, 'productName', e.target.value)}
                         className="w-full px-2 py-1.5 border rounded text-sm" placeholder="Product name" />
+                      {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo || item.itemRemarks) && (
+                        <div className="mt-1 text-[11px] text-gray-600 space-y-0.5 bg-gray-50 border-l-2 border-blue-300 pl-2 py-1">
+                          {item.materialType && (<div><span className="font-medium text-gray-700">Type:</span> {item.materialType}</div>)}
+                          {item.materialSpecification && (<div><span className="font-medium text-gray-700">Spec:</span> {item.materialSpecification}</div>)}
+                          {item.drawingNo && (<div><span className="font-medium text-gray-700">Drawing #:</span> {item.drawingNo}</div>)}
+                          {item.qapNo && (<div><span className="font-medium text-gray-700">QAP #:</span> {item.qapNo}</div>)}
+                          {item.itemRemarks && (<div><span className="font-medium text-gray-700">Remarks:</span> {item.itemRemarks}</div>)}
+                        </div>
+                      )}
                     </div>
                     <div className="col-span-1">
                       <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Unit</label>
