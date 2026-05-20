@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Plus, CheckCircle2, XCircle, PackageCheck, ListOrdered, RefreshCw } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Plus, CheckCircle2, XCircle, ListOrdered, RefreshCw } from 'lucide-react';
 import api from '../api/axios';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -16,7 +16,7 @@ const TABS = [
   { key: 'all', label: 'All', Icon: ListOrdered, hint: 'Every transfer across units' },
 ];
 
-const statusColor = (s) => ({ PENDING: 'yellow', APPROVED: 'green', REJECTED: 'red', TRANSFERRED: 'blue' }[s] || 'gray');
+const statusColor = (s) => ({ PENDING: 'yellow', APPROVED: 'blue', REJECTED: 'red', TRANSFERRED: 'green' }[s] || 'gray');
 
 export default function InventoryTransfers() {
   const { user } = useAuth();
@@ -113,7 +113,7 @@ export default function InventoryTransfers() {
   };
 
   const approve = async (id) => {
-    if (!confirm('Approve this transfer? The destination unit will then mark it received.')) return;
+    if (!confirm('Approve this transfer? Ownership of the stock will move to the destination unit immediately — this cannot be undone.')) return;
     try {
       await api.put(`/inventory-transfers/${id}/approve`);
       setDetail(null);
@@ -131,15 +131,6 @@ export default function InventoryTransfers() {
     } catch (err) { alert(err.response?.data?.error || 'Failed'); }
   };
 
-  const complete = async (id) => {
-    if (!confirm('Mark as received? This records the stock movement on both sides.')) return;
-    try {
-      await api.put(`/inventory-transfers/${id}/complete`);
-      setDetail(null);
-      load();
-    } catch (err) { alert(err.response?.data?.error || 'Failed'); }
-  };
-
   const activeTabMeta = useMemo(() => TABS.find((t) => t.key === tab), [tab]);
 
   // Per-unit stock helper for the source unit in the create form
@@ -151,8 +142,7 @@ export default function InventoryTransfers() {
     return { qty: us?.quantity ?? 0, unit: product.unit, total: product.currentStock };
   }, [products, form.fromUnitId, form.productId]);
 
-  const canApprove = (t) => t.status === 'PENDING' && t.fromUnitId === user?.unitId;
-  const canComplete = (t) => t.status === 'APPROVED' && (t.toUnitId === user?.unitId || t.fromUnitId === user?.unitId);
+  const canApprove = (t) => t.status === 'PENDING' && (user?.role === 'ADMIN' || t.fromUnitId === user?.unitId);
 
   return (
     <div className="space-y-6">
@@ -251,8 +241,9 @@ export default function InventoryTransfers() {
       <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="New Transfer Request" size="lg">
         <div className="space-y-4">
           <p className="text-xs text-gray-500">
-            As a Unit Manager, you can only pull stock INTO your own unit. The source unit's Manager must approve.
+            As a Unit Manager, you can only pull stock INTO your own unit. The source unit's Manager (or an Admin) must approve.
             Stock is tracked <strong>per unit</strong> — you can only request what the source unit actually holds.
+            Once approved, ownership moves immediately and the request is final. To request more later, raise a new transfer.
           </p>
           <div className="grid grid-cols-2 gap-4">
             <Select
@@ -403,14 +394,9 @@ export default function InventoryTransfers() {
                     <XCircle size={16} className="mr-1" /> Reject
                   </Button>
                   <Button onClick={() => approve(detail.id)}>
-                    <CheckCircle2 size={16} className="mr-1" /> Approve
+                    <CheckCircle2 size={16} className="mr-1" /> Approve &amp; Transfer
                   </Button>
                 </>
-              )}
-              {canComplete(detail) && (
-                <Button onClick={() => complete(detail.id)}>
-                  <PackageCheck size={16} className="mr-1" /> Mark Received
-                </Button>
               )}
             </div>
           </div>
