@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -103,7 +103,7 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
     if (!fromUnit || !toUnit) return res.status(400).json({ error: 'Invalid unit reference' });
     if (!product) return res.status(400).json({ error: 'Invalid product reference' });
 
-    const transferNumber = generateOrderNumber('TRF');
+    const transferNumber = await generateSequentialNumber(prisma, 'TRF');
 
     const created = await prisma.inventoryTransferRequest.create({
       data: {

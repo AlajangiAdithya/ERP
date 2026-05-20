@@ -2,7 +2,7 @@ const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -99,8 +99,7 @@ router.post('/', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) =
     }
 
     const primaryType = items.find((i) => i.itemPassType)?.itemPassType || 'RETURNABLE';
-    const prefix = primaryType === 'RETURNABLE' ? 'GPR-R' : primaryType === 'NON_RETURNABLE' ? 'GPR-NR' : 'GPR-DC';
-    const passNumber = generateOrderNumber(prefix);
+    const passNumber = await generateSequentialNumber(prisma, 'GP');
 
     // Derive a display "Dispatched-to" summary from the per-row entries
     const dispatchTargets = [...new Set(items.map((i) => i.dispatchedTo?.trim()).filter(Boolean))];

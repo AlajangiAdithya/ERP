@@ -9,7 +9,7 @@ const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -132,7 +132,7 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
       resolvedAssigneeId = target.id;
     }
 
-    const ionNumber = generateOrderNumber('ION');
+    const ionNumber = await generateSequentialNumber(prisma, 'ION');
 
     const ion = await prisma.interOfficeNote.create({
       data: {

@@ -3,7 +3,10 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate, applyDateFilter, generateMirNumber } = require('../utils/helpers');
+const {
+  generateSequentialNumber, generateMirNumber, generateProductSku,
+  normalizeMaterialType, paginate, applyDateFilter, isUniqueViolation,
+} = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -315,7 +318,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
               include: {
                 purchaseRequestItem: {
                   select: {
-                    id: true, productId: true, productName: true, productUnit: true,
+                    id: true, productId: true, productName: true, productUnit: true, materialType: true,
                     request: {
                       select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
                     },
@@ -329,7 +332,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           select: {
             id: true, requestNumber: true, managerId: true, unitId: true,
             manager: { select: { id: true, name: true, role: true } },
-            items: { select: { id: true, productId: true, productName: true, productUnit: true } },
+            items: { select: { id: true, productId: true, productName: true, productUnit: true, materialType: true } },
           },
         },
         sourceRequests: {
@@ -392,14 +395,19 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           shares = [{ allocation: null, share: receivedQty }];
         }
 
-        // Resolve / create the product (shared across allocations — products are global)
+        // Resolve / create the product (shared across allocations — products are global).
+        // Carry the PR item's materialType through so NRE products inherit their category
+        // and existing products get their category synced on inward.
         let productId = null;
+        let prMaterialType = null;
         if (isUnionItem) {
           const firstPrItem = orderItem.allocations[0]?.purchaseRequestItem;
           if (firstPrItem?.productId) productId = firstPrItem.productId;
+          prMaterialType = normalizeMaterialType(firstPrItem?.materialType);
         } else if (orderItem.purchaseRequestItemId) {
           const prItem = order.purchaseRequest?.items.find(i => i.id === orderItem.purchaseRequestItemId);
           if (prItem?.productId) productId = prItem.productId;
+          prMaterialType = normalizeMaterialType(prItem?.materialType);
         }
 
         if (!productId) {
@@ -410,12 +418,15 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
         }
 
         if (!productId) {
-          const sku = generateOrderNumber('SKU');
+          // Defensive: PR now creates NRE products itself, but if a legacy PR or
+          // direct PO lands here we still generate a category-prefixed SKU.
+          const sku = await generateProductSku(tx, prMaterialType);
           const newProduct = await tx.product.create({
             data: {
               name: orderItem.productName,
               sku,
               unit: orderItem.productUnit || 'pcs',
+              category: prMaterialType,
               currentStock: 0,
               isActive: true,
             },
@@ -438,6 +449,18 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
               data: { productId },
             });
           }
+        }
+
+        // Sync category from PR materialType if missing or different.
+        // Existing category takes precedence only if it matches the PR type.
+        const existingProduct = await tx.product.findUnique({
+          where: { id: productId }, select: { category: true },
+        });
+        if (existingProduct && existingProduct.category !== prMaterialType) {
+          await tx.product.update({
+            where: { id: productId },
+            data: { category: prMaterialType },
+          });
         }
 
         // One Product stock update for the aggregate received qty
@@ -627,7 +650,7 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
       return res.status(400).json({ error: `Requested amount exceeds outstanding balance (₹${outstanding.toLocaleString('en-IN')})` });
     }
 
-    const paymentNumber = generateOrderNumber('PAY');
+    const paymentNumber = await generateSequentialNumber(prisma, 'PAY');
     const paymentRequest = await prisma.paymentRequest.create({
       data: {
         paymentNumber,

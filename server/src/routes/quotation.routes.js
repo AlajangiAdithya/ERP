@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, isUniqueViolation } = require('../utils/helpers');
 const { canApprove, getTier, getTierLabel } = require('../utils/approvalTiers');
 const { quotationUpload, publicUrlFor } = require('../middleware/upload');
 
@@ -183,7 +183,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf
     }
 
     const totalAmount = data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-    const quotationNumber = generateOrderNumber('QT');
+    const quotationNumber = await generateSequentialNumber(prisma, 'QT');
 
     // Resolve supplierId for each item (upsert by case-insensitive name).
     const itemsWithSupplier = [];
@@ -305,7 +305,7 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotati
     }
 
     const totalAmount = data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-    const quotationNumber = generateOrderNumber('QT');
+    const quotationNumber = await generateSequentialNumber(prisma, 'QT');
 
     const itemsWithSupplier = [];
     for (const item of data.items) {
@@ -756,7 +756,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
       const orders = [];
       for (const g of groups.values()) {
         const groupTotal = g.items.reduce((sum, it) => sum + it.totalPrice, 0);
-        const orderNumber = generateOrderNumber(quotation.isUnion ? 'PO-UN' : 'PO');
+        const orderNumber = await generateSequentialNumber(tx, 'PO');
 
         // Build per-item create payload. For union items the quotation item carries `sourceAllocations`;
         // those become PurchaseOrderItemAllocation rows. Non-union falls back to the existing

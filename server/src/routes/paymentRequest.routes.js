@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -103,7 +103,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
       return res.status(400).json({ error: `Payment amount exceeds remaining balance of ₹${remaining.toLocaleString('en-IN')}` });
     }
 
-    const paymentNumber = generateOrderNumber('PAY');
+    const paymentNumber = await generateSequentialNumber(prisma, 'PAY');
 
     const request = await prisma.paymentRequest.create({
       data: {

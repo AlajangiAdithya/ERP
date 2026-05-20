@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
 const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
@@ -140,7 +140,7 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
       return res.status(400).json({ error: 'Can only inspect orders with arrived goods' });
     }
 
-    const inspectionNumber = generateOrderNumber('QC');
+    const inspectionNumber = await generateSequentialNumber(prisma, 'QC');
 
     const inspection = await prisma.$transaction(async (tx) => {
       const result = await tx.qCInspection.create({

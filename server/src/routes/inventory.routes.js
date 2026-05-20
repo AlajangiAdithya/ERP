@@ -4,7 +4,10 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorizeMinRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
-const { paginate, applyDateFilter } = require('../utils/helpers');
+const {
+  paginate, applyDateFilter,
+  generateProductSku, normalizeMaterialType, isUniqueViolation,
+} = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -21,14 +24,15 @@ router.post('/inward', authenticate, authorizeMinRole('STORE_MANAGER'), async (r
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
+    // Owning unit is the inward-doer's unit (per-unit ownership tracking).
+    const owningUnitId = req.user.unitId || null;
+
     const result = await prisma.$transaction(async (tx) => {
-      // Update product stock
       const updatedProduct = await tx.product.update({
         where: { id: productId },
         data: { currentStock: { increment: qty } },
       });
 
-      // Create stock movement
       const movement = await tx.stockMovement.create({
         data: {
           productId,
@@ -38,10 +42,10 @@ router.post('/inward', authenticate, authorizeMinRole('STORE_MANAGER'), async (r
           referenceType: 'InwardEntry',
           notes: notes || null,
           performedBy: req.user.id,
+          unitId: owningUnitId,
         },
       });
 
-      // Create FIFO batch record
       const batch = await tx.productBatch.create({
         data: {
           productId,
@@ -54,6 +58,14 @@ router.post('/inward', authenticate, authorizeMinRole('STORE_MANAGER'), async (r
           createdById: req.user.id,
         },
       });
+
+      if (owningUnitId) {
+        await tx.productUnitStock.upsert({
+          where: { productId_unitId: { productId, unitId: owningUnitId } },
+          update: { quantity: { increment: qty } },
+          create: { productId, unitId: owningUnitId, quantity: qty },
+        });
+      }
 
       return { product: updatedProduct, movement, batch };
     });
@@ -149,8 +161,10 @@ router.post('/inward-new', authenticate, authorizeMinRole('STORE_MANAGER'), asyn
   try {
     const schema = z.object({
       name: z.string().min(1),
-      sku: z.string().min(1),
-      category: z.string().optional(),
+      // SKU is now auto-generated from materialType — incoming sku is ignored.
+      sku: z.string().optional(),
+      category: z.string().optional(), // legacy
+      materialType: z.string().optional(),
       unit: z.string().default('pcs'),
       quantity: z.number().positive(),
       batchNumber: z.string().optional(),
@@ -158,63 +172,74 @@ router.post('/inward-new', authenticate, authorizeMinRole('STORE_MANAGER'), asyn
     });
     const data = schema.parse(req.body);
 
-    // Check if SKU already exists
-    const existingProduct = await prisma.product.findUnique({ where: { sku: data.sku } });
-    if (existingProduct) {
-      return res.status(400).json({ error: `Product with SKU "${data.sku}" already exists` });
+    const matType = normalizeMaterialType(data.materialType || data.category);
+    const owningUnitId = req.user.unitId || null;
+
+    let result = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        result = await prisma.$transaction(async (tx) => {
+          const sku = await generateProductSku(tx, matType);
+          const product = await tx.product.create({
+            data: {
+              name: data.name,
+              sku,
+              category: matType,
+              unit: data.unit,
+              currentStock: data.quantity,
+              isActive: true,
+            },
+          });
+
+          const movement = await tx.stockMovement.create({
+            data: {
+              productId: product.id,
+              type: 'IN',
+              quantity: data.quantity,
+              batchNumber: data.batchNumber || null,
+              referenceType: 'InwardEntry',
+              notes: data.notes || null,
+              performedBy: req.user.id,
+              unitId: owningUnitId,
+            },
+          });
+
+          const batch = await tx.productBatch.create({
+            data: {
+              productId: product.id,
+              batchNo: data.batchNumber || null,
+              quantity: data.quantity,
+              remaining: data.quantity,
+              referenceType: 'InwardEntryNewProduct',
+              referenceId: movement.id,
+              notes: data.notes || null,
+              createdById: req.user.id,
+            },
+          });
+
+          if (owningUnitId) {
+            await tx.productUnitStock.upsert({
+              where: { productId_unitId: { productId: product.id, unitId: owningUnitId } },
+              update: { quantity: { increment: data.quantity } },
+              create: { productId: product.id, unitId: owningUnitId, quantity: data.quantity },
+            });
+          }
+
+          return { product, movement, batch };
+        });
+        break;
+      } catch (err) {
+        if (!isUniqueViolation(err) || attempt === 4) throw err;
+      }
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      // Create product
-      const product = await tx.product.create({
-        data: {
-          name: data.name,
-          sku: data.sku,
-          category: data.category || null,
-          unit: data.unit,
-          currentStock: data.quantity,
-          isActive: true,
-        },
-      });
-
-      // Create stock movement
-      const movement = await tx.stockMovement.create({
-        data: {
-          productId: product.id,
-          type: 'IN',
-          quantity: data.quantity,
-          batchNumber: data.batchNumber || null,
-          referenceType: 'InwardEntry',
-          notes: data.notes || null,
-          performedBy: req.user.id,
-        },
-      });
-
-      // Create FIFO batch record
-      const batch = await tx.productBatch.create({
-        data: {
-          productId: product.id,
-          batchNo: data.batchNumber || null,
-          quantity: data.quantity,
-          remaining: data.quantity,
-          referenceType: 'InwardEntryNewProduct',
-          referenceId: movement.id,
-          notes: data.notes || null,
-          createdById: req.user.id,
-        },
-      });
-
-      return { product, movement, batch };
-    });
-
-    // Audit log
     await prisma.auditLog.create({
       data: {
         userId: req.user.id,
         action: 'CREATE',
         entity: 'InwardEntryNewProduct',
         entityId: result.product.id,
-        details: { name: data.name, sku: data.sku, quantity: data.quantity, batchNumber: data.batchNumber },
+        details: { name: data.name, sku: result.product.sku, quantity: data.quantity, batchNumber: data.batchNumber },
         ipAddress: req.ip,
       },
     });

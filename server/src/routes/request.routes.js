@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -109,7 +109,7 @@ router.post('/', authenticate, authorize('MANAGER', 'LAB'), async (req, res) => 
       return res.status(400).json({ error: 'You must be assigned to a unit to create requests' });
     }
 
-    const requestNumber = generateOrderNumber('REQ');
+    const requestNumber = await generateSequentialNumber(prisma, 'MIV');
 
     const request = await prisma.productRequest.create({
       data: {

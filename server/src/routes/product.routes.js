@@ -4,13 +4,17 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorizeMinRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
-const { paginate } = require('../utils/helpers');
+const {
+  paginate, generateProductSku, normalizeMaterialType,
+  MATERIAL_TYPES, isUniqueViolation,
+} = require('../utils/helpers');
 
 const router = express.Router();
 
 const productSchema = z.object({
   name: z.string().min(1),
-  sku: z.string().min(1),
+  // SKU is auto-generated from category (materialType). Accepted but ignored on create.
+  sku: z.string().optional(),
   description: z.string().optional(),
   category: z.string().optional(),
   unit: z.string().optional(),
@@ -62,6 +66,11 @@ router.get('/', authenticate, async (req, res) => {
     console.error('Get products error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// GET /api/products/material-types — fixed dropdown values for PR/inward forms
+router.get('/material-types', authenticate, (_req, res) => {
+  res.json(MATERIAL_TYPES);
 });
 
 // GET /api/products/categories
@@ -248,23 +257,36 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/products
+// GET /api/products/material-types — fixed dropdown values for PR/inward forms.
+// MUST be declared before any `/:id`-style route — declared at top of file for safety.
+
+// POST /api/products — SKU auto-generated from category (materialType)
 router.post('/', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('CREATE', 'Product'), async (req, res) => {
   try {
     const data = productSchema.parse(req.body);
-    const product = await prisma.product.create({ data });
+    const category = normalizeMaterialType(data.category);
+    let product = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const sku = await generateProductSku(prisma, category);
+        product = await prisma.product.create({
+          data: { ...data, sku, category },
+        });
+        break;
+      } catch (err) {
+        if (!isUniqueViolation(err) || attempt === 4) throw err;
+      }
+    }
     res.status(201).json(product);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
     }
-    if (error.code === 'P2002') {
-      return res.status(409).json({ error: 'SKU already exists' });
-    }
     console.error('Create product error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
 
 // PUT /api/products/:id
 router.put('/:id', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('UPDATE', 'Product'), async (req, res) => {

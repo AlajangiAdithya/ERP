@@ -3,7 +3,10 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateOrderNumber, paginate, applyDateFilter } = require('../utils/helpers');
+const {
+  generateSequentialNumber, generateProductSku, normalizeMaterialType,
+  paginate, applyDateFilter, isUniqueViolation,
+} = require('../utils/helpers');
 const { prSpecsUpload, publicUrlFor } = require('../middleware/upload');
 
 // Wrap multer so file-validation errors return 400 instead of bubbling to the 500 handler.
@@ -377,46 +380,100 @@ router.post('/', authenticate, authorize('MANAGER', 'LAB'), acceptSpecsPdf, asyn
       return res.status(400).json({ error: 'You must be assigned to a unit to create purchase requests' });
     }
 
-    const requestNumber = generateOrderNumber('PR');
     const materialSpecsPdfUrl = req.file ? publicUrlFor('pr-specs', req.file.filename) : null;
 
-    const request = await prisma.purchaseRequest.create({
-      data: {
-        requestNumber,
-        requestId: data.requestId.trim(),
-        managerId: req.user.id,
-        unitId: req.user.unitId,
-        notes: data.notes || null,
-        materialSpecsPdfUrl,
-        items: {
-          create: data.items.map(item => ({
-            productName: item.productName,
-            productUnit: item.productUnit || 'pcs',
-            productId: item.productId || null,
-            requestedQty: item.requestedQty,
-            materialType: item.materialType || null,
-            materialSpecification: item.materialSpecification || null,
-            qapNo: item.qapNo || null,
-            drawingNo: item.drawingNo || null,
-            materialRequiredFor: item.materialRequiredFor || null,
-            internalWorkOrder: item.internalWorkOrder || null,
-            purpose: item.purpose || null,
-            sourceOfSupply: item.sourceOfSupply || null,
-            scopeOfWork: item.scopeOfWork || null,
-            inspectionType: item.inspectionType || null,
-            requiredByDate: item.requiredByDate ? new Date(item.requiredByDate) : null,
-            itemRemarks: item.itemRemarks || null,
-          })),
-        },
-      },
-      include: {
-        manager: { select: { id: true, name: true } },
-        unit: { select: { id: true, name: true, code: true } },
-        items: {
-          include: { product: { select: { id: true, name: true, sku: true, unit: true } } },
-        },
-      },
-    });
+    // Resolve productId for each item BEFORE the transactional create:
+    //   - if productId given, use it
+    //   - else look up an existing product by case-insensitive name
+    //   - else create an NRE Product with category-prefixed SKU based on materialType
+    // This guarantees every PR item is linked to a Product from day one, so the
+    // ownership/category trail is intact through PO → QC → inward.
+    const itemsResolved = [];
+    for (const item of data.items) {
+      const matType = normalizeMaterialType(item.materialType);
+      let productId = item.productId || null;
+      if (!productId) {
+        const existing = await prisma.product.findFirst({
+          where: { name: { equals: item.productName, mode: 'insensitive' }, isActive: true },
+          select: { id: true, category: true },
+        });
+        if (existing) {
+          productId = existing.id;
+        } else {
+          // Create NRE product now so SKU is traceable from PR-time onward.
+          let createdProduct = null;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              const sku = await generateProductSku(prisma, matType);
+              createdProduct = await prisma.product.create({
+                data: {
+                  name: item.productName,
+                  sku,
+                  unit: item.productUnit || 'pcs',
+                  category: matType,
+                  currentStock: 0,
+                  isActive: true,
+                },
+              });
+              break;
+            } catch (err) {
+              if (!isUniqueViolation(err) || attempt === 4) throw err;
+            }
+          }
+          productId = createdProduct.id;
+        }
+      }
+      itemsResolved.push({ ...item, productId, materialType: matType });
+    }
+
+    // Generate PR number with retry on race.
+    let request = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const requestNumber = await generateSequentialNumber(prisma, 'PR');
+        request = await prisma.purchaseRequest.create({
+          data: {
+            requestNumber,
+            requestId: data.requestId.trim(),
+            managerId: req.user.id,
+            unitId: req.user.unitId,
+            notes: data.notes || null,
+            materialSpecsPdfUrl,
+            items: {
+              create: itemsResolved.map(item => ({
+                productName: item.productName,
+                productUnit: item.productUnit || 'pcs',
+                productId: item.productId,
+                requestedQty: item.requestedQty,
+                materialType: item.materialType,
+                materialSpecification: item.materialSpecification || null,
+                qapNo: item.qapNo || null,
+                drawingNo: item.drawingNo || null,
+                materialRequiredFor: item.materialRequiredFor || null,
+                internalWorkOrder: item.internalWorkOrder || null,
+                purpose: item.purpose || null,
+                sourceOfSupply: item.sourceOfSupply || null,
+                scopeOfWork: item.scopeOfWork || null,
+                inspectionType: item.inspectionType || null,
+                requiredByDate: item.requiredByDate ? new Date(item.requiredByDate) : null,
+                itemRemarks: item.itemRemarks || null,
+              })),
+            },
+          },
+          include: {
+            manager: { select: { id: true, name: true } },
+            unit: { select: { id: true, name: true, code: true } },
+            items: {
+              include: { product: { select: { id: true, name: true, sku: true, unit: true, category: true } } },
+            },
+          },
+        });
+        break;
+      } catch (err) {
+        if (!isUniqueViolation(err) || attempt === 4) throw err;
+      }
+    }
+    const requestNumber = request.requestNumber;
 
     // Audit log
     await prisma.auditLog.create({

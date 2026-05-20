@@ -1,9 +1,3 @@
-const generateOrderNumber = (prefix) => {
-  const timestamp = Date.now().toString(36).toUpperCase();
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${timestamp}-${random}`;
-};
-
 const paginate = (page = 1, limit = 20) => {
   const p = Math.max(1, parseInt(page));
   const l = Math.min(1000, Math.max(1, parseInt(limit)));
@@ -22,34 +16,30 @@ const applyDateFilter = (where, { fromDate, toDate }, field = 'createdAt') => {
   }
 };
 
-// Generates a daily-reset MIR number MIR-YYYYMMDD-NNN.
-// Counter resets each day by counting existing MIRs assigned for today's date.
-// Pass a Prisma client to query the live counter.
-const generateMirNumber = async (prisma) => {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  const datePart = `${y}${m}${d}`;
-  const prefix = `MIR-${datePart}-`;
+// ──── Material types (fixed dropdown shared by PR items, Products, QC, SKU prefix) ────
+const MATERIAL_TYPES = ['Raw Material', 'Consumable', 'Tooling', 'Others'];
 
-  // Find the highest existing counter for today's prefix across PurchaseOrder.mirNo
-  const todays = await prisma.purchaseOrder.findMany({
-    where: { mirNo: { startsWith: prefix } },
-    select: { mirNo: true },
-  });
-  let max = 0;
-  for (const { mirNo } of todays) {
-    const n = parseInt(mirNo.slice(prefix.length), 10);
-    if (!isNaN(n) && n > max) max = n;
+const materialTypeToSkuPrefix = (materialType) => {
+  switch ((materialType || '').trim().toLowerCase()) {
+    case 'raw material': return 'RAW';
+    case 'consumable':   return 'CONS';
+    case 'tooling':      return 'TOOL';
+    default:             return 'OTH';
   }
-  const next = String(max + 1).padStart(3, '0');
-  return `${prefix}${next}`;
 };
 
-// ──── Standard document numbering: RAPS/<TYPE>/<MM>/<YY-YY>/<NNN> ────
-// Counter is scoped per (type, financial year). Indian FY runs April–March:
-// e.g. May 2026 → FY 26-27; February 2026 → FY 25-26.
+const normalizeMaterialType = (value) => {
+  if (!value) return 'Others';
+  const t = String(value).trim().toLowerCase();
+  if (t === 'raw material' || t === 'raw' || t === 'raw_material') return 'Raw Material';
+  if (t === 'consumable' || t === 'consumables') return 'Consumable';
+  if (t === 'tooling' || t === 'tool' || t === 'tooling & fixtures') return 'Tooling';
+  return 'Others';
+};
+
+// ──── Document numbering: <KIND>/<DD-MM-YY>/<N> ────
+// Counter resets daily, per kind. Plain number (no zero-padding).
+// On unique-constraint collision we retry — handles concurrent inserts.
 const DOC_NUMBER_MAP = {
   PR:  { model: 'purchaseRequest',          field: 'requestNumber' },
   PO:  { model: 'purchaseOrder',            field: 'orderNumber' },
@@ -62,52 +52,50 @@ const DOC_NUMBER_MAP = {
   TRF: { model: 'inventoryTransferRequest', field: 'transferNumber' },
 };
 
-const computeFinancialYear = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = date.getMonth() + 1;
-  const startYear = m >= 4 ? y : y - 1;
-  const endYear = startYear + 1;
-  return `${String(startYear).slice(-2)}-${String(endYear).slice(-2)}`;
+const formatDDMMYY = (date = new Date()) => {
+  const d = String(date.getDate()).padStart(2, '0');
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const y = String(date.getFullYear()).slice(-2);
+  return `${d}-${m}-${y}`;
 };
 
-const generateSequentialNumber = async (prisma, kind) => {
-  const meta = DOC_NUMBER_MAP[kind];
-  if (!meta) throw new Error(`Unknown document kind: ${kind}`);
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const fy = computeFinancialYear(now);
-  const typePrefix = `RAPS/${kind}/`;
-  const fySegment = `/${fy}/`;
-
-  const rows = await prisma[meta.model].findMany({
-    where: {
-      AND: [
-        { [meta.field]: { startsWith: typePrefix } },
-        { [meta.field]: { contains: fySegment } },
-      ],
-    },
-    select: { [meta.field]: true },
+// Compute the next plain count for (kind, day). Reads existing numbers matching the
+// `<KIND>/<DD-MM-YY>/` prefix and returns max+1. Caller must catch P2002 and retry.
+const nextDailyCount = async (prisma, modelName, field, prefix) => {
+  const rows = await prisma[modelName].findMany({
+    where: { [field]: { startsWith: prefix } },
+    select: { [field]: true },
   });
-
   let max = 0;
   for (const row of rows) {
-    const val = row[meta.field];
+    const val = row[field];
     if (!val) continue;
-    const parts = val.split('/');
-    // Expected shape: RAPS / KIND / MM / YY-YY / NNN  → 5 parts
-    if (parts.length !== 5) continue;
-    if (parts[1] !== kind || parts[3] !== fy) continue;
-    const n = parseInt(parts[4], 10);
+    const tail = val.slice(prefix.length);
+    const n = parseInt(tail, 10);
     if (!isNaN(n) && n > max) max = n;
   }
-  const next = String(max + 1).padStart(3, '0');
-  return `RAPS/${kind}/${month}/${fy}/${next}`;
+  return max + 1;
 };
 
-// Product SKU: RAPS/SKU/<NNNN>. Counter is global (not FY-scoped) because
-// a SKU is a permanent product identifier, not a financial-year document.
-const generateProductSku = async (prisma) => {
-  const prefix = 'RAPS/SKU/';
+const generateSequentialNumber = async (prisma, kind, date = new Date()) => {
+  const meta = DOC_NUMBER_MAP[kind];
+  if (!meta) throw new Error(`Unknown document kind: ${kind}`);
+  const prefix = `${kind}/${formatDDMMYY(date)}/`;
+  const next = await nextDailyCount(prisma, meta.model, meta.field, prefix);
+  return `${prefix}${next}`;
+};
+
+// MIR uses the same day-scoped scheme but lives on PurchaseOrder.mirNo.
+const generateMirNumber = async (prisma, date = new Date()) => {
+  const prefix = `MIR/${formatDDMMYY(date)}/`;
+  const next = await nextDailyCount(prisma, 'purchaseOrder', 'mirNo', prefix);
+  return `${prefix}${next}`;
+};
+
+// Product SKU: <PREFIX>-<NNNN> where PREFIX is RAW/CONS/TOOL/OTH.
+// Counter is global per prefix (not day-scoped) since a SKU is permanent.
+const generateProductSku = async (prisma, materialType) => {
+  const prefix = `${materialTypeToSkuPrefix(materialType)}-`;
   const rows = await prisma.product.findMany({
     where: { sku: { startsWith: prefix } },
     select: { sku: true },
@@ -121,12 +109,20 @@ const generateProductSku = async (prisma) => {
   return `${prefix}${next}`;
 };
 
+// Generic retry wrapper for unique-constraint races on doc numbers.
+// Usage:  await withDocNumberRetry(() => generateSequentialNumber(prisma, 'PR'), (num) => prisma.purchaseRequest.create({ ... }))
+// Simpler pattern in callers: wrap the create() call in try/catch and re-generate on P2002.
+const isUniqueViolation = (err) => err && err.code === 'P2002';
+
 module.exports = {
-  generateOrderNumber,
   paginate,
   applyDateFilter,
+  MATERIAL_TYPES,
+  materialTypeToSkuPrefix,
+  normalizeMaterialType,
+  formatDDMMYY,
   generateMirNumber,
   generateSequentialNumber,
   generateProductSku,
-  computeFinancialYear,
+  isUniqueViolation,
 };
