@@ -1,3 +1,7 @@
+// Bump this on every deploy that needs to invalidate clients.
+// Browsers detect any byte change in /sw.js and trigger reinstall.
+const SW_VERSION = '2026-05-20-revert-design';
+
 self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', (event) => {
