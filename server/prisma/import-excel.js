@@ -7,9 +7,12 @@
 const path = require('path');
 const xlsx = require('xlsx');
 const { PrismaClient } = require('@prisma/client');
+const {
+  generateProductSku, normalizeMaterialType, isUniqueViolation,
+} = require('../src/utils/helpers');
 
 const prisma = new PrismaClient();
-const FOLDER = 'C:\\Users\\alaja\\Documents\\RAPS formats and stocks';
+const FOLDER = process.env.RAPS_IMPORT_FOLDER || 'C:\\Users\\alaja\\Documents\\RAPS formats and stocks';
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 const norm = (s) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -40,10 +43,9 @@ const cleanStr = (v) => {
   return s === '' || s === '-' ? null : s;
 };
 
-const skuFromName = (name, idx) => {
-  const slug = norm(name).replace(/[^A-Z0-9]/g, '').slice(0, 20);
-  return `RAPS-${slug || 'ITEM'}-${String(idx).padStart(4, '0')}`;
-};
+// Legacy slug-based SKU is no longer used — we now route through
+// generateProductSku(prisma, materialType) so re-imports stay aligned with the
+// canonical RAW-/CONS-/TOOL-/OTH- numbering and a single counter per prefix.
 
 // Map Excel unit codes ("1", "1A", "2", ...) to DB unit IDs
 let unitMap = {}; // "1" → uuid
@@ -75,35 +77,44 @@ async function loadUsersAndUnits() {
   console.log(`Unit map keys: ${Object.keys(unitMap).join(', ')}`);
 }
 
-async function getOrCreateProduct(name, unit = 'pcs') {
+async function getOrCreateProduct(name, unit = 'pcs', materialType = null) {
   const cleaned = cleanStr(name);
   if (!cleaned) return null;
   const key = norm(cleaned);
   if (productRegistry.has(key)) return productRegistry.get(key);
 
-  // Try DB lookup by name (case-insensitive)
+  // Try DB lookup by name (case-insensitive). If found and the row is missing
+  // a canonical category, patch it from the incoming materialType.
   let product = await prisma.product.findFirst({ where: { name: { equals: cleaned, mode: 'insensitive' } } });
-  if (!product) {
-    const sku = skuFromName(cleaned, productRegistry.size + 1);
+  if (product) {
+    const canonical = normalizeMaterialType(materialType || product.category);
+    if (product.category !== canonical) {
+      product = await prisma.product.update({
+        where: { id: product.id },
+        data: { category: canonical },
+      });
+    }
+    productRegistry.set(key, product);
+    return product;
+  }
+
+  // New product — let helpers assign the next slot in its prefix bucket.
+  const category = normalizeMaterialType(materialType);
+  for (let attempt = 0; attempt < 5; attempt++) {
     try {
+      const sku = await generateProductSku(prisma, category);
       product = await prisma.product.create({
         data: {
           name: cleaned.slice(0, 200),
           sku,
+          category,
           unit: cleanStr(unit) || 'pcs',
           currentStock: 0,
         },
       });
-    } catch (e) {
-      // SKU collision — append timestamp
-      product = await prisma.product.create({
-        data: {
-          name: cleaned.slice(0, 200),
-          sku: `${sku}-${Date.now() % 100000}`,
-          unit: cleanStr(unit) || 'pcs',
-          currentStock: 0,
-        },
-      });
+      break;
+    } catch (err) {
+      if (!isUniqueViolation(err) || attempt === 4) throw err;
     }
   }
   productRegistry.set(key, product);
@@ -216,10 +227,11 @@ async function importPRsAndPOs() {
       const requestNumber = `PR-25-26-${String(idx).padStart(5, '0')}`;
       const requestId = String(prRec.prNo);
 
-      // Pre-resolve products for items
+      // Pre-resolve products for items — pass materialType so the SKU prefix
+      // and Product.category line up with the canonical RAW/CONS/TOOL/OTH list.
       const itemsData = [];
       for (const it of prRec.items) {
-        const product = await getOrCreateProduct(it.productName, it.productUnit);
+        const product = await getOrCreateProduct(it.productName, it.productUnit, it.materialType);
         itemsData.push({
           productId: product?.id || null,
           productName: it.productName.slice(0, 500),
@@ -354,7 +366,7 @@ async function importInward() {
     if (qty <= 0) continue;
 
     try {
-      const product = await getOrCreateProduct(itemDesc, uom);
+      const product = await getOrCreateProduct(itemDesc, uom, matType);
       if (!product) continue;
 
       const notesObj = {
@@ -407,11 +419,21 @@ async function importInward() {
 }
 
 async function main() {
+  // CLI flags let ops re-run just the products step against a fresh stock sheet
+  // without re-importing PR/PO/inward history. Examples:
+  //   node prisma/import-excel.js --products-only
+  //   node prisma/import-excel.js --skip-pr --skip-inward
+  const argv = process.argv.slice(2);
+  const productsOnly = argv.includes('--products-only');
+  const skipPr = productsOnly || argv.includes('--skip-pr');
+  const skipInward = productsOnly || argv.includes('--skip-inward');
+
   console.log('=== RAPS Excel Import ===');
+  if (productsOnly) console.log('Mode: PRODUCTS-ONLY (PR/PO + inward steps skipped)');
   await loadUsersAndUnits();
   await importProducts();
-  await importPRsAndPOs();
-  await importInward();
+  if (!skipPr) await importPRsAndPOs();
+  if (!skipInward) await importInward();
 
   // Final counts
   const counts = {

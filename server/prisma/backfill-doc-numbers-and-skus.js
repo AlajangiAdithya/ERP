@@ -1,9 +1,16 @@
 // Backfill script: re-number all docs to <KIND>/<DD-MM-YY>/<N> format and
 // re-SKU all products to <PREFIX>-<NNNN> (PREFIX from materialType).
 //
-// Per-kind, per-day grouping uses createdAt to assign the daily counter in
-// chronological order. Old records get the same simple format as new ones,
-// so users see a consistent scheme across history.
+// Strategy is two-pass per table to avoid colliding with the existing unique
+// constraint on the numbering column. Pass 1 renames every row to a unique
+// temporary value (`__tmp_<id>`), which clears the namespace. Pass 2 renames
+// each temp value to the final canonical value. This is idempotent — re-running
+// against an already-backfilled table is a no-op (every row matches its target
+// before pass 1 even starts, and is skipped).
+//
+// Safe to run repeatedly. Also safe to run as part of a deploy: rows added
+// after the backfill point go through the normal generateSequentialNumber path
+// which already uses this exact format.
 //
 // Run with:   node prisma/backfill-doc-numbers-and-skus.js
 // or:         node prisma/backfill-doc-numbers-and-skus.js --dry-run
@@ -28,142 +35,139 @@ const KIND_TO_MODEL = {
   TRF: { model: 'inventoryTransferRequest', field: 'transferNumber' },
 };
 
+// Build [{id, target}] for a model: target is what the row should end up as.
+function buildDocPlan(rows, kind, dateField = 'createdAt') {
+  const byDay = new Map();
+  for (const row of rows) {
+    const key = formatDDMMYY(row[dateField] || row.createdAt);
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(row);
+  }
+  const plan = [];
+  for (const [day, items] of byDay.entries()) {
+    let counter = 1;
+    for (const row of items) {
+      plan.push({ id: row.id, target: `${kind}/${day}/${counter++}` });
+    }
+  }
+  return plan;
+}
+
+// Generic two-pass renamer. `getCurrent(row)` returns the current value on a
+// freshly-fetched row, so we can skip rows that already match their target.
+async function twoPassRename({ label, model, field, plan, currentByIdMap }) {
+  let already = 0, willChange = 0;
+  const toMove = [];
+  for (const { id, target } of plan) {
+    const current = currentByIdMap.get(id);
+    if (current === target) { already++; continue; }
+    toMove.push({ id, target, current });
+  }
+  willChange = toMove.length;
+  console.log(`[${label}] total ${plan.length} · already correct ${already} · to update ${willChange}`);
+
+  if (DRY) {
+    for (const { current, target } of toMove.slice(0, 5)) {
+      console.log(`  ${current}  →  ${target}`);
+    }
+    if (toMove.length > 5) console.log(`  …and ${toMove.length - 5} more`);
+    return willChange;
+  }
+  if (!toMove.length) return 0;
+
+  // Pass 1 — park every changing row at a unique temp name so the final
+  // namespace clears completely.
+  for (const item of toMove) {
+    const tmp = `__bf_${item.id.slice(0, 8)}`;
+    await prisma[model].update({ where: { id: item.id }, data: { [field]: tmp } });
+    item.tmp = tmp;
+  }
+
+  // Pass 2 — assign final value. No collisions because every other row was
+  // moved out of the way.
+  for (const item of toMove) {
+    await prisma[model].update({ where: { id: item.id }, data: { [field]: item.target } });
+  }
+  return willChange;
+}
+
 async function backfillKind(kind) {
   const { model, field } = KIND_TO_MODEL[kind];
   const rows = await prisma[model].findMany({
     select: { id: true, createdAt: true, [field]: true },
     orderBy: { createdAt: 'asc' },
   });
-  console.log(`\n[${kind}] ${rows.length} rows`);
+  if (!rows.length) { console.log(`[${kind}] 0 rows`); return; }
 
-  // Group by DD-MM-YY of createdAt.
-  const byDay = new Map();
-  for (const row of rows) {
-    const key = formatDDMMYY(row.createdAt);
-    if (!byDay.has(key)) byDay.set(key, []);
-    byDay.get(key).push(row);
-  }
-
-  let updated = 0;
-  for (const [day, items] of byDay.entries()) {
-    let counter = 1;
-    for (const row of items) {
-      const newNum = `${kind}/${day}/${counter++}`;
-      if (row[field] === newNum) continue;
-      if (DRY) {
-        console.log(`  ${row[field]}  →  ${newNum}`);
-      } else {
-        try {
-          await prisma[model].update({ where: { id: row.id }, data: { [field]: newNum } });
-        } catch (e) {
-          // Collisions can happen mid-run if a partial backfill ran before.
-          // Fall back to a temp suffix then retry once the rest of the day is renamed.
-          if (e.code === 'P2002') {
-            const tmp = `${newNum}__tmp_${row.id.slice(0, 6)}`;
-            await prisma[model].update({ where: { id: row.id }, data: { [field]: tmp } });
-            console.log(`  collision on ${newNum} — parked as ${tmp}; rerun the script to resolve`);
-          } else {
-            throw e;
-          }
-        }
-      }
-      updated++;
-    }
-  }
-  console.log(`[${kind}] ${updated} rows ${DRY ? 'WOULD CHANGE' : 'updated'}`);
+  const plan = buildDocPlan(rows, kind);
+  const currentByIdMap = new Map(rows.map(r => [r.id, r[field]]));
+  await twoPassRename({ label: kind, model, field, plan, currentByIdMap });
 }
 
 async function backfillMir() {
-  // PurchaseOrder.mirNo — same scheme, kind MIR, scoped by inwardedAt (fallback createdAt)
   const rows = await prisma.purchaseOrder.findMany({
     where: { mirNo: { not: null } },
     select: { id: true, mirNo: true, inwardedAt: true, createdAt: true },
     orderBy: [{ inwardedAt: 'asc' }, { createdAt: 'asc' }],
   });
-  console.log(`\n[MIR] ${rows.length} POs with mirNo`);
+  if (!rows.length) { console.log(`[MIR] 0 POs with mirNo`); return; }
 
-  const byDay = new Map();
-  for (const row of rows) {
-    const dt = row.inwardedAt || row.createdAt;
-    const key = formatDDMMYY(dt);
-    if (!byDay.has(key)) byDay.set(key, []);
-    byDay.get(key).push(row);
-  }
-  let updated = 0;
-  for (const [day, items] of byDay.entries()) {
-    let counter = 1;
-    for (const row of items) {
-      const newNum = `MIR/${day}/${counter++}`;
-      if (row.mirNo === newNum) continue;
-      if (DRY) {
-        console.log(`  ${row.mirNo}  →  ${newNum}`);
-      } else {
-        try {
-          await prisma.purchaseOrder.update({ where: { id: row.id }, data: { mirNo: newNum } });
-        } catch (e) {
-          if (e.code === 'P2002') {
-            const tmp = `${newNum}__tmp_${row.id.slice(0, 6)}`;
-            await prisma.purchaseOrder.update({ where: { id: row.id }, data: { mirNo: tmp } });
-            console.log(`  MIR collision on ${newNum} — parked as ${tmp}; rerun to resolve`);
-          } else {
-            throw e;
-          }
-        }
-      }
-      updated++;
-    }
-  }
-  console.log(`[MIR] ${updated} rows ${DRY ? 'WOULD CHANGE' : 'updated'}`);
+  // Reuse buildDocPlan with inwardedAt fallback to createdAt.
+  const stamped = rows.map(r => ({ ...r, _bucketDate: r.inwardedAt || r.createdAt }));
+  const plan = buildDocPlan(stamped, 'MIR', '_bucketDate');
+  const currentByIdMap = new Map(rows.map(r => [r.id, r.mirNo]));
+  await twoPassRename({ label: 'MIR', model: 'purchaseOrder', field: 'mirNo', plan, currentByIdMap });
 }
 
 async function backfillProductSkus() {
   const products = await prisma.product.findMany({
-    select: { id: true, sku: true, name: true, category: true },
+    select: { id: true, sku: true, name: true, category: true, createdAt: true },
     orderBy: { createdAt: 'asc' },
   });
-  console.log(`\n[SKU] ${products.length} products`);
+  if (!products.length) { console.log(`[SKU] 0 products`); return; }
 
-  // Bucket by SKU prefix derived from category.
-  const counters = { RAW: 0, CONS: 0, TOOL: 0, OTH: 0 };
-  let updated = 0;
+  // Bucket by SKU prefix derived from category — counter is per-prefix, padded to 4 digits.
+  // We also re-write category to its canonical materialType in the same pass.
+  const counters = {};
+  const plan = []; // {id, targetSku, targetCategory}
   for (const p of products) {
     const matType = normalizeMaterialType(p.category);
     const prefix = materialTypeToSkuPrefix(matType);
     counters[prefix] = (counters[prefix] || 0) + 1;
     const next = String(counters[prefix]).padStart(4, '0');
-    const newSku = `${prefix}-${next}`;
-    if (p.sku === newSku && p.category === matType) continue;
-    if (DRY) {
-      console.log(`  ${p.sku} (${p.category || 'NULL'})  →  ${newSku} (${matType})  [${p.name}]`);
-    } else {
-      try {
-        await prisma.product.update({
-          where: { id: p.id },
-          data: { sku: newSku, category: matType },
-        });
-      } catch (e) {
-        if (e.code === 'P2002') {
-          const tmp = `${newSku}__tmp_${p.id.slice(0, 6)}`;
-          await prisma.product.update({ where: { id: p.id }, data: { sku: tmp, category: matType } });
-          console.log(`  SKU collision on ${newSku} — parked as ${tmp}; rerun to resolve`);
-        } else {
-          throw e;
-        }
-      }
-    }
-    updated++;
+    plan.push({ id: p.id, targetSku: `${prefix}-${next}`, targetCategory: matType, currentSku: p.sku, currentCategory: p.category });
   }
-  console.log(`[SKU] ${updated} products ${DRY ? 'WOULD CHANGE' : 'updated'}`);
+
+  const skuChanges = plan.filter(x => x.currentSku !== x.targetSku);
+  const categoryChanges = plan.filter(x => x.currentCategory !== x.targetCategory);
+  console.log(`[SKU] total ${plan.length} · sku changes ${skuChanges.length} · category normalisations ${categoryChanges.length}`);
+  if (!skuChanges.length && !categoryChanges.length) return;
+
+  if (DRY) {
+    for (const item of skuChanges.slice(0, 5)) {
+      console.log(`  ${item.currentSku}  →  ${item.targetSku}  (${item.currentCategory || 'NULL'} → ${item.targetCategory})`);
+    }
+    if (skuChanges.length > 5) console.log(`  …and ${skuChanges.length - 5} more`);
+    return;
+  }
+
+  // Pass 1 — park every row whose SKU needs to change at a temp value.
+  for (const item of skuChanges) {
+    await prisma.product.update({ where: { id: item.id }, data: { sku: `__bf_${item.id.slice(0, 8)}` } });
+  }
+  // Pass 2 — final SKU + canonical category in one update.
+  for (const item of plan) {
+    const data = {};
+    if (item.currentSku !== item.targetSku) data.sku = item.targetSku;
+    if (item.currentCategory !== item.targetCategory) data.category = item.targetCategory;
+    if (Object.keys(data).length === 0) continue;
+    await prisma.product.update({ where: { id: item.id }, data });
+  }
 }
 
 async function main() {
   console.log(DRY ? '== DRY RUN ==' : '== APPLY ==');
-
-  // Two-pass strategy to avoid mid-run unique collisions:
-  // pass 1 — park all targets with a temp prefix so the namespace clears
-  // pass 2 — rename to final values
-  // For simplicity we use a single pass; collisions get parked and a second
-  // invocation finishes the rename.
+  console.log('Strategy: two-pass rename (park to temp → assign final). Idempotent — safe to rerun.\n');
 
   for (const kind of Object.keys(KIND_TO_MODEL)) {
     await backfillKind(kind);
