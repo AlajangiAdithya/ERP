@@ -46,31 +46,29 @@ export default function Sidebar() {
 
   const sidebarContent = (
     <>
-      <div className="px-4 pt-5 pb-4">
-        <div className="relative">
-          <div className="absolute -inset-3 bg-white/35 blur-2xl rounded-3xl" aria-hidden="true" />
-          <div className="absolute -inset-1 bg-blue-300/30 blur-xl rounded-2xl" aria-hidden="true" />
-          <div className="relative bg-white rounded-xl px-4 py-3 shadow-[0_4px_24px_rgba(255,255,255,0.35)] ring-1 ring-white/40 flex items-center justify-center">
-            <img
-              src="/rapslogo6.png"
-              alt="RAPS"
-              className="h-14 w-auto object-contain"
-            />
-          </div>
+      <div className="px-5 pt-8 pb-6 flex flex-col items-center">
+        <div className="relative group w-full flex justify-center">
+          <div className="absolute -inset-1 bg-gradient-to-r from-blue-400 to-indigo-500 opacity-20 blur-xl group-hover:opacity-40 transition duration-500 rounded-full" aria-hidden="true" />
+          <img
+            src="/rapslogo6.png"
+            alt="RAPS"
+            className="h-12 w-auto object-contain relative z-10 transition-transform duration-300 group-hover:scale-105"
+            style={{ filter: 'drop-shadow(0px 4px 6px rgba(0,0,0,0.3))' }}
+          />
         </div>
         {user?.unit && (
-          <div className="mt-3.5 flex items-center justify-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-full px-3 py-1.5">
+          <div className="mt-5 flex items-center justify-center gap-2 bg-white/5 backdrop-blur-md border border-white/10 shadow-glass rounded-full px-4 py-1.5 w-max">
             <Building2 size={13} className="text-blue-300 flex-shrink-0" />
-            <span className="text-[11px] font-semibold tracking-[0.16em] uppercase text-blue-100 truncate">
+            <span className="text-[11px] font-bold tracking-widest uppercase text-white/90">
               {user.unit.name}
             </span>
           </div>
         )}
       </div>
 
-      <div className="mx-5 border-t border-white/10" />
+      <div className="mx-6 border-t border-white/10" />
 
-      <nav className="flex-1 pt-3 pb-4 overflow-y-auto">
+      <nav className="flex-1 pt-4 pb-4 overflow-y-auto px-3 space-y-1">
         {navItems.map((item) => (
           <NavLink
             key={item.to}
@@ -78,21 +76,28 @@ export default function Sidebar() {
             end={item.to === '/'}
             onClick={() => setMobileOpen(false)}
             className={({ isActive }) =>
-              `group flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg text-sm transition-all duration-150 mb-0.5
+              `group flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-300 relative overflow-hidden
               ${isActive
-                ? 'bg-white/15 text-white font-medium shadow-[inset_3px_0_0_theme(colors.blue.400)]'
-                : 'text-white/90 hover:bg-white/[0.08] hover:text-white'
+                ? 'text-white bg-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-white/10'
+                : 'text-white/60 hover:bg-white/5 hover:text-white'
               }`
             }
           >
-            <item.icon size={19} className="flex-shrink-0" strokeWidth={2} />
-            <span className="truncate">{item.label}</span>
+            {({ isActive }) => (
+              <>
+                {isActive && (
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 bg-blue-400 rounded-r-full shadow-[0_0_12px_rgba(96,165,250,0.8)]" />
+                )}
+                <item.icon size={20} className={`flex-shrink-0 transition-colors duration-300 ${isActive ? 'text-blue-400' : 'text-white/40 group-hover:text-white/70'}`} strokeWidth={isActive ? 2.5 : 2} />
+                <span className="truncate">{item.label}</span>
+              </>
+            )}
           </NavLink>
         ))}
       </nav>
 
-      <div className="px-5 py-3 border-t border-white/10">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-blue-200/70 font-semibold text-center">
+      <div className="px-6 py-4 border-t border-white/10 bg-black/10">
+        <p className="text-[10px] uppercase tracking-[0.25em] text-white/40 font-bold text-center">
           RAPS ERP
         </p>
       </div>
@@ -104,7 +109,7 @@ export default function Sidebar() {
       {/* Mobile menu button */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-3 left-3 z-50 p-2 bg-navy-800 text-white rounded-md shadow-lg"
+        className="lg:hidden fixed top-3 left-3 z-50 p-2 bg-navy-900 text-white rounded-lg shadow-lg"
       >
         <Menu size={20} />
       </button>
@@ -112,13 +117,13 @@ export default function Sidebar() {
       {/* Mobile overlay */}
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-40">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <div className="fixed left-0 top-0 bottom-0 w-64 bg-gradient-to-b from-navy-800 to-navy-900 flex flex-col z-50">
+          <div className="fixed inset-0 bg-navy-900/80 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
+          <div className="fixed left-0 top-0 bottom-0 w-72 bg-gradient-to-b from-navy-800 to-navy-900 flex flex-col z-50 shadow-2xl border-r border-white/10">
             <button
               onClick={() => setMobileOpen(false)}
-              className="absolute top-4 right-4 text-white/70 hover:text-white"
+              className="absolute top-4 right-4 p-1.5 bg-white/10 rounded-full text-white/70 hover:text-white hover:bg-white/20 transition-colors"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
             {sidebarContent}
           </div>
@@ -126,7 +131,7 @@ export default function Sidebar() {
       )}
 
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 h-screen sticky top-0 w-64 shadow-xl">
+      <aside className="hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 h-screen sticky top-0 w-72 shadow-[4px_0_24px_rgba(0,0,0,0.1)] border-r border-navy-700 z-20">
         {sidebarContent}
       </aside>
     </>
