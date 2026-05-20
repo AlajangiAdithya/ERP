@@ -1,21 +1,20 @@
 // Backfill script: re-number all docs to <KIND>/<DD-MM-YY>/<N> format and
 // re-SKU all products to <PREFIX>-<NNNN> (PREFIX from materialType).
 //
-// Strategy is two-pass per table to avoid colliding with the existing unique
-// constraint on the numbering column. Pass 1 renames every row to a unique
-// temporary value (`__tmp_<id>`), which clears the namespace. Pass 2 renames
-// each temp value to the final canonical value. This is idempotent — re-running
-// against an already-backfilled table is a no-op (every row matches its target
-// before pass 1 even starts, and is skipped).
+// Strategy: two-pass batched rename via raw SQL. Each pass issues a single
+// UPDATE ... FROM (VALUES ...) statement against the table, so the whole table
+// is renamed in one round trip per pass. Pass 1 parks every changing row at a
+// unique temp value derived from its id, which fully clears the namespace.
+// Pass 2 assigns the final canonical value. This handles unique-constraint
+// collisions cleanly and finishes 2666 products in seconds rather than minutes.
 //
-// Safe to run repeatedly. Also safe to run as part of a deploy: rows added
-// after the backfill point go through the normal generateSequentialNumber path
-// which already uses this exact format.
+// Safe to re-run — rows already matching their target are skipped before
+// either pass.
 //
 // Run with:   node prisma/backfill-doc-numbers-and-skus.js
 // or:         node prisma/backfill-doc-numbers-and-skus.js --dry-run
 
-const { PrismaClient } = require('@prisma/client');
+const { PrismaClient, Prisma } = require('@prisma/client');
 const {
   formatDDMMYY, materialTypeToSkuPrefix, normalizeMaterialType,
 } = require('../src/utils/helpers');
@@ -23,19 +22,21 @@ const {
 const prisma = new PrismaClient();
 const DRY = process.argv.includes('--dry-run');
 
-const KIND_TO_MODEL = {
-  PR:  { model: 'purchaseRequest',          field: 'requestNumber' },
-  PO:  { model: 'purchaseOrder',            field: 'orderNumber' },
-  MIV: { model: 'productRequest',           field: 'requestNumber' },
-  GP:  { model: 'gatePass',                 field: 'passNumber' },
-  ION: { model: 'interOfficeNote',          field: 'ionNumber' },
-  QT:  { model: 'quotation',                field: 'quotationNumber' },
-  QC:  { model: 'qCInspection',             field: 'inspectionNumber' },
-  PAY: { model: 'paymentRequest',           field: 'paymentNumber' },
-  TRF: { model: 'inventoryTransferRequest', field: 'transferNumber' },
+// kind → { table: postgres table name, field: column name, model: prisma model name }
+const KIND_TO_TABLE = {
+  PR:  { model: 'purchaseRequest',          table: 'PurchaseRequest',          field: 'requestNumber' },
+  PO:  { model: 'purchaseOrder',            table: 'PurchaseOrder',            field: 'orderNumber' },
+  MIV: { model: 'productRequest',           table: 'ProductRequest',           field: 'requestNumber' },
+  GP:  { model: 'gatePass',                 table: 'GatePass',                 field: 'passNumber' },
+  ION: { model: 'interOfficeNote',          table: 'InterOfficeNote',          field: 'ionNumber' },
+  QT:  { model: 'quotation',                table: 'Quotation',                field: 'quotationNumber' },
+  QC:  { model: 'qCInspection',             table: 'QCInspection',             field: 'inspectionNumber' },
+  PAY: { model: 'paymentRequest',           table: 'PaymentRequest',           field: 'paymentNumber' },
+  TRF: { model: 'inventoryTransferRequest', table: 'InventoryTransferRequest', field: 'transferNumber' },
 };
 
 // Build [{id, target}] for a model: target is what the row should end up as.
+// Stable across re-runs: rows are sorted by (createdAt asc, id asc) before numbering.
 function buildDocPlan(rows, kind, dateField = 'createdAt') {
   const byDay = new Map();
   for (const row of rows) {
@@ -45,6 +46,12 @@ function buildDocPlan(rows, kind, dateField = 'createdAt') {
   }
   const plan = [];
   for (const [day, items] of byDay.entries()) {
+    items.sort((a, b) => {
+      const da = +(a[dateField] || a.createdAt);
+      const db = +(b[dateField] || b.createdAt);
+      if (da !== db) return da - db;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
     let counter = 1;
     for (const row of items) {
       plan.push({ id: row.id, target: `${kind}/${day}/${counter++}` });
@@ -53,46 +60,56 @@ function buildDocPlan(rows, kind, dateField = 'createdAt') {
   return plan;
 }
 
-// Generic two-pass renamer. `getCurrent(row)` returns the current value on a
-// freshly-fetched row, so we can skip rows that already match their target.
-async function twoPassRename({ label, model, field, plan, currentByIdMap }) {
-  let already = 0, willChange = 0;
+// Batch UPDATE the given rows: every (id, value) pair gets applied in one query.
+// Uses Postgres `UPDATE ... FROM (VALUES ...)` to avoid per-row round trips.
+async function batchUpdate(table, field, pairs) {
+  if (!pairs.length) return;
+  // Split into chunks so we don't blow past postgres parameter limits.
+  const CHUNK = 500;
+  for (let i = 0; i < pairs.length; i += CHUNK) {
+    const chunk = pairs.slice(i, i + CHUNK);
+    const values = chunk.map((_, j) => `($${j * 2 + 1}, $${j * 2 + 2})`).join(', ');
+    const params = chunk.flatMap(p => [p.id, p.value]);
+    const sql = `
+      UPDATE "${table}" AS t
+      SET "${field}" = v.val
+      FROM (VALUES ${values}) AS v(id, val)
+      WHERE t.id = v.id
+    `;
+    await prisma.$executeRawUnsafe(sql, ...params);
+  }
+}
+
+async function twoPassRename({ label, table, field, plan, currentByIdMap }) {
+  let already = 0;
   const toMove = [];
   for (const { id, target } of plan) {
-    const current = currentByIdMap.get(id);
-    if (current === target) { already++; continue; }
-    toMove.push({ id, target, current });
+    if (currentByIdMap.get(id) === target) { already++; continue; }
+    toMove.push({ id, target });
   }
-  willChange = toMove.length;
-  console.log(`[${label}] total ${plan.length} · already correct ${already} · to update ${willChange}`);
+  console.log(`[${label}] total ${plan.length} · already correct ${already} · to update ${toMove.length}`);
 
   if (DRY) {
-    for (const { current, target } of toMove.slice(0, 5)) {
-      console.log(`  ${current}  →  ${target}`);
+    for (const item of toMove.slice(0, 5)) {
+      console.log(`  ${currentByIdMap.get(item.id)}  →  ${item.target}`);
     }
     if (toMove.length > 5) console.log(`  …and ${toMove.length - 5} more`);
-    return willChange;
+    return;
   }
-  if (!toMove.length) return 0;
+  if (!toMove.length) return;
 
-  // Pass 1 — park every changing row at a unique temp name so the final
-  // namespace clears completely.
-  for (const item of toMove) {
-    const tmp = `__bf_${item.id.slice(0, 8)}`;
-    await prisma[model].update({ where: { id: item.id }, data: { [field]: tmp } });
-    item.tmp = tmp;
-  }
-
-  // Pass 2 — assign final value. No collisions because every other row was
-  // moved out of the way.
-  for (const item of toMove) {
-    await prisma[model].update({ where: { id: item.id }, data: { [field]: item.target } });
-  }
-  return willChange;
+  const t0 = Date.now();
+  // Pass 1 — park to temp (one batched UPDATE).
+  const tmpPairs = toMove.map(m => ({ id: m.id, value: `__bf_${m.id.slice(0, 8)}` }));
+  await batchUpdate(table, field, tmpPairs);
+  // Pass 2 — assign final value (one batched UPDATE).
+  const finalPairs = toMove.map(m => ({ id: m.id, value: m.target }));
+  await batchUpdate(table, field, finalPairs);
+  console.log(`  ✓ ${toMove.length} rows in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }
 
 async function backfillKind(kind) {
-  const { model, field } = KIND_TO_MODEL[kind];
+  const { model, table, field } = KIND_TO_TABLE[kind];
   const rows = await prisma[model].findMany({
     select: { id: true, createdAt: true, [field]: true },
     orderBy: { createdAt: 'asc' },
@@ -101,7 +118,7 @@ async function backfillKind(kind) {
 
   const plan = buildDocPlan(rows, kind);
   const currentByIdMap = new Map(rows.map(r => [r.id, r[field]]));
-  await twoPassRename({ label: kind, model, field, plan, currentByIdMap });
+  await twoPassRename({ label: kind, table, field, plan, currentByIdMap });
 }
 
 async function backfillMir() {
@@ -112,11 +129,10 @@ async function backfillMir() {
   });
   if (!rows.length) { console.log(`[MIR] 0 POs with mirNo`); return; }
 
-  // Reuse buildDocPlan with inwardedAt fallback to createdAt.
   const stamped = rows.map(r => ({ ...r, _bucketDate: r.inwardedAt || r.createdAt }));
   const plan = buildDocPlan(stamped, 'MIR', '_bucketDate');
   const currentByIdMap = new Map(rows.map(r => [r.id, r.mirNo]));
-  await twoPassRename({ label: 'MIR', model: 'purchaseOrder', field: 'mirNo', plan, currentByIdMap });
+  await twoPassRename({ label: 'MIR', table: 'PurchaseOrder', field: 'mirNo', plan, currentByIdMap });
 }
 
 async function backfillProductSkus() {
@@ -126,22 +142,25 @@ async function backfillProductSkus() {
   });
   if (!products.length) { console.log(`[SKU] 0 products`); return; }
 
-  // Bucket by SKU prefix derived from category — counter is per-prefix, padded to 4 digits.
-  // We also re-write category to its canonical materialType in the same pass.
   const counters = {};
-  const plan = []; // {id, targetSku, targetCategory}
+  const plan = [];
   for (const p of products) {
     const matType = normalizeMaterialType(p.category);
     const prefix = materialTypeToSkuPrefix(matType);
     counters[prefix] = (counters[prefix] || 0) + 1;
     const next = String(counters[prefix]).padStart(4, '0');
-    plan.push({ id: p.id, targetSku: `${prefix}-${next}`, targetCategory: matType, currentSku: p.sku, currentCategory: p.category });
+    plan.push({
+      id: p.id,
+      targetSku: `${prefix}-${next}`,
+      targetCategory: matType,
+      currentSku: p.sku,
+      currentCategory: p.category,
+    });
   }
 
   const skuChanges = plan.filter(x => x.currentSku !== x.targetSku);
   const categoryChanges = plan.filter(x => x.currentCategory !== x.targetCategory);
   console.log(`[SKU] total ${plan.length} · sku changes ${skuChanges.length} · category normalisations ${categoryChanges.length}`);
-  if (!skuChanges.length && !categoryChanges.length) return;
 
   if (DRY) {
     for (const item of skuChanges.slice(0, 5)) {
@@ -150,32 +169,35 @@ async function backfillProductSkus() {
     if (skuChanges.length > 5) console.log(`  …and ${skuChanges.length - 5} more`);
     return;
   }
+  if (!skuChanges.length && !categoryChanges.length) return;
 
-  // Pass 1 — park every row whose SKU needs to change at a temp value.
-  for (const item of skuChanges) {
-    await prisma.product.update({ where: { id: item.id }, data: { sku: `__bf_${item.id.slice(0, 8)}` } });
+  const t0 = Date.now();
+  // Pass 1 — park changing SKUs at temp.
+  const tmpPairs = skuChanges.map(m => ({ id: m.id, value: `__bf_${m.id.slice(0, 8)}` }));
+  await batchUpdate('Product', 'sku', tmpPairs);
+  // Pass 2 — final SKU.
+  const finalPairs = skuChanges.map(m => ({ id: m.id, value: m.targetSku }));
+  await batchUpdate('Product', 'sku', finalPairs);
+
+  // Category normalisation in a separate batched UPDATE.
+  if (categoryChanges.length) {
+    const catPairs = categoryChanges.map(m => ({ id: m.id, value: m.targetCategory }));
+    await batchUpdate('Product', 'category', catPairs);
   }
-  // Pass 2 — final SKU + canonical category in one update.
-  for (const item of plan) {
-    const data = {};
-    if (item.currentSku !== item.targetSku) data.sku = item.targetSku;
-    if (item.currentCategory !== item.targetCategory) data.category = item.targetCategory;
-    if (Object.keys(data).length === 0) continue;
-    await prisma.product.update({ where: { id: item.id }, data });
-  }
+  console.log(`  ✓ ${skuChanges.length} sku · ${categoryChanges.length} category in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }
 
 async function main() {
   console.log(DRY ? '== DRY RUN ==' : '== APPLY ==');
-  console.log('Strategy: two-pass rename (park to temp → assign final). Idempotent — safe to rerun.\n');
+  console.log('Strategy: batched two-pass rename via raw SQL (one round-trip per pass). Idempotent.\n');
 
-  for (const kind of Object.keys(KIND_TO_MODEL)) {
+  const t0 = Date.now();
+  for (const kind of Object.keys(KIND_TO_TABLE)) {
     await backfillKind(kind);
   }
   await backfillMir();
   await backfillProductSkus();
-
-  console.log('\nDone.');
+  console.log(`\nDone in ${((Date.now() - t0) / 1000).toFixed(1)}s.`);
   if (DRY) console.log('Re-run without --dry-run to apply.');
 }
 
