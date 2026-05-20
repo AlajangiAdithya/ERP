@@ -246,6 +246,7 @@ router.get('/:id', authenticate, async (req, res) => {
       where: { id: req.params.id },
       include: {
         stockMovements: { orderBy: { createdAt: 'desc' }, take: 50 },
+        unitStocks: { include: { unit: { select: { id: true, name: true, code: true } } } },
       },
     });
 

@@ -441,6 +441,20 @@ export default function ProductDetail() {
               <p className="text-xs text-gray-400">Max level: {product.maxStockLevel} {product.unit}</p>
             )}
           </div>
+
+          {Array.isArray(product.unitStocks) && product.unitStocks.filter(u => u.quantity > 0).length > 0 && (
+            <div className="mt-4 pt-3 border-t">
+              <p className="text-xs font-semibold text-gray-600 uppercase mb-2">Owned by</p>
+              <ul className="space-y-1">
+                {product.unitStocks.filter(u => u.quantity > 0).map(us => (
+                  <li key={us.id} className="text-sm text-gray-700 flex justify-between">
+                    <span className="font-medium text-navy-700">{us.unit?.name || us.unit?.code || 'Unit'}</span>
+                    <span><strong>{us.quantity}</strong> {product.unit}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Card>
       </div>
 

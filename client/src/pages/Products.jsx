@@ -30,9 +30,10 @@ export default function Products() {
   const canEdit = user?.role === 'ADMIN' || user?.role === 'STORE_MANAGER';
 
   const [form, setForm] = useState({
-    name: '', sku: '', description: '', category: '', unit: 'pcs',
+    name: '', description: '', category: 'Raw Material', unit: 'pcs',
     minStockLevel: 0,
   });
+  const [materialTypes, setMaterialTypes] = useState([]);
 
   const fetchProducts = () => {
     setLoading(true);
@@ -49,6 +50,7 @@ export default function Products() {
   useEffect(() => { fetchProducts(); }, [page, search, catFilter]);
   useEffect(() => {
     api.get('/products/categories').then(({ data }) => setCategories(data));
+    api.get('/products/material-types').then(({ data }) => setMaterialTypes(data)).catch(() => {});
   }, []);
 
   const handleCreate = async (e) => {
@@ -62,7 +64,7 @@ export default function Products() {
       };
       await api.post('/products', data);
       setShowModal(false);
-      setForm({ name: '', sku: '', description: '', category: '', unit: 'pcs', minStockLevel: 0 });
+      setForm({ name: '', description: '', category: 'Raw Material', unit: 'pcs', minStockLevel: 0 });
       fetchProducts();
     } catch (err) {
       setFormError(err.response?.data?.error || 'Failed to create product');
@@ -89,19 +91,18 @@ export default function Products() {
       )
     },
     {
-      key: 'unitStocks', label: 'Per Unit',
+      key: 'unitStocks', label: 'Owned by',
       render: (v, row) => {
         const list = Array.isArray(v) ? v.filter(u => u.quantity > 0) : [];
         if (list.length === 0) {
-          return <span className="text-xs text-gray-400">—</span>;
+          return <span className="text-xs text-gray-400">Unassigned</span>;
         }
         return (
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-col gap-0.5">
             {list.map(us => (
-              <span key={us.id}
-                className="text-xs px-1.5 py-0.5 rounded bg-navy-50 text-navy-700 border border-navy-100"
-                title={`${us.unit?.name || us.unit?.code || 'Unit'}: ${us.quantity} ${row.unit}`}>
-                {us.unit?.code || us.unit?.name || '—'}: <strong>{us.quantity}</strong>
+              <span key={us.id} className="text-xs text-gray-700">
+                <strong>{us.quantity}</strong> {row.unit} owned by{' '}
+                <span className="font-medium text-navy-700">{us.unit?.name || us.unit?.code || 'Unit'}</span>
               </span>
             ))}
           </div>
@@ -150,13 +151,13 @@ export default function Products() {
         <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Product" size="lg">
           <form onSubmit={handleCreate} className="space-y-4">
             {formError && <p className="text-sm text-brand-red">{formError}</p>}
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-              <Input label="SKU *" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} required />
-            </div>
+            <Input label="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+            <p className="text-xs text-gray-500 -mt-2">SKU is auto-generated from material type (e.g. RAW-0001, CONS-0001).</p>
             <Input label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             <div className="grid grid-cols-3 gap-4">
-              <Input label="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+              <Select label="Material Type *" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} required>
+                {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Tooling', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
+              </Select>
               <Select label="Unit" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
                 {['pcs', 'kg', 'litre', 'meter', 'box', 'set'].map(u => <option key={u} value={u}>{u}</option>)}
               </Select>
