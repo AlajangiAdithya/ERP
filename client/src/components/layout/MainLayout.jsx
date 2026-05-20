@@ -4,9 +4,9 @@ import InProgressBadge from '../shared/InProgressBadge';
 
 export default function MainLayout({ children }) {
   return (
-    <div className="flex min-h-screen bg-brand-gray">
+    <div className="min-h-screen bg-brand-gray">
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex flex-col min-w-0 lg:pl-56">
         <Header />
         <main className="flex-1 p-6 animate-fade-in">
           {children}

@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import StatsCard from '../components/shared/StatsCard';
+import DashboardHero from '../components/shared/DashboardHero';
 import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
@@ -228,10 +229,11 @@ function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-navy-800">{greet(user, 'Administrator')}</h1>
-        <InProgressButton />
-      </div>
+      <DashboardHero
+        title={greet(user, 'Administrator')}
+        subtitle="System overview, units, and recent activity"
+        actions={<InProgressButton />}
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard title="Total Products" value={stats.totalProducts} icon={Package} color="navy" onClick={() => navigate('/products')} />
@@ -441,20 +443,21 @@ function ManagerDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-navy-800">{
-          greet(user, { MANAGER: 'Manager', LAB: 'Lab' }[user?.role] || 'Manager')
-        }</h1>
-        <div className="flex gap-2">
-          <InProgressButton />
-          <Button variant="secondary" onClick={() => navigate('/my-requests')}>
-            <ClipboardList size={16} className="mr-1" /> MIV Requests
-          </Button>
-          <Button onClick={() => navigate('/purchase-requests')}>
-            <ShoppingCart size={16} className="mr-1" /> Purchase Requests
-          </Button>
-        </div>
-      </div>
+      <DashboardHero
+        title={greet(user, { MANAGER: 'Manager', LAB: 'Lab' }[user?.role] || 'Manager')}
+        subtitle="MIV and purchase activity for your unit"
+        actions={
+          <>
+            <InProgressButton />
+            <Button variant="secondary" onClick={() => navigate('/my-requests')}>
+              <ClipboardList size={16} className="mr-1" /> MIV Requests
+            </Button>
+            <Button onClick={() => navigate('/purchase-requests')}>
+              <ShoppingCart size={16} className="mr-1" /> Purchase Requests
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard title="Available Products" value={totalProducts} icon={Package} color="navy" onClick={() => navigate('/products')} />
@@ -637,15 +640,18 @@ function StoreManagerDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-navy-800">{greet(user, 'Store Manager')}</h1>
-        <div className="flex gap-2">
-          <InProgressButton />
-          <Button onClick={() => navigate('/request-clearance')}>
-            <ClipboardList size={16} className="mr-1" /> Pending Clearances
-          </Button>
-        </div>
-      </div>
+      <DashboardHero
+        title={greet(user, 'Store Manager')}
+        subtitle="Stock health and request clearances"
+        actions={
+          <>
+            <InProgressButton />
+            <Button onClick={() => navigate('/request-clearance')}>
+              <ClipboardList size={16} className="mr-1" /> Pending Clearances
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard title="Total Products" value={stats.totalProducts} icon={Package} color="navy" onClick={() => navigate('/products')} />
@@ -788,15 +794,18 @@ function PurchaseOfficerDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-navy-800">{greet(user, 'Purchase Officer')}</h1>
-        <div className="flex gap-2">
-          <InProgressButton />
-          <Button onClick={() => navigate('/purchase-requests')}>
-            <ShoppingCart size={16} className="mr-1" /> All Assignments
-          </Button>
-        </div>
-      </div>
+      <DashboardHero
+        title={greet(user, 'Purchase Officer')}
+        subtitle="Active assignments and procurement progress"
+        actions={
+          <>
+            <InProgressButton />
+            <Button onClick={() => navigate('/purchase-requests')}>
+              <ShoppingCart size={16} className="mr-1" /> All Assignments
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard title="Approved (New)" value={stats?.approved || 0} icon={CheckCircle} color="blue" onClick={() => navigate('/purchase-requests')} />
@@ -913,15 +922,18 @@ function AccountingDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-navy-800">{greet(user, 'Accounting')}</h1>
-        <div className="flex gap-2">
-          <InProgressButton />
-          <Button onClick={() => navigate('/payment-requests')}>
-            <ShoppingCart size={16} className="mr-1" /> All Payments
-          </Button>
-        </div>
-      </div>
+      <DashboardHero
+        title={greet(user, 'Accounting')}
+        subtitle="Payments, quotations, and reconciliation"
+        actions={
+          <>
+            <InProgressButton />
+            <Button onClick={() => navigate('/payment-requests')}>
+              <ShoppingCart size={16} className="mr-1" /> All Payments
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <StatsCard title="Pending Payments" value={stats?.pendingPayments || 0} icon={AlertTriangle} color="red" onClick={() => navigate('/payment-requests')} />
@@ -1001,15 +1013,18 @@ function QCDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-navy-800">{greet(user, 'QC')}</h1>
-        <div className="flex gap-2">
-          <InProgressButton />
-          <Button onClick={() => navigate('/qc-inspections')}>
-            <ClipboardCheck size={16} className="mr-1" /> All Inspections
-          </Button>
-        </div>
-      </div>
+      <DashboardHero
+        title={greet(user, 'QC')}
+        subtitle="Incoming inspections and quality outcomes"
+        actions={
+          <>
+            <InProgressButton />
+            <Button onClick={() => navigate('/qc-inspections')}>
+              <ClipboardCheck size={16} className="mr-1" /> All Inspections
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard title="Awaiting Inspection" value={pendingOrders.length} icon={AlertTriangle} color="red" onClick={() => navigate('/qc-inspections')} />

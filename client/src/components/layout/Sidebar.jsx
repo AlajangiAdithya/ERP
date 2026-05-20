@@ -46,31 +46,30 @@ export default function Sidebar() {
 
   const sidebarContent = (
     <>
-      <div className="px-4 pt-5 pb-4">
+      <div className="px-3 pt-4 pb-3">
         <div className="relative">
-          <div className="absolute -inset-3 bg-white/35 blur-2xl rounded-3xl" aria-hidden="true" />
-          <div className="absolute -inset-1 bg-blue-300/30 blur-xl rounded-2xl" aria-hidden="true" />
-          <div className="relative bg-white rounded-xl px-4 py-3 shadow-[0_4px_24px_rgba(255,255,255,0.35)] ring-1 ring-white/40 flex items-center justify-center">
+          <div className="absolute -inset-2 bg-blue-400/20 blur-2xl rounded-3xl" aria-hidden="true" />
+          <div className="relative rounded-xl px-3 py-2.5 bg-gradient-to-br from-blue-50/95 to-blue-100/90 ring-1 ring-white/20 shadow-[0_4px_16px_rgba(58,107,224,0.25)] flex items-center justify-center">
             <img
               src="/rapslogo6.png"
               alt="RAPS"
-              className="h-14 w-auto object-contain"
+              className="h-11 w-auto object-contain"
             />
           </div>
         </div>
         {user?.unit && (
-          <div className="mt-3.5 flex items-center justify-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-full px-3 py-1.5">
-            <Building2 size={13} className="text-blue-300 flex-shrink-0" />
-            <span className="text-[11px] font-semibold tracking-[0.16em] uppercase text-blue-100 truncate">
+          <div className="mt-3 flex items-center justify-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-full px-2.5 py-1">
+            <Building2 size={11} className="text-blue-300 flex-shrink-0" />
+            <span className="text-[10px] font-semibold tracking-[0.14em] uppercase text-blue-100 truncate">
               {user.unit.name}
             </span>
           </div>
         )}
       </div>
 
-      <div className="mx-5 border-t border-white/10" />
+      <div className="mx-4 border-t border-white/10" />
 
-      <nav className="flex-1 pt-3 pb-4 overflow-y-auto">
+      <nav className="flex-1 pt-2.5 pb-3 overflow-y-auto">
         {navItems.map((item) => (
           <NavLink
             key={item.to}
@@ -78,20 +77,20 @@ export default function Sidebar() {
             end={item.to === '/'}
             onClick={() => setMobileOpen(false)}
             className={({ isActive }) =>
-              `group flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg text-sm transition-all duration-150 mb-0.5
+              `group flex items-center gap-2.5 px-3 py-2 mx-2 rounded-lg text-[13px] transition-all duration-150 mb-0.5
               ${isActive
                 ? 'bg-white/15 text-white font-medium shadow-[inset_3px_0_0_theme(colors.blue.400)]'
                 : 'text-white/90 hover:bg-white/[0.08] hover:text-white'
               }`
             }
           >
-            <item.icon size={19} className="flex-shrink-0" strokeWidth={2} />
+            <item.icon size={17} className="flex-shrink-0" strokeWidth={2} />
             <span className="truncate">{item.label}</span>
           </NavLink>
         ))}
       </nav>
 
-      <div className="px-5 py-3 border-t border-white/10">
+      <div className="px-4 py-2.5 border-t border-white/10">
         <p className="text-[10px] uppercase tracking-[0.2em] text-blue-200/70 font-semibold text-center">
           RAPS ERP
         </p>
@@ -113,7 +112,7 @@ export default function Sidebar() {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-40">
           <div className="fixed inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <div className="fixed left-0 top-0 bottom-0 w-64 bg-gradient-to-b from-navy-800 to-navy-900 flex flex-col z-50">
+          <div className="fixed left-0 top-0 bottom-0 w-56 bg-gradient-to-b from-navy-800 to-navy-900 flex flex-col z-50">
             <button
               onClick={() => setMobileOpen(false)}
               className="absolute top-4 right-4 text-white/70 hover:text-white"
@@ -125,8 +124,8 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 h-screen sticky top-0 w-64 shadow-xl">
+      {/* Desktop sidebar — fixed so it stays put while the page scrolls */}
+      <aside className="hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 fixed left-0 top-0 bottom-0 w-56 shadow-xl z-30">
         {sidebarContent}
       </aside>
     </>
