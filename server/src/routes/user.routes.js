@@ -101,7 +101,7 @@ router.post('/', authenticate, authorize('ADMIN'), auditLog('CREATE', 'User'), a
 });
 
 // ── Fixed admin usernames that cannot be modified or removed ──
-const FIXED_ADMIN_USERNAMES = ['madhubabu', 'suresh', 'rameshbabu'];
+const FIXED_ADMIN_USERNAMES = ['madhubabu', 'sureshbabu', 'rameshbabu'];
 
 // PUT /api/users/:id
 router.put('/:id', authenticate, authorize('ADMIN'), auditLog('UPDATE', 'User'), async (req, res) => {

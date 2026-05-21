@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>RAPS ERP — Client Information Pack</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1f2937;
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+
+  /* ── Cover ───────────────────────────────────────── */
+  .cover {
+    page-break-after: always;
+    text-align: center;
+    padding-top: 60mm;
+  }
+  .cover .brand {
+    font-size: 42pt;
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: #0f172a;
+    margin: 0;
+  }
+  .cover .accent { color: #2563eb; }
+  .cover .tagline {
+    font-size: 14pt;
+    color: #475569;
+    margin-top: 6mm;
+    font-weight: 400;
+  }
+  .cover .divider {
+    width: 60mm;
+    height: 3px;
+    background: linear-gradient(90deg, #2563eb, #0f172a);
+    margin: 14mm auto;
+  }
+  .cover .doc-title {
+    font-size: 18pt;
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .cover .meta {
+    margin-top: 22mm;
+    font-size: 10pt;
+    color: #64748b;
+  }
+  .cover .meta b { color: #0f172a; }
+
+  /* ── Section headings ────────────────────────────── */
+  h1 {
+    font-size: 18pt;
+    color: #0f172a;
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 4mm;
+    margin: 0 0 6mm 0;
+  }
+  h2 {
+    font-size: 13pt;
+    color: #0f172a;
+    margin: 8mm 0 3mm 0;
+  }
+  h3 {
+    font-size: 11.5pt;
+    color: #1e3a8a;
+    margin: 6mm 0 2mm 0;
+  }
+  p { margin: 0 0 3mm 0; }
+  ul { margin: 0 0 4mm 0; padding-left: 6mm; }
+  li { margin-bottom: 1.2mm; }
+
+  .section { page-break-inside: avoid; }
+  .page-break { page-break-before: always; }
+
+  /* ── Boxes ───────────────────────────────────────── */
+  .box {
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #2563eb;
+    background: #f8fafc;
+    padding: 4mm 5mm;
+    border-radius: 4px;
+    margin: 3mm 0 5mm 0;
+  }
+  .box.warn { border-left-color: #d97706; background: #fffbeb; }
+  .box.ok   { border-left-color: #059669; background: #ecfdf5; }
+  .box.info { border-left-color: #2563eb; background: #eff6ff; }
+
+  /* ── Tables ──────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 3mm 0 5mm 0;
+    font-size: 10.5pt;
+  }
+  th {
+    background: #0f172a;
+    color: #fff;
+    text-align: left;
+    padding: 2.5mm 3mm;
+    font-weight: 600;
+  }
+  td {
+    padding: 2.5mm 3mm;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f8fafc; }
+
+  /* ── Workflow cards ──────────────────────────────── */
+  .workflow {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 4mm 5mm;
+    margin: 3mm 0;
+    page-break-inside: avoid;
+  }
+  .workflow .num {
+    display: inline-block;
+    background: #2563eb;
+    color: #fff;
+    width: 8mm;
+    height: 8mm;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 8mm;
+    font-weight: 700;
+    margin-right: 3mm;
+  }
+  .workflow h3 { display: inline; margin: 0; }
+  .workflow .steps {
+    margin-top: 3mm;
+    color: #475569;
+    font-size: 10.5pt;
+  }
+  .arrow { color: #2563eb; font-weight: 700; margin: 0 1.5mm; }
+
+  /* ── Pricing ─────────────────────────────────────── */
+  .price-card {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+    color: #fff;
+    border-radius: 8px;
+    padding: 6mm;
+    text-align: center;
+    margin: 4mm 0;
+  }
+  .price-card .amt {
+    font-size: 32pt;
+    font-weight: 800;
+    margin: 2mm 0;
+  }
+  .price-card .amt small { font-size: 14pt; font-weight: 400; opacity: 0.8; }
+  .price-card .note { font-size: 10pt; opacity: 0.85; }
+
+  .free-badge {
+    display: inline-block;
+    background: #10b981;
+    color: #fff;
+    padding: 1.5mm 4mm;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 10pt;
+    margin-bottom: 3mm;
+  }
+
+  /* ── Roles grid ──────────────────────────────────── */
+  .roles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3mm;
+    margin: 3mm 0 5mm 0;
+  }
+  .role {
+    border: 1px solid #e2e8f0;
+    border-top: 3px solid #2563eb;
+    padding: 3mm 4mm;
+    border-radius: 4px;
+    font-size: 10.5pt;
+  }
+  .role b { color: #0f172a; display: block; margin-bottom: 1mm; }
+
+  /* ── Credentials ─────────────────────────────────── */
+  .cred-table { font-family: "Consolas", "Courier New", monospace; }
+  .cred-table th { background: #1e3a8a; }
+  .cred-table td { font-size: 10.5pt; }
+
+  /* ── Footer ──────────────────────────────────────── */
+  .footer {
+    margin-top: 10mm;
+    padding-top: 4mm;
+    border-top: 1px solid #e2e8f0;
+    text-align: center;
+    color: #64748b;
+    font-size: 9pt;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- COVER -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="brand">RAPS<span class="accent">·</span>ERP</div>
+  <div class="tagline">Procurement &middot; Inventory &middot; Quality &middot; Compliance</div>
+  <div class="divider"></div>
+  <div class="doc-title">Client Information &amp; On-boarding Pack</div>
+  <div class="meta">
+    Prepared on <b>21 May 2026</b><br/>
+    Hosted on Amazon Web Services &middot; Hyderabad (ap-south-2)
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 1 — WELCOME -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <h1>1. Welcome</h1>
+  <p>
+    RAPS-ERP is a web-based enterprise resource planning platform built for
+    manufacturing and laboratory operations. It connects your stores,
+    purchase, quality, finance, and management teams in one place —
+    eliminating spreadsheets, scattered emails, and paper trails.
+  </p>
+
+  <div class="box info">
+    <b>What you can do from day one:</b>
+    <ul style="margin-top:2mm">
+      <li>Raise and approve purchase requests across multiple units</li>
+      <li>Compare supplier quotations side-by-side and issue purchase orders</li>
+      <li>Track inward goods, QC inspections, and material issuance</li>
+      <li>Manage gate passes, inter-office notes, and inventory transfers</li>
+      <li>Audit every action with a full timestamped trail</li>
+    </ul>
+  </div>
+
+  <h2>How to access</h2>
+  <p>
+    The system runs entirely in the browser — there is nothing to install
+    on any computer or phone. Open a modern browser (Chrome, Edge, Firefox,
+    or Safari) and visit the URL provided to you on activation.
+  </p>
+
+  <table>
+    <tr><th style="width:35%">Item</th><th>Detail</th></tr>
+    <tr><td>System URL</td><td><i>provided separately at handover</i></td></tr>
+    <tr><td>Supported browsers</td><td>Chrome, Edge, Firefox, Safari (last 2 versions)</td></tr>
+    <tr><td>Mobile</td><td>Fully responsive — works on phones and tablets</td></tr>
+    <tr><td>Working hours</td><td>24 &times; 7 availability</td></tr>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 2 — HOW IT WORKS -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <h1>2. How the System Works</h1>
+
+  <p>
+    RAPS-ERP follows a simple <b>request &rarr; approve &rarr; act &rarr; record</b> pattern.
+    Every business action — buying a material, issuing stock from the
+    warehouse, sending equipment off-site for repair — starts as a request,
+    moves through one or more approvers, and ends with an automatic
+    record in the audit log.
+  </p>
+
+  <h2>Seven user roles</h2>
+  <div class="roles">
+    <div class="role"><b>Admin</b>Full system access. Approves purchase requests and manages users.</div>
+    <div class="role"><b>Manager</b>Raises purchase requests, material issue vouchers, and gate passes for their unit.</div>
+    <div class="role"><b>Store Manager</b>Handles inward entry, stock movement, and warehouse logistics.</div>
+    <div class="role"><b>Purchase Officer</b>Collects quotations, places orders with suppliers, and tracks deliveries.</div>
+    <div class="role"><b>Accounting</b>Approves payments, verifies invoices, and authorises gate pass closures.</div>
+    <div class="role"><b>QC</b>Conducts quality inspections on incoming goods and issues MIR reports.</div>
+    <div class="role"><b>Lab</b>R&amp;D team — raises material requests and processes inter-office technical notes.</div>
+    <div class="role"><b>Multi-unit</b>Each role is scoped to its unit; inter-unit transfers are tracked separately.</div>
+  </div>
+
+  <h2>Built-in safeguards</h2>
+  <ul>
+    <li><b>Audit log</b> — every create, approve, reject, and delete is permanently recorded with user name, time, and IP address.</li>
+    <li><b>Role-based access</b> — users only see what their role permits.</li>
+    <li><b>Approval chains</b> — high-value actions require multiple sign-offs.</li>
+    <li><b>Real-time notifications</b> — approvers are alerted the moment a request is raised.</li>
+    <li><b>Document storage</b> — attach PDFs (specs, quotations, test certificates) directly to any record.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 3-4 — WORKFLOWS -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <h1>3. Workflows in Plain English</h1>
+  <p>Below is what each major workflow does and who is involved at each step.</p>
+
+  <div class="workflow">
+    <span class="num">1</span><h3>Purchase Request &amp; Purchase Order</h3>
+    <p class="steps">
+      <b>What it does:</b> Lets a unit raise a request for materials, get it approved,
+      collect quotations, and place an order with the chosen supplier.
+    </p>
+    <p class="steps">
+      <b>Flow:</b> Manager raises PR <span class="arrow">&rarr;</span>
+      Admin approves quantities <span class="arrow">&rarr;</span>
+      Purchase Officer collects quotations <span class="arrow">&rarr;</span>
+      PO issued to supplier <span class="arrow">&rarr;</span>
+      Goods arrive <span class="arrow">&rarr;</span>
+      QC inspects <span class="arrow">&rarr;</span>
+      Inward entry closes the loop.
+    </p>
+  </div>
+
+  <div class="workflow">
+    <span class="num">2</span><h3>Material Issuance (MIV)</h3>
+    <p class="steps">
+      <b>What it does:</b> Allows production or lab teams to withdraw stock from
+      the warehouse with proper authorisation.
+    </p>
+    <p class="steps">
+      <b>Flow:</b> Requester fills MIV <span class="arrow">&rarr;</span>
+      Store Manager approves and issues <span class="arrow">&rarr;</span>
+      Collector signs off <span class="arrow">&rarr;</span>
+      Stock auto-updates.
+    </p>
+  </div>
+
+  <div class="workflow">
+    <span class="num">3</span><h3>Gate Pass Management</h3>
+    <p class="steps">
+      <b>What it does:</b> Tracks assets leaving the premises — for repair,
+      calibration, or external testing — and ensures they come back.
+    </p>
+    <p class="steps">
+      <b>Flow:</b> Unit Manager requests <span class="arrow">&rarr;</span>
+      Store Incharge arranges vehicle <span class="arrow">&rarr;</span>
+      Accounting approves payment terms <span class="arrow">&rarr;</span>
+      Final approval &amp; dispatch <span class="arrow">&rarr;</span>
+      Return logged.
+    </p>
+  </div>
+
+  <div class="workflow">
+    <span class="num">4</span><h3>Quotation &amp; Supplier Management</h3>
+    <p class="steps">
+      <b>What it does:</b> Maintains a supplier directory and lets Purchase
+      Officers compare multiple bids before placing an order. Supports
+      union quotations across units to negotiate better rates.
+    </p>
+  </div>
+
+  <div class="workflow">
+    <span class="num">5</span><h3>Payment Requests</h3>
+    <p class="steps">
+      <b>What it does:</b> Tracks advance, partial, and final payments against
+      every PO. Accounting approves each payment request after invoice
+      verification.
+    </p>
+  </div>
+
+  <div class="workflow">
+    <span class="num">6</span><h3>QC Inspection &amp; MIR</h3>
+    <p class="steps">
+      <b>What it does:</b> Quality team inspects every incoming consignment,
+      reviews supplier documents (COC, COA, test reports), accepts or
+      rejects each batch, and issues the Material Inward Receipt.
+    </p>
+  </div>
+
+  <div class="workflow">
+    <span class="num">7</span><h3>Inventory Transfers</h3>
+    <p class="steps">
+      <b>What it does:</b> Moves stock between units with full approval and a
+      complete trail of who moved what, when, and why.
+    </p>
+  </div>
+
+  <div class="workflow">
+    <span class="num">8</span><h3>Inter-Office Notes (ION)</h3>
+    <p class="steps">
+      <b>What it does:</b> Lets unit managers send technical notes to the lab
+      along with samples and job details — and tracks the lab's response.
+    </p>
+  </div>
+
+  <div class="workflow">
+    <span class="num">9</span><h3>Product Catalog &amp; Inventory</h3>
+    <p class="steps">
+      <b>What it does:</b> Central product database with SKU codes, current
+      stock per unit, batch-wise tracking (FIFO), and live availability
+      across the organisation.
+    </p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 5 — PRICING -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <h1>4. Pricing</h1>
+
+  <div class="free-badge">&#10004; 6 MONTHS FREE TRIAL INCLUDED</div>
+
+  <p>
+    Your subscription starts with a <b>complimentary 6-month evaluation
+    period</b>. During this period you have full access to every feature
+    with no commitment. Regular billing begins only after the trial ends.
+  </p>
+
+  <div class="price-card">
+    <div style="font-size:10pt;opacity:0.85;letter-spacing:2px;">MONTHLY HOSTING &amp; INFRASTRUCTURE</div>
+    <div class="amt">&#8377;1,500 <small>/ month</small></div>
+    <div class="note">All-inclusive &middot; Hyderabad data center &middot; No setup fee</div>
+  </div>
+
+  <h2>What is included in the monthly fee</h2>
+  <table>
+    <tr><th>Component</th><th>What you get</th></tr>
+    <tr><td>Hosting</td><td>Dedicated cloud server (AWS EC2) in Hyderabad, India</td></tr>
+    <tr><td>Database</td><td>PostgreSQL 16 with daily transaction logs</td></tr>
+    <tr><td>Static IP</td><td>Fixed public address so your URL never changes</td></tr>
+    <tr><td>Backups</td><td>Weekly automated database backups to encrypted storage</td></tr>
+    <tr><td>Long-term archive</td><td>Backups older than 90 days auto-archived (12-month retention)</td></tr>
+    <tr><td>Bandwidth</td><td>Generous data transfer allowance (more than ample for ERP traffic)</td></tr>
+    <tr><td>SSL/HTTPS</td><td>Available on request when a custom domain is added</td></tr>
+    <tr><td>Updates &amp; patches</td><td>OS, database, and security patches applied as released</td></tr>
+    <tr><td>Monitoring</td><td>Uptime and health checks</td></tr>
+  </table>
+
+  <h2>What is NOT included</h2>
+  <ul>
+    <li>Custom domain registration (annual, paid directly to the registrar)</li>
+    <li>Custom feature development beyond the contracted scope</li>
+    <li>One-time data migration from legacy systems (quoted separately)</li>
+    <li>Email/SMS gateway charges if integrated later</li>
+  </ul>
+
+  <div class="box ok">
+    <b>Long-term pricing guarantee:</b> the &#8377;1,500/month figure is based on
+    AWS list prices for the chosen Hyderabad infrastructure. These prices
+    are stable and predictable — there is no time-limited promotional
+    discount that expires.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 6 — CREDENTIALS -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <h1>5. Login Credentials</h1>
+
+  <p>
+    The following Admin accounts have been created for your team. Please
+    change each password on first login.
+  </p>
+
+  <table class="cred-table">
+    <tr><th>Username</th><th>Temporary Password</th><th>Role</th></tr>
+    <tr><td>madhubabu</td><td>Admin@123</td><td>Administrator</td></tr>
+    <tr><td>rameshbabu</td><td>Admin@123</td><td>Administrator</td></tr>
+    <tr><td>sureshbabu</td><td>Admin@123</td><td>Administrator</td></tr>
+  </table>
+
+  <div class="box warn">
+    <b>Important &mdash; please read:</b>
+    <ul style="margin-top:2mm">
+      <li>Change every password the first time you sign in.</li>
+      <li>Use a password of at least 10 characters with letters, numbers, and a symbol.</li>
+      <li>Do not share credentials by SMS, WhatsApp, or email.</li>
+      <li>The three Admin accounts above are protected — they cannot be deactivated or deleted, even by another Admin.</li>
+      <li>Additional users (Manager, Store Manager, etc.) can be created by any Admin from the <i>Management</i> page.</li>
+    </ul>
+  </div>
+
+  <h2>If a password is forgotten</h2>
+  <p>
+    Any of the three Admins can reset another user's password from the
+    Management screen. If all three Admin passwords are lost,
+    contact your technical point of contact for a manual reset.
+  </p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 7 — UPDATES -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <h1>6. How Future Updates Reach You</h1>
+
+  <p>
+    The system is updated centrally. There is no software for users to
+    download or install — every change goes live for everyone at the
+    same time.
+  </p>
+
+  <table>
+    <tr><th>Type of change</th><th>Time to appear for users</th></tr>
+    <tr><td>Small fix (text change, button tweak)</td><td>Within 2 &ndash; 5 minutes of deployment</td></tr>
+    <tr><td>New feature</td><td>Within 5 &ndash; 10 minutes of deployment</td></tr>
+    <tr><td>Database schema change</td><td>Within 5 &ndash; 15 minutes &middot; brief restart possible</td></tr>
+    <tr><td>Major version upgrade</td><td>Scheduled in advance &middot; planned maintenance window</td></tr>
+  </table>
+
+  <h2>How a typical update happens</h2>
+  <ol>
+    <li><b>Developer makes the change</b> in source code.</li>
+    <li><b>Code is reviewed and pushed</b> to the central code repository.</li>
+    <li><b>Server pulls the new code</b>, installs any new dependencies, and
+    rebuilds the application.</li>
+    <li><b>Application restarts</b> (typically less than 5 seconds of downtime).</li>
+    <li><b>Browsers refresh automatically</b> — users see the new version the
+    next time they reload the page.</li>
+  </ol>
+
+  <div class="box info">
+    <b>What you have to do:</b> nothing. If a user is in the middle of work
+    when an update is deployed, they will simply see the new version after
+    their next page refresh.
+  </div>
+
+  <h2>Maintenance windows</h2>
+  <p>
+    For larger changes that may involve a brief outage, we will give at
+    least <b>24 hours' notice</b> by email and schedule the work outside
+    business hours (typically Sunday between 10 PM and 6 AM IST).
+  </p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 8 — SUPPORT -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <h1>7. Support &amp; Contact</h1>
+
+  <p>For any question, request, or issue:</p>
+
+  <table>
+    <tr><th>Channel</th><th>Detail</th></tr>
+    <tr><td>Technical contact</td><td><i>provided separately at handover</i></td></tr>
+    <tr><td>Email</td><td><i>provided separately at handover</i></td></tr>
+    <tr><td>Phone / WhatsApp</td><td><i>provided separately at handover</i></td></tr>
+    <tr><td>Hours</td><td>Monday to Saturday, 10:00 to 18:00 IST</td></tr>
+  </table>
+
+  <h2>When raising a support request, please include</h2>
+  <ul>
+    <li>Your username</li>
+    <li>The screen or workflow involved</li>
+    <li>What you were trying to do</li>
+    <li>What you saw instead (a screenshot helps)</li>
+    <li>The approximate time the issue happened</li>
+  </ul>
+
+  <div class="footer">
+    RAPS-ERP &middot; Client Information Pack &middot; v1.0 &middot; 21 May 2026<br/>
+    This document is confidential and intended only for the named recipient organisation.
+  </div>
+</div>
+
+</body>
+</html>

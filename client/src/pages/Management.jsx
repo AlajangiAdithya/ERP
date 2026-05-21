@@ -8,7 +8,7 @@ import Modal from '../components/ui/Modal';
 import Input, { Select } from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
 
-const FIXED_ADMINS = ['madhubabu', 'suresh', 'rameshbabu'];
+const FIXED_ADMINS = ['madhubabu', 'sureshbabu', 'rameshbabu'];
 const isFixedAdmin = (user) => FIXED_ADMINS.includes(user.username);
 
 const GLOBAL_ONLY_ROLES = ['STORE_MANAGER', 'PURCHASE_OFFICER'];

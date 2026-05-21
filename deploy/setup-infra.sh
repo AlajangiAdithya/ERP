@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # RAPS-ERP — Create all AWS infrastructure from your local machine.
+# Single-EC2 design (Postgres on same instance) — fits ~₹1300/mo.
 #
 # Prerequisites:
-#   aws configure   (region: ap-south-1, output: json)
+#   aws configure   (region: ap-south-2, output: json)
 #
 # Required env vars:
 #   export RAPS_DB_PASSWORD="YourStrongPassword"
@@ -16,19 +17,14 @@
 
 set -euo pipefail
 
-REGION="ap-south-1"
+REGION="ap-south-2"
 DB_PASSWORD="${RAPS_DB_PASSWORD:?Export RAPS_DB_PASSWORD first}"
 KEY_NAME="${RAPS_KEY_NAME:-raps-key}"
 MY_IP="${RAPS_MY_IP:-0.0.0.0/0}"
 
-DB_ID="raps-prod"
-DB_NAME="raps"
-DB_USER="rapsadmin"
-DB_CLASS="db.t4g.micro"
-EC2_TYPE="t3.small"
+EC2_TYPE="t4g.small"          # ARM — ~30% cheaper than t3.small, ample for this app
 EC2_NAME="raps-app"
 EC2_SG="raps-app-sg"
-RDS_SG="raps-db-sg"
 S3_BUCKET="raps-backups-$(aws sts get-caller-identity --query Account --output text)"
 IAM_ROLE="raps-ec2-role"
 
@@ -72,20 +68,13 @@ create_sg() {
 }
 
 EC2_SG_ID=$(create_sg "$EC2_SG" "RAPS - app server" | tail -1)
-RDS_SG_ID=$(create_sg "$RDS_SG" "RAPS - database" | tail -1)
 
-# EC2 inbound: SSH + HTTP + HTTPS
+# EC2 inbound: SSH + HTTP + HTTPS (Postgres stays bound to localhost, no inbound 5432)
 aws ec2 authorize-security-group-ingress --region "$REGION" --group-id "$EC2_SG_ID" \
   --ip-permissions \
   "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${MY_IP},Description=SSH}]" \
   "IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges=[{CidrIp=0.0.0.0/0,Description=HTTP}]" \
   "IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges=[{CidrIp=0.0.0.0/0,Description=HTTPS}]" \
-  2>/dev/null || true
-
-# RDS inbound: PostgreSQL from EC2 only
-aws ec2 authorize-security-group-ingress --region "$REGION" --group-id "$RDS_SG_ID" \
-  --ip-permissions \
-  "IpProtocol=tcp,FromPort=5432,ToPort=5432,UserIdGroupPairs=[{GroupId=${EC2_SG_ID},Description=EC2-to-RDS}]" \
   2>/dev/null || true
 
 # ── 3. SSH Key Pair ─────────────────────────────────
@@ -100,38 +89,9 @@ else
   echo "  Created: ${KEY_NAME}.pem — SAVE THIS FILE, cannot be re-downloaded"
 fi
 
-# ── 4. RDS PostgreSQL ──────────────────────────────
+# ── 4. S3 Backup Bucket ────────────────────────────
 echo ""
-echo "[4/8] Creating RDS instance (takes 5-10 min)..."
-if aws rds describe-db-instances --region "$REGION" --db-instance-identifier "$DB_ID" > /dev/null 2>&1; then
-  echo "  Exists: ${DB_ID}"
-else
-  aws rds create-db-instance --region "$REGION" \
-    --db-instance-identifier "$DB_ID" \
-    --db-instance-class "$DB_CLASS" \
-    --engine postgres --engine-version "16" \
-    --master-username "$DB_USER" \
-    --master-user-password "$DB_PASSWORD" \
-    --allocated-storage 20 --storage-type gp3 \
-    --db-name "$DB_NAME" \
-    --vpc-security-group-ids "$RDS_SG_ID" \
-    --backup-retention-period 7 \
-    --no-multi-az --no-publicly-accessible --storage-encrypted \
-    --tags Key=Project,Value=RAPS > /dev/null
-
-  echo "  Waiting for RDS..."
-  aws rds wait db-instance-available --region "$REGION" --db-instance-identifier "$DB_ID"
-  echo "  RDS ready."
-fi
-
-RDS_ENDPOINT=$(aws rds describe-db-instances --region "$REGION" \
-  --db-instance-identifier "$DB_ID" \
-  --query "DBInstances[0].Endpoint.Address" --output text)
-echo "  Endpoint: ${RDS_ENDPOINT}"
-
-# ── 5. S3 Backup Bucket ────────────────────────────
-echo ""
-echo "[5/8] Creating S3 backup bucket..."
+echo "[4/7] Creating S3 backup bucket..."
 if aws s3api head-bucket --bucket "$S3_BUCKET" --region "$REGION" 2>/dev/null; then
   echo "  Exists: ${S3_BUCKET}"
 else
@@ -196,9 +156,9 @@ else
   sleep 10
 fi
 
-# ── 7. EC2 Instance ────────────────────────────────
+# ── 6. EC2 Instance ────────────────────────────────
 echo ""
-echo "[7/8] Launching EC2 instance..."
+echo "[6/7] Launching EC2 instance..."
 EXISTING_EC2=$(aws ec2 describe-instances --region "$REGION" \
   --filters "Name=tag:Name,Values=${EC2_NAME}" "Name=instance-state-name,Values=running,stopped" \
   --query "Reservations[0].Instances[0].InstanceId" --output text 2>/dev/null || echo "None")
@@ -207,8 +167,9 @@ if [ "$EXISTING_EC2" != "None" ] && [ -n "$EXISTING_EC2" ]; then
   EC2_ID="$EXISTING_EC2"
   echo "  Exists: ${EC2_ID}"
 else
+  # ARM64 Ubuntu AMI to match t4g (Graviton) instances
   AMI_ID=$(aws ec2 describe-images --region "$REGION" --owners 099720109477 \
-    --filters "Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*" \
+    --filters "Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*" \
               "Name=state,Values=available" \
     --query "sort_by(Images, &CreationDate)[-1].ImageId" --output text)
 
@@ -218,7 +179,7 @@ else
     --key-name "$KEY_NAME" \
     --security-group-ids "$EC2_SG_ID" \
     --iam-instance-profile Name="$PROFILE_NAME" \
-    --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":20,\"VolumeType\":\"gp3\"}}]" \
+    --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":30,\"VolumeType\":\"gp3\"}}]" \
     --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${EC2_NAME}},{Key=Project,Value=RAPS}]" \
     --query "Instances[0].InstanceId" --output text)
 
@@ -227,9 +188,9 @@ else
   echo "  Running."
 fi
 
-# ── 8. Elastic IP ──────────────────────────────────
+# ── 7. Elastic IP ──────────────────────────────────
 echo ""
-echo "[8/8] Assigning Elastic IP..."
+echo "[7/7] Assigning Elastic IP..."
 EXISTING_EIP=$(aws ec2 describe-addresses --region "$REGION" \
   --filters "Name=instance-id,Values=${EC2_ID}" \
   --query "Addresses[0].PublicIp" --output text 2>/dev/null || echo "None")
@@ -254,14 +215,14 @@ echo "================================================"
 echo ""
 echo "  EC2:          ${EC2_ID} (${EC2_TYPE})"
 echo "  Elastic IP:   ${ELASTIC_IP}"
-echo "  RDS:          ${RDS_ENDPOINT}"
+echo "  Region:       ${REGION} (Hyderabad)"
 echo "  S3 Bucket:    ${S3_BUCKET}"
-echo "  DB Name:      ${DB_NAME}"
-echo "  DB User:      ${DB_USER}"
+echo "  DB:           Postgres 16 on EC2 (localhost)"
 echo ""
-echo "  Next step — SSH in and run the bootstrap:"
+echo "  Next step — copy bootstrap.sh to the box and run it:"
 echo ""
+echo "    scp -i ${KEY_NAME}.pem deploy/bootstrap.sh ubuntu@${ELASTIC_IP}:~"
 echo "    ssh -i ${KEY_NAME}.pem ubuntu@${ELASTIC_IP}"
-echo "    bash bootstrap.sh ${RDS_ENDPOINT} \"${DB_PASSWORD}\""
+echo "    bash bootstrap.sh \"${DB_PASSWORD}\""
 echo ""
 echo "================================================"
