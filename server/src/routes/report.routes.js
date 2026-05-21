@@ -84,7 +84,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
 });
 
 // GET /api/reports/unit-usage — Admin: unit-wise product consumption
-router.get('/unit-usage', authenticate, authorize('ADMIN'), async (req, res) => {
+router.get('/unit-usage', authenticate, authorize('ADMIN', 'SAFETY'), async (req, res) => {
   try {
     const { unitId, page, limit, startDate, endDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -143,7 +143,7 @@ router.get('/unit-usage', authenticate, authorize('ADMIN'), async (req, res) => 
 });
 
 // GET /api/reports/audit-logs — Admin: full audit logs
-router.get('/audit-logs', authenticate, authorize('ADMIN'), async (req, res) => {
+router.get('/audit-logs', authenticate, authorize('ADMIN', 'SAFETY'), async (req, res) => {
   try {
     const { userId, action, entity, page, limit, fromDate, toDate, startDate, endDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -180,7 +180,7 @@ router.get('/audit-logs', authenticate, authorize('ADMIN'), async (req, res) => 
 });
 
 // GET /api/reports/unit-summary — Admin: summary of unit-wise consumption
-router.get('/unit-summary', authenticate, authorize('ADMIN'), async (req, res) => {
+router.get('/unit-summary', authenticate, authorize('ADMIN', 'SAFETY'), async (req, res) => {
   try {
     const summaries = await prisma.$queryRaw`
       SELECT

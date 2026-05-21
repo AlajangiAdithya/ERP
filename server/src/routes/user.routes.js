@@ -8,7 +8,10 @@ const { auditLog } = require('../middleware/audit');
 
 const router = express.Router();
 
-const VALID_ROLES = ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB'];
+const VALID_ROLES = [
+  'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
+  'METEOROLOGY', 'NDT', 'RND', 'SAFETY', 'TENDER_MANAGER',
+];
 
 const createUserSchema = z.object({
   username: z.string().min(1),
@@ -23,13 +26,20 @@ const updateUserSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-// GET /api/users/managers — lightweight list of active managers, accessible to MANAGER (for ION recipient picker)
-router.get('/managers', authenticate, authorize('MANAGER', 'LAB', 'ADMIN'), async (req, res) => {
+// GET /api/users/managers — lightweight list of active managers.
+// Used by ION recipient picker (MANAGER/LAB) and the Tender assignment picker (TENDER_MANAGER).
+router.get('/managers', authenticate, authorize('MANAGER', 'LAB', 'ADMIN', 'TENDER_MANAGER'), async (req, res) => {
   try {
+    // Tender manager assigning a tender to a unit needs to see ALL active managers
+    // including themselves' counterparts. ION picker excludes the requester.
+    const excludeSelf = ['MANAGER', 'LAB'].includes(req.user.role);
     const managers = await prisma.user.findMany({
-      where: { role: 'MANAGER', isActive: true, NOT: { id: req.user.id } },
+      where: {
+        role: 'MANAGER', isActive: true,
+        ...(excludeSelf ? { NOT: { id: req.user.id } } : {}),
+      },
       select: {
-        id: true, name: true, username: true,
+        id: true, name: true, username: true, unitId: true,
         unit: { select: { id: true, name: true, code: true } },
       },
       orderBy: { name: 'asc' },

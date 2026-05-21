@@ -13,10 +13,9 @@ const formatINR = (n) => {
 const s = StyleSheet.create({
   page: { padding: 36, paddingBottom: 60, fontSize: 10, fontFamily: 'Times-Roman', color: '#111' },
   brandRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  brandLogo: { width: 110, height: 30, objectFit: 'contain', marginRight: 8 },
+  brandLogo: { width: 180, height: 60, objectFit: 'contain', marginRight: 10 },
   brandBlock: { flex: 1 },
   brandName: { fontSize: 13, fontFamily: 'Times-Bold', color: '#0a2540' },
-  brandSub: { fontSize: 8, color: '#555' },
   stampBlock: { textAlign: 'right' },
   stampLine: { fontSize: 8, fontFamily: 'Times-Bold' },
   hr: { borderBottomWidth: 1, borderBottomColor: '#222', marginVertical: 6 },
@@ -53,7 +52,6 @@ const s = StyleSheet.create({
   tdRightLast: { fontSize: 9, padding: 4, textAlign: 'right' },
 
   desc: { fontSize: 9 },
-  descMeta: { fontSize: 8, color: '#333' },
 
   totalLabel: {
     fontFamily: 'Times-Bold', fontSize: 9, padding: 4, textAlign: 'right',
@@ -80,17 +78,6 @@ export default function POPdf({ order }) {
   const items = order?.items || [];
   const pr = order?.purchaseRequest;
   const quotation = order?.quotation;
-  const prItemsById = new Map((pr?.items || []).map((i) => [i.id, i]));
-
-  // Resolve spec details for each PO item: prefer direct purchaseRequestItemId,
-  // fall back to first allocation (union POs).
-  const resolveSpec = (item) => {
-    if (item.purchaseRequestItemId && prItemsById.has(item.purchaseRequestItemId)) {
-      return prItemsById.get(item.purchaseRequestItemId);
-    }
-    const first = item.allocations?.[0]?.purchaseRequestItem;
-    return first || null;
-  };
 
   const supplierAddress = quotation?.supplierAddress || '';
   const supplierContact = quotation?.supplierContact || '';
@@ -113,7 +100,6 @@ export default function POPdf({ order }) {
           <Image src={LOGO_URL} style={s.brandLogo} />
           <View style={s.brandBlock}>
             <Text style={s.brandName}>Ramesh's Aerospace Products & Services Pvt. Ltd.</Text>
-            <Text style={s.brandSub}>Aerospace · Defence · Precision Manufacturing</Text>
           </View>
           <View style={s.stampBlock}>
             <Text style={s.stampLine}>Form no.: RAPS/PO Rev 01</Text>
@@ -169,21 +155,11 @@ export default function POPdf({ order }) {
             <Text style={[s.thLast, { width: COL.amt }]}>Amount</Text>
           </View>
           {items.map((item, idx) => {
-            const spec = resolveSpec(item);
             return (
               <View key={item.id || idx} style={s.tRowBordered} wrap={false}>
                 <Text style={[s.tdCenter, { width: COL.sl }]}>{idx + 1}</Text>
                 <View style={[s.td, { width: COL.desc }]}>
                   <Text style={s.desc}>{item.productName}</Text>
-                  {spec?.drawingNo ? (
-                    <Text style={s.descMeta}>Drg No: {spec.drawingNo}</Text>
-                  ) : null}
-                  {spec?.materialSpecification ? (
-                    <Text style={s.descMeta}>Material: {spec.materialSpecification}</Text>
-                  ) : null}
-                  {spec?.qapNo ? (
-                    <Text style={s.descMeta}>QAP: {spec.qapNo}</Text>
-                  ) : null}
                 </View>
                 <Text style={[s.tdCenter, { width: COL.qty }]}>
                   {item.quantity} {item.productUnit}

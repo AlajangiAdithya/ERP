@@ -227,13 +227,17 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
       : (order.purchaseRequest ? [order.purchaseRequest] : []);
     const sourcePRIds = sourcePRs.map((p) => p.id);
 
-    const updated = await prisma.$transaction(async (tx) => {
-      const result = await tx.purchaseOrder.update({
+    // Auto-create an inspection request so the QC team can fill the report directly.
+    // No need for the PO to manually click "Create inspection request" first.
+    const inspectionNumber = await generateSequentialNumber(prisma, 'QC');
+
+    const { updated, inspection } = await prisma.$transaction(async (tx) => {
+      const updatedOrder = await tx.purchaseOrder.update({
         where: { id: req.params.id },
         data: {
           goodsArrived: true,
           goodsArrivedAt: new Date(),
-          status: 'GOODS_ARRIVED',
+          status: 'QC_PENDING',
         },
         include: ORDER_INCLUDE,
       });
@@ -245,7 +249,17 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
         });
       }
 
-      return result;
+      const createdInspection = await tx.qCInspection.create({
+        data: {
+          inspectionNumber,
+          purchaseOrderId: order.id,
+          requestCreatedById: req.user.id,
+          materialReceiptDate: new Date(),
+          qtyOrdered: totalOrdered,
+        },
+      });
+
+      return { updated: updatedOrder, inspection: createdInspection };
     });
 
     const deliveryNote = isPartial
@@ -254,9 +268,9 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
 
     await prisma.notification.create({
       data: {
-        type: 'GOODS_ARRIVED',
-        title: `${isPartial ? 'More ' : ''}Goods Arrived: ${order.customName}`,
-        message: deliveryNote,
+        type: 'INSPECTION_REQUEST',
+        title: `Inspection Request ${inspection.inspectionNumber}: ${order.customName}`,
+        message: `${deliveryNote} Inspection request ${inspection.inspectionNumber} has been auto-created — please fill the report.`,
         targetRole: 'QC',
         sentById: req.user.id,
       },
@@ -527,32 +541,22 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
         }
       }
 
-      // Check if ALL items are now fully received
+      // Any inward (even partial) closes the PO chain to keep "in progress"
+      // lists tight. Remaining-qty tracking still lives on the items for audit.
       const refreshedItems = await tx.purchaseOrderItem.findMany({
         where: { purchaseOrderId: req.params.id },
       });
       const allFullyReceived = refreshedItems.every(i => i.receivedQty >= i.quantity);
 
-      let result;
-      if (allFullyReceived) {
-        result = await tx.purchaseOrder.update({
-          where: { id: req.params.id },
-          data: { status: 'INWARD_DONE', mirNo, inwardedAt: new Date() },
-          include: ORDER_INCLUDE,
-        });
-        if (sourcePRIds.length) {
-          await tx.purchaseRequest.updateMany({
-            where: { id: { in: sourcePRIds } },
-            data: { status: 'INWARD_DONE' },
-          });
-        }
-      } else {
-        // Partial delivery: reset to ORDERED so PO can mark next batch as arrived.
-        // Save MIR so subsequent partial inwards share the same MIR number.
-        result = await tx.purchaseOrder.update({
-          where: { id: req.params.id },
-          data: { status: 'ORDERED', goodsArrived: false, mirNo },
-          include: ORDER_INCLUDE,
+      const result = await tx.purchaseOrder.update({
+        where: { id: req.params.id },
+        data: { status: 'INWARD_DONE', mirNo, inwardedAt: new Date() },
+        include: ORDER_INCLUDE,
+      });
+      if (sourcePRIds.length) {
+        await tx.purchaseRequest.updateMany({
+          where: { id: { in: sourcePRIds } },
+          data: { status: 'INWARD_DONE' },
         });
       }
 
@@ -570,8 +574,8 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           ? `All items for Union PO "${order.customName}" (${order.orderNumber}) — your PR ${pr.requestNumber} — have been received and entered into stores. Please send MIV to collect your items.`
           : `All items for order "${order.customName}" (${pr.requestNumber}) have been received and entered into stores. Please send MIV to collect your items.`)
         : (order.isUnion
-          ? `Partial delivery for Union PO "${order.customName}" (${order.orderNumber}): ${totalReceived} of ${totalOrdered} items received. Your PR ${pr.requestNumber} share has been incremented pro-rata. Remaining items will follow.`
-          : `Partial delivery: ${totalReceived} of ${totalOrdered} items for order "${order.customName}" (${pr.requestNumber}) have been received. Remaining items will follow.`);
+          ? `Partial delivery for Union PO "${order.customName}" (${order.orderNumber}): ${totalReceived} of ${totalOrdered} items received and entered into stores. Your PR ${pr.requestNumber} is now closed — raise a new PR for any remaining items. Please send MIV to collect.`
+          : `Partial delivery: ${totalReceived} of ${totalOrdered} items for order "${order.customName}" (${pr.requestNumber}) have been received and entered into stores. PR is now closed — raise a new PR for any remaining items. Please send MIV to collect.`);
       await prisma.notification.create({
         data: {
           type: 'INWARD_COMPLETE',
@@ -587,8 +591,8 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
       await prisma.notification.create({
         data: {
           type: 'PARTIAL_DELIVERY',
-          title: `Partial Delivery Complete: ${order.customName}`,
-          message: `${totalReceived} of ${totalOrdered} items received for "${order.customName}" (${order.orderNumber}). Order is active for the next delivery.`,
+          title: `Partial Delivery — PO Closed: ${order.customName}`,
+          message: `${totalReceived} of ${totalOrdered} items received for "${order.customName}" (${order.orderNumber}). PO closed to keep the queue clean — raise a fresh PR/PO for any remaining items.`,
           targetRole: 'PURCHASE_OFFICER',
           sentById: req.user.id,
         },

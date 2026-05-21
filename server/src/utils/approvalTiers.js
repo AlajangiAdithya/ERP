@@ -2,10 +2,10 @@
 //
 // Threshold rules (in INR):
 //   L1: amount < 1,00,000           → ACCOUNTING role OR any tiered admin
-//   L2: 1,00,000 <= amount < 10,00,000 → Madhubabu, Suresh, OR Rameshbabu
+//   L2: 1,00,000 <= amount < 10,00,000 → Madhubabu, Sureshbabu, OR Rameshbabu
 //   L3: amount >= 10,00,000         → Rameshbabu only
 //
-// Madhubabu, Suresh, Rameshbabu are existing ADMIN users — matched by name (case-insensitive).
+// Madhubabu, Sureshbabu, Rameshbabu are existing ADMIN users — matched by name (case-insensitive).
 
 const prisma = require('../config/db');
 
@@ -13,13 +13,13 @@ const ONE_LAKH = 100000;
 const TEN_LAKHS = 1000000;
 
 const APPROVER_NAMES = {
-  L2: ['madhubabu', 'suresh', 'rameshbabu'],
+  L2: ['madhubabu', 'sureshbabu', 'rameshbabu'],
   L3: ['rameshbabu'],
 };
 
 const APPROVER_DISPLAY = {
   L1: 'Accounting (or any approving admin)',
-  L2: 'Madhubabu, Suresh, or Rameshbabu',
+  L2: 'Madhubabu, Sureshbabu, or Rameshbabu',
   L3: 'Rameshbabu',
 };
 

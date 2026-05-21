@@ -11,7 +11,7 @@ import { formatDateTime } from '../utils/formatters';
 const FIXED_ADMINS = ['madhubabu', 'sureshbabu', 'rameshbabu'];
 const isFixedAdmin = (user) => FIXED_ADMINS.includes(user.username);
 
-const GLOBAL_ONLY_ROLES = ['STORE_MANAGER', 'PURCHASE_OFFICER'];
+const GLOBAL_ONLY_ROLES = ['STORE_MANAGER', 'PURCHASE_OFFICER', 'TENDER_MANAGER', 'SAFETY'];
 
 const roleLabel = (role) => ({
   ADMIN: 'Admin',
@@ -21,6 +21,11 @@ const roleLabel = (role) => ({
   ACCOUNTING: 'Accounting',
   QC: 'Quality Control',
   LAB: 'Lab',
+  METEOROLOGY: 'Meteorology',
+  NDT: 'NDT',
+  RND: 'R&D',
+  SAFETY: 'Safety',
+  TENDER_MANAGER: 'Tender Manager',
 }[role] || role);
 
 const roleBadgeColor = (role) => ({
@@ -31,6 +36,11 @@ const roleBadgeColor = (role) => ({
   ACCOUNTING: 'green',
   QC: 'purple',
   LAB: 'purple',
+  METEOROLOGY: 'blue',
+  NDT: 'blue',
+  RND: 'blue',
+  SAFETY: 'red',
+  TENDER_MANAGER: 'yellow',
 }[role] || 'gray');
 
 export default function Management() {
@@ -221,6 +231,11 @@ function UsersSection() {
             <option value="ACCOUNTING">Accounting</option>
             <option value="QC">Quality Control</option>
             <option value="LAB">Lab</option>
+            <option value="METEOROLOGY">Meteorology</option>
+            <option value="NDT">NDT</option>
+            <option value="RND">R&amp;D</option>
+            <option value="SAFETY">Safety</option>
+            <option value="TENDER_MANAGER">Tender Manager</option>
             <option value="ADMIN">Admin</option>
           </Select>
 

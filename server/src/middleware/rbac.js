@@ -2,10 +2,15 @@ const ROLE_HIERARCHY = {
   ADMIN: 4,
   STORE_MANAGER: 3,
   ACCOUNTING: 3,
+  TENDER_MANAGER: 3,
+  SAFETY: 3,
   QC: 2,
   MANAGER: 2,
   PURCHASE_OFFICER: 1,
   LAB: 1,
+  METEOROLOGY: 1,
+  NDT: 1,
+  RND: 1,
 };
 
 const authorize = (...allowedRoles) => {

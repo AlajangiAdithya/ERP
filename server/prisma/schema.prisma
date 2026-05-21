@@ -44,6 +44,8 @@ model User {
   ionsAssigned               InterOfficeNote[]          @relation("IONAssignee")
   transferRequestsCreated    InventoryTransferRequest[] @relation("TransferRequester")
   transferRequestsApproved   InventoryTransferRequest[] @relation("TransferApprover")
+  tendersCreated             Tender[]                   @relation("TenderCreator")
+  tendersAssigned            Tender[]                   @relation("TenderAssignee")
 }
 
 model Session {
@@ -63,6 +65,11 @@ enum Role {
   ACCOUNTING
   QC
   LAB
+  METEOROLOGY
+  NDT
+  RND
+  SAFETY
+  TENDER_MANAGER
 }
 
 // ──── UNITS ────
@@ -79,6 +86,7 @@ model Unit {
   transfersFrom    InventoryTransferRequest[] @relation("TransferFromUnit")
   transfersTo      InventoryTransferRequest[] @relation("TransferToUnit")
   productStocks    ProductUnitStock[]
+  tenders          Tender[]
 }
 
 // ──── AUDIT LOG ────
@@ -677,6 +685,7 @@ model InterOfficeNote {
   qcContactDetails   String?
   otherInformation   String?
   status             IONStatus @default(SENT)
+  recipientRole      String?   @default("LAB") // LAB | METEOROLOGY | NDT | RND (when not assigned to a specific manager)
   createdById        String
   createdBy          User      @relation("IONCreator", fields: [createdById], references: [id])
   assignedToId       String?
@@ -734,6 +743,36 @@ enum TransferStatus {
   APPROVED
   REJECTED
   TRANSFERRED
+}
+
+// ──── TENDERS (Tender Manager assigns to units) ────
+model Tender {
+  id              String       @id @default(uuid())
+  tenderNumber    String       @unique
+  title           String
+  description     String?
+  clientName      String?
+  estimatedValue  Float?
+  submissionDate  DateTime?
+  status          TenderStatus @default(ASSIGNED)
+  notes           String?
+  unitId          String
+  unit            Unit         @relation(fields: [unitId], references: [id])
+  createdById     String
+  createdBy       User         @relation("TenderCreator", fields: [createdById], references: [id])
+  assignedToId    String?
+  assignedTo      User?        @relation("TenderAssignee", fields: [assignedToId], references: [id])
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+enum TenderStatus {
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  WON
+  LOST
+  CANCELLED
 }
 
 // ──── NOTIFICATIONS ────

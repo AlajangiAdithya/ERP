@@ -23,6 +23,8 @@ import QCInspections from './pages/QCInspections';
 import GatePass from './pages/GatePass';
 import InterOfficeNote from './pages/InterOfficeNote';
 import InventoryTransfers from './pages/InventoryTransfers';
+import Tenders from './pages/Tenders';
+import SafetyMonitor from './pages/SafetyMonitor';
 
 function PrivateRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
@@ -67,13 +69,13 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN']}><Management /></PrivateRoute>
               } />
               <Route path="/all-requests" element={
-                <PrivateRoute allowedRoles={['ADMIN']}><AllRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><AllRequests /></PrivateRoute>
               } />
               <Route path="/audit-logs" element={
-                <PrivateRoute allowedRoles={['ADMIN']}><AuditLogs /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><AuditLogs /></PrivateRoute>
               } />
               <Route path="/unit-usage" element={
-                <PrivateRoute allowedRoles={['ADMIN']}><UnitUsageLogs /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><UnitUsageLogs /></PrivateRoute>
               } />
 
               {/* Manager / Lab */}
@@ -86,29 +88,29 @@ export default function App() {
                 <PrivateRoute allowedRoles={['STORE_MANAGER']}><RequestClearance /></PrivateRoute>
               } />
 
-              {/* Purchase Requests — Admin, Manager, Lab, Purchase Officer, Accounting, QC */}
+              {/* Purchase Requests — Admin, Manager, Lab, Purchase Officer, Accounting, QC, Safety */}
               <Route path="/purchase-requests" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'ACCOUNTING', 'QC', 'LAB', 'PURCHASE_OFFICER']}><PurchaseRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'ACCOUNTING', 'QC', 'LAB', 'PURCHASE_OFFICER', 'SAFETY']}><PurchaseRequests /></PrivateRoute>
               } />
 
               {/* Quotation Management — PO submits, ADMIN approves (no accounting tier) */}
               <Route path="/quotations" element={
-                <PrivateRoute allowedRoles={['PURCHASE_OFFICER', 'ADMIN']}><QuotationManagement /></PrivateRoute>
+                <PrivateRoute allowedRoles={['PURCHASE_OFFICER', 'ADMIN', 'SAFETY']}><QuotationManagement /></PrivateRoute>
               } />
 
               {/* Purchase Orders */}
               <Route path="/purchase-orders" element={
-                <PrivateRoute allowedRoles={['PURCHASE_OFFICER', 'ADMIN', 'ACCOUNTING', 'STORE_MANAGER', 'QC', 'MANAGER', 'LAB']}><PurchaseOrders /></PrivateRoute>
+                <PrivateRoute allowedRoles={['PURCHASE_OFFICER', 'ADMIN', 'ACCOUNTING', 'STORE_MANAGER', 'QC', 'MANAGER', 'LAB', 'SAFETY']}><PurchaseOrders /></PrivateRoute>
               } />
 
               {/* Payment Requests */}
               <Route path="/payment-requests" element={
-                <PrivateRoute allowedRoles={['PURCHASE_OFFICER', 'ACCOUNTING', 'ADMIN']}><PaymentRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['PURCHASE_OFFICER', 'ACCOUNTING', 'ADMIN', 'SAFETY']}><PaymentRequests /></PrivateRoute>
               } />
 
               {/* QC Inspections */}
               <Route path="/qc-inspections" element={
-                <PrivateRoute allowedRoles={['QC', 'ADMIN']}><QCInspections /></PrivateRoute>
+                <PrivateRoute allowedRoles={['QC', 'ADMIN', 'SAFETY']}><QCInspections /></PrivateRoute>
               } />
 
               {/* Store Manager + Admin */}
@@ -116,19 +118,29 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER']}><InwardEntry /></PrivateRoute>
               } />
               <Route path="/stock-movements" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER']}><StockMovements /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'SAFETY']}><StockMovements /></PrivateRoute>
               } />
               <Route path="/gate-pass" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING']}><GatePass /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'SAFETY']}><GatePass /></PrivateRoute>
               } />
-              {/* Inventory Transfers — MANAGER only: destination requests, source approves */}
+              {/* Inventory Transfers — MANAGER + SAFETY monitor */}
               <Route path="/inventory-transfers" element={
-                <PrivateRoute allowedRoles={['MANAGER']}><InventoryTransfers /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'SAFETY']}><InventoryTransfers /></PrivateRoute>
               } />
 
-              {/* ION — SECRET: only MANAGER and LAB */}
+              {/* ION — MANAGER (sender) + LAB/METEOROLOGY/NDT/RND (recipients) + SAFETY (monitor) */}
               <Route path="/ion" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LAB']}><InterOfficeNote /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'METEOROLOGY', 'NDT', 'RND', 'SAFETY']}><InterOfficeNote /></PrivateRoute>
+              } />
+
+              {/* Tenders — TENDER_MANAGER assigns; MANAGER works; SAFETY monitors */}
+              <Route path="/tenders" element={
+                <PrivateRoute allowedRoles={['TENDER_MANAGER', 'ADMIN', 'MANAGER', 'SAFETY']}><Tenders /></PrivateRoute>
+              } />
+
+              {/* Safety Monitor */}
+              <Route path="/safety" element={
+                <PrivateRoute allowedRoles={['SAFETY', 'ADMIN']}><SafetyMonitor /></PrivateRoute>
               } />
 
               {/* All roles */}

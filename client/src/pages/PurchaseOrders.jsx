@@ -294,26 +294,10 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
         )}
 
         {/* Payment Progress */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-blue-50 rounded-md p-3">
-            <ProgressBar value={order.totalPaid} total={order.totalAmount} label={`Paid: ${formatCurrency(order.totalPaid)} / ${formatCurrency(order.totalAmount)}`} />
-            {order.advancePaid > 0 && <p className="text-xs text-blue-600 mt-1">Advance: {formatCurrency(order.advancePaid)}</p>}
-            {remaining > 0 && <p className="text-xs text-red-600 mt-1">Remaining: {formatCurrency(remaining)}</p>}
-          </div>
-          <div className="bg-green-50 rounded-md p-3">
-            {(() => {
-              const totalRcvd = order.items?.reduce((s, i) => s + (i.receivedQty || 0), 0) || 0;
-              const totalQty = order.items?.reduce((s, i) => s + i.quantity, 0) || 0;
-              return (
-                <>
-                  <ProgressBar value={totalRcvd} total={totalQty} label={`Delivery: ${totalRcvd} / ${totalQty} received`} />
-                  {totalRcvd > 0 && totalRcvd < totalQty && (
-                    <p className="text-xs text-amber-600 mt-1 font-medium">Partial delivery — {totalQty - totalRcvd} remaining</p>
-                  )}
-                </>
-              );
-            })()}
-          </div>
+        <div className="bg-blue-50 rounded-md p-3">
+          <ProgressBar value={order.totalPaid} total={order.totalAmount} label={`Paid: ${formatCurrency(order.totalPaid)} / ${formatCurrency(order.totalAmount)}`} />
+          {order.advancePaid > 0 && <p className="text-xs text-blue-600 mt-1">Advance: {formatCurrency(order.advancePaid)}</p>}
+          {remaining > 0 && <p className="text-xs text-red-600 mt-1">Remaining: {formatCurrency(remaining)}</p>}
         </div>
 
         {/* Items */}
@@ -328,7 +312,6 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Total</th>
                 {order.isUnion && <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Sources</th>}
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Item Status</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Received</th>
                 {isSM && order.status === 'QC_PASSED' && (
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Receive (this delivery)</th>
                 )}
@@ -378,17 +361,6 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                         <Badge color={itemStatusColor(item.itemStatus || 'WAITING')}>
                           {itemStatusLabel(item.itemStatus || 'WAITING')}
                         </Badge>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className={`font-medium ${(item.receivedQty || 0) >= item.quantity ? 'text-green-600' : (item.receivedQty || 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
-                        {item.receivedQty || 0} / {item.quantity}
-                      </span>
-                      {(item.receivedQty || 0) > 0 && (item.receivedQty || 0) < item.quantity && (
-                        <span className="text-xs text-amber-500 ml-1">partial</span>
-                      )}
-                      {(item.receivedQty || 0) >= item.quantity && (
-                        <span className="text-xs text-green-500 ml-1">complete</span>
                       )}
                     </td>
                     {isSM && order.status === 'QC_PASSED' && (
@@ -673,11 +645,6 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
                         <Package size={11} className="text-gray-400" />
                         <span className="font-medium">{it.productName}</span>
                         <span className="text-gray-500">× {it.quantity} {it.productUnit}</span>
-                        {(it.receivedQty || 0) > 0 && (
-                          <span className={`font-medium ${(it.receivedQty || 0) >= it.quantity ? 'text-green-600' : 'text-amber-600'}`}>
-                            ({it.receivedQty}/{it.quantity} rcvd)
-                          </span>
-                        )}
                         <Badge color={itemStatusColor(it.itemStatus || 'WAITING')}>
                           {itemStatusLabel(it.itemStatus || 'WAITING')}
                         </Badge>

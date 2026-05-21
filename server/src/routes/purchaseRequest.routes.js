@@ -21,6 +21,9 @@ const router = express.Router();
 
 // Roles that can create/manage their own purchase requests (same privileges as MANAGER)
 const REQUESTER_ROLES = ['MANAGER', 'LAB'];
+// SAFETY can create PRs AND monitor all of them (handled as a non-requester so it
+// sees the full list without being filtered to its own records).
+const MONITOR_ROLES = ['SAFETY'];
 
 const createSchema = z.object({
   requestId: z.string().trim().min(1, 'Order name is required'),
@@ -369,7 +372,7 @@ router.get('/:id', authenticate, async (req, res) => {
 // POST /api/purchase-requests — Requester creates.
 // Accepts multipart/form-data (when a material-specs PDF is attached) or JSON.
 // In multipart mode the JSON body lives in `payload`.
-router.post('/', authenticate, authorize('MANAGER', 'LAB'), acceptSpecsPdf, async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'LAB', 'SAFETY'), acceptSpecsPdf, async (req, res) => {
   try {
     const rawBody = req.is('multipart/form-data') && req.body?.payload
       ? JSON.parse(req.body.payload)
@@ -783,7 +786,7 @@ router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), 
 });
 
 // PUT /api/purchase-requests/:id/cancel — Requester cancels own pending request
-router.put('/:id/cancel', authenticate, authorize('MANAGER', 'LAB'), async (req, res) => {
+router.put('/:id/cancel', authenticate, authorize('MANAGER', 'LAB', 'SAFETY'), async (req, res) => {
   try {
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: req.params.id },

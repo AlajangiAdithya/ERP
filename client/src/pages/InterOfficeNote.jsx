@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, FlaskConical, Send, CheckCircle2, Users } from 'lucide-react';
+import { Plus, Trash2, FlaskConical, Send, CheckCircle2, Users, Atom, Ruler, Microscope } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { useAutoRefresh } from '../context/NotificationContext';
@@ -23,14 +23,21 @@ const STATUS_TABS = [
 const statusColor = (s) => ({ SENT: 'yellow', WAITING: 'blue', COLLECTED: 'green' }[s] || 'gray');
 const statusLabel = (s) => ({ SENT: 'Sent', WAITING: 'In Progress', COLLECTED: 'Completed' }[s] || s);
 
+const RECIPIENT_ROLES = ['LAB', 'METEOROLOGY', 'NDT', 'RND'];
+
 export default function InterOfficeNote() {
   const { user } = useAuth();
   const isManager = user?.role === 'MANAGER';
-  const isLab = user?.role === 'LAB';
+  const isRecipient = RECIPIENT_ROLES.includes(user?.role);
 
   // Determine if a row is incoming for the current user (so we can show action affordances)
   const incomingForMe = (n) => {
-    if (isLab) return !n.assignedToId || n.assignedTo?.role === 'LAB';
+    if (isRecipient) {
+      return (
+        (!n.assignedToId && n.recipientRole === user.role) ||
+        n.assignedTo?.role === user.role
+      );
+    }
     if (isManager) return n.assignedToId === user.id;
     return false;
   };
@@ -120,9 +127,11 @@ export default function InterOfficeNote() {
               </thead>
               <tbody>
                 {ions.map(n => {
+                  const roleBucket = n.recipientRole === 'RND' ? 'R&D' :
+                    n.recipientRole ? n.recipientRole.charAt(0) + n.recipientRole.slice(1).toLowerCase() : 'Lab';
                   const recipientLabel = n.assignedTo
                     ? `${n.assignedTo.name}${n.assignedTo.unit?.code ? ` (${n.assignedTo.unit.code})` : ''}`
-                    : 'Lab';
+                    : roleBucket;
                   return (
                     <tr key={n.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium text-navy-700">{n.ionNumber}</td>
@@ -254,20 +263,21 @@ function CreateIONModal({ onClose, onCreated }) {
             <Send size={14} /> Send to
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <label className={`flex items-start gap-3 p-3 border rounded-md cursor-pointer transition-colors ${recipientType === 'LAB' ? 'border-navy-400 bg-white shadow-sm' : 'border-gray-200 bg-white hover:border-navy-300'}`}>
-              <input type="radio" name="recipientType" value="LAB" checked={recipientType === 'LAB'} onChange={() => setRecipientType('LAB')} className="mt-1" />
-              <div>
-                <div className="font-medium text-gray-800 flex items-center gap-2"><FlaskConical size={14} /> Lab (testing/QC)</div>
-                <div className="text-xs text-gray-500">For sample tests, reports, and inspections.</div>
-              </div>
-            </label>
-            <label className={`flex items-start gap-3 p-3 border rounded-md cursor-pointer transition-colors ${recipientType === 'MANAGER' ? 'border-navy-400 bg-white shadow-sm' : 'border-gray-200 bg-white hover:border-navy-300'}`}>
-              <input type="radio" name="recipientType" value="MANAGER" checked={recipientType === 'MANAGER'} onChange={() => setRecipientType('MANAGER')} className="mt-1" />
-              <div>
-                <div className="font-medium text-gray-800 flex items-center gap-2"><Users size={14} /> Manager (another unit)</div>
-                <div className="text-xs text-gray-500">For machining or production work in another unit.</div>
-              </div>
-            </label>
+            {[
+              { v: 'LAB', icon: <FlaskConical size={14} />, label: 'Lab (testing/QC)', help: 'For sample tests, reports, and inspections.' },
+              { v: 'METEOROLOGY', icon: <Ruler size={14} />, label: 'Meteorology', help: 'For dimensional/metrology checks and reports.' },
+              { v: 'NDT', icon: <Atom size={14} />, label: 'NDT', help: 'For non-destructive testing.' },
+              { v: 'RND', icon: <Microscope size={14} />, label: 'R&D', help: 'For research / development work.' },
+              { v: 'MANAGER', icon: <Users size={14} />, label: 'Manager (another unit)', help: 'For machining or production work in another unit.' },
+            ].map(opt => (
+              <label key={opt.v} className={`flex items-start gap-3 p-3 border rounded-md cursor-pointer transition-colors ${recipientType === opt.v ? 'border-navy-400 bg-white shadow-sm' : 'border-gray-200 bg-white hover:border-navy-300'}`}>
+                <input type="radio" name="recipientType" value={opt.v} checked={recipientType === opt.v} onChange={() => setRecipientType(opt.v)} className="mt-1" />
+                <div>
+                  <div className="font-medium text-gray-800 flex items-center gap-2">{opt.icon} {opt.label}</div>
+                  <div className="text-xs text-gray-500">{opt.help}</div>
+                </div>
+              </label>
+            ))}
           </div>
           {recipientType === 'MANAGER' && (
             <Select label="Pick the receiving manager" value={recipientManagerId} onChange={(e) => setRecipientManagerId(e.target.value)}>
@@ -371,7 +381,7 @@ function CreateIONModal({ onClose, onCreated }) {
         <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
           <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>
-            {saving ? 'Sending…' : recipientType === 'MANAGER' ? 'Send to Manager' : 'Send to Lab'}
+            {saving ? 'Sending…' : recipientType === 'MANAGER' ? 'Send to Manager' : `Send to ${recipientType === 'RND' ? 'R&D' : recipientType.charAt(0) + recipientType.slice(1).toLowerCase()}`}
           </Button>
         </div>
       </div>
@@ -385,11 +395,14 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
   const [error, setError] = useState('');
   const [remarks, setRemarks] = useState('');
 
-  const isLab = currentUser?.role === 'LAB';
+  const isRecipientRole = RECIPIENT_ROLES.includes(currentUser?.role);
   const isAssignedManager =
     currentUser?.role === 'MANAGER' && n.assignedToId === currentUser?.id;
   const canAct =
-    (isLab && (!n.assignedToId || n.assignedTo?.role === 'LAB')) ||
+    (isRecipientRole && (
+      (!n.assignedToId && n.recipientRole === currentUser.role) ||
+      n.assignedTo?.role === currentUser.role
+    )) ||
     isAssignedManager;
 
   const act = async (status) => {
@@ -440,7 +453,7 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
           <Field label="Raised By" value={`${n.createdBy?.name || '—'}${n.createdBy?.unit?.name ? ' — ' + n.createdBy.unit.name : ''}`} />
           <Field label="Sent To" value={n.assignedTo
             ? `${n.assignedTo.name}${n.assignedTo.unit?.name ? ' — ' + n.assignedTo.unit.name : ''} (${n.assignedTo.role})`
-            : 'Lab (any available)'} />
+            : `${n.recipientRole === 'RND' ? 'R&D' : (n.recipientRole || 'LAB')} (any available)`} />
         </div>
 
         <div>

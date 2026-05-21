@@ -8,7 +8,7 @@ async function addAdmins() {
 
   const admins = [
     { username: 'madhubabu', name: 'Madhubabu' },
-    { username: 'suresh', name: 'Suresh' },
+    { username: 'sureshbabu', name: 'Sureshbabu' },
     { username: 'rameshbabu', name: 'Rameshbabu' },
   ];
 
@@ -34,7 +34,7 @@ async function addAdmins() {
 
   console.log('\nAll done! Login credentials:');
   console.log('  madhubabu  / Admin@123');
-  console.log('  suresh     / Admin@123');
+  console.log('  sureshbabu / Admin@123');
   console.log('  rameshbabu / Admin@123');
 
   await prisma.$disconnect();

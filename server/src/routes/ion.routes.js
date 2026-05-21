@@ -13,7 +13,8 @@ const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation }
 
 const router = express.Router();
 
-const ION_ROLES = ['MANAGER', 'LAB'];
+const ION_ROLES = ['MANAGER', 'LAB', 'METEOROLOGY', 'NDT', 'RND', 'SAFETY'];
+const ION_RECIPIENT_ROLES = ['LAB', 'METEOROLOGY', 'NDT', 'RND'];
 
 const ION_INCLUDE = {
   createdBy:  { select: { id: true, name: true, role: true, unit: { select: { name: true, code: true } } } },
@@ -37,13 +38,17 @@ router.get('/', authenticate, authorize(...ION_ROLES), async (req, res) => {
         { createdById: req.user.id },
         { assignedToId: req.user.id },
       ];
-    } else if (req.user.role === 'LAB') {
-      // Lab sees only ones for them — unassigned, or assigned to a LAB user
+    } else if (ION_RECIPIENT_ROLES.includes(req.user.role)) {
+      // Recipient roles (LAB/METEOROLOGY/NDT/RND) see ions sent to their role:
+      // either unassigned with createdBy targeting their role (handled implicitly
+      // by recipientRole field — we filter on either no assignee with matching
+      // role bucket OR assigned to a user of that same role).
       where.OR = [
-        { assignedToId: null },
-        { assignedTo: { is: { role: 'LAB' } } },
+        { assignedToId: null, recipientRole: req.user.role },
+        { assignedTo: { is: { role: req.user.role } } },
       ];
     }
+    // SAFETY: monitor — sees all ions, no filter applied.
 
     const [ions, total] = await Promise.all([
       prisma.interOfficeNote.findMany({
@@ -81,10 +86,13 @@ router.get('/:id', authenticate, authorize(...ION_ROLES), async (req, res) => {
       const isAssignee = ion.assignedToId === req.user.id;
       if (!isOwner && !isAssignee) return res.status(403).json({ error: 'Not your ION' });
     }
-    if (req.user.role === 'LAB') {
-      const labCanSee = !ion.assignedToId || ion.assignedTo?.role === 'LAB';
-      if (!labCanSee) return res.status(403).json({ error: 'Not your ION' });
+    if (ION_RECIPIENT_ROLES.includes(req.user.role)) {
+      const canSee =
+        (!ion.assignedToId && ion.recipientRole === req.user.role) ||
+        ion.assignedTo?.role === req.user.role;
+      if (!canSee) return res.status(403).json({ error: 'Not your ION' });
     }
+    // SAFETY: read-only monitor, can see everything.
 
     res.json(ion);
   } catch (error) {
@@ -94,7 +102,7 @@ router.get('/:id', authenticate, authorize(...ION_ROLES), async (req, res) => {
 });
 
 // POST /api/ion — MANAGER creates
-//   recipientType:  'LAB' (default) | 'MANAGER'
+//   recipientType:  'LAB' (default) | 'METEOROLOGY' | 'NDT' | 'RND' | 'MANAGER'
 //   assignedToId:   required when recipientType === 'MANAGER' (must be a MANAGER user id)
 router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
   try {
@@ -115,6 +123,7 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
     }
 
     let resolvedAssigneeId = null;
+    let resolvedRecipientRole = 'LAB';
     if (recipientType === 'MANAGER') {
       if (!assignedToId) {
         return res.status(400).json({ error: 'Select a manager to send the ION to' });
@@ -130,6 +139,9 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
         return res.status(400).json({ error: 'Selected recipient is not an active manager' });
       }
       resolvedAssigneeId = target.id;
+      resolvedRecipientRole = null;
+    } else if (ION_RECIPIENT_ROLES.includes(recipientType)) {
+      resolvedRecipientRole = recipientType;
     }
 
     const ionNumber = await generateSequentialNumber(prisma, 'ION');
@@ -151,6 +163,7 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
         otherInformation: otherInformation || null,
         remarks: remarks || null,
         status: 'SENT',
+        recipientRole: resolvedRecipientRole,
         createdById: req.user.id,
         assignedToId: resolvedAssigneeId,
         items: {
@@ -182,7 +195,7 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
           type: 'ION_RECEIVED',
           title: `New ION: ${ion.ionNumber}`,
           message: `${req.user.name} sent a new Inter Office Note (${ion.ionNumber})${projectName ? ` for project "${projectName}"` : ''}. Please review and start work.`,
-          targetRole: 'LAB',
+          targetRole: resolvedRecipientRole,
           sentById: req.user.id,
         },
       });
@@ -196,8 +209,8 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
 });
 
 // PUT /api/ion/:id/status — recipient transitions SENT → WAITING → COLLECTED
-//   Recipient = LAB user (for unassigned/lab-assigned) OR the specific manager assigned to it.
-router.put('/:id/status', authenticate, authorize('LAB', 'MANAGER'), async (req, res) => {
+//   Recipient = LAB/METEOROLOGY/NDT/RND user (for unassigned/role-assigned) OR the specific manager assigned to it.
+router.put('/:id/status', authenticate, authorize('LAB', 'MANAGER', 'METEOROLOGY', 'NDT', 'RND'), async (req, res) => {
   try {
     const { status, remarks } = req.body;
     if (!['WAITING', 'COLLECTED'].includes(status)) {
@@ -215,10 +228,12 @@ router.put('/:id/status', authenticate, authorize('LAB', 'MANAGER'), async (req,
       if (existing.assignedToId !== req.user.id) {
         return res.status(403).json({ error: 'Only the assigned manager can update this ION' });
       }
-    } else if (req.user.role === 'LAB') {
-      const labOwns = !existing.assignedToId || existing.assignedTo?.role === 'LAB';
-      if (!labOwns) {
-        return res.status(403).json({ error: 'This ION is assigned to a manager, not the lab' });
+    } else if (ION_RECIPIENT_ROLES.includes(req.user.role)) {
+      const ownsByRole =
+        (!existing.assignedToId && existing.recipientRole === req.user.role) ||
+        existing.assignedTo?.role === req.user.role;
+      if (!ownsByRole) {
+        return res.status(403).json({ error: 'This ION is not addressed to your role' });
       }
     }
 

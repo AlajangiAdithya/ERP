@@ -39,7 +39,7 @@ const INSPECTION_INCLUDE = {
 };
 
 // GET /api/qc-inspections — list inspections
-router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER'), async (req, res) => {
+router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'SAFETY'), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -90,7 +90,7 @@ router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STOR
 });
 
 // GET /api/qc-inspections/:id
-router.get('/:id', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER'), async (req, res) => {
+router.get('/:id', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'SAFETY'), async (req, res) => {
   try {
     const inspection = await prisma.qCInspection.findUnique({
       where: { id: req.params.id },

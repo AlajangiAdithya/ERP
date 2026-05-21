@@ -25,7 +25,7 @@ const createSchema = z.object({
 });
 
 // GET /api/inventory-transfers — list (scope: MANAGER sees only their own unit's in/out; ADMIN sees all)
-router.get('/', authenticate, authorize('MANAGER'), async (req, res) => {
+router.get('/', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY'), async (req, res) => {
   try {
     const { status, direction, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -71,7 +71,7 @@ router.get('/', authenticate, authorize('MANAGER'), async (req, res) => {
 });
 
 // GET /api/inventory-transfers/:id
-router.get('/:id', authenticate, authorize('MANAGER'), async (req, res) => {
+router.get('/:id', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY'), async (req, res) => {
   try {
     const t = await prisma.inventoryTransferRequest.findUnique({
       where: { id: req.params.id },
@@ -79,8 +79,8 @@ router.get('/:id', authenticate, authorize('MANAGER'), async (req, res) => {
     });
     if (!t) return res.status(404).json({ error: 'Transfer not found' });
 
-    const isAdmin = req.user.role === 'ADMIN';
-    if (!isAdmin && t.fromUnitId !== req.user.unitId && t.toUnitId !== req.user.unitId) {
+    const isMonitor = req.user.role === 'ADMIN' || req.user.role === 'SAFETY';
+    if (!isMonitor && t.fromUnitId !== req.user.unitId && t.toUnitId !== req.user.unitId) {
       return res.status(403).json({ error: 'Access denied' });
     }
     res.json(t);

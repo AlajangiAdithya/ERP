@@ -885,32 +885,41 @@ function AccountingDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
-  const [paymentRequests, setPaymentRequests] = useState([]);
+  const [actionablePayments, setActionablePayments] = useState([]);
+  const [recentPaid, setRecentPaid] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       const results = await Promise.allSettled([
-        api.get('/payment-requests', { params: { limit: 50 } }),
+        // APPROVED = waiting on Accounting to actually pay
+        api.get('/payment-requests', { params: { status: 'APPROVED', limit: 50 } }),
+        // PENDING = waiting on Admin approval (visibility only)
         api.get('/payment-requests', { params: { status: 'PENDING', limit: 1 } }),
-        api.get('/quotations', { params: { limit: 50 } }),
+        // PAID = already processed
+        api.get('/payment-requests', { params: { status: 'PAID', limit: 10 } }),
       ]);
 
       if (cancelled) return;
 
-      const [payRes, pendingPayRes, quotRes] = results;
-      const payments = payRes.status === 'fulfilled' ? (payRes.value.data.requests || []) : [];
-      setPaymentRequests(payments);
+      const [approvedRes, pendingRes, paidRes] = results;
+      const approved = approvedRes.status === 'fulfilled' ? (approvedRes.value.data.requests || []) : [];
+      const paid = paidRes.status === 'fulfilled' ? (paidRes.value.data.requests || []) : [];
 
-      const pendingTotal = pendingPayRes.status === 'fulfilled'
-        ? (pendingPayRes.value.data.total ?? payments.filter(p => p.status === 'PENDING').length)
-        : payments.filter(p => p.status === 'PENDING').length;
+      const approvedTotal = approvedRes.status === 'fulfilled' ? (approvedRes.value.data.total ?? approved.length) : approved.length;
+      const pendingTotal = pendingRes.status === 'fulfilled' ? (pendingRes.value.data.total ?? 0) : 0;
+      const paidTotal = paidRes.status === 'fulfilled' ? (paidRes.value.data.total ?? paid.length) : paid.length;
 
-      const quotations = quotRes.status === 'fulfilled' ? (quotRes.value.data.quotations || []) : [];
+      const totalAwaitingValue = approved.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      setActionablePayments(approved);
+      setRecentPaid(paid);
       setStats({
-        pendingPayments: pendingTotal,
-        pendingQuotations: quotations.filter(q => !q.isSelected).length,
+        awaitingPayment: approvedTotal,
+        awaitingAdminApproval: pendingTotal,
+        paidCount: paidTotal,
+        awaitingValue: totalAwaitingValue,
       });
       setLoading(false);
     };
@@ -920,11 +929,13 @@ function AccountingDashboard() {
 
   if (loading) return <Loader />;
 
+  const fmtINR = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
   return (
     <div className="space-y-6">
       <DashboardHero
         title={greet(user, 'Accounting')}
-        subtitle="Payments, quotations, and reconciliation"
+        subtitle="Payments awaiting your action, plus reconciliation history"
         actions={
           <>
             <InProgressButton />
@@ -935,21 +946,25 @@ function AccountingDashboard() {
         }
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatsCard title="Pending Payments" value={stats?.pendingPayments || 0} icon={AlertTriangle} color="red" onClick={() => navigate('/payment-requests')} />
-        <StatsCard title="Pending Quotations" value={stats?.pendingQuotations || 0} icon={ClipboardList} color="yellow" onClick={() => navigate('/quotations')} />
-        <StatsCard title="Payment Processed" value={paymentRequests.filter(p => p.status === 'PAID').length} icon={CheckCircle} color="green" onClick={() => navigate('/payment-requests')} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard title="Awaiting Payment" value={stats?.awaitingPayment || 0} icon={AlertTriangle} color="red" onClick={() => navigate('/payment-requests?status=APPROVED')} />
+        <StatsCard title="Total to Pay" value={fmtINR(stats?.awaitingValue)} icon={ShoppingCart} color="yellow" onClick={() => navigate('/payment-requests?status=APPROVED')} />
+        <StatsCard title="Pending Admin Approval" value={stats?.awaitingAdminApproval || 0} icon={ClipboardList} color="blue" onClick={() => navigate('/payment-requests?status=PENDING')} />
+        <StatsCard title="Paid" value={stats?.paidCount || 0} icon={CheckCircle} color="green" onClick={() => navigate('/payment-requests?status=PAID')} />
       </div>
 
-      {/* Pending Payment Requests */}
+      {/* Approved Payments — accounting acts here */}
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700">Pending Payment Requests</h3>
+          <h3 className="text-sm font-semibold text-gray-700">
+            Approved Payments — Ready to Process
+            <span className="ml-2 text-xs font-normal text-gray-500">({actionablePayments.length})</span>
+          </h3>
           <Button variant="secondary" size="sm" onClick={() => navigate('/payment-requests')}>View All</Button>
         </div>
 
-        {paymentRequests.filter(p => p.status === 'PENDING').length === 0 ? (
-          <div className="text-center py-6 text-gray-400">All payments processed ✓</div>
+        {actionablePayments.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">All approved payments processed ✓</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -957,22 +972,24 @@ function AccountingDashboard() {
                 <tr className="border-b">
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Payment #</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Order</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Amount</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Supplier</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Type</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {paymentRequests.filter(p => p.status === 'PENDING').map((p) => (
+                {actionablePayments.map((p) => (
                   <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="px-3 py-2 font-medium text-navy-700">{p.paymentNumber}</td>
-                    <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.orderNumber}</td>
-                    <td className="px-3 py-2 font-medium">₹{Number(p.amount).toLocaleString('en-IN')}</td>
+                    <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.customName || p.purchaseOrder?.orderNumber}</td>
+                    <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.supplierName || '—'}</td>
+                    <td className="px-3 py-2 text-right font-medium">{fmtINR(p.amount)}</td>
                     <td className="px-3 py-2"><Badge color="blue">{p.paymentType}</Badge></td>
-                    <td className="px-3 py-2"><Badge color="yellow">{p.status}</Badge></td>
+                    <td className="px-3 py-2"><Badge color="green">{p.status}</Badge></td>
                     <td className="px-3 py-2">
-                      <Button variant="secondary" size="sm" onClick={() => navigate('/payment-requests')}>Review</Button>
+                      <Button size="sm" onClick={() => navigate('/payment-requests')}>Pay</Button>
                     </td>
                   </tr>
                 ))}
@@ -981,6 +998,39 @@ function AccountingDashboard() {
           </div>
         )}
       </Card>
+
+      {recentPaid.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-700">Recently Paid</h3>
+            <Button variant="secondary" size="sm" onClick={() => navigate('/payment-requests')}>View All</Button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Payment #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Order</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Paid By</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentPaid.map((p) => (
+                  <tr key={p.id} className="border-b border-gray-50">
+                    <td className="px-3 py-2 font-medium text-navy-700">{p.paymentNumber}</td>
+                    <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.customName || p.purchaseOrder?.orderNumber}</td>
+                    <td className="px-3 py-2 text-right">{fmtINR(p.amount)}</td>
+                    <td className="px-3 py-2 text-gray-600">{p.processedBy?.name || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500">{p.processedAt ? formatDateTime(p.processedAt) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

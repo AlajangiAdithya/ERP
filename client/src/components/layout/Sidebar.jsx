@@ -5,31 +5,36 @@ import {
   FileText, BarChart3, Settings, Menu, X,
   ClipboardList, CheckSquare, ScrollText, Bell, History, ShoppingCart,
   FileSearch, Truck, CreditCard, ClipboardCheck, DoorOpen, FlaskConical, ArrowLeftRight,
-  Building2
+  Building2, ShieldCheck, Briefcase
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
-const ALL_ROLES = ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB'];
+const ALL_ROLES = [
+  'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
+  'METEOROLOGY', 'NDT', 'RND', 'SAFETY', 'TENDER_MANAGER',
+];
 
 const getNavItems = (role) => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
     { to: '/products', icon: Package, label: 'Products', roles: ALL_ROLES },
-    { to: '/purchase-requests', icon: ShoppingCart, label: role === 'PURCHASE_OFFICER' ? 'Purchase Assignments' : 'Purchase Requests', roles: ['ADMIN', 'MANAGER', 'ACCOUNTING', 'QC', 'LAB', 'PURCHASE_OFFICER'] },
-    { to: '/quotations', icon: FileSearch, label: 'Quotations', roles: ['PURCHASE_OFFICER', 'ADMIN'] },
-    { to: '/purchase-orders', icon: Truck, label: 'Purchase Orders', roles: ['PURCHASE_OFFICER', 'ADMIN', 'ACCOUNTING', 'STORE_MANAGER', 'QC', 'MANAGER', 'LAB'] },
-    { to: '/payment-requests', icon: CreditCard, label: 'Payment Requests', roles: ['PURCHASE_OFFICER', 'ACCOUNTING', 'ADMIN'] },
-    { to: '/qc-inspections', icon: ClipboardCheck, label: 'QC Inspections', roles: ['QC', 'ADMIN'] },
+    { to: '/purchase-requests', icon: ShoppingCart, label: role === 'PURCHASE_OFFICER' ? 'Purchase Assignments' : 'Purchase Requests', roles: ['ADMIN', 'MANAGER', 'ACCOUNTING', 'QC', 'LAB', 'PURCHASE_OFFICER', 'SAFETY'] },
+    { to: '/quotations', icon: FileSearch, label: 'Quotations', roles: ['PURCHASE_OFFICER', 'ADMIN', 'SAFETY'] },
+    { to: '/purchase-orders', icon: Truck, label: 'Purchase Orders', roles: ['PURCHASE_OFFICER', 'ADMIN', 'ACCOUNTING', 'STORE_MANAGER', 'QC', 'MANAGER', 'LAB', 'SAFETY'] },
+    { to: '/payment-requests', icon: CreditCard, label: 'Payment Requests', roles: ['PURCHASE_OFFICER', 'ACCOUNTING', 'ADMIN', 'SAFETY'] },
+    { to: '/qc-inspections', icon: ClipboardCheck, label: 'QC Inspections', roles: ['QC', 'ADMIN', 'SAFETY'] },
     { to: '/my-requests', icon: ClipboardList, label: 'MIV Requests', roles: ['MANAGER', 'LAB'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
-    { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN'] },
+    { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },
     { to: '/inward-entry', icon: PackagePlus, label: 'Inward Entry', roles: ['ADMIN', 'STORE_MANAGER'] },
-    { to: '/stock-movements', icon: BarChart3, label: 'Stock Movements', roles: ['ADMIN', 'STORE_MANAGER'] },
-    { to: '/gate-pass', icon: DoorOpen, label: 'Gate Pass', roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING'] },
-    { to: '/inventory-transfers', icon: ArrowLeftRight, label: 'Inventory Transfers', roles: ['MANAGER'] },
-    { to: '/ion', icon: FlaskConical, label: 'Inter Office Note', roles: ['MANAGER', 'LAB'] },
-    { to: '/unit-usage', icon: History, label: 'Unit Usage Logs', roles: ['ADMIN'] },
-    { to: '/audit-logs', icon: FileText, label: 'Audit Logs', roles: ['ADMIN'] },
+    { to: '/stock-movements', icon: BarChart3, label: 'Stock Movements', roles: ['ADMIN', 'STORE_MANAGER', 'SAFETY'] },
+    { to: '/gate-pass', icon: DoorOpen, label: 'Gate Pass', roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'SAFETY'] },
+    { to: '/inventory-transfers', icon: ArrowLeftRight, label: 'Inventory Transfers', roles: ['MANAGER', 'SAFETY'] },
+    { to: '/ion', icon: FlaskConical, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METEOROLOGY', 'NDT', 'RND', 'SAFETY'] },
+    { to: '/tenders', icon: Briefcase, label: 'Tenders', roles: ['TENDER_MANAGER', 'ADMIN', 'MANAGER', 'SAFETY'] },
+    { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY', 'ADMIN'] },
+    { to: '/unit-usage', icon: History, label: 'Unit Usage Logs', roles: ['ADMIN', 'SAFETY'] },
+    { to: '/audit-logs', icon: FileText, label: 'Audit Logs', roles: ['ADMIN', 'SAFETY'] },
     { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
     { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
     { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },

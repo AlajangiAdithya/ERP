@@ -50,6 +50,7 @@ const DOC_NUMBER_MAP = {
   QC:  { model: 'qCInspection',             field: 'inspectionNumber' },
   PAY: { model: 'paymentRequest',           field: 'paymentNumber' },
   TRF: { model: 'inventoryTransferRequest', field: 'transferNumber' },
+  TND: { model: 'tender',                   field: 'tenderNumber' },
 };
 
 const formatDDMMYY = (date = new Date()) => {
