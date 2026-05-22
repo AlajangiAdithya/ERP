@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Truck, CreditCard, CheckCircle, Eye, PackagePlus,
-  ChevronRight, ChevronDown, Phone, Building2, FileText, Package, Layers,
+  ChevronRight, ChevronDown, Phone, Building2, FileText, Package, Layers, Clock,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -15,11 +15,13 @@ import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
 import POPdf from '../components/pdf/POPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import DownloadWordButton from '../components/pdf/DownloadWordButton';
+import { buildPOWordHtml } from '../components/pdf/POWordHtml';
 
 const formatCurrency = (amt) => `₹${Number(amt || 0).toLocaleString('en-IN')}`;
 
 const statusColor = (s) => ({
-  PENDING_ACCOUNTING: 'yellow',
+  PENDING_ACCOUNTING: 'amber',
   ORDERED: 'blue',
   PLACED: 'blue',
   ADVANCE_PAID: 'navy',
@@ -29,6 +31,7 @@ const statusColor = (s) => ({
   QC_PENDING: 'yellow',
   QC_PASSED: 'green',
   QC_FAILED: 'red',
+  PARTIAL: 'amber',
   INWARD_DONE: 'green',
   COMPLETED: 'green',
 }[s] || 'gray');
@@ -44,6 +47,7 @@ const statusLabel = (s) => ({
   QC_PENDING: 'QC Pending',
   QC_PASSED: 'QC Passed',
   QC_FAILED: 'QC Failed',
+  PARTIAL: 'Partially Received',
   INWARD_DONE: 'Inward Done',
   COMPLETED: 'Completed',
 }[s] || s);
@@ -84,6 +88,252 @@ function ProgressBar({ value, total, label, compact = false }) {
   );
 }
 
+// ─── Inward Inspection Request Form (RAPS/IIR Rev 01, page 1) ───
+function IIRForm({ order, iir, setIir, processing, onCancel, onSubmit }) {
+  const prNumber = order.purchaseRequest?.requestNumber
+    || (order.sourceRequests || []).map(s => s.purchaseRequest?.requestNumber).filter(Boolean).join(', ')
+    || '—';
+  const prDate = order.purchaseRequest?.createdAt
+    ? new Date(order.purchaseRequest.createdAt).toLocaleDateString('en-IN')
+    : '—';
+  const poDate = order.createdAt
+    ? new Date(order.createdAt).toLocaleDateString('en-IN')
+    : '—';
+
+  const prItemsById = new Map(
+    (order.purchaseRequest?.items || []).map(it => [it.id, it])
+  );
+  const materialDescription = (order.items || [])
+    .map(i => {
+      const prItem = prItemsById.get(i.purchaseRequestItemId);
+      const spec = prItem?.materialSpecification ? ` (${prItem.materialSpecification})` : '';
+      return `${i.productName}${spec}`;
+    })
+    .join('; ') || '—';
+  const totalQty = (order.items || []).reduce((s, i) => s + (i.quantity || 0), 0);
+  const qtyText = (order.items || [])
+    .map(i => `${i.quantity} ${i.productUnit || ''}`)
+    .join(', ');
+  const scopeOfWork = order.customName || materialDescription;
+
+  const supplierLine = [order.supplierName, order.quotation?.supplierContact, order.quotation?.supplierAddress]
+    .filter(Boolean)
+    .join(' · ');
+  const budgetaryQuote = order.quotation
+    ? `Quotation ${order.quotation.quotationNumber} — ₹${Number(order.quotation.totalAmount || 0).toLocaleString('en-IN')}`
+    : '—';
+
+  const Row = ({ sno, label, children, sectionFirst }) => (
+    <tr className={sectionFirst ? 'border-t-2 border-gray-300' : ''}>
+      <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium w-12 text-center align-top">{sno}</td>
+      <td className="border border-gray-300 px-2 py-1.5 text-xs w-1/3 align-top">{label}</td>
+      <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">{children}</td>
+    </tr>
+  );
+
+  const SectionHeader = ({ children }) => (
+    <tr>
+      <td colSpan={3} className="border border-gray-300 px-2 py-1.5 text-xs font-bold text-center bg-gray-100 uppercase tracking-wide">
+        {children}
+      </td>
+    </tr>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Letterhead-style header */}
+      <div className="border border-gray-400 rounded-md overflow-hidden">
+        <div className="grid grid-cols-3 bg-gray-50">
+          <div className="p-3 border-r border-gray-400 flex items-center justify-center">
+            <span className="font-bold text-lg text-navy-700">RAPS</span>
+          </div>
+          <div className="p-3 border-r border-gray-400 flex items-center justify-center text-center">
+            <div>
+              <div className="text-sm font-bold">INWARD INSPECTION</div>
+              <div className="text-sm font-bold">REQUEST FORM</div>
+            </div>
+          </div>
+          <div className="p-3 text-xs">
+            <div><span className="font-medium">Form no.:</span> RAPS/IIR Rev 01</div>
+            <div><span className="font-medium">Dt:</span> 01/09/2024</div>
+          </div>
+        </div>
+        <div className="px-3 py-1.5 text-xs border-t border-gray-400 bg-white">
+          <span className="font-medium">Inspection ION No. &amp; Date:</span>{' '}
+          <span className="text-gray-500">(auto-generated on submission — {new Date().toLocaleDateString('en-IN')})</span>
+        </div>
+      </div>
+
+      {/* The 16-row form */}
+      <div className="overflow-x-auto">
+        <table className="w-full border border-gray-300 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="border border-gray-300 px-2 py-1.5 text-xs w-12">S.no</th>
+              <th className="border border-gray-300 px-2 py-1.5 text-xs">Details (To be filled by Purchase &amp; stores)</th>
+              <th className="border border-gray-300 px-2 py-1.5 text-xs">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            <SectionHeader>Purchase Requisition details</SectionHeader>
+            <Row sno="01" label="Purchase requisition no. & Date">
+              <span className="font-medium">{prNumber}</span>
+              <span className="text-gray-500"> · {prDate}</span>
+            </Row>
+            <Row sno="02" label="Material description and Specification">
+              {materialDescription}
+            </Row>
+            <Row sno="03" label="Quantity as per PR">
+              {qtyText || `${totalQty}`}
+            </Row>
+
+            <SectionHeader>Enquiry &amp; Budgetary quote details</SectionHeader>
+            <Row sno="04" label="Supplier details">
+              {supplierLine || order.supplierName || '—'}
+            </Row>
+            <Row sno="05" label="Budgetary quote details">
+              {budgetaryQuote}
+            </Row>
+            <Row sno="06" label="Supplier Assessment form">
+              <span className="text-gray-500 italic">On file with Purchase team</span>
+            </Row>
+
+            <SectionHeader>Purchase order details</SectionHeader>
+            <Row sno="07" label="Purchase order no. & date">
+              <span className="font-medium">{order.orderNumber}</span>
+              <span className="text-gray-500"> · {poDate}</span>
+            </Row>
+            <Row sno="08" label="Quantity ordered">
+              {qtyText || `${totalQty}`}
+            </Row>
+            <Row sno="09" label="Delivery Required by">
+              <span className="text-gray-500 italic">As per PO terms (mutually agreed)</span>
+            </Row>
+            <Row sno="10" label="Scope of Work as per PO">
+              {scopeOfWork}
+            </Row>
+
+            <SectionHeader>Invoice &amp; DC Details</SectionHeader>
+            <tr>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">11</td>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">Invoice no. &amp; date <span className="text-red-600">*</span></td>
+              <td className="border border-gray-300 px-2 py-1.5 align-top">
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={iir.invoiceNo}
+                    onChange={(e) => setIir({ ...iir, invoiceNo: e.target.value })}
+                    placeholder="Invoice no."
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                  <input
+                    type="date"
+                    value={iir.invoiceDate}
+                    onChange={(e) => setIir({ ...iir, invoiceDate: e.target.value })}
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">12</td>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">DC no. if any</td>
+              <td className="border border-gray-300 px-2 py-1.5 align-top">
+                <input
+                  type="text"
+                  value={iir.dcNo}
+                  onChange={(e) => setIir({ ...iir, dcNo: e.target.value })}
+                  placeholder="Delivery challan no."
+                  className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                />
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">13</td>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">Gate pass no. (FIM/others)</td>
+              <td className="border border-gray-300 px-2 py-1.5 align-top">
+                <input
+                  type="text"
+                  value={iir.gatePassNo}
+                  onChange={(e) => setIir({ ...iir, gatePassNo: e.target.value })}
+                  placeholder="Gate pass no."
+                  className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                />
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">14</td>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">Gate pass type</td>
+              <td className="border border-gray-300 px-2 py-1.5 align-top">
+                <select
+                  value={iir.gatePassType}
+                  onChange={(e) => setIir({ ...iir, gatePassType: e.target.value })}
+                  className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                >
+                  <option value="">— select —</option>
+                  <option value="FIM">FIM</option>
+                  <option value="OTHERS">Others</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">15</td>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">Probable date of Return</td>
+              <td className="border border-gray-300 px-2 py-1.5 align-top">
+                <input
+                  type="date"
+                  value={iir.probableDateOfReturn}
+                  onChange={(e) => setIir({ ...iir, probableDateOfReturn: e.target.value })}
+                  className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                />
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">16</td>
+              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">Material receipt date @RAPS, Store <span className="text-red-600">*</span></td>
+              <td className="border border-gray-300 px-2 py-1.5 align-top">
+                <input
+                  type="date"
+                  value={iir.materialReceiptDate}
+                  onChange={(e) => setIir({ ...iir, materialReceiptDate: e.target.value })}
+                  className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Footer text */}
+      <div className="border border-gray-300 rounded p-2 text-xs bg-gray-50">
+        <span className="font-medium">Requesting QA/QC Group</span> to inspect the particulars mentioned above and inspect the material as per Material specification / Scope of PO.
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <div className="border border-gray-300 rounded p-3 min-h-[60px]">
+          <div className="font-medium text-gray-700">Stores / Purchase / Indenter</div>
+          <div className="text-gray-500 mt-1 italic">Signed digitally on submission</div>
+        </div>
+        <div className="border border-gray-300 rounded p-3 min-h-[60px]">
+          <div className="font-medium text-gray-700">Quality group</div>
+          <div className="text-gray-500 mt-1 italic">Filled by QC on the Inspection Report (page 2)</div>
+        </div>
+      </div>
+
+      <p className="text-[11px] text-gray-500">
+        Submitting this form auto-creates a QC Inspection Request and notifies the QC team. Page 2 (Inspection Report) is filled by QC.
+      </p>
+
+      <div className="flex justify-end gap-2 pt-2 border-t">
+        <Button variant="secondary" onClick={onCancel} disabled={processing}>Cancel</Button>
+        <Button onClick={onSubmit} disabled={processing}>
+          {processing ? 'Submitting...' : 'Submit & Notify QC'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Order Detail Modal ───
 function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [showPaymentForm, setShowPaymentForm] = useState(false);
@@ -96,6 +346,16 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [inwardItems, setInwardItems] = useState([]);
   const [prQuotations, setPrQuotations] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showIirForm, setShowIirForm] = useState(false);
+  const [iir, setIir] = useState({
+    invoiceNo: '',
+    invoiceDate: '',
+    dcNo: '',
+    gatePassNo: '',
+    gatePassType: '',
+    probableDateOfReturn: '',
+    materialReceiptDate: '',
+  });
 
   const isPO = userRole === 'PURCHASE_OFFICER';
   const isSM = userRole === 'STORE_MANAGER' || userRole === 'ADMIN';
@@ -181,11 +441,36 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     }
   };
 
-  const markGoodsArrived = async () => {
-    if (!confirm('Mark goods as arrived?')) return;
+  const openIirForm = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    setIir({
+      invoiceNo: '',
+      invoiceDate: today,
+      dcNo: '',
+      gatePassNo: '',
+      gatePassType: '',
+      probableDateOfReturn: '',
+      materialReceiptDate: today,
+    });
+    setShowIirForm(true);
+  };
+
+  const submitIir = async () => {
+    if (!iir.invoiceNo.trim()) return alert('Invoice no. is required.');
+    if (!iir.invoiceDate) return alert('Invoice date is required.');
+    if (!iir.materialReceiptDate) return alert('Material receipt date is required.');
     setProcessing(true);
     try {
-      await api.put(`/purchase-orders/${order.id}/goods-arrived`);
+      await api.put(`/purchase-orders/${order.id}/goods-arrived`, {
+        invoiceNo: iir.invoiceNo.trim(),
+        invoiceDate: iir.invoiceDate,
+        dcNo: iir.dcNo.trim() || undefined,
+        gatePassNo: iir.gatePassNo.trim() || undefined,
+        gatePassType: iir.gatePassType || undefined,
+        probableDateOfReturn: iir.probableDateOfReturn || undefined,
+        materialReceiptDate: iir.materialReceiptDate,
+      });
+      setShowIirForm(false);
       onClose();
       onUpdated();
     } catch (err) {
@@ -235,6 +520,19 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
           <div className="text-xs uppercase tracking-wide text-navy-600 font-medium">Order Name (set by unit manager on the PR)</div>
           <div className="text-xl font-bold text-navy-700">{order.customName}</div>
         </div>
+
+        {/* Awaiting Accounting banner — visible to everyone viewing the order */}
+        {isPendingAccounting && (
+          <div className="bg-amber-50 border-l-4 border-amber-500 rounded-md p-3 flex items-start gap-2">
+            <Clock size={18} className="text-amber-700 mt-0.5 shrink-0" />
+            <div>
+              <div className="text-sm font-bold text-amber-900">Awaiting Accounting</div>
+              <div className="text-xs text-amber-800">
+                Work is currently stopped at the Accounts team. The order will move forward once accounting processes the payment.
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Header Info */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm bg-gray-50 rounded-md p-4">
@@ -397,22 +695,66 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                   <th className="px-2 py-1 text-left text-gray-600">Supplier</th>
                   <th className="px-2 py-1 text-left text-gray-600">Contact</th>
                   <th className="px-2 py-1 text-left text-gray-600">Total</th>
-                  <th className="px-2 py-1 text-left text-gray-600">Selected?</th>
+                  <th className="px-2 py-1 text-left text-gray-600">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {prQuotations.map(q => (
-                  <tr key={q.id} className="border-b border-gray-100 last:border-0">
-                    <td className="px-2 py-1 font-medium">{q.supplierName || '—'}</td>
-                    <td className="px-2 py-1 text-gray-600">{q.supplierContact || '—'}</td>
-                    <td className="px-2 py-1">{formatCurrency(q.totalAmount)}</td>
-                    <td className="px-2 py-1">
-                      {q.isSelected ? <Badge color="green">Selected</Badge> : <Badge color="gray">No</Badge>}
-                    </td>
-                  </tr>
-                ))}
+                {prQuotations.map(q => {
+                  // Build a unique supplier list from the quotation header + its items
+                  const supplierMap = new Map();
+                  if (q.supplierName) {
+                    supplierMap.set(q.supplierName.trim().toLowerCase(), {
+                      name: q.supplierName,
+                      contact: q.supplierContact || '',
+                    });
+                  }
+                  (q.items || []).forEach(it => {
+                    if (!it.supplierName) return;
+                    const key = it.supplierName.trim().toLowerCase();
+                    const existing = supplierMap.get(key);
+                    if (!existing) {
+                      supplierMap.set(key, {
+                        name: it.supplierName,
+                        contact: it.supplierContact || '',
+                      });
+                    } else if (!existing.contact && it.supplierContact) {
+                      existing.contact = it.supplierContact;
+                    }
+                  });
+                  const suppliers = Array.from(supplierMap.values());
+                  const supplierNames = suppliers.map(s => s.name).join(', ') || '—';
+                  const supplierContacts = suppliers
+                    .map(s => s.contact)
+                    .filter(Boolean)
+                    .join(', ') || '—';
+                  return (
+                    <tr
+                      key={q.id}
+                      className={`border-b border-gray-100 last:border-0 ${
+                        q.isSelected ? 'bg-green-50 ring-1 ring-inset ring-green-300' : ''
+                      }`}
+                    >
+                      <td className="px-2 py-1 font-medium">
+                        {q.isSelected && <span className="mr-1 text-green-700">✓</span>}
+                        {supplierNames}
+                      </td>
+                      <td className="px-2 py-1 text-gray-600">{supplierContacts}</td>
+                      <td className={`px-2 py-1 ${q.isSelected ? 'font-bold text-green-800' : ''}`}>
+                        {formatCurrency(q.totalAmount)}
+                      </td>
+                      <td className="px-2 py-1">
+                        {q.isSelected
+                          ? <Badge color="green">Approved / Selected</Badge>
+                          : <Badge color="gray">Not selected</Badge>}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+            <p className="mt-2 text-[11px] text-gray-500">
+              The highlighted row is the quotation that was approved and converted into this purchase order.
+            </p>
           </div>
         )}
         {loadingHistory && <p className="text-xs text-gray-400">Loading supplier history…</p>}
@@ -468,6 +810,12 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-3 pt-2 border-t items-center">
           <DownloadPdfButton document={<POPdf order={order} />} fileName={`PO-${order.orderNumber}.pdf`} label="Download PO PDF" />
+          <DownloadWordButton
+            html={buildPOWordHtml(order)}
+            fileName={`PO-${order.orderNumber}`}
+            title={`Purchase Order ${order.orderNumber}`}
+            label="Download PO Word"
+          />
 
           {isPO && isPendingAccounting && (
             <>
@@ -571,8 +919,8 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             </>
           )}
 
-          {isPO && ['ORDERED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID'].includes(order.status) && (
-            <Button onClick={markGoodsArrived} disabled={processing}>
+          {isPO && ['ORDERED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'PARTIAL'].includes(order.status) && (
+            <Button onClick={openIirForm} disabled={processing}>
               <Truck size={16} className="mr-1" />
               {order.items?.some(i => (i.receivedQty || 0) > 0) ? 'Mark More Goods Arrived' : 'Mark Goods Arrived'}
             </Button>
@@ -585,6 +933,19 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
           )}
         </div>
       </div>
+
+      {showIirForm && (
+        <Modal isOpen onClose={() => setShowIirForm(false)} title={`Inward Inspection Request Form — ${order.orderNumber}`} size="xl">
+          <IIRForm
+            order={order}
+            iir={iir}
+            setIir={setIir}
+            processing={processing}
+            onCancel={() => setShowIirForm(false)}
+            onSubmit={submitIir}
+          />
+        </Modal>
+      )}
     </Modal>
   );
 }
@@ -640,16 +1001,25 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
                     <Badge color={statusColor(o.status)}>{statusLabel(o.status)}</Badge>
                   </div>
                   <div className="mt-2 space-y-1">
-                    {(o.items || []).map(it => (
-                      <div key={it.id} className="flex items-center gap-2 text-xs text-gray-700">
-                        <Package size={11} className="text-gray-400" />
-                        <span className="font-medium">{it.productName}</span>
-                        <span className="text-gray-500">× {it.quantity} {it.productUnit}</span>
-                        <Badge color={itemStatusColor(it.itemStatus || 'WAITING')}>
-                          {itemStatusLabel(it.itemStatus || 'WAITING')}
-                        </Badge>
-                      </div>
-                    ))}
+                    {(o.items || []).map(it => {
+                      const recv = it.receivedQty || 0;
+                      const full = recv >= it.quantity && it.quantity > 0;
+                      return (
+                        <div key={it.id} className="flex items-center gap-2 text-xs text-gray-700">
+                          <Package size={11} className="text-gray-400" />
+                          <span className="font-medium">{it.productName}</span>
+                          <span className="text-gray-500">× {it.quantity} {it.productUnit}</span>
+                          <Badge color={itemStatusColor(it.itemStatus || 'WAITING')}>
+                            {itemStatusLabel(it.itemStatus || 'WAITING')}
+                          </Badge>
+                          {recv > 0 && (
+                            <span className={`text-[11px] font-medium ${full ? 'text-green-700' : 'text-amber-700'}`}>
+                              {full ? 'Closed' : `Received ${recv}/${it.quantity}`}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="text-right shrink-0">

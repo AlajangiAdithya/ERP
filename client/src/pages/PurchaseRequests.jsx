@@ -574,6 +574,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
                   <>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purchased</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Received</th>
                   </>
                 )}
               </tr>
@@ -581,6 +582,21 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
             <tbody>
               {request.items?.map((item, idx) => {
                 const approvedQty = item.adminApprovedQty || 0;
+                // Sum what actually reached stores across all linked POs (direct + union allocations)
+                const allPoItems = [
+                  ...(request.purchaseOrders || []).flatMap(o => o.items || []),
+                  ...(request.purchaseOrderSources || []).flatMap(s => s.purchaseOrder?.items || []),
+                ];
+                const directReceived = allPoItems
+                  .filter(pi => pi.purchaseRequestItemId === item.id)
+                  .reduce((s, pi) => s + (pi.receivedQty || 0), 0);
+                const allocReceived = allPoItems
+                  .flatMap(pi => pi.allocations || [])
+                  .filter(a => a.purchaseRequestItemId === item.id)
+                  .reduce((s, a) => s + (a.receivedQty || 0), 0);
+                const receivedQty = directReceived + allocReceived;
+                const target = item.purchasedQty || approvedQty || item.requestedQty;
+                const fullyReceived = target > 0 && receivedQty >= target;
                 return (
                   <tr key={item.id} className="border-b border-gray-50">
                     <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
@@ -603,6 +619,12 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
                       <>
                         <td className="px-3 py-2 text-gray-600">{approvedQty} {item.productUnit}</td>
                         <td className="px-3 py-2 text-gray-600">{item.purchasedQty} {item.productUnit}</td>
+                        <td className={`px-3 py-2 ${fullyReceived ? 'text-green-700 font-medium' : receivedQty > 0 ? 'text-amber-700' : 'text-gray-500'}`}>
+                          {receivedQty} {item.productUnit}
+                          {target > 0 && (
+                            <span className="ml-1 text-xs text-gray-400">/ {target}</span>
+                          )}
+                        </td>
                       </>
                     )}
                   </tr>

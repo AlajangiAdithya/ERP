@@ -481,6 +481,7 @@ enum PurchaseOrderStatus {
   QC_PENDING
   QC_PASSED
   QC_FAILED
+  PARTIAL
   INWARD_DONE
   COMPLETED
 }
