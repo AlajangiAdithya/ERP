@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ClipboardCheck, CheckCircle, XCircle, Plus, Eye, FileCheck, X, Paperclip, Upload, AlertCircle, RotateCcw, Download } from 'lucide-react';
+import { ClipboardCheck, CheckCircle, XCircle, Plus, Eye, FileCheck, X, Paperclip, Upload, AlertCircle, RotateCcw, Download, FileText } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { useAutoRefresh } from '../context/NotificationContext';
@@ -96,6 +96,68 @@ function OrderInfoHeader({ order }) {
   );
 }
 
+// Static annexure published with the PO that QC and PR originators always need to see.
+const ANNEXURE_URL = '/po-terms-and-conditions.pdf';
+
+// ─── Shared: 3 reference documents available to everyone on the PR chain (PR specs, PO PDF, Annexure) ───
+function InspectionDocsPanel({ order, inspection }) {
+  const pr = order?.purchaseRequest;
+  const prSpecsUrl = pr?.materialSpecsPdfUrl;
+  const poDocumentUrl = inspection?.poDocumentUrl;
+
+  const DocLink = ({ href, label, hint, missingHint }) => {
+    if (!href) {
+      return (
+        <div className="flex items-start gap-2 px-3 py-2 rounded border border-dashed border-gray-300 bg-gray-50 text-xs text-gray-500">
+          <FileText size={14} className="mt-0.5 text-gray-400" />
+          <div>
+            <div className="font-medium text-gray-600">{label}</div>
+            <div>{missingHint}</div>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <a href={href} target="_blank" rel="noreferrer"
+        className="flex items-start gap-2 px-3 py-2 rounded border border-blue-200 bg-blue-50 text-xs text-blue-800 hover:bg-blue-100 transition">
+        <FileText size={14} className="mt-0.5 text-blue-600" />
+        <div>
+          <div className="font-semibold">{label}</div>
+          <div className="text-blue-700">{hint}</div>
+        </div>
+      </a>
+    );
+  };
+
+  return (
+    <div className="border border-gray-300 rounded-md overflow-hidden">
+      <div className="bg-gray-100 px-3 py-1.5 border-b border-gray-300 text-xs font-bold text-gray-700">
+        Reference Documents — visible to everyone on this PR chain
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 p-3">
+        <DocLink
+          href={prSpecsUrl}
+          label={`PR ${pr?.requestNumber || ''}`.trim()}
+          hint={pr?.requestId ? `${pr.requestId} • Material specs` : 'Material specifications'}
+          missingHint={pr ? 'No specs PDF was attached to this PR.' : 'No PR linked to this PO.'}
+        />
+        <DocLink
+          href={poDocumentUrl}
+          label="Purchase Order (signed)"
+          hint="Uploaded by Purchase Officer when sending QC request"
+          missingHint="PO has not uploaded the signed PO PDF yet."
+        />
+        <DocLink
+          href={ANNEXURE_URL}
+          label="PO Terms & Conditions (Annexure)"
+          hint="Standard annexure attached to every PO"
+          missingHint="—"
+        />
+      </div>
+    </div>
+  );
+}
+
 // ─── PO / SM: Create Inspection Request (Page 1) ───
 function CreateRequestModal({ order, onClose, onCreated }) {
   const [invoiceNo, setInvoiceNo] = useState('');
@@ -109,6 +171,7 @@ function CreateRequestModal({ order, onClose, onCreated }) {
   const [docRequirement, setDocRequirement] = useState('NONE');
   const [docRequirementNote, setDocRequirementNote] = useState('');
   const [incomingDocs, setIncomingDocs] = useState([]);
+  const [poDocument, setPoDocument] = useState(null);
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
@@ -121,6 +184,7 @@ function CreateRequestModal({ order, onClose, onCreated }) {
       setDocRequirement('NONE');
       setDocRequirementNote('');
       setIncomingDocs([]);
+      setPoDocument(null);
     }
   }, [order]);
 
@@ -132,28 +196,35 @@ function CreateRequestModal({ order, onClose, onCreated }) {
     if (['COA', 'COC', 'ANY_REPORTS'].includes(docRequirement) && !docRequirementNote.trim()) {
       return alert('Please describe which documents/reports QC should expect.');
     }
+    if (!poDocument) {
+      const proceed = confirm('No signed PO PDF attached. QC needs the signed PO to inspect — continue anyway?');
+      if (!proceed) return;
+    }
     setProcessing(true);
     try {
-      const { data: created } = await api.post('/qc-inspections', {
+      // Use multipart so the signed PO PDF rides along with the request.
+      const fd = new FormData();
+      const stringFields = {
         purchaseOrderId: order.id,
-        invoiceNo: invoiceNo || undefined,
-        invoiceDate: invoiceDate || undefined,
-        dcNo: dcNo || undefined,
-        gatePassNo: gatePassNo || undefined,
-        gatePassType: gatePassType || undefined,
-        probableDateOfReturn: probableDateOfReturn || undefined,
-        materialReceiptDate: materialReceiptDate || undefined,
-        notes: notes || undefined,
-        docRequirement,
-        docRequirementNote: docRequirementNote || undefined,
+        invoiceNo, invoiceDate, dcNo, gatePassNo, gatePassType,
+        probableDateOfReturn, materialReceiptDate, notes,
+        docRequirement, docRequirementNote,
+      };
+      for (const [k, v] of Object.entries(stringFields)) {
+        if (v !== undefined && v !== null && v !== '') fd.append(k, v);
+      }
+      if (poDocument) fd.append('poDocument', poDocument);
+
+      const { data: created } = await api.post('/qc-inspections', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
 
       // If PO attached incoming docs at request time, upload them straight away.
       if (incomingDocs.length > 0 && created?.id) {
-        const fd = new FormData();
-        for (const f of incomingDocs) fd.append('docs', f);
+        const docsFd = new FormData();
+        for (const f of incomingDocs) docsFd.append('docs', f);
         try {
-          await api.put(`/qc-inspections/${created.id}/upload-docs`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+          await api.put(`/qc-inspections/${created.id}/upload-docs`, docsFd, { headers: { 'Content-Type': 'multipart/form-data' } });
         } catch (err) {
           alert(`Inspection request created but document upload failed: ${err.response?.data?.error || err.message}`);
         }
@@ -179,6 +250,24 @@ function CreateRequestModal({ order, onClose, onCreated }) {
         </div>
 
         <OrderInfoHeader order={order} />
+
+        <InspectionDocsPanel order={order} inspection={null} />
+
+        {/* Signed PO PDF — what QC will actually open instead of the auto-generated PO. */}
+        <div className="border border-navy-200 bg-navy-50/40 rounded-md p-3 space-y-2">
+          <label className="block text-xs font-semibold text-navy-900 flex items-center gap-1">
+            <Paperclip size={12} /> Attach Signed Purchase Order PDF *
+          </label>
+          <p className="text-xs text-gray-600">
+            Upload the signed/issued PO. QC will see this in place of the auto-generated PO when filling the report.
+          </p>
+          <input type="file" accept="application/pdf"
+            onChange={(e) => setPoDocument(e.target.files?.[0] || null)}
+            className="block w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-navy-100 file:text-navy-900 hover:file:bg-navy-200" />
+          {poDocument && (
+            <div className="text-xs text-gray-600">Selected: <span className="font-medium">{poDocument.name}</span></div>
+          )}
+        </div>
 
         <div>
           <h4 className="text-sm font-semibold text-gray-700 mb-2">Invoice / DC / Gate Pass Details</h4>
@@ -456,6 +545,8 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
         </div>
 
         <OrderInfoHeader order={order} />
+
+        <InspectionDocsPanel order={order} inspection={inspection} />
 
         {/* Page 1 request details (read-only) */}
         <div className="border border-gray-300 rounded-md overflow-hidden">
@@ -822,6 +913,8 @@ function HoldActionModal({ inspection, onClose, onActioned }) {
 
         <OrderInfoHeader order={order} />
 
+        <InspectionDocsPanel order={order} inspection={inspection} />
+
         {inspection.docRequirement && inspection.docRequirement !== 'NONE' && (
           <div className="border border-amber-200 bg-amber-50 rounded-md p-3 text-xs">
             <div className="font-semibold text-amber-900">QC Expected: {inspection.docRequirement.replace('_', ' ')}</div>
@@ -930,6 +1023,8 @@ function ViewInspectionModal({ inspection, onClose }) {
         )}
 
         <OrderInfoHeader order={order} />
+
+        <InspectionDocsPanel order={order} inspection={inspection} />
 
         {/* Page 1 — Request */}
         <div className="border border-gray-300 rounded-md overflow-hidden">

@@ -108,9 +108,9 @@ export default function App() {
                 <PrivateRoute allowedRoles={['PURCHASE_OFFICER', 'ACCOUNTING', 'ADMIN', 'SAFETY']}><PaymentRequests /></PrivateRoute>
               } />
 
-              {/* QC Inspections */}
+              {/* QC Inspections — PR originators (MANAGER, LAB) see inspections tied to their PRs */}
               <Route path="/qc-inspections" element={
-                <PrivateRoute allowedRoles={['QC', 'ADMIN', 'SAFETY']}><QCInspections /></PrivateRoute>
+                <PrivateRoute allowedRoles={['QC', 'ADMIN', 'SAFETY', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'MANAGER', 'LAB']}><QCInspections /></PrivateRoute>
               } />
 
               {/* Store Manager + Admin */}

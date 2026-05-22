@@ -553,6 +553,7 @@ model QCInspection {
   docRequirement       String? // COA / COC / ANY_REPORTS chosen at inspection request
   docRequirementNote   String? // Free text note alongside docRequirement
   uploadedDocs         Json? // Array of {filename, url, uploadedById, uploadedAt} from PO
+  poDocumentUrl        String? // Signed/scanned PO PDF uploaded by Purchase Officer when sending QC request
   pendingReason        String? // Reason QC marked Pending; bounces back to PO
   iteration            Int       @default(1) // Increment each re-review cycle
   inspectionLocation   String? // Dimensional Inspection at Supplier Place / at RAPS Inward

@@ -4,7 +4,7 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
-const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
+const { qcDocsUpload, poDocumentUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -12,6 +12,14 @@ const router = express.Router();
 function acceptQcDocs(req, res, next) {
   qcDocsUpload.array('docs', 10)(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message || 'Document upload failed' });
+    next();
+  });
+}
+
+// Accept a single signed PO PDF attached to the QC request.
+function acceptPoDocument(req, res, next) {
+  poDocumentUpload.single('poDocument')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'PO document upload failed' });
     next();
   });
 }
@@ -38,8 +46,10 @@ const INSPECTION_INCLUDE = {
   },
 };
 
-// GET /api/qc-inspections — list inspections
-router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'SAFETY'), async (req, res) => {
+// GET /api/qc-inspections — list inspections.
+// Once an inspection report is filled, everyone in the originating PR chain (PR manager and
+// requester roles MANAGER/LAB/SAFETY) can see it scoped to PRs they raised.
+router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'SAFETY', 'MANAGER', 'LAB'), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -47,6 +57,13 @@ router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STOR
     const where = {};
     applyDateFilter(where, { fromDate, toDate });
     if (status) where.result = status;
+
+    // PR originators (MANAGER/LAB/SAFETY) only see inspections tied to PRs they raised.
+    // Privileged roles (QC, ADMIN, PURCHASE_OFFICER, STORE_MANAGER) see everything.
+    const originatorRoles = ['MANAGER', 'LAB', 'SAFETY'];
+    if (originatorRoles.includes(req.user.role)) {
+      where.purchaseOrder = { purchaseRequest: { managerId: req.user.id } };
+    }
 
     const [inspections, total] = await Promise.all([
       prisma.qCInspection.findMany({
@@ -59,23 +76,26 @@ router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STOR
       prisma.qCInspection.count({ where }),
     ]);
 
-    // Orders awaiting inspection — includes repeat deliveries (partial delivery support)
-    const pendingOrders = await prisma.purchaseOrder.findMany({
-      where: {
-        status: 'GOODS_ARRIVED',
-      },
-      include: {
-        items: true,
-        purchaseRequest: {
-          select: {
-            requestNumber: true,
-            manager: { select: { name: true } },
-            unit: { select: { name: true } },
+    // Orders awaiting inspection — includes repeat deliveries (partial delivery support).
+    // PR originators don't need this section (they can't act on it), so skip the query for them.
+    const pendingOrders = originatorRoles.includes(req.user.role)
+      ? []
+      : await prisma.purchaseOrder.findMany({
+          where: {
+            status: 'GOODS_ARRIVED',
           },
-        },
-      },
-      orderBy: { goodsArrivedAt: 'desc' },
-    });
+          include: {
+            items: true,
+            purchaseRequest: {
+              select: {
+                requestNumber: true,
+                manager: { select: { name: true } },
+                unit: { select: { name: true } },
+              },
+            },
+          },
+          orderBy: { goodsArrivedAt: 'desc' },
+        });
 
     res.json({
       inspections, total,
@@ -90,7 +110,7 @@ router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STOR
 });
 
 // GET /api/qc-inspections/:id
-router.get('/:id', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'SAFETY'), async (req, res) => {
+router.get('/:id', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'SAFETY', 'MANAGER', 'LAB'), async (req, res) => {
   try {
     const inspection = await prisma.qCInspection.findUnique({
       where: { id: req.params.id },
@@ -98,6 +118,16 @@ router.get('/:id', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'S
     });
 
     if (!inspection) return res.status(404).json({ error: 'Inspection not found' });
+
+    // Originator roles can only view inspections tied to PRs they raised.
+    const originatorRoles = ['MANAGER', 'LAB', 'SAFETY'];
+    if (originatorRoles.includes(req.user.role)) {
+      const prManagerId = inspection.purchaseOrder?.purchaseRequest?.manager?.id;
+      if (prManagerId !== req.user.id) {
+        return res.status(403).json({ error: 'Not authorised to view this inspection' });
+      }
+    }
+
     res.json(inspection);
   } catch (error) {
     console.error('Get QC inspection error:', error);
@@ -105,8 +135,10 @@ router.get('/:id', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'S
   }
 });
 
-// POST /api/qc-inspections — QC/Purchase/Stores create inspection request
-router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGER'), async (req, res) => {
+// POST /api/qc-inspections — QC/Purchase/Stores create inspection request.
+// Purchase Officer may attach the signed PO PDF here so QC sees the issued document
+// (not the auto-generated one).
+router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGER'), acceptPoDocument, async (req, res) => {
   try {
     const {
       purchaseOrderId, parameters, notes,
@@ -130,6 +162,8 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
     if (docRequirement && !['COA', 'COC', 'ANY_REPORTS', 'NONE'].includes(docRequirement)) {
       return res.status(400).json({ error: 'docRequirement must be COA, COC, ANY_REPORTS, or NONE' });
     }
+
+    const poDocumentUrl = req.file ? publicUrlFor('po-docs', req.file.filename) : null;
 
     const order = await prisma.purchaseOrder.findUnique({
       where: { id: purchaseOrderId },
@@ -182,6 +216,7 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
           mirNo: mirNo || null,
           docRequirement: docRequirement || null,
           docRequirementNote: docRequirementNote || null,
+          poDocumentUrl,
         },
         include: INSPECTION_INCLUDE,
       });
@@ -271,7 +306,9 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
       include: {
         purchaseOrder: {
           include: {
-            purchaseRequest: { select: { id: true, requestNumber: true } },
+            purchaseRequest: {
+              select: { id: true, requestNumber: true, managerId: true },
+            },
           },
         },
       },
@@ -391,6 +428,19 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
           title: `QC On Hold: ${order.customName}`,
           message: `QC placed inspection ${inspection.inspectionNumber} on hold pending more information. Reason: ${pendingReason}. Please upload required documents or address the issue and re-submit for review.`,
           targetRole: 'PURCHASE_OFFICER',
+          sentById: req.user.id,
+        },
+      });
+    }
+
+    // Once a finalised inspection report exists, surface it to the PR originator who started the chain.
+    if (result !== 'ON_HOLD' && order.purchaseRequest?.managerId) {
+      await prisma.notification.create({
+        data: {
+          type: `INSPECTION_${result}`,
+          title: `Inspection Report Filed: ${inspection.inspectionNumber}`,
+          message: `Inspection report for PR ${order.purchaseRequest.requestNumber} (PO ${order.orderNumber} — ${order.customName}) has been submitted. Result: ${result}.`,
+          targetUserId: order.purchaseRequest.managerId,
           sentById: req.user.id,
         },
       });

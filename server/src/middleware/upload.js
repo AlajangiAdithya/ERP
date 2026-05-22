@@ -41,6 +41,14 @@ const qcDocsUpload = multer({
   limits: { fileSize: 15 * 1024 * 1024 },
 });
 
+// Signed/scanned PO PDF uploaded by Purchase Officer when sending the QC request.
+// QC consumes this in place of the auto-generated PO so they see the actually-issued document.
+const poDocumentUpload = multer({
+  storage: makeStorage('po-docs'),
+  fileFilter: pdfOnly,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
 const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
 
-module.exports = { prSpecsUpload, quotationUpload, qcDocsUpload, publicUrlFor, UPLOAD_ROOT };
+module.exports = { prSpecsUpload, quotationUpload, qcDocsUpload, poDocumentUpload, publicUrlFor, UPLOAD_ROOT };
