@@ -103,7 +103,7 @@ const ANNEXURE_URL = '/po-terms-and-conditions.pdf';
 function InspectionDocsPanel({ order, inspection }) {
   const pr = order?.purchaseRequest;
   const prSpecsUrl = pr?.materialSpecsPdfUrl;
-  const poDocumentUrl = inspection?.poDocumentUrl;
+  const poDocumentUrl = order?.poDocumentUrl;
 
   const DocLink = ({ href, label, hint, missingHint }) => {
     if (!href) {
@@ -144,7 +144,7 @@ function InspectionDocsPanel({ order, inspection }) {
         <DocLink
           href={poDocumentUrl}
           label="Purchase Order (signed)"
-          hint="Uploaded by Purchase Officer when sending QC request"
+          hint="Uploaded by Purchase Officer after quotation approval"
           missingHint="PO has not uploaded the signed PO PDF yet."
         />
         <DocLink
@@ -171,7 +171,6 @@ function CreateRequestModal({ order, onClose, onCreated }) {
   const [docRequirement, setDocRequirement] = useState('NONE');
   const [docRequirementNote, setDocRequirementNote] = useState('');
   const [incomingDocs, setIncomingDocs] = useState([]);
-  const [poDocument, setPoDocument] = useState(null);
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
@@ -184,7 +183,6 @@ function CreateRequestModal({ order, onClose, onCreated }) {
       setDocRequirement('NONE');
       setDocRequirementNote('');
       setIncomingDocs([]);
-      setPoDocument(null);
     }
   }, [order]);
 
@@ -196,28 +194,19 @@ function CreateRequestModal({ order, onClose, onCreated }) {
     if (['COA', 'COC', 'ANY_REPORTS'].includes(docRequirement) && !docRequirementNote.trim()) {
       return alert('Please describe which documents/reports QC should expect.');
     }
-    if (!poDocument) {
-      const proceed = confirm('No signed PO PDF attached. QC needs the signed PO to inspect — continue anyway?');
+    if (!order.poDocumentUrl) {
+      const proceed = confirm('Signed PO PDF has not been uploaded on this Purchase Order yet. QC will not have it to inspect against — continue anyway?');
       if (!proceed) return;
     }
     setProcessing(true);
     try {
-      // Use multipart so the signed PO PDF rides along with the request.
-      const fd = new FormData();
-      const stringFields = {
+      const payload = {
         purchaseOrderId: order.id,
         invoiceNo, invoiceDate, dcNo, gatePassNo, gatePassType,
         probableDateOfReturn, materialReceiptDate, notes,
         docRequirement, docRequirementNote,
       };
-      for (const [k, v] of Object.entries(stringFields)) {
-        if (v !== undefined && v !== null && v !== '') fd.append(k, v);
-      }
-      if (poDocument) fd.append('poDocument', poDocument);
-
-      const { data: created } = await api.post('/qc-inspections', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const { data: created } = await api.post('/qc-inspections', payload);
 
       // If PO attached incoming docs at request time, upload them straight away.
       if (incomingDocs.length > 0 && created?.id) {
@@ -252,22 +241,6 @@ function CreateRequestModal({ order, onClose, onCreated }) {
         <OrderInfoHeader order={order} />
 
         <InspectionDocsPanel order={order} inspection={null} />
-
-        {/* Signed PO PDF — what QC will actually open instead of the auto-generated PO. */}
-        <div className="border border-navy-200 bg-navy-50/40 rounded-md p-3 space-y-2">
-          <label className="block text-xs font-semibold text-navy-900 flex items-center gap-1">
-            <Paperclip size={12} /> Attach Signed Purchase Order PDF *
-          </label>
-          <p className="text-xs text-gray-600">
-            Upload the signed/issued PO. QC will see this in place of the auto-generated PO when filling the report.
-          </p>
-          <input type="file" accept="application/pdf"
-            onChange={(e) => setPoDocument(e.target.files?.[0] || null)}
-            className="block w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-navy-100 file:text-navy-900 hover:file:bg-navy-200" />
-          {poDocument && (
-            <div className="text-xs text-gray-600">Selected: <span className="font-medium">{poDocument.name}</span></div>
-          )}
-        </div>
 
         <div>
           <h4 className="text-sm font-semibold text-gray-700 mb-2">Invoice / DC / Gate Pass Details</h4>

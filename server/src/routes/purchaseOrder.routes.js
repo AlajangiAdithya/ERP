@@ -1,12 +1,34 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
+const { poDocumentUpload, publicUrlFor, UPLOAD_ROOT } = require('../middleware/upload');
 const {
   generateSequentialNumber, generateMirNumber, generateProductSku,
   normalizeMaterialType, paginate, applyDateFilter, isUniqueViolation,
 } = require('../utils/helpers');
+
+// Wraps multer so we can return a clean 400 on malformed/oversize uploads.
+function acceptPoDocument(req, res, next) {
+  poDocumentUpload.single('poDocument')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'PO document upload failed' });
+    next();
+  });
+}
+
+// Unlink the file referenced by a /uploads/... URL. Best-effort: missing files don't throw.
+function unlinkPublicFile(publicUrl) {
+  if (!publicUrl || !publicUrl.startsWith('/uploads/')) return;
+  const relative = publicUrl.replace(/^\/uploads\//, '');
+  const target = path.join(UPLOAD_ROOT, relative);
+  // Block traversal — only delete files inside UPLOAD_ROOT.
+  const resolved = path.resolve(target);
+  if (!resolved.startsWith(path.resolve(UPLOAD_ROOT))) return;
+  fs.promises.unlink(resolved).catch(() => {});
+}
 
 const router = express.Router();
 
@@ -878,6 +900,80 @@ router.put('/:id/items/:itemId/status', authenticate, authorize('PURCHASE_OFFICE
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
     }
     console.error('Update item status error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/purchase-orders/:id/po-document — PO uploads the signed PO PDF.
+// Replaces any previously-uploaded copy and deletes the old file from disk.
+router.post('/:id/po-document', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), acceptPoDocument, async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'PO PDF is required' });
+
+    const order = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id } });
+    if (!order) {
+      unlinkPublicFile(publicUrlFor('po-docs', req.file.filename));
+      return res.status(404).json({ error: 'Purchase order not found' });
+    }
+
+    const newUrl = publicUrlFor('po-docs', req.file.filename);
+
+    // If a PO PDF already existed, remove the old file before overwriting the DB pointer.
+    if (order.poDocumentUrl) unlinkPublicFile(order.poDocumentUrl);
+
+    const updated = await prisma.purchaseOrder.update({
+      where: { id: order.id },
+      data: { poDocumentUrl: newUrl },
+      include: ORDER_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: order.poDocumentUrl ? 'PO_DOC_REPLACED' : 'PO_DOC_UPLOADED',
+        entity: 'PurchaseOrder',
+        entityId: order.id,
+        details: { orderNumber: order.orderNumber, filename: req.file.originalname },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Upload PO document error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/purchase-orders/:id/po-document — PO removes the uploaded PDF entirely.
+router.delete('/:id/po-document', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), async (req, res) => {
+  try {
+    const order = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id } });
+    if (!order) return res.status(404).json({ error: 'Purchase order not found' });
+    if (!order.poDocumentUrl) return res.status(400).json({ error: 'No PO document uploaded' });
+
+    unlinkPublicFile(order.poDocumentUrl);
+
+    const updated = await prisma.purchaseOrder.update({
+      where: { id: order.id },
+      data: { poDocumentUrl: null },
+      include: ORDER_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'PO_DOC_DELETED',
+        entity: 'PurchaseOrder',
+        entityId: order.id,
+        details: { orderNumber: order.orderNumber },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Delete PO document error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

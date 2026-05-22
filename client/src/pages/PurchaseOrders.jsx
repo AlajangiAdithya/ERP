@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Truck, CreditCard, CheckCircle, Eye, PackagePlus,
   ChevronRight, ChevronDown, Phone, Building2, FileText, Package, Layers, Clock,
+  Upload, Trash2,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -13,10 +14,6 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
-import POPdf from '../components/pdf/POPdf';
-import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
-import DownloadWordButton from '../components/pdf/DownloadWordButton';
-import { buildPOWordHtml } from '../components/pdf/POWordHtml';
 
 const formatCurrency = (amt) => `₹${Number(amt || 0).toLocaleString('en-IN')}`;
 
@@ -594,6 +591,51 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const isPO = userRole === 'PURCHASE_OFFICER';
   const isSM = userRole === 'STORE_MANAGER' || userRole === 'ADMIN';
 
+  // Signed PO PDF upload / replace / delete (Purchase Officer only).
+  const [uploadingPo, setUploadingPo] = useState(false);
+  const poFileInputRef = useRef(null);
+
+  const uploadPoDocument = async (file) => {
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      return alert('Only PDF files are accepted for the PO document.');
+    }
+    if (order.poDocumentUrl && !confirm('Replace the existing PO PDF? The previous file will be removed.')) {
+      if (poFileInputRef.current) poFileInputRef.current.value = '';
+      return;
+    }
+    setUploadingPo(true);
+    try {
+      const fd = new FormData();
+      fd.append('poDocument', file);
+      const { data } = await api.post(`/purchase-orders/${order.id}/po-document`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      Object.assign(order, data);
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to upload PO document');
+    } finally {
+      setUploadingPo(false);
+      if (poFileInputRef.current) poFileInputRef.current.value = '';
+    }
+  };
+
+  const deletePoDocument = async () => {
+    if (!order.poDocumentUrl) return;
+    if (!confirm('Delete the uploaded PO PDF? This removes the file from the system. You can upload a new one afterwards.')) return;
+    setUploadingPo(true);
+    try {
+      const { data } = await api.delete(`/purchase-orders/${order.id}/po-document`);
+      Object.assign(order, data);
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete PO document');
+    } finally {
+      setUploadingPo(false);
+    }
+  };
+
   useEffect(() => {
     if (order) {
       // Default to remaining qty for each item (supports partial deliveries)
@@ -837,6 +879,63 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
           </div>
         )}
 
+        {/* Signed PO PDF — uploaded by Purchase Officer after the quotation is approved.
+            Anyone in the chain can open it; only PO can upload/replace/delete. */}
+        <div className="border border-navy-200 bg-navy-50/40 rounded-md p-3 space-y-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h4 className="text-sm font-semibold text-navy-900 flex items-center gap-1">
+              <FileText size={14} /> Signed Purchase Order (PDF)
+            </h4>
+            {order.poDocumentUrl ? (
+              <span className="text-xs text-green-700 font-medium">Uploaded</span>
+            ) : (
+              <span className="text-xs text-gray-500">{isPO ? 'Not uploaded yet' : 'Awaiting Purchase Officer upload'}</span>
+            )}
+          </div>
+
+          {order.poDocumentUrl ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <a href={order.poDocumentUrl} target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-blue-300 bg-blue-50 text-blue-800 text-xs font-medium hover:bg-blue-100">
+                <Eye size={14} /> View PO PDF
+              </a>
+              {isPO && (
+                <>
+                  <Button size="sm" variant="secondary" onClick={() => poFileInputRef.current?.click()} disabled={uploadingPo}>
+                    <Upload size={14} className="mr-1" /> Replace
+                  </Button>
+                  <Button size="sm" variant="danger" onClick={deletePoDocument} disabled={uploadingPo}>
+                    <Trash2 size={14} className="mr-1" /> Delete
+                  </Button>
+                </>
+              )}
+            </div>
+          ) : (
+            isPO ? (
+              <div className="space-y-1">
+                <p className="text-xs text-gray-600">
+                  Upload the final signed PO PDF. Until uploaded, no one (including QC) can see the PO document.
+                </p>
+                <Button size="sm" onClick={() => poFileInputRef.current?.click()} disabled={uploadingPo}>
+                  <Upload size={14} className="mr-1" /> {uploadingPo ? 'Uploading...' : 'Upload PO PDF'}
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500">The Purchase Officer will upload the signed PO here once the quotation is approved.</p>
+            )
+          )}
+
+          {isPO && (
+            <input
+              ref={poFileInputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={(e) => uploadPoDocument(e.target.files?.[0] || null)}
+            />
+          )}
+        </div>
+
         {/* Payment Progress */}
         <div className="bg-blue-50 rounded-md p-3">
           <ProgressBar value={order.totalPaid} total={order.totalAmount} label={`Paid: ${formatCurrency(order.totalPaid)} / ${formatCurrency(order.totalAmount)}`} />
@@ -1048,14 +1147,6 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
 
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-3 pt-2 border-t items-center">
-          <DownloadPdfButton document={<POPdf order={order} />} fileName={`PO-${order.orderNumber}.pdf`} label="Download PO PDF" />
-          <DownloadWordButton
-            html={buildPOWordHtml(order)}
-            fileName={`PO-${order.orderNumber}`}
-            title={`Purchase Order ${order.orderNumber}`}
-            label="Download PO Word"
-          />
-
           {isPO && isPendingAccounting && (
             <>
               {!showPaymentForm ? (

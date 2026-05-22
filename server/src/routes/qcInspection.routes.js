@@ -4,7 +4,7 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
-const { qcDocsUpload, poDocumentUpload, publicUrlFor } = require('../middleware/upload');
+const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -16,21 +16,13 @@ function acceptQcDocs(req, res, next) {
   });
 }
 
-// Accept a single signed PO PDF attached to the QC request.
-function acceptPoDocument(req, res, next) {
-  poDocumentUpload.single('poDocument')(req, res, (err) => {
-    if (err) return res.status(400).json({ error: err.message || 'PO document upload failed' });
-    next();
-  });
-}
-
 const INSPECTION_INCLUDE = {
   inspectedBy: { select: { id: true, name: true } },
   requestCreatedBy: { select: { id: true, name: true, role: true } },
   purchaseOrder: {
     select: {
       id: true, orderNumber: true, customName: true, supplierName: true,
-      totalAmount: true, status: true, goodsArrivedAt: true,
+      totalAmount: true, status: true, goodsArrivedAt: true, poDocumentUrl: true,
       items: true,
       purchaseRequest: {
         select: {
@@ -136,9 +128,9 @@ router.get('/:id', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'S
 });
 
 // POST /api/qc-inspections — QC/Purchase/Stores create inspection request.
-// Purchase Officer may attach the signed PO PDF here so QC sees the issued document
-// (not the auto-generated one).
-router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGER'), acceptPoDocument, async (req, res) => {
+// The signed PO PDF that QC reads is uploaded on the PurchaseOrder itself
+// (POST /api/purchase-orders/:id/po-document), not on the inspection.
+router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGER'), async (req, res) => {
   try {
     const {
       purchaseOrderId, parameters, notes,
@@ -162,8 +154,6 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
     if (docRequirement && !['COA', 'COC', 'ANY_REPORTS', 'NONE'].includes(docRequirement)) {
       return res.status(400).json({ error: 'docRequirement must be COA, COC, ANY_REPORTS, or NONE' });
     }
-
-    const poDocumentUrl = req.file ? publicUrlFor('po-docs', req.file.filename) : null;
 
     const order = await prisma.purchaseOrder.findUnique({
       where: { id: purchaseOrderId },
@@ -216,7 +206,6 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
           mirNo: mirNo || null,
           docRequirement: docRequirement || null,
           docRequirementNote: docRequirementNote || null,
-          poDocumentUrl,
         },
         include: INSPECTION_INCLUDE,
       });

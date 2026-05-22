@@ -403,6 +403,9 @@ model PurchaseOrder {
   delayNote         String? // Optional note when PO placed ≥3 days after PR creation
   mirNo             String? // Auto-generated at stores inward (MIR-YYYYMMDD-NNN)
   inwardedAt        DateTime? // Timestamp of stores inward
+  // Signed PO PDF uploaded by Purchase Officer after the quotation is approved.
+  // This is the single source of truth for the PO document — no auto-generated PDF is offered.
+  poDocumentUrl     String?
   status            PurchaseOrderStatus   @default(PENDING_ACCOUNTING)
   createdById       String
   createdBy         User                  @relation("POCreator", fields: [createdById], references: [id])
@@ -553,7 +556,6 @@ model QCInspection {
   docRequirement       String? // COA / COC / ANY_REPORTS chosen at inspection request
   docRequirementNote   String? // Free text note alongside docRequirement
   uploadedDocs         Json? // Array of {filename, url, uploadedById, uploadedAt} from PO
-  poDocumentUrl        String? // Signed/scanned PO PDF uploaded by Purchase Officer when sending QC request
   pendingReason        String? // Reason QC marked Pending; bounces back to PO
   iteration            Int       @default(1) // Increment each re-review cycle
   inspectionLocation   String? // Dimensional Inspection at Supplier Place / at RAPS Inward
