@@ -51,19 +51,19 @@ export default function Sidebar() {
 
   const sidebarContent = (
     <>
-      <div className="px-3 pt-4 pb-3">
+      <div className="px-3 pt-5 pb-4">
         <div className="relative">
-          <div className="absolute -inset-2 bg-blue-400/20 blur-2xl rounded-3xl" aria-hidden="true" />
-          <div className="relative rounded-xl px-3 py-2.5 bg-gradient-to-br from-blue-50/95 to-blue-100/90 ring-1 ring-white/20 shadow-[0_4px_16px_rgba(58,107,224,0.25)] flex items-center justify-center">
+          <div className="absolute -inset-3 bg-blue-400/30 blur-3xl rounded-3xl" aria-hidden="true" />
+          <div className="relative rounded-2xl px-4 py-3.5 bg-white ring-1 ring-white/40 shadow-[0_8px_28px_rgba(58,107,224,0.45)] flex items-center justify-center">
             <img
               src="/rapslogo6.png"
               alt="RAPS"
-              className="h-11 w-auto object-contain"
+              className="h-14 w-auto object-contain drop-shadow-sm"
             />
           </div>
         </div>
         {user?.unit && (
-          <div className="mt-3 flex items-center justify-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-full px-2.5 py-1">
+          <div className="mt-3.5 flex items-center justify-center gap-1.5 bg-white/[0.08] border border-white/15 rounded-full px-3 py-1.5">
             <Building2 size={11} className="text-blue-300 flex-shrink-0" />
             <span className="text-[10px] font-semibold tracking-[0.14em] uppercase text-blue-100 truncate">
               {user.unit.name}
@@ -117,21 +117,33 @@ export default function Sidebar() {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-40">
           <div className="fixed inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <div className="fixed left-0 top-0 bottom-0 w-56 bg-gradient-to-b from-navy-800 to-navy-900 flex flex-col z-50">
+          <div className="fixed left-0 top-0 bottom-0 w-56 bg-gradient-to-b from-navy-800 to-navy-900 flex flex-col z-50 overflow-hidden">
+            <div
+              className="absolute inset-0 opacity-[0.06] bg-cover bg-center pointer-events-none"
+              style={{ backgroundImage: "url('/rocket.jpg')" }}
+              aria-hidden="true"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-navy-800/70 via-navy-800/85 to-navy-900 pointer-events-none" aria-hidden="true" />
             <button
               onClick={() => setMobileOpen(false)}
-              className="absolute top-4 right-4 text-white/70 hover:text-white"
+              className="absolute top-4 right-4 text-white/70 hover:text-white z-10"
             >
               <X size={20} />
             </button>
-            {sidebarContent}
+            <div className="relative z-10 flex flex-col flex-1 min-h-0">{sidebarContent}</div>
           </div>
         </div>
       )}
 
       {/* Desktop sidebar — fixed so it stays put while the page scrolls */}
-      <aside className="hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 fixed left-0 top-0 bottom-0 w-56 shadow-xl z-30">
-        {sidebarContent}
+      <aside className="hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 fixed left-0 top-0 bottom-0 w-56 shadow-xl z-30 overflow-hidden">
+        <div
+          className="absolute inset-0 opacity-[0.06] bg-cover bg-center pointer-events-none"
+          style={{ backgroundImage: "url('/rocket.jpg')" }}
+          aria-hidden="true"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-navy-800/70 via-navy-800/85 to-navy-900 pointer-events-none" aria-hidden="true" />
+        <div className="relative z-10 flex flex-col flex-1 min-h-0">{sidebarContent}</div>
       </aside>
     </>
   );
