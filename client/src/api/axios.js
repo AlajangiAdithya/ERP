@@ -29,9 +29,16 @@ api.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(originalRequest);
       } catch (refreshError) {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('user');
-        window.location.href = '/login';
+        // Only force the user out if the refresh endpoint truly rejected the
+        // session (401). Network failures, 5xx, or offline state must not
+        // log the user out — the session lives until they click logout.
+        if (refreshError?.response?.status === 401) {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('user');
+          if (!window.location.pathname.startsWith('/login')) {
+            window.location.href = '/login';
+          }
+        }
         return Promise.reject(refreshError);
       }
     }

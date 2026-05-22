@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, withDocRetry } = require('../utils/helpers');
 const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
@@ -164,9 +164,9 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
       return res.status(400).json({ error: 'Can only inspect orders with arrived goods' });
     }
 
-    const inspectionNumber = await generateSequentialNumber(prisma, 'QC');
-
-    const inspection = await prisma.$transaction(async (tx) => {
+    let inspectionNumber;
+    const inspection = await withDocRetry(() => prisma.$transaction(async (tx) => {
+      inspectionNumber = await generateSequentialNumber(tx, 'QC');
       const result = await tx.qCInspection.create({
         data: {
           inspectionNumber,
@@ -216,7 +216,7 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
       });
 
       return result;
-    });
+    }));
 
     await prisma.auditLog.create({
       data: {
@@ -286,6 +286,17 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
       }
       if (accNum > recNum) {
         return res.status(400).json({ error: 'Qty Accepted cannot exceed Qty Received' });
+      }
+      // The client enforces these — also enforce on the server so direct API
+      // calls can't slip a malformed result past validation.
+      if (result === 'PASSED' && accNum !== recNum) {
+        return res.status(400).json({ error: 'PASSED requires Qty Accepted to equal Qty Received' });
+      }
+      if (result === 'FAILED' && accNum !== 0) {
+        return res.status(400).json({ error: 'FAILED requires Qty Accepted to be 0' });
+      }
+      if (result === 'PARTIAL' && (accNum === 0 || accNum === recNum)) {
+        return res.status(400).json({ error: 'PARTIAL requires Qty Accepted to be greater than 0 and less than Qty Received' });
       }
       derivedRejected = Math.max(0, recNum - accNum);
     }

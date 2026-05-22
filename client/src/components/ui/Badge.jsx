@@ -7,6 +7,7 @@ const colorMap = {
   gray: 'bg-gray-100 text-gray-600',
   navy: 'bg-navy-100 text-navy-700',
   purple: 'bg-purple-100 text-purple-700',
+  orange: 'bg-orange-100 text-orange-800 border border-orange-300',
 };
 
 export default function Badge({ children, color = 'gray', className = '' }) {

@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateSequentialNumber, paginate, isUniqueViolation } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, isUniqueViolation, withDocRetry } = require('../utils/helpers');
 const { canApprove, getTier, getTierLabel } = require('../utils/approvalTiers');
 const { quotationUpload, publicUrlFor } = require('../middleware/upload');
 
@@ -183,7 +183,6 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf
     }
 
     const totalAmount = data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-    const quotationNumber = await generateSequentialNumber(prisma, 'QT');
 
     // Resolve supplierId for each item (upsert by case-insensitive name).
     const itemsWithSupplier = [];
@@ -201,31 +200,35 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf
 
     const quotationPdfUrl = req.file ? publicUrlFor('quotations', req.file.filename) : null;
 
-    const quotation = await prisma.quotation.create({
-      data: {
-        quotationNumber,
-        purchaseRequestId: data.purchaseRequestId,
-        totalAmount,
-        notes: data.notes || null,
-        quotationPdfUrl,
-        createdById: req.user.id,
-        supplierId: topLevelSupplierId,
-        items: {
-          create: itemsWithSupplier.map(item => ({
-            productId: item.productId || null,
-            productName: item.productName,
-            productUnit: item.productUnit || 'pcs',
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            totalPrice: item.quantity * item.unitPrice,
-            supplierId: item.supplierId,
-            supplierName: item.supplierName.trim(),
-            supplierContact: item.supplierContact || null,
-            supplierAddress: item.supplierAddress || null,
-          })),
+    let quotationNumber;
+    const quotation = await withDocRetry(async () => {
+      quotationNumber = await generateSequentialNumber(prisma, 'QT');
+      return prisma.quotation.create({
+        data: {
+          quotationNumber,
+          purchaseRequestId: data.purchaseRequestId,
+          totalAmount,
+          notes: data.notes || null,
+          quotationPdfUrl,
+          createdById: req.user.id,
+          supplierId: topLevelSupplierId,
+          items: {
+            create: itemsWithSupplier.map(item => ({
+              productId: item.productId || null,
+              productName: item.productName,
+              productUnit: item.productUnit || 'pcs',
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.quantity * item.unitPrice,
+              supplierId: item.supplierId,
+              supplierName: item.supplierName.trim(),
+              supplierContact: item.supplierContact || null,
+              supplierAddress: item.supplierAddress || null,
+            })),
+          },
         },
-      },
-      include: { items: true, createdBy: { select: { id: true, name: true } } },
+        include: { items: true, createdBy: { select: { id: true, name: true } } },
+      });
     });
 
     const suppliers = [...new Set(data.items.map(i => i.supplierName.trim()))];
@@ -305,7 +308,6 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotati
     }
 
     const totalAmount = data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-    const quotationNumber = await generateSequentialNumber(prisma, 'QT');
 
     const itemsWithSupplier = [];
     for (const item of data.items) {
@@ -320,40 +322,44 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotati
 
     const quotationPdfUrl = req.file ? publicUrlFor('quotations', req.file.filename) : null;
 
-    const quotation = await prisma.quotation.create({
-      data: {
-        quotationNumber,
-        purchaseRequestId: null,
-        isUnion: true,
-        totalAmount,
-        notes: data.notes || null,
-        quotationPdfUrl,
-        createdById: req.user.id,
-        supplierId: topLevelSupplierId,
-        items: {
-          create: itemsWithSupplier.map(item => ({
-            productId: item.productId || null,
-            productName: item.productName,
-            productUnit: item.productUnit || 'pcs',
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            totalPrice: item.quantity * item.unitPrice,
-            supplierId: item.supplierId,
-            supplierName: item.supplierName.trim(),
-            supplierContact: item.supplierContact || null,
-            supplierAddress: item.supplierAddress || null,
-            sourceAllocations: item.sources,
-          })),
+    let quotationNumber;
+    const quotation = await withDocRetry(async () => {
+      quotationNumber = await generateSequentialNumber(prisma, 'QT');
+      return prisma.quotation.create({
+        data: {
+          quotationNumber,
+          purchaseRequestId: null,
+          isUnion: true,
+          totalAmount,
+          notes: data.notes || null,
+          quotationPdfUrl,
+          createdById: req.user.id,
+          supplierId: topLevelSupplierId,
+          items: {
+            create: itemsWithSupplier.map(item => ({
+              productId: item.productId || null,
+              productName: item.productName,
+              productUnit: item.productUnit || 'pcs',
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.quantity * item.unitPrice,
+              supplierId: item.supplierId,
+              supplierName: item.supplierName.trim(),
+              supplierContact: item.supplierContact || null,
+              supplierAddress: item.supplierAddress || null,
+              sourceAllocations: item.sources,
+            })),
+          },
+          sourceRequests: {
+            create: uniquePrIds.map(prId => ({ purchaseRequestId: prId })),
+          },
         },
-        sourceRequests: {
-          create: uniquePrIds.map(prId => ({ purchaseRequestId: prId })),
+        include: {
+          items: true,
+          createdBy: { select: { id: true, name: true } },
+          sourceRequests: { include: { purchaseRequest: { select: { id: true, requestNumber: true, unit: { select: { name: true, code: true } } } } } },
         },
-      },
-      include: {
-        items: true,
-        createdBy: { select: { id: true, name: true } },
-        sourceRequests: { include: { purchaseRequest: { select: { id: true, requestNumber: true, unit: { select: { name: true, code: true } } } } } },
-      },
+      });
     });
 
     await prisma.auditLog.create({
@@ -748,6 +754,21 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
     }
 
     const createdOrders = await prisma.$transaction(async (tx) => {
+      // Make selection exclusive: any other quotation tied to these PRs (single
+      // or via the sources junction) gets isSelected=false. Two admins racing
+      // on competing quotations for the same PR can no longer both win.
+      const sourcePrIds = sourcePRs.map(p => p.id);
+      await tx.quotation.updateMany({
+        where: {
+          id: { not: req.params.id },
+          isSelected: true,
+          OR: [
+            { purchaseRequestId: { in: sourcePrIds } },
+            { sourceRequests: { some: { purchaseRequestId: { in: sourcePrIds } } } },
+          ],
+        },
+        data: { isSelected: false },
+      });
       await tx.quotation.update({
         where: { id: req.params.id },
         data: { isSelected: true, selectionNote },
@@ -812,6 +833,33 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
           include: { items: { include: { allocations: true } }, sourceRequests: true },
         });
         orders.push(po);
+      }
+
+      // Roll purchasedQty up onto each PurchaseRequestItem so reports and
+      // overrun guards reflect what the PO actually committed to.
+      const prItemDeltas = new Map();
+      for (const po of orders) {
+        for (const poItem of po.items) {
+          if (po.isUnion) {
+            for (const alloc of (poItem.allocations || [])) {
+              prItemDeltas.set(
+                alloc.purchaseRequestItemId,
+                (prItemDeltas.get(alloc.purchaseRequestItemId) || 0) + alloc.allocatedQty,
+              );
+            }
+          } else if (poItem.purchaseRequestItemId) {
+            prItemDeltas.set(
+              poItem.purchaseRequestItemId,
+              (prItemDeltas.get(poItem.purchaseRequestItemId) || 0) + poItem.quantity,
+            );
+          }
+        }
+      }
+      for (const [prItemId, delta] of prItemDeltas) {
+        await tx.purchaseRequestItem.update({
+          where: { id: prItemId },
+          data: { purchasedQty: { increment: delta } },
+        });
       }
 
       // Transition every source PR to QUOTATION_APPROVED

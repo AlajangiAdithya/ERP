@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, withDocRetry } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -41,6 +41,8 @@ router.get('/', authenticate, async (req, res) => {
             select: {
               id: true, orderNumber: true, customName: true, supplierName: true,
               totalAmount: true, totalPaid: true, advancePaid: true, status: true,
+              isCreditOrder: true, creditPlacedAt: true, creditNote: true,
+              creditPlacedBy: { select: { id: true, name: true } },
             },
           },
         },
@@ -70,6 +72,7 @@ router.get('/:id', authenticate, async (req, res) => {
           include: {
             items: true,
             createdBy: { select: { id: true, name: true } },
+            creditPlacedBy: { select: { id: true, name: true } },
             purchaseRequest: {
               select: { requestNumber: true, manager: { select: { name: true } }, unit: { select: { name: true } } },
             },
@@ -103,21 +106,23 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
       return res.status(400).json({ error: `Payment amount exceeds remaining balance of ₹${remaining.toLocaleString('en-IN')}` });
     }
 
-    const paymentNumber = await generateSequentialNumber(prisma, 'PAY');
-
-    const request = await prisma.paymentRequest.create({
-      data: {
-        paymentNumber,
-        purchaseOrderId: data.purchaseOrderId,
-        amount: data.amount,
-        paymentType: data.paymentType,
-        notes: data.notes || null,
-        createdById: req.user.id,
-      },
-      include: {
-        createdBy: { select: { id: true, name: true } },
-        purchaseOrder: { select: { orderNumber: true, customName: true, supplierName: true } },
-      },
+    let paymentNumber;
+    const request = await withDocRetry(async () => {
+      paymentNumber = await generateSequentialNumber(prisma, 'PAY');
+      return prisma.paymentRequest.create({
+        data: {
+          paymentNumber,
+          purchaseOrderId: data.purchaseOrderId,
+          amount: data.amount,
+          paymentType: data.paymentType,
+          notes: data.notes || null,
+          createdById: req.user.id,
+        },
+        include: {
+          createdBy: { select: { id: true, name: true } },
+          purchaseOrder: { select: { orderNumber: true, customName: true, supplierName: true } },
+        },
+      });
     });
 
     await prisma.notification.create({
@@ -234,6 +239,9 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
 
     const order = request.purchaseOrder;
     const wasPendingAccounting = order.status === 'PENDING_ACCOUNTING';
+    // CREDIT_PLACED already ran the item/PR side-effects when the PO Officer
+    // placed the order on credit, so the payment here just closes the books.
+    const wasCreditPlaced = order.status === 'CREDIT_PLACED';
 
     const updated = await prisma.$transaction(async (tx) => {
       const result = await tx.paymentRequest.update({
@@ -254,12 +262,17 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
       const newAdvancePaid = request.paymentType === 'ADVANCE'
         ? order.advancePaid + request.amount
         : order.advancePaid;
+      const isFullyPaid = newTotalPaid >= order.totalAmount;
 
       const orderUpdate = { totalPaid: newTotalPaid, advancePaid: newAdvancePaid };
 
       if (wasPendingAccounting) {
-        orderUpdate.status = newTotalPaid >= order.totalAmount ? 'PAID' : 'ORDERED';
-      } else if (newTotalPaid >= order.totalAmount) {
+        orderUpdate.status = isFullyPaid ? 'PAID' : 'ORDERED';
+      } else if (wasCreditPlaced) {
+        // Stay on CREDIT_PLACED until fully paid so everyone can see the
+        // outstanding credit balance; once cleared, normal PAID applies.
+        if (isFullyPaid) orderUpdate.status = 'PAID';
+      } else if (isFullyPaid) {
         orderUpdate.status = 'PAID';
       } else if (request.paymentType === 'ADVANCE') {
         orderUpdate.status = 'ADVANCE_PAID';

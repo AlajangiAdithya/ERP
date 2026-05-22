@@ -2,7 +2,7 @@ const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, withDocRetry } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -99,7 +99,6 @@ router.post('/', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) =
     }
 
     const primaryType = items.find((i) => i.itemPassType)?.itemPassType || 'RETURNABLE';
-    const passNumber = await generateSequentialNumber(prisma, 'GP');
 
     // Derive a display "Dispatched-to" summary from the per-row entries
     const dispatchTargets = [...new Set(items.map((i) => i.dispatchedTo?.trim()).filter(Boolean))];
@@ -107,33 +106,37 @@ router.post('/', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) =
       ? dispatchTargets.join('; ')
       : (siteName?.trim() || 'In-house');
 
-    const gatePass = await prisma.gatePass.create({
-      data: {
-        passNumber,
-        passType: primaryType,
-        siteName: siteName?.trim() || null,
-        partyName: derivedPartyName,
-        remarks: remarks?.trim() || null,
-        status: 'PENDING_STORE',
-        createdById: req.user.id,
-        siteInchargeById: req.user.id,
-        siteInchargeAt: new Date(),
-        items: {
-          create: items.map((it) => ({
-            description: it.description.trim(),
-            quantity: Number(it.quantity),
-            unit: it.unit || 'pcs',
-            dispatchedTo: it.dispatchedTo?.trim() || null,
-            itemPurpose: it.itemPurpose?.trim() || null,
-            probableReturnDate: toDate(it.probableReturnDate),
-            itemPassType: it.itemPassType || null,
-            gatePassDetails: it.gatePassDetails?.trim() || null,
-            transportation: it.transportation?.trim() || null,
-            contactPersonDetails: it.contactPersonDetails?.trim() || null,
-          })),
+    let passNumber;
+    const gatePass = await withDocRetry(async () => {
+      passNumber = await generateSequentialNumber(prisma, 'GP');
+      return prisma.gatePass.create({
+        data: {
+          passNumber,
+          passType: primaryType,
+          siteName: siteName?.trim() || null,
+          partyName: derivedPartyName,
+          remarks: remarks?.trim() || null,
+          status: 'PENDING_STORE',
+          createdById: req.user.id,
+          siteInchargeById: req.user.id,
+          siteInchargeAt: new Date(),
+          items: {
+            create: items.map((it) => ({
+              description: it.description.trim(),
+              quantity: Number(it.quantity),
+              unit: it.unit || 'pcs',
+              dispatchedTo: it.dispatchedTo?.trim() || null,
+              itemPurpose: it.itemPurpose?.trim() || null,
+              probableReturnDate: toDate(it.probableReturnDate),
+              itemPassType: it.itemPassType || null,
+              gatePassDetails: it.gatePassDetails?.trim() || null,
+              transportation: it.transportation?.trim() || null,
+              contactPersonDetails: it.contactPersonDetails?.trim() || null,
+            })),
+          },
         },
-      },
-      include: GATEPASS_INCLUDE,
+        include: GATEPASS_INCLUDE,
+      });
     });
 
     await prisma.auditLog.create({

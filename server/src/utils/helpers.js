@@ -110,10 +110,21 @@ const generateProductSku = async (prisma, materialType) => {
   return `${prefix}${next}`;
 };
 
-// Generic retry wrapper for unique-constraint races on doc numbers.
-// Usage:  await withDocNumberRetry(() => generateSequentialNumber(prisma, 'PR'), (num) => prisma.purchaseRequest.create({ ... }))
-// Simpler pattern in callers: wrap the create() call in try/catch and re-generate on P2002.
 const isUniqueViolation = (err) => err && err.code === 'P2002';
+
+// Retry wrapper for doc-number races. Reads the existing max, builds the next
+// number, and creates the row — if two concurrent requests pick the same
+// number, the loser hits P2002 and we re-read. Don't wrap an outer
+// $transaction in this; retry the transaction itself from outside instead.
+const withDocRetry = async (fn, attempts = 5) => {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isUniqueViolation(err) || i === attempts - 1) throw err;
+    }
+  }
+};
 
 module.exports = {
   paginate,
@@ -126,4 +137,5 @@ module.exports = {
   generateSequentialNumber,
   generateProductSku,
   isUniqueViolation,
+  withDocRetry,
 };

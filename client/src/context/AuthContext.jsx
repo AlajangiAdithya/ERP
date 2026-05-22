@@ -12,13 +12,18 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
-    if (token) {
+    const cachedUser = localStorage.getItem('user');
+    if (token || cachedUser) {
       api.get('/auth/me')
         .then(({ data }) => {
           setUser(data.user);
           localStorage.setItem('user', JSON.stringify(data.user));
         })
         .catch(() => {
+          // Axios interceptor already tried /auth/refresh and gave up — the
+          // refresh-token cookie is gone or invalid, so the session is truly
+          // dead. Clearing here is the only auto-logout path; everything else
+          // requires the user to click the logout button.
           setUser(null);
           localStorage.removeItem('accessToken');
           localStorage.removeItem('user');

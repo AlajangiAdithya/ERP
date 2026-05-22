@@ -172,7 +172,7 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
       'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'IN_PROGRESS',
     ];
     const poInProgressStatuses = [
-      'PENDING_ACCOUNTING', 'ORDERED', 'PLACED', 'ADVANCE_PAID',
+      'PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PLACED', 'ADVANCE_PAID',
       'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'INWARD_DONE',
     ];
 

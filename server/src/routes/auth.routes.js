@@ -33,18 +33,19 @@ router.post('/login', async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // Store refresh token in DB
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    // Session persists for 10 years — only an explicit logout (or admin
+    // deactivation) ends it. The DB row, not the JWT expiry, is the truth.
+    const PERSISTENT_TTL_MS = 10 * 365 * 24 * 60 * 60 * 1000;
+    const expiresAt = new Date(Date.now() + PERSISTENT_TTL_MS);
     await prisma.session.create({
       data: { userId: user.id, refreshToken, expiresAt },
     });
 
-    // Set refresh token as httpOnly cookie
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: PERSISTENT_TTL_MS,
     });
 
     // Audit log
@@ -93,6 +94,18 @@ router.post('/refresh', async (req, res) => {
     if (!user || !user.isActive) {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
+
+    const PERSISTENT_TTL_MS = 10 * 365 * 24 * 60 * 60 * 1000;
+    await prisma.session.update({
+      where: { id: session.id },
+      data: { expiresAt: new Date(Date.now() + PERSISTENT_TTL_MS) },
+    });
+    res.cookie('refreshToken', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: PERSISTENT_TTL_MS,
+    });
 
     const accessToken = generateAccessToken(user);
     res.json({ accessToken });

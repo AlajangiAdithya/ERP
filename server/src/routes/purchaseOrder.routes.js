@@ -34,6 +34,7 @@ const router = express.Router();
 
 const ORDER_INCLUDE = {
   createdBy: { select: { id: true, name: true } },
+  creditPlacedBy: { select: { id: true, name: true } },
   quotation: {
     select: {
       id: true, quotationNumber: true, supplierName: true, supplierContact: true,
@@ -169,6 +170,7 @@ router.get('/dashboard', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), a
     res.json({
       statusCounts: {
         pendingAccounting: counts['PENDING_ACCOUNTING'] || 0,
+        creditPlaced: counts['CREDIT_PLACED'] || 0,
         ordered: counts['ORDERED'] || 0,
         placed: counts['PLACED'] || 0,
         advancePaid: counts['ADVANCE_PAID'] || 0,
@@ -242,6 +244,148 @@ const goodsArrivedSchema = z.object({
   }).partial().optional(),
 });
 
+// PUT /api/purchase-orders/:id/place-on-credit — PO Officer places the order on word-of-trust.
+// Order moves forward exactly like a paid order (items → ORDERED, source PRs → ORDER_PLACED)
+// but no payment is required yet. The Payment Request is raised later and processed by Accounting;
+// when that payment is marked PAID the PO transitions to PAID just like the normal flow.
+const placeOnCreditSchema = z.object({
+  creditNote: z.string().trim().max(500, 'Credit note too long (max 500 chars)').optional().nullable(),
+});
+
+router.put('/:id/place-on-credit', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
+  try {
+    const { creditNote } = placeOnCreditSchema.parse(req.body || {});
+
+    const order = await prisma.purchaseOrder.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: { include: { allocations: true } },
+        purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } },
+        sourceRequests: {
+          include: { purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } } },
+        },
+      },
+    });
+
+    if (!order) return res.status(404).json({ error: 'Purchase order not found' });
+    if (order.status !== 'PENDING_ACCOUNTING') {
+      return res.status(400).json({
+        error: `Cannot place on credit — order status is ${order.status}. Only orders awaiting accounting can be placed on credit.`,
+      });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedOrder = await tx.purchaseOrder.update({
+        where: { id: order.id },
+        data: {
+          status: 'CREDIT_PLACED',
+          isCreditOrder: true,
+          creditPlacedAt: new Date(),
+          creditPlacedById: req.user.id,
+          creditNote: creditNote || null,
+        },
+        include: ORDER_INCLUDE,
+      });
+
+      for (const item of order.items) {
+        await tx.purchaseOrderItem.update({
+          where: { id: item.id },
+          data: { itemStatus: 'ORDERED', statusUpdatedAt: new Date(), statusUpdatedBy: req.user.id },
+        });
+        if (order.isUnion) {
+          const prItemIds = (item.allocations || []).map((a) => a.purchaseRequestItemId);
+          if (prItemIds.length) {
+            await tx.purchaseRequestItem.updateMany({
+              where: { id: { in: prItemIds } },
+              data: { itemStatus: 'ORDERED' },
+            });
+          }
+        } else if (item.purchaseRequestItemId) {
+          await tx.purchaseRequestItem.update({
+            where: { id: item.purchaseRequestItemId },
+            data: { itemStatus: 'ORDERED' },
+          });
+        }
+      }
+
+      const sourcePRIds = order.isUnion
+        ? (order.sourceRequests || []).map((s) => s.purchaseRequest.id)
+        : (order.purchaseRequest ? [order.purchaseRequest.id] : []);
+
+      if (sourcePRIds.length) {
+        await tx.purchaseRequest.updateMany({
+          where: { id: { in: sourcePRIds } },
+          data: { status: 'ORDER_PLACED' },
+        });
+      }
+
+      return updatedOrder;
+    });
+
+    // FYI to Accounting — payment is still pending and will be raised separately.
+    await prisma.notification.create({
+      data: {
+        type: 'ORDER_PLACED_ON_CREDIT',
+        title: `Credit Order Placed: ${order.customName}`,
+        message: `Order "${order.customName}" (${order.orderNumber}) for ₹${order.totalAmount.toLocaleString('en-IN')} with ${order.supplierName} has been placed on credit. Payment request will follow.`,
+        targetRole: 'ACCOUNTING',
+        sentById: req.user.id,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        type: 'ORDER_PLACED_ON_CREDIT',
+        title: `Credit Order Placed: ${order.customName}`,
+        message: `Order "${order.customName}" (${order.orderNumber}) was placed on credit. Payment processing will follow.`,
+        targetRole: 'ADMIN',
+        sentById: req.user.id,
+      },
+    });
+
+    const recipients = order.isUnion
+      ? (order.sourceRequests || []).map((s) => s.purchaseRequest).filter((pr) => pr?.managerId)
+      : (order.purchaseRequest?.managerId ? [order.purchaseRequest] : []);
+
+    for (const pr of recipients) {
+      await prisma.notification.create({
+        data: {
+          type: 'ORDER_PLACED',
+          title: `Order Placed: ${pr.requestNumber}`,
+          message: `Your order "${order.customName}" (${pr.requestNumber}) has been placed on credit with ${order.supplierName} and is now being processed.`,
+          targetUserId: pr.managerId,
+          sentById: req.user.id,
+        },
+      });
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'ORDER_PLACED_ON_CREDIT',
+        entity: 'PurchaseOrder',
+        entityId: order.id,
+        details: {
+          orderNumber: order.orderNumber,
+          customName: order.customName,
+          supplierName: order.supplierName,
+          totalAmount: order.totalAmount,
+          creditNote: creditNote || null,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    if (error?.name === 'ZodError') {
+      return res.status(400).json({ error: error.errors?.[0]?.message || 'Invalid input', details: error.errors });
+    }
+    console.error('Place on credit error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // PUT /api/purchase-orders/:id/goods-arrived — PO marks goods as arrived (supports partial deliveries)
 router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
@@ -260,7 +404,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
 
     if (!order) return res.status(404).json({ error: 'Purchase order not found' });
 
-    const allowedStatuses = ['ORDERED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'PARTIAL'];
+    const allowedStatuses = ['ORDERED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'PARTIAL'];
     if (!allowedStatuses.includes(order.status)) {
       return res.status(400).json({
         error: order.status === 'GOODS_ARRIVED' || order.status === 'QC_PENDING' || order.status === 'QC_PASSED'

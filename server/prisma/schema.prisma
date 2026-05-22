@@ -31,6 +31,7 @@ model User {
   targetedNotifications      Notification[]             @relation("TargetUser")
   quotationsCreated          Quotation[]                @relation("QuotationCreator")
   purchaseOrdersCreated      PurchaseOrder[]            @relation("POCreator")
+  purchaseOrdersCreditPlaced PurchaseOrder[]            @relation("POCreditPlacer")
   paymentRequestsCreated     PaymentRequest[]           @relation("PaymentCreator")
   paymentRequestsProcessed   PaymentRequest[]           @relation("PaymentProcessor")
   qcInspections              QCInspection[]             @relation("QCInspector")
@@ -407,6 +408,13 @@ model PurchaseOrder {
   // This is the single source of truth for the PO document — no auto-generated PDF is offered.
   poDocumentUrl     String?
   status            PurchaseOrderStatus   @default(PENDING_ACCOUNTING)
+  // Credit-based order placement: PO Officer can place order on word-of-trust
+  // before payment is processed. Order proceeds, payment follows later.
+  isCreditOrder     Boolean               @default(false)
+  creditPlacedAt    DateTime?
+  creditPlacedById  String?
+  creditPlacedBy    User?                 @relation("POCreditPlacer", fields: [creditPlacedById], references: [id])
+  creditNote        String?
   createdById       String
   createdBy         User                  @relation("POCreator", fields: [createdById], references: [id])
   createdAt         DateTime              @default(now())
@@ -475,6 +483,7 @@ enum ItemOrderStatus {
 
 enum PurchaseOrderStatus {
   PENDING_ACCOUNTING
+  CREDIT_PLACED
   ORDERED
   PLACED
   ADVANCE_PAID

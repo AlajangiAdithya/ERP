@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Truck, CreditCard, CheckCircle, Eye, PackagePlus,
   ChevronRight, ChevronDown, Phone, Building2, FileText, Package, Layers, Clock,
-  Upload, Trash2,
+  Upload, Trash2, Handshake,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -19,6 +19,7 @@ const formatCurrency = (amt) => `₹${Number(amt || 0).toLocaleString('en-IN')}`
 
 const statusColor = (s) => ({
   PENDING_ACCOUNTING: 'amber',
+  CREDIT_PLACED: 'orange',
   ORDERED: 'blue',
   PLACED: 'blue',
   ADVANCE_PAID: 'navy',
@@ -35,6 +36,7 @@ const statusColor = (s) => ({
 
 const statusLabel = (s) => ({
   PENDING_ACCOUNTING: 'Awaiting Accounting',
+  CREDIT_PLACED: 'On Credit · Payment Pending',
   ORDERED: 'Ordered',
   PLACED: 'Order Placed',
   ADVANCE_PAID: 'Advance Paid',
@@ -568,6 +570,8 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [inwardItems, setInwardItems] = useState([]);
   const [prQuotations, setPrQuotations] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showCreditForm, setShowCreditForm] = useState(false);
+  const [creditNote, setCreditNote] = useState('');
   const [showIirForm, setShowIirForm] = useState(false);
   const [iir, setIir] = useState({
     invoiceNo: '',
@@ -671,6 +675,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
 
   const remaining = order.totalAmount - order.totalPaid;
   const isPendingAccounting = order.status === 'PENDING_ACCOUNTING';
+  const isCreditPlaced = order.status === 'CREDIT_PLACED';
 
   // Phase 2: detect placement delay vs PR creation
   const prCreatedAt = order?.purchaseRequest?.createdAt || order?.sourceRequests?.[0]?.purchaseRequest?.createdAt;
@@ -702,6 +707,28 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
       onUpdated();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to place order');
+    }
+    setProcessing(false);
+  };
+
+  const placeOnCredit = async () => {
+    const note = creditNote.trim();
+    if (!confirm(
+      `Place this order on credit with ${order.supplierName}?\n\n` +
+      `The order will move forward immediately. ` +
+      `You'll still need to raise a Payment Request afterwards for Accounting to process.`
+    )) return;
+    setProcessing(true);
+    try {
+      await api.put(`/purchase-orders/${order.id}/place-on-credit`, {
+        creditNote: note || undefined,
+      });
+      setShowCreditForm(false);
+      setCreditNote('');
+      onClose();
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to place order on credit');
     }
     setProcessing(false);
   };
@@ -818,6 +845,43 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
               <div className="text-xs text-amber-800">
                 Work is currently stopped at the Accounts team. The order will move forward once accounting processes the payment.
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Credit-placed banner — order is live, payment is still owed */}
+        {isCreditPlaced && (
+          <div className="bg-orange-50 border-l-4 border-orange-500 rounded-md p-3 flex items-start gap-2">
+            <Handshake size={18} className="text-orange-700 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <div className="text-sm font-bold text-orange-900">Order Placed on Credit — Payment Pending</div>
+              <div className="text-xs text-orange-800">
+                {order.creditPlacedBy?.name
+                  ? <>Placed on credit by <span className="font-semibold">{order.creditPlacedBy.name}</span></>
+                  : 'Placed on credit'}
+                {order.creditPlacedAt && <> on {formatDateTime(order.creditPlacedAt)}</>}.
+                {' '}The order is being processed. Outstanding balance:{' '}
+                <span className="font-semibold">{formatCurrency(remaining)}</span>.
+                Raise a Payment Request below so Accounting can settle.
+              </div>
+              {order.creditNote && (
+                <div className="mt-1 text-xs text-orange-900 italic">
+                  Note: {order.creditNote}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Persistent credit marker for any order that began on credit, even after PAID */}
+        {!isCreditPlaced && order.isCreditOrder && (
+          <div className="bg-orange-50/60 border border-orange-200 rounded-md p-2 flex items-start gap-2 text-xs">
+            <Handshake size={14} className="text-orange-600 mt-0.5 shrink-0" />
+            <div className="text-orange-900">
+              This order was originally placed on credit
+              {order.creditPlacedBy?.name && <> by {order.creditPlacedBy.name}</>}
+              {order.creditPlacedAt && <> on {formatDateTime(order.creditPlacedAt)}</>}.
+              {order.creditNote && <> Note: <span className="italic">{order.creditNote}</span></>}
             </div>
           </div>
         )}
@@ -1149,10 +1213,51 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
         <div className="flex flex-wrap gap-3 pt-2 border-t items-center">
           {isPO && isPendingAccounting && (
             <>
-              {!showPaymentForm ? (
-                <Button onClick={() => setShowPaymentForm(true)}>
-                  <CheckCircle size={16} className="mr-1" /> Place Order (Send to Accounting)
-                </Button>
+              {!showPaymentForm && !showCreditForm ? (
+                <>
+                  <Button onClick={() => setShowPaymentForm(true)}>
+                    <CheckCircle size={16} className="mr-1" /> Place Order (Send to Accounting)
+                  </Button>
+                  <Button variant="secondary" onClick={() => setShowCreditForm(true)}>
+                    <Handshake size={16} className="mr-1" /> Place on Credit
+                  </Button>
+                </>
+              ) : showCreditForm ? (
+                <div className="w-full bg-orange-50 border border-orange-200 rounded-md p-4 space-y-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-orange-900 flex items-center gap-2">
+                      <Handshake size={16} /> Place Order on Credit
+                    </h4>
+                    <p className="text-xs text-orange-800 mt-1">
+                      Use this when the order is being placed on word-of-trust with {order.supplierName}.
+                      The order will move forward immediately — supplier ships, items show as <span className="font-semibold">Ordered</span>,
+                      and the source PR moves to <span className="font-semibold">Order Placed</span>.
+                      You will still raise a Payment Request afterwards so Accounting can clear the dues.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Credit note <span className="text-gray-400">(optional — e.g. verbal confirmation from contact, agreed payment terms)</span>
+                    </label>
+                    <textarea
+                      value={creditNote}
+                      onChange={(e) => setCreditNote(e.target.value)}
+                      placeholder="e.g. Confirmed by Mr. Rao on phone. Net-30 terms agreed. Payment to follow next week."
+                      rows={3}
+                      maxLength={500}
+                      className="w-full px-3 py-2 border rounded-md text-sm"
+                    />
+                    <div className="text-[10px] text-gray-400 mt-0.5">{creditNote.length}/500</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={placeOnCredit} disabled={processing}>
+                      {processing ? 'Placing...' : 'Confirm — Place on Credit'}
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => { setShowCreditForm(false); setCreditNote(''); }}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
               ) : (
                 <div className="w-full bg-amber-50 border border-amber-200 rounded-md p-4 space-y-3">
                   <h4 className="text-sm font-semibold text-amber-900">Place Order — First Payment Request</h4>
@@ -1249,7 +1354,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             </>
           )}
 
-          {isPO && ['ORDERED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'PARTIAL'].includes(order.status) && (
+          {isPO && ['ORDERED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'PARTIAL'].includes(order.status) && (
             <Button onClick={openIirForm} disabled={processing}>
               <Truck size={16} className="mr-1" />
               {order.items?.some(i => (i.receivedQty || 0) > 0) ? 'Mark More Goods Arrived' : 'Mark Goods Arrived'}
@@ -1543,7 +1648,7 @@ export default function PurchaseOrders() {
     });
   }, [orders, search]);
 
-  const tabs = ['ALL', 'PENDING_ACCOUNTING', 'ORDERED', 'PAID', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED'];
+  const tabs = ['ALL', 'PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PAID', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED'];
 
   return (
     <div className="space-y-6">

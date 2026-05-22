@@ -54,7 +54,8 @@ router.post('/low-stock-notify', authenticate, authorize('STORE_MANAGER', 'ADMIN
       return res.status(400).json({ error: 'An unread low-stock notification already exists for this product' });
     }
 
-    const severity = product.currentStock === 0 ? 'OUT OF STOCK' :
+    // Float-safe: treat anything under 0.0001 as zero stock.
+    const severity = product.currentStock < 0.0001 ? 'OUT OF STOCK' :
       (product.minStockLevel > 0 && product.currentStock <= product.minStockLevel * 0.5) ? 'CRITICAL' : 'LOW';
 
     const notification = await prisma.notification.create({

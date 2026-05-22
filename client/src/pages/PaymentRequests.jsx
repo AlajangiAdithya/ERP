@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CreditCard, CheckCircle, XCircle, Eye } from 'lucide-react';
+import { CreditCard, CheckCircle, XCircle, Eye, Handshake } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { useAutoRefresh } from '../context/NotificationContext';
@@ -108,6 +108,25 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
               <div>Total: {formatCurrency(payment.purchaseOrder.totalAmount)}</div>
               <div>Paid: {formatCurrency(payment.purchaseOrder.totalPaid)}</div>
               <div>Remaining: {formatCurrency(payment.purchaseOrder.totalAmount - payment.purchaseOrder.totalPaid)}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Credit-order flag for Accounting awareness */}
+        {payment.purchaseOrder?.isCreditOrder && (
+          <div className="bg-orange-50 border-l-4 border-orange-500 rounded-md p-3 flex items-start gap-2">
+            <Handshake size={18} className="text-orange-700 mt-0.5 shrink-0" />
+            <div className="text-xs text-orange-900">
+              <div className="text-sm font-bold mb-0.5">This order was placed on credit</div>
+              <div>
+                The order is already with the supplier
+                {payment.purchaseOrder.creditPlacedBy?.name && <> — placed by <span className="font-semibold">{payment.purchaseOrder.creditPlacedBy.name}</span></>}
+                {payment.purchaseOrder.creditPlacedAt && <> on {formatDateTime(payment.purchaseOrder.creditPlacedAt)}</>}.
+                Processing this payment clears the outstanding credit balance.
+              </div>
+              {payment.purchaseOrder.creditNote && (
+                <div className="mt-1 italic">Note: {payment.purchaseOrder.creditNote}</div>
+              )}
             </div>
           </div>
         )}
@@ -238,7 +257,19 @@ export default function PaymentRequests() {
                     <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => setSelectedPayment(p)}>
                       {p.paymentNumber}
                     </td>
-                    <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.customName}</td>
+                    <td className="px-3 py-2 text-gray-600">
+                      <div className="flex items-center gap-1.5">
+                        <span>{p.purchaseOrder?.customName}</span>
+                        {p.purchaseOrder?.isCreditOrder && (
+                          <span
+                            title="Order placed on credit — payment owed"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-800 border border-orange-300 text-[10px] font-medium"
+                          >
+                            <Handshake size={10} /> Credit
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.supplierName}</td>
                     <td className="px-3 py-2"><Badge color={typeColor(p.paymentType)}>{p.paymentType}</Badge></td>
                     <td className="px-3 py-2 font-medium">{formatCurrency(p.amount)}</td>
