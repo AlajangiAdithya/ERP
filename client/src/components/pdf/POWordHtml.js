@@ -8,6 +8,7 @@ const escapeHtml = (s = '') =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
+// Indian-style amount: 23,20,000-00
 const formatINR = (n) => {
   const num = Number(n || 0);
   const rupees = Math.floor(num);
@@ -20,41 +21,58 @@ export function buildPOWordHtml(order) {
   const pr = order?.purchaseRequest;
   const quotation = order?.quotation;
 
+  const supplierName = order?.supplierName || quotation?.supplierName || '—';
   const supplierAddress = quotation?.supplierAddress || '';
   const supplierContact = quotation?.supplierContact || '';
   const addressLines = supplierAddress
     ? supplierAddress.split(/\r?\n|,\s*/).map(x => x.trim()).filter(Boolean)
     : [];
 
+  // Subject: prefer customName, else first 3 product names
   const subjectMaterials = items.slice(0, 3).map(i => i.productName).filter(Boolean).join(', ');
   const subjectMore = items.length > 3 ? `, +${items.length - 3} more` : '';
+  const totalQtyText = items
+    .map(i => `${i.quantity}-${i.productUnit || ''}`)
+    .join(', ');
   const subject = order?.customName
-    ? `Purchase Order for Supply of ${order.customName}`
-    : `Purchase Order for Supply of ${subjectMaterials}${subjectMore}`;
+    ? `Purchase Order for supply of ${order.customName}`
+    : `Purchase Order for supply of ${subjectMaterials}${subjectMore} ${totalQtyText ? `- ${totalQtyText}` : ''}`.trim();
+
+  // Determine the most common unit for the "Rate Per X" column header
+  const unitCounts = items.reduce((acc, i) => {
+    const u = (i.productUnit || 'unit').toLowerCase();
+    acc[u] = (acc[u] || 0) + 1;
+    return acc;
+  }, {});
+  const dominantUnit = Object.entries(unitCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'unit';
 
   const itemsRows = items.map((it, idx) => `
     <tr>
-      <td class='center'>${idx + 1}</td>
-      <td>${escapeHtml(it.productName || '')}</td>
-      <td class='center'>${escapeHtml(`${it.quantity} ${it.productUnit || ''}`)}</td>
-      <td class='right'>${formatINR(it.unitPrice)}</td>
-      <td class='right'>${formatINR(it.totalPrice)}</td>
+      <td class='center' style='width:7%;'>${idx + 1}</td>
+      <td style='width:48%;'>${escapeHtml(it.productName || '')}</td>
+      <td class='center' style='width:15%;'>${escapeHtml(`${it.quantity} ${it.productUnit || ''}`)}</td>
+      <td class='right' style='width:15%;'>${formatINR(it.unitPrice)}</td>
+      <td class='right' style='width:15%;'>${formatINR(it.totalPrice)}</td>
     </tr>
   `).join('');
 
   return `
-    <div class='header-row'>
-      <div>
-        <h2>Ramesh's Aerospace Products &amp; Services Pvt. Ltd.</h2>
-      </div>
-      <div class='stamp'>
-        <div>Form no.: RAPS/PO Rev 01</div>
-        <div>Dt: 05/06/2024</div>
-      </div>
-    </div>
-    <hr/>
+    <!-- Form no. block — top right (no letterhead) -->
+    <table style='border:0; margin-bottom:6pt;'>
+      <tr style='border:0;'>
+        <td style='border:0; text-align:right;' colspan='2'>
+          <span style='font-size:9pt;'>Form no.: RAPS/PO Rev 01</span>
+        </td>
+      </tr>
+      <tr style='border:0;'>
+        <td style='border:0; text-align:right;' colspan='2'>
+          <span style='font-size:9pt;'>Dt: 05/06/2024</span>
+        </td>
+      </tr>
+    </table>
 
-    <table style='border:0; margin-bottom:8pt;'>
+    <!-- Ref + Date row -->
+    <table style='border:0; margin-bottom:6pt;'>
       <tr style='border:0;'>
         <td style='border:0; font-weight:bold;'>Ref: ${escapeHtml(order?.orderNumber || '—')}</td>
         <td style='border:0; font-weight:bold; text-align:right;'>Date: ${escapeHtml(formatDate(order?.createdAt))}</td>
@@ -64,25 +82,26 @@ export function buildPOWordHtml(order) {
       </tr>
     </table>
 
-    <p>To,<br/>
-    <b>M/s ${escapeHtml(order?.supplierName || quotation?.supplierName || '—')}</b><br/>
-    ${addressLines.map(l => escapeHtml(l)).join('<br/>')}
-    ${supplierContact ? `<br/>Kind Attn: ${escapeHtml(supplierContact)}` : ''}
-    </p>
+    <!-- To block -->
+    <p style='margin:0 0 2pt 0;'>To</p>
+    <p style='margin:0; font-weight:bold;'>M/s ${escapeHtml(supplierName)}</p>
+    ${addressLines.map(l => `<p style='margin:0;'>${escapeHtml(l)}</p>`).join('')}
+    ${supplierContact ? `<p style='margin:2pt 0 0 0;'>Kind Attn: ${escapeHtml(supplierContact)}</p>` : ''}
 
-    <p>Dear Sir,</p>
-    <p><b>Subject: ${escapeHtml(subject)}.</b></p>
+    <p style='margin-top:10pt;'>Dear Sir,</p>
+    <p style='font-weight:bold;'>Subject: ${escapeHtml(subject)}.</p>
     ${quotation?.quotationNumber ? `<p>Ref: Your Quotation No: ${escapeHtml(quotation.quotationNumber)} Dt: ${escapeHtml(formatDate(quotation.createdAt))}</p>` : ''}
 
-    <p>With reference to the above and subsequent discussions, we are pleased to place an order on you for the supply of the following.</p>
+    <p>With reference to the above, we are pleased to place an order on you for the supply of following item${items.length > 1 ? 's' : ''}.</p>
 
+    <!-- Items table -->
     <table>
       <thead>
         <tr>
-          <th style='width:7%;'>Sl. No.</th>
-          <th style='width:49%;'>Material Description and Specification</th>
-          <th style='width:14%;'>Qty</th>
-          <th style='width:15%;'>Rate</th>
+          <th style='width:7%;'>Sl. No</th>
+          <th style='width:48%;'>Material Description and Specification</th>
+          <th style='width:15%;'>Qty</th>
+          <th style='width:15%;'>Rate Per ${escapeHtml(dominantUnit)}</th>
           <th style='width:15%;'>Amount</th>
         </tr>
       </thead>
@@ -95,27 +114,22 @@ export function buildPOWordHtml(order) {
       </tbody>
     </table>
 
-    <p><i>Note: Test reports / inspection certificates shall be provided along with the invoice at the time of delivery.</i></p>
+    <p style='margin-top:6pt;'><i>Note: Test reports shall be provided along with the invoice at the time of delivery.</i></p>
 
     <p><b>Terms &amp; Conditions:</b></p>
-    <p>
-      GST: Extra @18% or as applicable.<br/>
-      Payment: Mutually agreeable terms.<br/>
-      Delivery: As mutually agreed from the date of PO.<br/>
-      Packing: Standard packing to avoid transit damage.<br/>
-      Inspection: As per RAPS QA / Customer QA standard.<br/>
-      Please mention our PO number in the invoice copy.<br/>
-      For all other terms and conditions refer annexure attached.<br/>
-      Jurisdiction: Any disputes shall be subject to the jurisdiction of Vijayawada.
-    </p>
+    <p style='margin:0;'>GST: Extra @18% or as applicable.</p>
+    <p style='margin:0;'>Payment: Mutually agreeable terms.</p>
+    <p style='margin:0;'>Delivery: As mutually agreed from the date of PO.</p>
+    <p style='margin:0;'>Packing: Standard packing to avoid transit damage.</p>
+    <p style='margin:0;'>Inspection: As per RAPS QA / Customer QA standard.</p>
+    <p style='margin:0;'>Please mention our PO number in invoice copy.</p>
+    <p style='margin:0;'>For all other terms and conditions refer annexure attached.</p>
+    <p style='margin:0;'>Jurisdiction: Any disputes shall be subject to the jurisdiction of Vijayawada.</p>
 
-    <p>Thanking you,<br/>
-    Yours sincerely,<br/>
-    For Ramesh's Aerospace Products &amp; Services Pvt. Ltd.,</p>
+    <p style='margin-top:18pt;'>Thanking you,</p>
+    <p style='margin:0;'>Yours sincerely,</p>
+    <p style='margin:0;'>For Ramesh's Aerospace Products &amp; Services Pvt. Ltd.,</p>
 
     <p style='margin-top:36pt;'>(${escapeHtml(order?.createdBy?.name || 'Authorised Signatory')})</p>
-
-    <hr/>
-    <p class='muted center'>Generated by RAPS ERP · PO ${escapeHtml(order?.orderNumber || '')}</p>
   `;
 }
