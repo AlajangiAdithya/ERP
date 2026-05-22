@@ -10,6 +10,8 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
+import { pdf } from '@react-pdf/renderer';
+import PRPdf from '../components/pdf/PRPdf';
 
 const formatCurrency = (amt) => `₹${Number(amt).toLocaleString('en-IN')}`;
 
@@ -99,10 +101,13 @@ function OrderInfoHeader({ order }) {
 // Static annexure published with the PO that QC and PR originators always need to see.
 const ANNEXURE_URL = '/po-terms-and-conditions.pdf';
 
-// ─── Shared: 3 reference documents available to everyone on the PR chain (PR specs, PO PDF, Annexure) ───
+// ─── Shared: reference documents available to everyone on the PR chain (PR view, PR specs, PO PDF, Annexure) ───
 function InspectionDocsPanel({ order, inspection }) {
-  const pr = order?.purchaseRequest;
-  const prSpecsUrl = pr?.materialSpecsPdfUrl;
+  const prs = order?.isUnion
+    ? (order?.sourceRequests || []).map((s) => s.purchaseRequest).filter(Boolean)
+    : (order?.purchaseRequest ? [order.purchaseRequest] : []);
+  const primaryPr = prs[0] || null;
+  const prSpecsUrl = primaryPr?.materialSpecsPdfUrl;
   const poDocumentUrl = order?.poDocumentUrl;
 
   const DocLink = ({ href, label, hint, missingHint }) => {
@@ -129,17 +134,66 @@ function InspectionDocsPanel({ order, inspection }) {
     );
   };
 
+  const ViewPRButton = ({ pr }) => {
+    const [busy, setBusy] = useState(false);
+    if (!pr) {
+      return (
+        <div className="flex items-start gap-2 px-3 py-2 rounded border border-dashed border-gray-300 bg-gray-50 text-xs text-gray-500">
+          <FileText size={14} className="mt-0.5 text-gray-400" />
+          <div>
+            <div className="font-medium text-gray-600">View PR</div>
+            <div>No PR linked to this PO.</div>
+          </div>
+        </div>
+      );
+    }
+    const handleClick = async () => {
+      if (busy) return;
+      setBusy(true);
+      try {
+        const blob = await pdf(<PRPdf request={pr} />).toBlob();
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank', 'noopener,noreferrer');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (err) {
+        console.error('PR PDF generation failed:', err);
+        alert(`Failed to open PR: ${err?.message || 'Unknown error'}`);
+      } finally {
+        setBusy(false);
+      }
+    };
+    return (
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={busy}
+        className="flex items-start gap-2 px-3 py-2 rounded border border-emerald-200 bg-emerald-50 text-xs text-emerald-800 hover:bg-emerald-100 transition disabled:opacity-60 disabled:cursor-not-allowed text-left"
+      >
+        <FileText size={14} className="mt-0.5 text-emerald-700" />
+        <div>
+          <div className="font-semibold">{busy ? 'Opening PR…' : `View PR ${pr.requestNumber || ''}`.trim()}</div>
+          <div className="text-emerald-700">
+            {busy ? 'Generating PDF' : (pr.requestId ? `${pr.requestId} • Full requisition form` : 'Full requisition form')}
+          </div>
+        </div>
+      </button>
+    );
+  };
+
   return (
     <div className="border border-gray-300 rounded-md overflow-hidden">
       <div className="bg-gray-100 px-3 py-1.5 border-b border-gray-300 text-xs font-bold text-gray-700">
         Reference Documents — visible to everyone on this PR chain
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 p-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 p-3">
+        {prs.length > 0
+          ? prs.map((pr) => <ViewPRButton key={pr.id} pr={pr} />)
+          : <ViewPRButton pr={null} />}
         <DocLink
           href={prSpecsUrl}
-          label={`PR ${pr?.requestNumber || ''}`.trim()}
-          hint={pr?.requestId ? `${pr.requestId} • Material specs` : 'Material specifications'}
-          missingHint={pr ? 'No specs PDF was attached to this PR.' : 'No PR linked to this PO.'}
+          label={`PR ${primaryPr?.requestNumber || ''} Specs`.trim()}
+          hint={primaryPr?.requestId ? `${primaryPr.requestId} • Material specs` : 'Material specifications'}
+          missingHint={primaryPr ? 'No specs PDF was attached to this PR.' : 'No PR linked to this PO.'}
         />
         <DocLink
           href={poDocumentUrl}
@@ -377,28 +431,16 @@ function PRSpecsPanel({ order }) {
       <div className="divide-y divide-gray-200">
         {prs.map((pr) => (
           <div key={pr.id} className="p-3 space-y-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="text-xs">
-                <div className="font-semibold text-gray-800">
-                  {pr.requestNumber}
-                  {pr.requestId && <span className="ml-2 text-gray-500 font-normal">· {pr.requestId}</span>}
-                </div>
-                <div className="text-gray-600">
-                  {pr.manager?.name && <span>Raised by {pr.manager.name}</span>}
-                  {pr.unit?.name && <span> · {pr.unit.name}{pr.unit.code ? ` (${pr.unit.code})` : ''}</span>}
-                  {pr.createdAt && <span> · {fmtDate(pr.createdAt)}</span>}
-                </div>
+            <div className="text-xs">
+              <div className="font-semibold text-gray-800">
+                {pr.requestNumber}
+                {pr.requestId && <span className="ml-2 text-gray-500 font-normal">· {pr.requestId}</span>}
               </div>
-              {pr.materialSpecsPdfUrl ? (
-                <a href={pr.materialSpecsPdfUrl} target="_blank" rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-blue-300 bg-blue-50 text-xs font-semibold text-blue-800 hover:bg-blue-100 transition">
-                  <Download size={13} /> Material Specs PDF
-                </a>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-dashed border-gray-300 bg-gray-50 text-[11px] text-gray-500">
-                  No specs PDF attached
-                </span>
-              )}
+              <div className="text-gray-600">
+                {pr.manager?.name && <span>Raised by {pr.manager.name}</span>}
+                {pr.unit?.name && <span> · {pr.unit.name}{pr.unit.code ? ` (${pr.unit.code})` : ''}</span>}
+                {pr.createdAt && <span> · {fmtDate(pr.createdAt)}</span>}
+              </div>
             </div>
 
             {(pr.items || []).length > 0 && (
