@@ -282,7 +282,7 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
   const [reportDate, setReportDate] = useState('');
   const [materialDescription, setMaterialDescription] = useState('');
   const [materialCategory, setMaterialCategory] = useState('');
-  const [documentTypes, setDocumentTypes] = useState({ testReport: false, coc: false, coa: false, thirdParty: false });
+  const [documentTypes, setDocumentTypes] = useState({ testReport: false, coc: false, coa: false, thirdParty: false, dimInspAtSupplier: false, dimInspAtRapsInward: false });
   const [inspectionLocation, setInspectionLocation] = useState('');
   const [reportReferenceNo, setReportReferenceNo] = useState('');
   const [packingCondition, setPackingCondition] = useState('');
@@ -309,7 +309,7 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
       setReportDate(inspection.reportDate?.slice(0, 10) || new Date().toISOString().slice(0, 10));
       setMaterialDescription(inspection.materialDescription || '');
       setMaterialCategory(inspection.materialCategory || '');
-      setDocumentTypes(inspection.documentTypes || { testReport: false, coc: false, coa: false, thirdParty: false });
+      setDocumentTypes({ testReport: false, coc: false, coa: false, thirdParty: false, dimInspAtSupplier: false, dimInspAtRapsInward: false, ...(inspection.documentTypes || {}) });
       setInspectionLocation(inspection.inspectionLocation || '');
       setReportReferenceNo(inspection.reportReferenceNo || '');
       setPackingCondition(inspection.packingCondition || '');
@@ -504,6 +504,37 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
               </div>
             )}
           </div>
+          {(() => {
+            const dt = inspection.documentTypes || {};
+            const docs = [
+              dt.testReport && 'Test Report',
+              dt.coc && 'COC',
+              dt.coa && 'COA',
+              dt.thirdParty && '3rd Party / Customer Clearance',
+            ].filter(Boolean);
+            const dims = [
+              dt.dimInspAtSupplier && 'At Supplier place',
+              dt.dimInspAtRapsInward && 'At RAPS inward',
+            ].filter(Boolean);
+            if (!inspection.materialCategory && docs.length === 0 && dims.length === 0) return null;
+            return (
+              <div className="border-t border-gray-300 bg-amber-50 px-3 py-2 text-xs space-y-1">
+                <div className="font-semibold text-amber-900">Requested by Purchase — please verify</div>
+                {inspection.materialCategory && (
+                  <div><span className="text-gray-600">Material category:</span>{' '}
+                    <span className="font-medium">{inspection.materialCategory}</span></div>
+                )}
+                {docs.length > 0 && (
+                  <div><span className="text-gray-600">Documents required:</span>{' '}
+                    <span className="font-medium">{docs.join(', ')}</span></div>
+                )}
+                {dims.length > 0 && (
+                  <div><span className="text-gray-600">Dimensional inspection:</span>{' '}
+                    <span className="font-medium">{dims.join(', ')}</span></div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Report fields */}
@@ -535,13 +566,13 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Document Types Available</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Documents Verified</label>
               <div className="flex flex-wrap gap-3 text-xs pt-2">
                 {[
                   { key: 'testReport', label: 'Test Report' },
                   { key: 'coc', label: 'COC' },
                   { key: 'coa', label: 'COA' },
-                  { key: 'thirdParty', label: '3rd Party / Customer' },
+                  { key: 'thirdParty', label: '3rd Party / Customer Clearance' },
                 ].map(dt => (
                   <label key={dt.key} className="flex items-center gap-1">
                     <input type="checkbox" checked={documentTypes[dt.key] || false}
@@ -555,13 +586,19 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
 
           <div className="grid grid-cols-2 gap-3 mt-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Inspection Location</label>
-              <select value={inspectionLocation} onChange={(e) => setInspectionLocation(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white focus:ring-2 focus:ring-navy-500">
-                <option value="">Select location</option>
-                <option value="At Supplier Place">At Supplier Place</option>
-                <option value="At RAPS Inward">At RAPS Inward</option>
-              </select>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Dimensional Inspection Done</label>
+              <div className="flex flex-wrap gap-3 text-xs pt-2">
+                {[
+                  { key: 'dimInspAtSupplier', label: 'At Supplier place' },
+                  { key: 'dimInspAtRapsInward', label: 'At RAPS inward' },
+                ].map(dt => (
+                  <label key={dt.key} className="flex items-center gap-1">
+                    <input type="checkbox" checked={documentTypes[dt.key] || false}
+                      onChange={(e) => setDocumentTypes({ ...documentTypes, [dt.key]: e.target.checked })} />
+                    {dt.label}
+                  </label>
+                ))}
+              </div>
             </div>
             <Input label="Report Reference No." value={reportReferenceNo}
               onChange={(e) => setReportReferenceNo(e.target.value)} placeholder="Reference" />

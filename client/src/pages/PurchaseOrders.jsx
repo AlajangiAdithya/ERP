@@ -88,6 +88,149 @@ function ProgressBar({ value, total, label, compact = false }) {
   );
 }
 
+// ─── Read-only QC inspection card (visible to Purchase, Stores, QC) ───
+function QCInspectionCard({ qc }) {
+  const [open, setOpen] = useState(false);
+  const dt = qc.documentTypes || {};
+  const docs = [
+    dt.testReport && 'Test Report',
+    dt.coc && 'COC',
+    dt.coa && 'COA',
+    dt.thirdParty && '3rd Party / Customer Clearance',
+  ].filter(Boolean);
+  const dims = [
+    dt.dimInspAtSupplier && 'At Supplier place',
+    dt.dimInspAtRapsInward && 'At RAPS inward',
+  ].filter(Boolean);
+  const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '—';
+  const reportFilled = !!qc.reportNo || !!qc.inspectedAt;
+
+  return (
+    <div className="border border-gray-200 rounded-md mb-2 bg-white">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50"
+      >
+        <div className="flex items-center gap-2">
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <span className="font-mono text-sm font-medium">{qc.inspectionNumber}</span>
+          <span className="text-xs text-gray-500">ION No.</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge color={qc.result === 'PASSED' ? 'green' : qc.result === 'FAILED' ? 'red' : qc.result === 'PARTIAL' ? 'navy' : qc.result === 'ON_HOLD' ? 'orange' : 'yellow'}>
+            {qc.result}
+          </Badge>
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-200 p-3 text-xs space-y-3">
+          {/* Page 1 — Request details (filled by PO) */}
+          <div>
+            <div className="font-semibold text-gray-700 mb-1">
+              Inspection Request (filled by {qc.requestCreatedBy?.name || 'Purchase'})
+            </div>
+            <div className="grid grid-cols-3 gap-x-4 gap-y-1">
+              <div><span className="text-gray-500">Invoice:</span> {qc.invoiceNo || '—'} · {fmt(qc.invoiceDate)}</div>
+              <div><span className="text-gray-500">DC No.:</span> {qc.dcNo || '—'}</div>
+              <div><span className="text-gray-500">Gate Pass:</span> {qc.gatePassNo || '—'} {qc.gatePassType ? `(${qc.gatePassType})` : ''}</div>
+              <div><span className="text-gray-500">Material Receipt:</span> {fmt(qc.materialReceiptDate)}</div>
+              {qc.probableDateOfReturn && (
+                <div><span className="text-gray-500">Prob. Return:</span> {fmt(qc.probableDateOfReturn)}</div>
+              )}
+              {qc.materialCategory && (
+                <div><span className="text-gray-500">Material Category:</span> <span className="font-medium">{qc.materialCategory}</span></div>
+              )}
+            </div>
+            {(docs.length > 0 || dims.length > 0) && (
+              <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1">
+                {docs.length > 0 && (
+                  <div><span className="text-gray-500">Documents required:</span> <span className="font-medium">{docs.join(', ')}</span></div>
+                )}
+                {dims.length > 0 && (
+                  <div><span className="text-gray-500">Dimensional inspection:</span> <span className="font-medium">{dims.join(', ')}</span></div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Page 2 — Inspection report (filled by QC) */}
+          {reportFilled ? (
+            <div className="border-t border-gray-100 pt-2">
+              <div className="font-semibold text-gray-700 mb-1">
+                Inspection Report (filled by {qc.inspectedBy?.name || 'QC'}{qc.inspectedAt ? ` · ${formatDateTime(qc.inspectedAt)}` : ''})
+              </div>
+              <div className="grid grid-cols-3 gap-x-4 gap-y-1">
+                <div><span className="text-gray-500">Report No.:</span> {qc.reportNo || '—'}</div>
+                <div><span className="text-gray-500">Report Date:</span> {fmt(qc.reportDate)}</div>
+                <div><span className="text-gray-500">Ref. No.:</span> {qc.reportReferenceNo || '—'}</div>
+                {qc.materialDescription && (
+                  <div className="col-span-3"><span className="text-gray-500">Material:</span> {qc.materialDescription}</div>
+                )}
+                <div><span className="text-gray-500">Packing:</span> {qc.packingCondition || '—'} {qc.packingDamageNotes ? `· ${qc.packingDamageNotes}` : ''}</div>
+                <div><span className="text-gray-500">Batch:</span> {qc.batchNo || '—'}</div>
+                <div><span className="text-gray-500">Mfg / Exp:</span> {fmt(qc.dateOfManufacturing)} / {fmt(qc.dateOfExpiry)}</div>
+                {qc.tappedHolesCondition && (
+                  <div className="col-span-3"><span className="text-gray-500">Tapped holes / weld lugs:</span> {qc.tappedHolesCondition}</div>
+                )}
+              </div>
+              <div className="grid grid-cols-5 gap-2 mt-2 border-t border-gray-100 pt-2">
+                <div><div className="text-gray-500">Qty PR</div><div className="font-medium">{qc.qtyAsPerPR ?? '—'}</div></div>
+                <div><div className="text-gray-500">Qty Ordered</div><div className="font-medium">{qc.qtyOrdered ?? '—'}</div></div>
+                <div><div className="text-gray-500">Qty Received</div><div className="font-medium">{qc.qtyReceived ?? '—'}</div></div>
+                <div><div className="text-gray-500">Qty Accepted</div><div className="font-medium text-green-700">{qc.qtyAccepted ?? '—'}</div></div>
+                <div><div className="text-gray-500">Qty Rejected</div><div className="font-medium text-red-700">{qc.qtyRejected ?? '—'}</div></div>
+              </div>
+              {qc.rejectionReason && (
+                <div className="mt-2"><span className="text-gray-500">Rejection / non-conformity:</span> {qc.rejectionReason}</div>
+              )}
+              {qc.remarks && (
+                <div className="mt-1"><span className="text-gray-500">Remarks:</span> {qc.remarks}</div>
+              )}
+              {qc.mirNo && (
+                <div className="mt-1"><span className="text-gray-500">MIR No.:</span> <span className="font-medium">{qc.mirNo}</span></div>
+              )}
+              {Array.isArray(qc.parameters) && qc.parameters.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-gray-500 mb-1">Inspection parameters:</div>
+                  <table className="w-full border border-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="border border-gray-200 px-2 py-1 text-left">Parameter</th>
+                        <th className="border border-gray-200 px-2 py-1 text-left">Expected</th>
+                        <th className="border border-gray-200 px-2 py-1 text-left">Actual</th>
+                        <th className="border border-gray-200 px-2 py-1 text-left">Pass</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {qc.parameters.map((p, i) => (
+                        <tr key={i}>
+                          <td className="border border-gray-200 px-2 py-1">{p.name}</td>
+                          <td className="border border-gray-200 px-2 py-1">{p.expected}</td>
+                          <td className="border border-gray-200 px-2 py-1">{p.actual}</td>
+                          <td className="border border-gray-200 px-2 py-1">{p.passed ? '✓' : '✗'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="border-t border-gray-100 pt-2 text-gray-500 italic">
+              Awaiting QC to fill the inspection report.
+              {qc.pendingReason && (
+                <span className="block mt-1 text-orange-700 not-italic">On hold — {qc.pendingReason}</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Inward Inspection Request Form (RAPS/IIR Rev 01, page 1) ───
 function IIRForm({ order, iir, setIir, processing, onCancel, onSubmit }) {
   const prNumber = order.purchaseRequest?.requestNumber
@@ -160,7 +303,8 @@ function IIRForm({ order, iir, setIir, processing, onCancel, onSubmit }) {
         </div>
         <div className="px-3 py-1.5 text-xs border-t border-gray-400 bg-white">
           <span className="font-medium">Inspection ION No. &amp; Date:</span>{' '}
-          <span className="text-gray-500">(auto-generated on submission — {new Date().toLocaleDateString('en-IN')})</span>
+          <span className="text-blue-700 font-medium">Auto-generated on submit</span>
+          <span className="text-gray-500"> · format: QC/DDMMYY/N · today {new Date().toLocaleDateString('en-IN')}</span>
         </div>
       </div>
 
@@ -304,6 +448,87 @@ function IIRForm({ order, iir, setIir, processing, onCancel, onSubmit }) {
         </table>
       </div>
 
+      {/* Inspection scope — ticked by Purchase, visible to QC */}
+      <div className="border border-gray-300 rounded-md overflow-hidden">
+        <div className="bg-gray-100 px-3 py-1.5 border-b border-gray-300 text-xs font-bold text-gray-700">
+          Inspection Scope (to be ticked by Purchase, verified by QC)
+        </div>
+        <div className="p-3 space-y-3">
+          {/* Material category */}
+          <div>
+            <div className="text-xs font-semibold text-gray-700 mb-1">
+              Material category <span className="text-red-600">*</span>
+            </div>
+            <div className="flex flex-wrap gap-4 text-xs">
+              {['Raw Materials', 'Consumables', 'Tooling & Fixtures', 'FIM'].map(c => (
+                <label key={c} className="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="materialCategory"
+                    value={c}
+                    checked={iir.materialCategory === c}
+                    onChange={() => setIir({ ...iir, materialCategory: c })}
+                  />
+                  {c}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Documents required */}
+          <div>
+            <div className="text-xs font-semibold text-gray-700 mb-1">
+              Documents required with delivery
+            </div>
+            <div className="flex flex-wrap gap-4 text-xs">
+              {[
+                { k: 'testReport', label: 'Test Report' },
+                { k: 'coc', label: 'COC' },
+                { k: 'coa', label: 'COA' },
+                { k: 'thirdParty', label: '3rd Party / Customer Clearance' },
+              ].map(opt => (
+                <label key={opt.k} className="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!iir.documentTypes[opt.k]}
+                    onChange={(e) => setIir({
+                      ...iir,
+                      documentTypes: { ...iir.documentTypes, [opt.k]: e.target.checked },
+                    })}
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Dimensional inspection */}
+          <div>
+            <div className="text-xs font-semibold text-gray-700 mb-1">
+              Dimensional inspection
+            </div>
+            <div className="flex flex-wrap gap-4 text-xs">
+              {[
+                { k: 'dimInspAtSupplier', label: 'Dimensional inspection at Supplier place' },
+                { k: 'dimInspAtRapsInward', label: 'Dimensional inspection at RAPS inward' },
+              ].map(opt => (
+                <label key={opt.k} className="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!iir.documentTypes[opt.k]}
+                    onChange={(e) => setIir({
+                      ...iir,
+                      documentTypes: { ...iir.documentTypes, [opt.k]: e.target.checked },
+                    })}
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Footer text */}
       <div className="border border-gray-300 rounded p-2 text-xs bg-gray-50">
         <span className="font-medium">Requesting QA/QC Group</span> to inspect the particulars mentioned above and inspect the material as per Material specification / Scope of PO.
@@ -355,6 +580,15 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     gatePassType: '',
     probableDateOfReturn: '',
     materialReceiptDate: '',
+    materialCategory: '',
+    documentTypes: {
+      testReport: false,
+      coc: false,
+      coa: false,
+      thirdParty: false,
+      dimInspAtSupplier: false,
+      dimInspAtRapsInward: false,
+    },
   });
 
   const isPO = userRole === 'PURCHASE_OFFICER';
@@ -451,6 +685,15 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
       gatePassType: '',
       probableDateOfReturn: '',
       materialReceiptDate: today,
+      materialCategory: '',
+      documentTypes: {
+        testReport: false,
+        coc: false,
+        coa: false,
+        thirdParty: false,
+        dimInspAtSupplier: false,
+        dimInspAtRapsInward: false,
+      },
     });
     setShowIirForm(true);
   };
@@ -459,6 +702,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     if (!iir.invoiceNo.trim()) return alert('Invoice no. is required.');
     if (!iir.invoiceDate) return alert('Invoice date is required.');
     if (!iir.materialReceiptDate) return alert('Material receipt date is required.');
+    if (!iir.materialCategory) return alert('Please select the material category.');
     setProcessing(true);
     try {
       await api.put(`/purchase-orders/${order.id}/goods-arrived`, {
@@ -469,6 +713,8 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
         gatePassType: iir.gatePassType || undefined,
         probableDateOfReturn: iir.probableDateOfReturn || undefined,
         materialReceiptDate: iir.materialReceiptDate,
+        materialCategory: iir.materialCategory,
+        documentTypes: iir.documentTypes,
       });
       setShowIirForm(false);
       onClose();
@@ -795,14 +1041,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
           <div>
             <h4 className="text-sm font-semibold text-gray-700 mb-2">QC Inspections</h4>
             {order.qcInspections.map(qc => (
-              <div key={qc.id} className="bg-gray-50 p-3 rounded-md text-sm mb-2">
-                <div className="flex justify-between">
-                  <span className="font-medium">{qc.inspectionNumber}</span>
-                  <Badge color={qc.result === 'PASSED' ? 'green' : qc.result === 'FAILED' ? 'red' : 'yellow'}>{qc.result}</Badge>
-                </div>
-                {qc.inspectedBy && <p className="text-xs text-gray-500 mt-1">By: {qc.inspectedBy.name} {qc.inspectedAt ? `on ${formatDateTime(qc.inspectedAt)}` : ''}</p>}
-                {qc.notes && <p className="text-xs text-gray-500 mt-1">Notes: {qc.notes}</p>}
-              </div>
+              <QCInspectionCard key={qc.id} qc={qc} />
             ))}
           </div>
         )}

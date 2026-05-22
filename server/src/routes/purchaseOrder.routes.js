@@ -67,7 +67,10 @@ const ORDER_INCLUDE = {
     orderBy: { createdAt: 'desc' },
   },
   qcInspections: {
-    include: { inspectedBy: { select: { id: true, name: true } } },
+    include: {
+      inspectedBy: { select: { id: true, name: true } },
+      requestCreatedBy: { select: { id: true, name: true } },
+    },
     orderBy: { createdAt: 'desc' },
   },
 };
@@ -205,6 +208,16 @@ const goodsArrivedSchema = z.object({
   gatePassType: z.string().optional().nullable(),
   probableDateOfReturn: z.string().optional().nullable(),
   materialReceiptDate: z.string().min(1, 'Material receipt date is required'),
+  // Inspection scope ticked by Purchase Officer on the IIR form
+  materialCategory: z.string().optional().nullable(),
+  documentTypes: z.object({
+    testReport: z.boolean().optional(),
+    coc: z.boolean().optional(),
+    coa: z.boolean().optional(),
+    thirdParty: z.boolean().optional(),
+    dimInspAtSupplier: z.boolean().optional(),
+    dimInspAtRapsInward: z.boolean().optional(),
+  }).partial().optional(),
 });
 
 // PUT /api/purchase-orders/:id/goods-arrived — PO marks goods as arrived (supports partial deliveries)
@@ -278,6 +291,8 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
           probableDateOfReturn: iir.probableDateOfReturn ? new Date(iir.probableDateOfReturn) : null,
           materialReceiptDate: new Date(iir.materialReceiptDate),
           qtyOrdered: totalOrdered,
+          materialCategory: iir.materialCategory || null,
+          documentTypes: iir.documentTypes || null,
         },
       });
 
