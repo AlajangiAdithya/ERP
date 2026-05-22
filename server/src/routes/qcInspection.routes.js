@@ -23,7 +23,6 @@ const PR_SPEC_SELECT = {
   id: true,
   requestNumber: true,
   requestId: true,
-  isUnion: true,
   materialSpecsPdfUrl: true,
   createdAt: true,
   manager: { select: { id: true, name: true } },
