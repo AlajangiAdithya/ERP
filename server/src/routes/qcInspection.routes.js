@@ -16,6 +16,41 @@ function acceptQcDocs(req, res, next) {
   });
 }
 
+// Full PR + item spec fields the QC team needs when filling the inspection
+// report. These are the same fields a unit manager entered on the PR form,
+// so QC can verify the goods against the exact specifications requested.
+const PR_SPEC_SELECT = {
+  id: true,
+  requestNumber: true,
+  requestId: true,
+  isUnion: true,
+  materialSpecsPdfUrl: true,
+  createdAt: true,
+  manager: { select: { id: true, name: true } },
+  unit: { select: { id: true, name: true, code: true } },
+  items: {
+    select: {
+      id: true,
+      productName: true,
+      productUnit: true,
+      requestedQty: true,
+      adminApprovedQty: true,
+      materialType: true,
+      materialSpecification: true,
+      qapNo: true,
+      drawingNo: true,
+      materialRequiredFor: true,
+      internalWorkOrder: true,
+      purpose: true,
+      sourceOfSupply: true,
+      scopeOfWork: true,
+      inspectionType: true,
+      requiredByDate: true,
+      itemRemarks: true,
+    },
+  },
+};
+
 const INSPECTION_INCLUDE = {
   inspectedBy: { select: { id: true, name: true } },
   requestCreatedBy: { select: { id: true, name: true, role: true } },
@@ -23,15 +58,12 @@ const INSPECTION_INCLUDE = {
     select: {
       id: true, orderNumber: true, customName: true, supplierName: true,
       totalAmount: true, status: true, goodsArrivedAt: true, poDocumentUrl: true,
+      isUnion: true,
       items: true,
-      purchaseRequest: {
+      purchaseRequest: { select: PR_SPEC_SELECT },
+      sourceRequests: {
         select: {
-          id: true, requestNumber: true, requestId: true,
-          manager: { select: { id: true, name: true } },
-          unit: { select: { name: true } },
-          items: {
-            select: { scopeOfWork: true, requiredByDate: true, productName: true },
-          },
+          purchaseRequest: { select: PR_SPEC_SELECT },
         },
       },
     },

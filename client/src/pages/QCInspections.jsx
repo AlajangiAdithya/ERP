@@ -338,6 +338,148 @@ function CreateRequestModal({ order, onClose, onCreated }) {
   );
 }
 
+// ─── Shared: full PR + item specifications (visible to QC while filling the report) ───
+// Surfaces every spec field the unit manager entered on the PR plus the attached
+// materialSpecsPdf, so QC can verify the goods against the original request without
+// hopping between pages. Handles both single-PR and union POs.
+function PRSpecsPanel({ order }) {
+  if (!order) return null;
+
+  const prs = order.isUnion
+    ? (order.sourceRequests || []).map((s) => s.purchaseRequest).filter(Boolean)
+    : (order.purchaseRequest ? [order.purchaseRequest] : []);
+
+  if (prs.length === 0) {
+    return (
+      <div className="border border-gray-300 rounded-md p-3 text-xs text-gray-500 bg-gray-50">
+        No purchase request linked to this order.
+      </div>
+    );
+  }
+
+  const Field = ({ label, value }) => (
+    value ? (
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
+        <div className="text-xs text-gray-800 break-words">{value}</div>
+      </div>
+    ) : null
+  );
+
+  return (
+    <div className="border border-gray-300 rounded-md overflow-hidden">
+      <div className="bg-amber-50 px-3 py-1.5 border-b border-amber-200 text-xs font-bold text-amber-900 flex items-center gap-2">
+        <FileText size={13} className="text-amber-700" />
+        Purchase Request Specifications {prs.length > 1 && <span className="font-normal text-amber-700">({prs.length} source PRs)</span>}
+        <span className="ml-auto text-[10px] font-normal text-amber-700">Verify goods against these specs</span>
+      </div>
+
+      <div className="divide-y divide-gray-200">
+        {prs.map((pr) => (
+          <div key={pr.id} className="p-3 space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="text-xs">
+                <div className="font-semibold text-gray-800">
+                  {pr.requestNumber}
+                  {pr.requestId && <span className="ml-2 text-gray-500 font-normal">· {pr.requestId}</span>}
+                </div>
+                <div className="text-gray-600">
+                  {pr.manager?.name && <span>Raised by {pr.manager.name}</span>}
+                  {pr.unit?.name && <span> · {pr.unit.name}{pr.unit.code ? ` (${pr.unit.code})` : ''}</span>}
+                  {pr.createdAt && <span> · {fmtDate(pr.createdAt)}</span>}
+                </div>
+              </div>
+              {pr.materialSpecsPdfUrl ? (
+                <a href={pr.materialSpecsPdfUrl} target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-blue-300 bg-blue-50 text-xs font-semibold text-blue-800 hover:bg-blue-100 transition">
+                  <Download size={13} /> Material Specs PDF
+                </a>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-dashed border-gray-300 bg-gray-50 text-[11px] text-gray-500">
+                  No specs PDF attached
+                </span>
+              )}
+            </div>
+
+            {(pr.items || []).length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px] border border-gray-200">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-gray-600">
+                      <th className="px-2 py-1.5 text-left font-semibold">Product</th>
+                      <th className="px-2 py-1.5 text-left font-semibold">Qty</th>
+                      <th className="px-2 py-1.5 text-left font-semibold">Material Type</th>
+                      <th className="px-2 py-1.5 text-left font-semibold">Specification</th>
+                      <th className="px-2 py-1.5 text-left font-semibold">Drawing / QAP</th>
+                      <th className="px-2 py-1.5 text-left font-semibold">Inspection / Scope</th>
+                      <th className="px-2 py-1.5 text-left font-semibold">Required By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pr.items.map((it) => {
+                      const approved = it.adminApprovedQty != null ? it.adminApprovedQty : it.requestedQty;
+                      const qtyStr = it.adminApprovedQty != null && it.adminApprovedQty !== it.requestedQty
+                        ? `${approved} ${it.productUnit} (req ${it.requestedQty})`
+                        : `${it.requestedQty} ${it.productUnit}`;
+                      return (
+                        <tr key={it.id} className="border-b border-gray-100 align-top">
+                          <td className="px-2 py-1.5 font-medium text-gray-800">{it.productName}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-gray-700">{qtyStr}</td>
+                          <td className="px-2 py-1.5 text-gray-700">{it.materialType || '—'}</td>
+                          <td className="px-2 py-1.5 text-gray-700 max-w-[260px]">
+                            <div className="whitespace-pre-wrap break-words">{it.materialSpecification || '—'}</div>
+                          </td>
+                          <td className="px-2 py-1.5 text-gray-700">
+                            {it.drawingNo && <div>Dwg: <span className="font-medium">{it.drawingNo}</span></div>}
+                            {it.qapNo && <div>QAP: <span className="font-medium">{it.qapNo}</span></div>}
+                            {!it.drawingNo && !it.qapNo && '—'}
+                          </td>
+                          <td className="px-2 py-1.5 text-gray-700">
+                            {it.inspectionType && <div>{it.inspectionType}</div>}
+                            {it.scopeOfWork && <div className="text-gray-600 italic">{it.scopeOfWork}</div>}
+                            {!it.inspectionType && !it.scopeOfWork && '—'}
+                          </td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-gray-700">{fmtDate(it.requiredByDate)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                {/* Per-item secondary details — purpose, work order, source of supply, remarks */}
+                {pr.items.some(it => it.purpose || it.materialRequiredFor || it.internalWorkOrder || it.sourceOfSupply || it.itemRemarks) && (
+                  <div className="mt-2 space-y-1.5">
+                    {pr.items.map((it) => {
+                      const extras = [
+                        ['Required for', it.materialRequiredFor],
+                        ['Purpose', it.purpose],
+                        ['Internal Work Order', it.internalWorkOrder],
+                        ['Source of Supply', it.sourceOfSupply],
+                        ['Remarks', it.itemRemarks],
+                      ].filter(([, v]) => v);
+                      if (extras.length === 0) return null;
+                      return (
+                        <div key={`extras-${it.id}`} className="bg-gray-50 border border-gray-200 rounded px-2 py-1.5">
+                          <div className="text-[10px] font-semibold text-gray-600 mb-1">{it.productName}</div>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                            {extras.map(([label, value]) => (
+                              <Field key={label} label={label} value={value} />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── QC: Fill Inspection Report (Page 2) ───
 function FillReportModal({ inspection, onClose, onUpdated }) {
   const [reportNo, setReportNo] = useState('');
@@ -520,6 +662,8 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
         <OrderInfoHeader order={order} />
 
         <InspectionDocsPanel order={order} inspection={inspection} />
+
+        <PRSpecsPanel order={order} />
 
         {/* Page 1 request details (read-only) */}
         <div className="border border-gray-300 rounded-md overflow-hidden">
@@ -888,6 +1032,8 @@ function HoldActionModal({ inspection, onClose, onActioned }) {
 
         <InspectionDocsPanel order={order} inspection={inspection} />
 
+        <PRSpecsPanel order={order} />
+
         {inspection.docRequirement && inspection.docRequirement !== 'NONE' && (
           <div className="border border-amber-200 bg-amber-50 rounded-md p-3 text-xs">
             <div className="font-semibold text-amber-900">QC Expected: {inspection.docRequirement.replace('_', ' ')}</div>
@@ -998,6 +1144,8 @@ function ViewInspectionModal({ inspection, onClose }) {
         <OrderInfoHeader order={order} />
 
         <InspectionDocsPanel order={order} inspection={inspection} />
+
+        <PRSpecsPanel order={order} />
 
         {/* Page 1 — Request */}
         <div className="border border-gray-300 rounded-md overflow-hidden">
