@@ -103,6 +103,7 @@ function QCInspectionCard({ qc }) {
   ].filter(Boolean);
   const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '—';
   const reportFilled = !!qc.reportNo || !!qc.inspectedAt;
+  const lotLabel = qc.lotNumber ? `Lot ${qc.lotNumber}` : null;
 
   return (
     <div className="border border-gray-200 rounded-md mb-2 bg-white">
@@ -111,12 +112,29 @@ function QCInspectionCard({ qc }) {
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           <span className="font-mono text-sm font-medium">{qc.inspectionNumber}</span>
-          <span className="text-xs text-gray-500">ION No.</span>
+          {lotLabel && <Badge color="navy">{lotLabel}</Badge>}
+          {qc.arrivedQty != null && (
+            <span className="text-xs text-gray-600">
+              · arrived <span className="font-semibold">{qc.arrivedQty}</span>
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
+          {qc.invoiceFileUrl && (
+            <a
+              href={qc.invoiceFileUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline"
+              title="Open invoice PDF"
+            >
+              <FileText size={12} /> Invoice
+            </a>
+          )}
           <Badge color={qc.result === 'PASSED' ? 'green' : qc.result === 'FAILED' ? 'red' : qc.result === 'PARTIAL' ? 'navy' : qc.result === 'ON_HOLD' ? 'orange' : 'yellow'}>
             {qc.result}
           </Badge>
@@ -125,6 +143,50 @@ function QCInspectionCard({ qc }) {
 
       {open && (
         <div className="border-t border-gray-200 p-3 text-xs space-y-3">
+          {/* Lot summary — what arrived in THIS lot */}
+          {(qc.lotNumber || qc.arrivedQty != null || qc.invoiceFileUrl || (qc.items && qc.items.length > 0)) && (
+            <div className="bg-navy-50/60 border border-navy-200 rounded p-2">
+              <div className="font-semibold text-navy-800 mb-1 flex items-center gap-2">
+                {lotLabel || 'Lot'} delivery
+                {qc.invoiceFileUrl && (
+                  <a
+                    href={qc.invoiceFileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-blue-700 hover:underline font-normal"
+                  >
+                    <FileText size={11} /> Open invoice PDF
+                  </a>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-x-4 gap-y-1">
+                <div><span className="text-gray-500">Lot total:</span> <span className="font-medium">{qc.arrivedQty ?? '—'}</span></div>
+                <div><span className="text-gray-500">Invoice:</span> {qc.invoiceNo || '—'}</div>
+                <div><span className="text-gray-500">Receipt date:</span> {fmt(qc.materialReceiptDate)}</div>
+              </div>
+              {Array.isArray(qc.items) && qc.items.length > 0 && (
+                <table className="w-full mt-2 text-[11px]">
+                  <thead>
+                    <tr className="text-gray-500">
+                      <th className="text-left font-normal">Item</th>
+                      <th className="text-right font-normal">Arrived this lot</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {qc.items.map((li) => (
+                      <tr key={li.id}>
+                        <td>{li.purchaseOrderItem?.productName || '—'}</td>
+                        <td className="text-right font-medium">
+                          {li.arrivedQty} {li.purchaseOrderItem?.productUnit || ''}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
           {/* Page 1 — Request details (filled by PO) */}
           <div>
             <div className="font-semibold text-gray-700 mb-1">
@@ -231,7 +293,14 @@ function QCInspectionCard({ qc }) {
 }
 
 // ─── Inward Inspection Request Form (RAPS/IIR Rev 01, page 1) ───
-function IIRForm({ order, iir, setIir, processing, onCancel, onSubmit }) {
+function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setInvoiceFile, processing, onCancel, onSubmit }) {
+  // Lot number for this delivery = next inspection slot on the PO.
+  const lotNumber = (order.qcInspections?.length || 0) + 1;
+  // Cumulative received so far across all items (visibility: "500 of 1000 already received").
+  const cumulativeReceived = (order.items || []).reduce((s, i) => s + (i.receivedQty || 0), 0);
+  const totalOrdered = (order.items || []).reduce((s, i) => s + (i.quantity || 0), 0);
+  const lotTotal = lotItems.reduce((s, li) => s + (parseFloat(li.arrivedQty) || 0), 0);
+
   const prNumber = order.purchaseRequest?.requestNumber
     || (order.sourceRequests || []).map(s => s.purchaseRequest?.requestNumber).filter(Boolean).join(', ')
     || '—';
@@ -528,6 +597,107 @@ function IIRForm({ order, iir, setIir, processing, onCancel, onSubmit }) {
         </div>
       </div>
 
+      {/* Lot delivery — per-item arrived qty + invoice for THIS batch */}
+      <div className="border border-amber-300 rounded-md overflow-hidden">
+        <div className="bg-amber-50 px-3 py-1.5 border-b border-amber-300 text-xs font-bold text-amber-900 flex items-center justify-between">
+          <span>Lot {lotNumber} — arrived quantity (this delivery)</span>
+          {cumulativeReceived > 0 && (
+            <span className="font-normal text-amber-800">
+              {cumulativeReceived} of {totalOrdered} previously received
+            </span>
+          )}
+        </div>
+        <div className="p-3 space-y-3">
+          <p className="text-[11px] text-gray-600">
+            Enter how much of each item physically reached stores in this delivery.
+            Leave 0 if an item did not arrive in this lot.
+          </p>
+          <table className="w-full text-xs border border-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="border border-gray-200 px-2 py-1 text-left">Material</th>
+                <th className="border border-gray-200 px-2 py-1 text-right">Ordered</th>
+                <th className="border border-gray-200 px-2 py-1 text-right">Already received</th>
+                <th className="border border-gray-200 px-2 py-1 text-right">Remaining</th>
+                <th className="border border-gray-200 px-2 py-1 text-right w-32">
+                  Arrived this lot <span className="text-red-600">*</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {(order.items || []).map((it) => {
+                const already = it.receivedQty || 0;
+                const remaining = Math.max(0, it.quantity - already);
+                const row = lotItems.find((r) => r.poItemId === it.id) || { arrivedQty: '' };
+                const value = row.arrivedQty;
+                const num = parseFloat(value) || 0;
+                const overflow = num > remaining + 0.0001;
+                return (
+                  <tr key={it.id} className="border-t border-gray-200">
+                    <td className="border border-gray-200 px-2 py-1 font-medium">{it.productName}</td>
+                    <td className="border border-gray-200 px-2 py-1 text-right">{it.quantity} {it.productUnit}</td>
+                    <td className="border border-gray-200 px-2 py-1 text-right">{already}</td>
+                    <td className={`border border-gray-200 px-2 py-1 text-right ${remaining === 0 ? 'text-gray-400' : 'text-amber-700 font-medium'}`}>
+                      {remaining}
+                    </td>
+                    <td className="border border-gray-200 px-2 py-1 text-right">
+                      <input
+                        type="number"
+                        min="0"
+                        max={remaining}
+                        step="any"
+                        value={value}
+                        disabled={remaining === 0}
+                        onChange={(e) => {
+                          const next = lotItems.map((r) =>
+                            r.poItemId === it.id ? { ...r, arrivedQty: e.target.value } : r
+                          );
+                          // If row not present yet (defensive), append
+                          if (!lotItems.some((r) => r.poItemId === it.id)) {
+                            next.push({ poItemId: it.id, arrivedQty: e.target.value });
+                          }
+                          setLotItems(next);
+                        }}
+                        className={`w-28 px-2 py-1 border rounded text-right text-xs ${overflow ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                        placeholder="0"
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-gray-50 font-semibold">
+                <td colSpan={4} className="border border-gray-200 px-2 py-1 text-right">Lot total</td>
+                <td className="border border-gray-200 px-2 py-1 text-right">{lotTotal || 0}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      {/* Invoice PDF for this lot */}
+      <div className="border border-blue-300 rounded-md p-3 space-y-2">
+        <div className="text-xs font-bold text-blue-900">
+          Invoice PDF for Lot {lotNumber} <span className="text-red-600">*</span>
+        </div>
+        <p className="text-[11px] text-gray-600">
+          Upload the supplier invoice that accompanies this delivery. QC will see it alongside
+          the PR specs and PO annexure.
+        </p>
+        <input
+          type="file"
+          accept="application/pdf"
+          onChange={(e) => setInvoiceFile(e.target.files?.[0] || null)}
+          className="block text-xs"
+        />
+        {invoiceFile && (
+          <div className="text-xs text-green-700 font-medium">
+            Selected: {invoiceFile.name} ({Math.round(invoiceFile.size / 1024)} KB)
+          </div>
+        )}
+      </div>
+
       {/* Footer text */}
       <div className="border border-gray-300 rounded p-2 text-xs bg-gray-50">
         <span className="font-medium">Requesting QA/QC Group</span> to inspect the particulars mentioned above and inspect the material as per Material specification / Scope of PO.
@@ -573,6 +743,8 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [showCreditForm, setShowCreditForm] = useState(false);
   const [creditNote, setCreditNote] = useState('');
   const [showIirForm, setShowIirForm] = useState(false);
+  const [lotItems, setLotItems] = useState([]);
+  const [invoiceFile, setInvoiceFile] = useState(null);
   const [iir, setIir] = useState({
     invoiceNo: '',
     invoiceDate: '',
@@ -764,6 +936,15 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
         dimInspAtRapsInward: false,
       },
     });
+    // Pre-populate one row per PO item, defaulting arrivedQty to the remaining qty
+    // (so a "full delivery" can be submitted with one click).
+    setLotItems(
+      (order.items || []).map((it) => ({
+        poItemId: it.id,
+        arrivedQty: Math.max(0, it.quantity - (it.receivedQty || 0)) || '',
+      }))
+    );
+    setInvoiceFile(null);
     setShowIirForm(true);
   };
 
@@ -772,18 +953,41 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     if (!iir.invoiceDate) return alert('Invoice date is required.');
     if (!iir.materialReceiptDate) return alert('Material receipt date is required.');
     if (!iir.materialCategory) return alert('Please select the material category.');
+
+    // Drop empty/zero rows; ensure at least one positive arrived qty.
+    const arrivedItems = lotItems
+      .map((r) => ({ poItemId: r.poItemId, arrivedQty: parseFloat(r.arrivedQty) || 0 }))
+      .filter((r) => r.arrivedQty > 0);
+    if (arrivedItems.length === 0) {
+      return alert('Enter the arrived quantity for at least one item in this lot.');
+    }
+    // Validate against remaining qty per item.
+    for (const r of arrivedItems) {
+      const it = order.items.find((i) => i.id === r.poItemId);
+      if (!it) continue;
+      const remaining = Math.max(0, it.quantity - (it.receivedQty || 0));
+      if (r.arrivedQty > remaining + 0.0001) {
+        return alert(`Arrived qty for "${it.productName}" exceeds remaining (${remaining}).`);
+      }
+    }
+    if (!invoiceFile) return alert('Please upload the invoice PDF for this lot.');
+
     setProcessing(true);
     try {
-      await api.put(`/purchase-orders/${order.id}/goods-arrived`, {
-        invoiceNo: iir.invoiceNo.trim(),
-        invoiceDate: iir.invoiceDate,
-        dcNo: iir.dcNo.trim() || undefined,
-        gatePassNo: iir.gatePassNo.trim() || undefined,
-        gatePassType: iir.gatePassType || undefined,
-        probableDateOfReturn: iir.probableDateOfReturn || undefined,
-        materialReceiptDate: iir.materialReceiptDate,
-        materialCategory: iir.materialCategory,
-        documentTypes: iir.documentTypes,
+      const fd = new FormData();
+      fd.append('invoiceNo', iir.invoiceNo.trim());
+      fd.append('invoiceDate', iir.invoiceDate);
+      if (iir.dcNo.trim()) fd.append('dcNo', iir.dcNo.trim());
+      if (iir.gatePassNo.trim()) fd.append('gatePassNo', iir.gatePassNo.trim());
+      if (iir.gatePassType) fd.append('gatePassType', iir.gatePassType);
+      if (iir.probableDateOfReturn) fd.append('probableDateOfReturn', iir.probableDateOfReturn);
+      fd.append('materialReceiptDate', iir.materialReceiptDate);
+      fd.append('materialCategory', iir.materialCategory);
+      fd.append('documentTypes', JSON.stringify(iir.documentTypes));
+      fd.append('items', JSON.stringify(arrivedItems));
+      fd.append('invoiceFile', invoiceFile);
+      await api.put(`/purchase-orders/${order.id}/goods-arrived`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
       setShowIirForm(false);
       onClose();
@@ -1375,6 +1579,10 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             order={order}
             iir={iir}
             setIir={setIir}
+            lotItems={lotItems}
+            setLotItems={setLotItems}
+            invoiceFile={invoiceFile}
+            setInvoiceFile={setInvoiceFile}
             processing={processing}
             onCancel={() => setShowIirForm(false)}
             onSubmit={submitIir}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowDown, ArrowUp, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine } from 'lucide-react';
+import { ArrowLeft, ArrowDown, ArrowUp, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine, FileText, GitBranch } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -439,6 +439,131 @@ function FimTab({ product }) {
   );
 }
 
+// ─── Procurement Chain Tab ───────────────────────────────────────────────
+// Shows, for each PO-flow batch of this product, the full origin chain:
+//   PR (raised by Unit Manager) → PO → Lot N (invoice/MRD) → Batch (inwarded qty)
+// This is the user-visible end of "Where did this stock come from?" for purchased
+// (non-FIM) material, mirroring the FIM tab for customer-supplied material.
+function ProcurementChainTab({ product }) {
+  const batches = product.poBatches || [];
+  if (batches.length === 0) {
+    return <p className="text-sm text-gray-400 py-6 text-center">No purchased batches yet — this product has not been inwarded against any Purchase Order.</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900">
+        Each card traces one inwarded batch back to its origin:
+        <strong> PR → PO → Lot N (invoice) → Batch</strong>.
+        Multiple lots can come from the same PO when material arrives in instalments.
+      </div>
+
+      {batches.map(b => {
+        const insp = b.sourceQcInspection;
+        const po = insp?.purchaseOrder;
+        const pr = po?.purchaseRequest;
+        return (
+          <div key={b.id} className="border border-gray-200 rounded p-4 bg-white">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <p className="text-sm font-semibold text-navy-700">
+                  Batch <span className="font-mono">{b.batchNo || b.id.slice(0, 8)}</span>
+                  {insp?.lotNumber != null && (
+                    <span className="ml-2 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                      Lot {insp.lotNumber}
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Inwarded {formatDate(b.receivedDate)} · {b.quantity} {product.unit} ({b.remaining} remaining)
+                </p>
+              </div>
+              {!insp && (
+                <Badge color="gray">Legacy (no QC link)</Badge>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+              {/* PR */}
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded">
+                <p className="text-xs uppercase tracking-wide text-gray-500 font-medium mb-1 flex items-center gap-1">
+                  <GitBranch size={11} /> Purchase Request
+                </p>
+                {pr ? (
+                  <>
+                    <p className="font-mono text-navy-700 font-medium">{pr.requestNumber}</p>
+                    <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                      {pr.requestId && <div><span className="text-gray-500">ID:</span> <span className="font-mono">{pr.requestId}</span></div>}
+                      {pr.manager?.name && <div><span className="text-gray-500">Raised by:</span> {pr.manager.name}</div>}
+                      {pr.unit && <div><span className="text-gray-500">Unit:</span> {pr.unit.name || pr.unit.code}</div>}
+                    </div>
+                  </>
+                ) : <p className="text-xs text-gray-400 italic">—</p>}
+              </div>
+
+              {/* PO */}
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded">
+                <p className="text-xs uppercase tracking-wide text-gray-500 font-medium mb-1">Purchase Order</p>
+                {po ? (
+                  <>
+                    <p className="font-mono text-navy-700 font-medium">{po.orderNumber}</p>
+                    <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                      {po.customName && <div><span className="text-gray-500">Name:</span> {po.customName}</div>}
+                      {po.supplierName && <div><span className="text-gray-500">Supplier:</span> {po.supplierName}</div>}
+                      {po.mirNo && <div><span className="text-gray-500">MIR:</span> <span className="font-mono">{po.mirNo}</span></div>}
+                    </div>
+                  </>
+                ) : <p className="text-xs text-gray-400 italic">—</p>}
+              </div>
+
+              {/* Lot + Invoice */}
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded">
+                <p className="text-xs uppercase tracking-wide text-amber-700 font-medium mb-1">
+                  Lot {insp?.lotNumber ?? '—'} · QC {insp?.inspectionNumber || ''}
+                </p>
+                {insp ? (
+                  <div className="text-xs text-gray-700 mt-1 space-y-0.5">
+                    {insp.arrivedQty != null && (
+                      <div><span className="text-gray-500">Arrived:</span> <strong>{insp.arrivedQty} {product.unit}</strong></div>
+                    )}
+                    {insp.materialReceiptDate && (
+                      <div><span className="text-gray-500">MRD:</span> {formatDate(insp.materialReceiptDate)}</div>
+                    )}
+                    {insp.invoiceNo && (
+                      <div>
+                        <span className="text-gray-500">Invoice #:</span> <span className="font-mono">{insp.invoiceNo}</span>
+                        {insp.invoiceDate && <span className="text-gray-500"> ({formatDate(insp.invoiceDate)})</span>}
+                      </div>
+                    )}
+                    {insp.result && (
+                      <div>
+                        <span className="text-gray-500">QC:</span>{' '}
+                        <Badge color={insp.result === 'PASSED' ? 'green' : insp.result === 'PARTIAL' ? 'yellow' : 'red'}>
+                          {insp.result}
+                        </Badge>
+                      </div>
+                    )}
+                    {insp.invoiceFileUrl && (
+                      <div className="mt-1">
+                        <a href={insp.invoiceFileUrl} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-navy-700 hover:underline font-medium">
+                          <FileText size={12} /> Download invoice PDF
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 italic">No QC link (pre-lot-tracking)</p>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Main ProductDetail page ─────────────────────────────────────────────
 export default function ProductDetail() {
   const { id } = useParams();
@@ -566,6 +691,16 @@ export default function ProductDetail() {
           >
             <Layers size={14} className="inline mr-1.5" /> Batches & Movements
           </button>
+          {(product.poBatches || []).length > 0 && (
+            <button
+              onClick={() => setActiveTab('procurement')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+                activeTab === 'procurement' ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <GitBranch size={14} className="inline mr-1.5" /> Procurement Chain ({product.poBatches.length})
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('suppliers')}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
@@ -607,6 +742,7 @@ export default function ProductDetail() {
                         <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Received Qty</th>
                         <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Remaining</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Origin</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -614,6 +750,8 @@ export default function ProductDetail() {
                         const age = daysOld(b.receivedDate);
                         const depleted = b.remaining === 0;
                         const partial = b.remaining > 0 && b.remaining < b.quantity;
+                        const poBatch = (product.poBatches || []).find(pb => pb.id === b.id);
+                        const insp = poBatch?.sourceQcInspection;
                         return (
                           <tr key={b.id} className={`border-b border-gray-50 ${depleted ? 'bg-gray-50 text-gray-400' : ''}`}>
                             <td className="px-3 py-2 text-xs">{formatDate(b.receivedDate)}</td>
@@ -626,6 +764,21 @@ export default function ProductDetail() {
                                 : partial ? <Badge color="yellow">Partial</Badge>
                                 : <Badge color="green">Full</Badge>}
                             </td>
+                            <td className="px-3 py-2 text-xs">
+                              {insp?.purchaseOrder ? (
+                                <button onClick={() => setActiveTab('procurement')}
+                                  className="text-navy-700 hover:underline text-left">
+                                  <span className="font-mono">{insp.purchaseOrder.orderNumber}</span>
+                                  {insp.lotNumber != null && (
+                                    <span className="ml-1 text-amber-700">· Lot {insp.lotNumber}</span>
+                                  )}
+                                </button>
+                              ) : poBatch ? (
+                                <span className="text-gray-400 italic">PO (no QC link)</span>
+                              ) : (
+                                <span className="text-gray-400">{b.isFim ? 'FIM' : 'Direct'}</span>
+                              )}
+                            </td>
                           </tr>
                         );
                       })}
@@ -635,7 +788,7 @@ export default function ProductDetail() {
                         <tr className="bg-gray-50 border-t-2 font-semibold text-sm">
                           <td colSpan={4} className="px-3 py-2 text-right">Active total:</td>
                           <td className="px-3 py-2 text-right">{activeBatches.reduce((s, b) => s + b.remaining, 0)} {product.unit}</td>
-                          <td />
+                          <td colSpan={2} />
                         </tr>
                       </tfoot>
                     )}
@@ -684,6 +837,8 @@ export default function ProductDetail() {
             </div>
           </div>
         )}
+
+        {activeTab === 'procurement' && <ProcurementChainTab product={product} />}
 
         {activeTab === 'suppliers' && (
           <SupplierHistoryTab product={product} onRequote={openRequote} />

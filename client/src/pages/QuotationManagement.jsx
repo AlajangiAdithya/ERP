@@ -435,6 +435,7 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
     setQuotationPdf(null);
 
     // Group PR items by normalised product name + unit. Each group becomes one union line.
+    // We also collect per-source material specs so PO/quotation creators can see what each PR asked for.
     const groups = new Map();
     for (const pr of purchaseRequests) {
       for (const item of (pr.items || [])) {
@@ -459,6 +460,12 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
           unitCode: pr.unit?.code || pr.unit?.name || '—',
           allocatedQty,
           checked: true,
+          // PR specs flow through to PO — read-only for quotation/PO creators.
+          materialType: item.materialType || '',
+          materialSpecification: item.materialSpecification || '',
+          drawingNo: item.drawingNo || '',
+          qapNo: item.qapNo || '',
+          itemRemarks: item.itemRemarks || '',
         });
       }
     }
@@ -567,6 +574,21 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
               </Badge>
             ))}
           </div>
+          {purchaseRequests?.some(pr => pr.materialSpecsPdfUrl) && (
+            <div className="flex flex-wrap gap-3 mt-2">
+              {purchaseRequests.filter(pr => pr.materialSpecsPdfUrl).map(pr => (
+                <a
+                  key={pr.id}
+                  href={pr.materialSpecsPdfUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-blue-700 underline hover:text-blue-900"
+                >
+                  <FileText size={14} /> {pr.requestNumber} specs PDF
+                </a>
+              ))}
+            </div>
+          )}
           <p className="text-xs text-navy-700/70 mt-2">
             For each product group below, uncheck PR-items you don't want in the union. Lines with fewer than 2 PRs checked are skipped.
           </p>
@@ -605,31 +627,50 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
                         </tr>
                       </thead>
                       <tbody>
-                        {line.sources.map((s, idx) => (
-                          <tr key={`${line.key}-${idx}`} className="border-b border-gray-50">
-                            <td className="px-2 py-1.5">
-                              <input
-                                type="checkbox"
-                                checked={s.checked}
-                                onChange={() => toggleSource(line.key, idx)}
-                                className="rounded"
-                              />
-                            </td>
-                            <td className="px-2 py-1.5 font-medium text-navy-700">{s.requestNumber}</td>
-                            <td className="px-2 py-1.5"><Badge color="blue">{s.unitCode}</Badge></td>
-                            <td className="px-2 py-1.5">
-                              <input
-                                type="number"
-                                value={s.allocatedQty}
-                                onChange={(e) => updateSourceQty(line.key, idx, e.target.value)}
-                                className="w-24 px-2 py-1 border rounded"
-                                min="0"
-                                step="0.01"
-                                disabled={!s.checked}
-                              />
-                            </td>
-                          </tr>
-                        ))}
+                        {line.sources.map((s, idx) => {
+                          const hasSpecs = s.materialType || s.materialSpecification || s.drawingNo || s.qapNo || s.itemRemarks;
+                          return (
+                            <>
+                              <tr key={`${line.key}-${idx}`} className="border-b border-gray-50">
+                                <td className="px-2 py-1.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={s.checked}
+                                    onChange={() => toggleSource(line.key, idx)}
+                                    className="rounded"
+                                  />
+                                </td>
+                                <td className="px-2 py-1.5 font-medium text-navy-700">{s.requestNumber}</td>
+                                <td className="px-2 py-1.5"><Badge color="blue">{s.unitCode}</Badge></td>
+                                <td className="px-2 py-1.5">
+                                  <input
+                                    type="number"
+                                    value={s.allocatedQty}
+                                    onChange={(e) => updateSourceQty(line.key, idx, e.target.value)}
+                                    className="w-24 px-2 py-1 border rounded"
+                                    min="0"
+                                    step="0.01"
+                                    disabled={!s.checked}
+                                  />
+                                </td>
+                              </tr>
+                              {hasSpecs && (
+                                <tr key={`${line.key}-${idx}-specs`} className="border-b border-gray-50">
+                                  <td></td>
+                                  <td colSpan={3} className="px-2 pb-2">
+                                    <div className="text-[11px] text-gray-600 space-y-0.5 bg-gray-50 border-l-2 border-blue-300 pl-2 py-1">
+                                      {s.materialType && (<div><span className="font-medium text-gray-700">Type:</span> {s.materialType}</div>)}
+                                      {s.materialSpecification && (<div><span className="font-medium text-gray-700">Spec:</span> {s.materialSpecification}</div>)}
+                                      {s.drawingNo && (<div><span className="font-medium text-gray-700">Drawing #:</span> {s.drawingNo}</div>)}
+                                      {s.qapNo && (<div><span className="font-medium text-gray-700">QAP #:</span> {s.qapNo}</div>)}
+                                      {s.itemRemarks && (<div><span className="font-medium text-gray-700">Remarks:</span> {s.itemRemarks}</div>)}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1041,12 +1082,25 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
                           <th className="px-2 py-1.5 text-left text-gray-600 font-medium">Total Qty</th>
                           <th className="px-2 py-1.5 text-left text-gray-600 font-medium">Unit Price</th>
                           <th className="px-2 py-1.5 text-left text-gray-600 font-medium">Supplier</th>
+                          <th className="px-2 py-1.5 text-left text-gray-600 font-medium">Contact</th>
                           <th className="px-2 py-1.5 text-left text-gray-600 font-medium">Total</th>
                         </tr>
                       </thead>
                       <tbody>
                         {q.items.map(item => {
                           const allocs = Array.isArray(item.sourceAllocations) ? item.sourceAllocations : [];
+                          // Resolve material specs from any source PR item that has them.
+                          const specSources = allocs
+                            .map(a => {
+                              for (const pr of sourcePRs) {
+                                const prItem = pr.items?.find?.(it => it.id === a.purchaseRequestItemId);
+                                if (prItem && (prItem.materialType || prItem.materialSpecification || prItem.drawingNo || prItem.qapNo || prItem.itemRemarks)) {
+                                  return { pr, prItem };
+                                }
+                              }
+                              return null;
+                            })
+                            .filter(Boolean);
                           return (
                             <>
                               <tr key={item.id} className="border-b border-gray-50 hover:bg-amber-50/30">
@@ -1054,11 +1108,30 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
                                 <td className="px-2 py-1.5 whitespace-nowrap">{item.quantity} {item.productUnit}</td>
                                 <td className="px-2 py-1.5">{formatCurrency(item.unitPrice)}</td>
                                 <td className="px-2 py-1.5 font-medium text-gray-800">{item.supplierName || '—'}</td>
+                                <td className="px-2 py-1.5 text-gray-500">{item.supplierContact || '—'}</td>
                                 <td className="px-2 py-1.5 font-medium">{formatCurrency(item.totalPrice)}</td>
                               </tr>
+                              {specSources.length > 0 && (
+                                <tr key={`${item.id}-specs`} className="bg-blue-50/40">
+                                  <td colSpan={6} className="px-3 py-1.5 text-[11px] text-gray-700">
+                                    <div className="space-y-1">
+                                      {specSources.map(({ pr, prItem }, idx) => (
+                                        <div key={idx} className="flex flex-wrap gap-x-3 gap-y-0.5">
+                                          <span className="font-medium text-navy-700">{pr.requestNumber}:</span>
+                                          {prItem.materialType && (<span><span className="font-medium">Type:</span> {prItem.materialType}</span>)}
+                                          {prItem.materialSpecification && (<span><span className="font-medium">Spec:</span> {prItem.materialSpecification}</span>)}
+                                          {prItem.drawingNo && (<span><span className="font-medium">Drawing #:</span> {prItem.drawingNo}</span>)}
+                                          {prItem.qapNo && (<span><span className="font-medium">QAP #:</span> {prItem.qapNo}</span>)}
+                                          {prItem.itemRemarks && (<span><span className="font-medium">Remarks:</span> {prItem.itemRemarks}</span>)}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
                               {allocs.length > 0 && (
                                 <tr key={`${item.id}-alloc`} className="bg-purple-50/40">
-                                  <td colSpan={5} className="px-3 py-1.5 text-[11px] text-purple-900">
+                                  <td colSpan={6} className="px-3 py-1.5 text-[11px] text-purple-900">
                                     Per-PR split: {allocs.map((a, idx) => {
                                       const pr = sourcePRs.find(p => p.items?.some?.(it => it.id === a.purchaseRequestItemId));
                                       return (

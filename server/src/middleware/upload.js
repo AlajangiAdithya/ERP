@@ -49,6 +49,14 @@ const poDocumentUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
+// Invoice PDF uploaded by Purchase Officer per delivered lot.
+// Surfaced to QC alongside PR specs + PO annexure for that lot's inspection.
+const invoiceUpload = multer({
+  storage: makeStorage('invoices'),
+  fileFilter: pdfOnly,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
 const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
 
-module.exports = { prSpecsUpload, quotationUpload, qcDocsUpload, poDocumentUpload, publicUrlFor, UPLOAD_ROOT };
+module.exports = { prSpecsUpload, quotationUpload, qcDocsUpload, poDocumentUpload, invoiceUpload, publicUrlFor, UPLOAD_ROOT };

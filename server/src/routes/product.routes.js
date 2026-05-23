@@ -279,7 +279,37 @@ router.get('/:id', authenticate, async (req, res) => {
       },
     });
 
-    res.json({ ...product, fimBatches });
+    // PO-flow batches with full chain: PR → PO → Lot N (invoice) → Batch.
+    // Surfaces every inward against this product so anyone can trace where the
+    // stock came from, which lot, which invoice, and when it arrived.
+    const poBatches = await prisma.productBatch.findMany({
+      where: { productId: req.params.id, isFim: false },
+      orderBy: { receivedDate: 'desc' },
+      include: {
+        sourceQcInspection: {
+          select: {
+            id: true, inspectionNumber: true, lotNumber: true, arrivedQty: true,
+            invoiceNo: true, invoiceDate: true, invoiceFileUrl: true,
+            materialReceiptDate: true, result: true,
+            purchaseOrder: {
+              select: {
+                id: true, orderNumber: true, customName: true, supplierName: true,
+                mirNo: true,
+                purchaseRequest: {
+                  select: {
+                    id: true, requestNumber: true, requestId: true,
+                    manager: { select: { id: true, name: true } },
+                    unit: { select: { id: true, name: true, code: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    res.json({ ...product, fimBatches, poBatches });
   } catch (error) {
     console.error('Get product error:', error);
     res.status(500).json({ error: 'Internal server error' });

@@ -10,12 +10,15 @@ const {
 const router = express.Router();
 
 const USER_SELECT = { select: { id: true, name: true, role: true } };
+const UNIT_SELECT = { select: { id: true, name: true, code: true } };
 const GATEPASS_INCLUDE = {
   createdBy: USER_SELECT,
   siteIncharge: USER_SELECT,
   storeIncharge: USER_SELECT,
   accountsApprover: USER_SELECT,
   finalApprover: USER_SELECT,
+  destinationUnit: UNIT_SELECT,
+  collectedBy: USER_SELECT,
   items: {
     include: {
       sourceInwardGatePassItem: {
@@ -34,6 +37,7 @@ const GATEPASS_INCLUDE = {
 const PASS_TYPES = ['RETURNABLE', 'NON_RETURNABLE', 'DELIVERY_CHALLAN'];
 const INWARD_PASS_TYPES = ['RETURNABLE', 'NON_RETURNABLE']; // DC is outward-only
 const DIRECTIONS = ['INWARD', 'OUTWARD'];
+const INWARD_KINDS = ['STORES', 'DIRECT_TO_UNIT'];
 const ALL_STATUSES = [
   'DRAFT', 'PENDING_STORE', 'PENDING_ACCOUNTS', 'PENDING_APPROVAL',
   'PENDING_ACCEPTANCE', 'ACCEPTED',
@@ -58,6 +62,20 @@ router.get('/', authenticate, async (req, res) => {
     if (status && ALL_STATUSES.includes(status)) where.status = status;
     if (direction && DIRECTIONS.includes(direction)) where.direction = direction;
     if (mine === 'true') where.createdById = req.user.id;
+
+    // Unit managers only see INWARD gatepasses addressed to their unit
+    // (so the Direct-to-Unit FIM lands on their Gate Pass tab automatically).
+    if (req.user.role === 'MANAGER' && req.user.unitId && (direction === 'INWARD' || !direction)) {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { direction: { not: 'INWARD' } },
+            { destinationUnitId: req.user.unitId },
+          ],
+        },
+      ];
+    }
 
     const [gatePasses, total] = await Promise.all([
       prisma.gatePass.findMany({
@@ -105,15 +123,23 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), a
   try {
     const {
       siteName, remarks, items, direction: rawDirection,
-      customerName, customerGatePassNo, customerGatePassDate, customerContact,
+      customerName, customerGatePassNo, customerGatePassDate,
+      inwardKind: rawInwardKind, destinationUnitId,
     } = req.body;
 
     const direction = DIRECTIONS.includes(rawDirection) ? rawDirection : 'OUTWARD';
     const isInward = direction === 'INWARD';
 
+    // INWARD FIM is recorded by Stores Manager (or Admin) only — unit managers can't.
+    if (isInward && !['STORE_MANAGER', 'ADMIN'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Only Stores Manager can record inward FIM gate passes' });
+    }
+
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'At least one item is required' });
     }
+
+    const inwardKind = isInward ? (INWARD_KINDS.includes(rawInwardKind) ? rawInwardKind : 'STORES') : null;
 
     if (isInward) {
       if (!customerName || !customerName.trim()) {
@@ -121,6 +147,13 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), a
       }
       if (!customerGatePassNo || !customerGatePassNo.trim()) {
         return res.status(400).json({ error: "Customer's gate pass number is required for inward gate pass" });
+      }
+      if (inwardKind === 'DIRECT_TO_UNIT') {
+        if (!destinationUnitId) {
+          return res.status(400).json({ error: 'Destination unit is required for direct-to-unit inward' });
+        }
+        const unit = await prisma.unit.findUnique({ where: { id: destinationUnitId } });
+        if (!unit) return res.status(400).json({ error: 'Destination unit not found' });
       }
     }
 
@@ -190,7 +223,10 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), a
           customerName: isInward ? customerName.trim() : null,
           customerGatePassNo: isInward ? customerGatePassNo.trim() : null,
           customerGatePassDate: isInward ? toDate(customerGatePassDate) : null,
-          customerContact: isInward ? (customerContact?.trim() || null) : null,
+          // customerContact is no longer collected — leave NULL on new rows.
+          customerContact: null,
+          inwardKind: isInward ? inwardKind : null,
+          destinationUnitId: isInward && inwardKind === 'DIRECT_TO_UNIT' ? destinationUnitId : null,
           remarks: remarks?.trim() || null,
           status: initialStatus,
           createdById: req.user.id,
@@ -229,13 +265,30 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), a
     });
 
     if (isInward) {
-      await notify({
-        type: 'GATE_PASS_INWARD',
-        title: `Inward Gate Pass: ${gatePass.passNumber}`,
-        message: `${req.user.name} recorded inward gate pass ${gatePass.passNumber} from ${gatePass.customerName} (Customer GP ${gatePass.customerGatePassNo}). Awaiting acceptance into stores.`,
-        targetRole: 'STORE_MANAGER',
-        sentById: req.user.id,
-      });
+      if (inwardKind === 'DIRECT_TO_UNIT') {
+        // Notify any manager of the destination unit so they see it on their Gate Pass tab.
+        const unitManagers = await prisma.user.findMany({
+          where: { role: 'MANAGER', unitId: destinationUnitId, isActive: true },
+          select: { id: true },
+        });
+        for (const u of unitManagers) {
+          await notify({
+            type: 'GATE_PASS_INWARD',
+            title: `FIM headed to your unit: ${gatePass.passNumber}`,
+            message: `${req.user.name} sent inward FIM ${gatePass.passNumber} from ${gatePass.customerName} (Customer GP ${gatePass.customerGatePassNo}) directly to your unit. Mark it Collected when received.`,
+            targetUserId: u.id,
+            sentById: req.user.id,
+          });
+        }
+      } else {
+        await notify({
+          type: 'GATE_PASS_INWARD',
+          title: `Inward Gate Pass: ${gatePass.passNumber}`,
+          message: `${req.user.name} recorded inward gate pass ${gatePass.passNumber} from ${gatePass.customerName} (Customer GP ${gatePass.customerGatePassNo}). Awaiting acceptance into stores.`,
+          targetRole: 'STORE_MANAGER',
+          sentById: req.user.id,
+        });
+      }
     } else {
       await notify({
         type: 'GATE_PASS_REQUEST',
@@ -481,6 +534,9 @@ router.put('/:id/accept-inward', authenticate, authorize('STORE_MANAGER', 'ADMIN
     if (gatePass.direction !== 'INWARD') {
       return res.status(400).json({ error: 'Only INWARD gate passes can be accepted into stores' });
     }
+    if (gatePass.inwardKind === 'DIRECT_TO_UNIT') {
+      return res.status(400).json({ error: 'Direct-to-unit FIM does not go through stores acceptance — the destination unit marks it Collected.' });
+    }
     if (!['PENDING_ACCEPTANCE', 'ACCEPTED'].includes(gatePass.status)) {
       return res.status(400).json({ error: `Gate pass is in status ${gatePass.status}; cannot accept items` });
     }
@@ -628,6 +684,60 @@ router.put('/:id/accept-inward', authenticate, authorize('STORE_MANAGER', 'ADMIN
   } catch (error) {
     console.error('Accept inward gate pass error:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// PUT /api/gatepasses/:id/collect — Unit Manager marks a DIRECT_TO_UNIT inward FIM as collected.
+// Collection status stays on the gatepass itself (no product-list entry, no stock movement).
+router.put('/:id/collect', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const gatePass = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
+    if (!gatePass) return res.status(404).json({ error: 'Gate pass not found' });
+    if (gatePass.direction !== 'INWARD' || gatePass.inwardKind !== 'DIRECT_TO_UNIT') {
+      return res.status(400).json({ error: 'Only direct-to-unit inward FIM can be marked Collected' });
+    }
+    if (gatePass.collectedAt) {
+      return res.status(400).json({ error: 'Gate pass is already marked Collected' });
+    }
+    // Only a manager of the destination unit (or Admin) can mark it collected.
+    if (req.user.role !== 'ADMIN' && req.user.unitId !== gatePass.destinationUnitId) {
+      return res.status(403).json({ error: 'Only a manager of the destination unit can mark this Collected' });
+    }
+
+    const now = new Date();
+    const updated = await prisma.gatePass.update({
+      where: { id: gatePass.id },
+      data: {
+        status: 'ACCEPTED',
+        collectedAt: now,
+        collectedById: req.user.id,
+      },
+      include: GATEPASS_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'INWARD_COLLECTED',
+        entity: 'GatePass',
+        entityId: updated.id,
+        details: { passNumber: updated.passNumber, destinationUnitId: updated.destinationUnitId },
+        ipAddress: req.ip,
+      },
+    });
+
+    await notify({
+      type: 'GATE_PASS_COLLECTED',
+      title: `FIM collected: ${updated.passNumber}`,
+      message: `${req.user.name} marked direct-to-unit FIM ${updated.passNumber} as collected by ${updated.destinationUnit?.name || 'their unit'}.`,
+      targetUserId: updated.createdById,
+      sentById: req.user.id,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Collect gate pass error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

@@ -35,17 +35,25 @@ const resultLabel = (r) => ({
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
 
 // ─── Shared: PR/PO Info Header (read-only) ───
-function OrderInfoHeader({ order }) {
+function OrderInfoHeader({ order, inspection }) {
   if (!order) return null;
   const pr = order.purchaseRequest;
   const totalQty = order.items?.reduce((s, i) => s + (i.quantity || 0), 0) || 0;
+  const totalReceived = order.items?.reduce((s, i) => s + (i.receivedQty || 0), 0) || 0;
   const scopes = Array.from(new Set((pr?.items || []).map(i => i.scopeOfWork).filter(Boolean)));
   const requiredBy = (pr?.items || []).map(i => i.requiredByDate).filter(Boolean).sort()[0];
+  const allLots = order.qcInspections || [];
 
   return (
     <div className="border border-gray-300 rounded-md overflow-hidden">
-      <div className="bg-gray-100 px-3 py-1.5 border-b border-gray-300 text-xs font-bold text-gray-700">
-        Purchase Order / PR Details (auto-populated)
+      <div className="bg-gray-100 px-3 py-1.5 border-b border-gray-300 text-xs font-bold text-gray-700 flex items-center justify-between">
+        <span>Purchase Order / PR Details (auto-populated)</span>
+        {inspection?.lotNumber && (
+          <span className="text-navy-700 bg-navy-50 border border-navy-300 rounded px-2 py-0.5">
+            Lot {inspection.lotNumber}
+            {inspection.arrivedQty != null && <> · {inspection.arrivedQty} of {totalQty} ordered</>}
+          </span>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs p-3">
         <div><span className="text-gray-500">PO No.:</span> <span className="font-medium">{order.orderNumber}</span></div>
@@ -54,6 +62,14 @@ function OrderInfoHeader({ order }) {
         <div><span className="text-gray-500">Amount:</span> <span>{formatCurrency(order.totalAmount)}</span></div>
         <div><span className="text-gray-500">Goods Arrived:</span> <span>{order.goodsArrivedAt ? formatDateTime(order.goodsArrivedAt) : '—'}</span></div>
         <div><span className="text-gray-500">Total Qty Ordered:</span> <span>{totalQty}</span></div>
+        {totalReceived > 0 && (
+          <div className="col-span-2">
+            <span className="text-gray-500">Cumulative received:</span>{' '}
+            <span className={`font-semibold ${totalReceived >= totalQty ? 'text-green-700' : 'text-amber-700'}`}>
+              {totalReceived} of {totalQty}
+            </span>
+          </div>
+        )}
         {pr && (
           <>
             <div><span className="text-gray-500">PR No.:</span> <span>{pr.requestNumber}</span></div>
@@ -71,25 +87,75 @@ function OrderInfoHeader({ order }) {
         )}
       </div>
 
-      {/* Order Items */}
+      {/* Order Items — with cumulative receipt visibility */}
       {order.items?.length > 0 && (
         <div className="border-t border-gray-300">
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-300">
                 <th className="px-3 py-1.5 text-left text-gray-600 font-semibold">Product</th>
-                <th className="px-3 py-1.5 text-left text-gray-600 font-semibold">Qty</th>
+                <th className="px-3 py-1.5 text-right text-gray-600 font-semibold">Ordered</th>
+                <th className="px-3 py-1.5 text-right text-gray-600 font-semibold">Received so far</th>
                 <th className="px-3 py-1.5 text-left text-gray-600 font-semibold">Unit</th>
               </tr>
             </thead>
             <tbody>
-              {order.items.map(item => (
-                <tr key={item.id} className="border-b border-gray-100">
-                  <td className="px-3 py-1.5">{item.productName}</td>
-                  <td className="px-3 py-1.5">{item.quantity}</td>
-                  <td className="px-3 py-1.5 text-gray-600">{item.productUnit}</td>
-                </tr>
-              ))}
+              {order.items.map(item => {
+                const recv = item.receivedQty || 0;
+                const done = recv >= item.quantity;
+                return (
+                  <tr key={item.id} className="border-b border-gray-100">
+                    <td className="px-3 py-1.5">{item.productName}</td>
+                    <td className="px-3 py-1.5 text-right">{item.quantity}</td>
+                    <td className={`px-3 py-1.5 text-right ${recv === 0 ? 'text-gray-400' : done ? 'text-green-700 font-medium' : 'text-amber-700 font-medium'}`}>
+                      {recv}
+                    </td>
+                    <td className="px-3 py-1.5 text-gray-600">{item.productUnit}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* All lots on this PO — full delivery chronology */}
+      {allLots.length > 0 && (
+        <div className="border-t border-gray-300">
+          <div className="bg-gray-50 px-3 py-1.5 text-[11px] font-semibold text-gray-600 border-b border-gray-200">
+            Delivery lots on this PO
+          </div>
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="text-gray-500">
+                <th className="px-3 py-1 text-left font-normal">Lot</th>
+                <th className="px-3 py-1 text-left font-normal">ION</th>
+                <th className="px-3 py-1 text-right font-normal">Arrived</th>
+                <th className="px-3 py-1 text-left font-normal">Receipt date</th>
+                <th className="px-3 py-1 text-left font-normal">Invoice</th>
+                <th className="px-3 py-1 text-left font-normal">QC result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allLots.map((lot) => {
+                const isCurrent = inspection?.id === lot.id;
+                return (
+                  <tr key={lot.id} className={`border-t border-gray-100 ${isCurrent ? 'bg-navy-50' : ''}`}>
+                    <td className="px-3 py-1 font-medium">Lot {lot.lotNumber ?? '—'}{isCurrent ? ' (this)' : ''}</td>
+                    <td className="px-3 py-1 font-mono">{lot.inspectionNumber}</td>
+                    <td className="px-3 py-1 text-right">{lot.arrivedQty ?? '—'}</td>
+                    <td className="px-3 py-1">{lot.materialReceiptDate ? fmtDate(lot.materialReceiptDate) : '—'}</td>
+                    <td className="px-3 py-1">
+                      {lot.invoiceFileUrl ? (
+                        <a href={lot.invoiceFileUrl} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
+                          {lot.invoiceNo || 'View'}
+                        </a>
+                      ) : (lot.invoiceNo || '—')}
+                    </td>
+                    <td className="px-3 py-1">{lot.result}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -101,7 +167,7 @@ function OrderInfoHeader({ order }) {
 // Static annexure published with the PO that QC and PR originators always need to see.
 const ANNEXURE_URL = '/po-terms-and-conditions.pdf';
 
-// ─── Shared: reference documents available to everyone on the PR chain (PR view, PR specs, PO PDF, Annexure) ───
+// ─── Shared: reference documents available to everyone on the PR chain (PR view, PR specs, PO PDF, Invoice, Annexure) ───
 function InspectionDocsPanel({ order, inspection }) {
   const prs = order?.isUnion
     ? (order?.sourceRequests || []).map((s) => s.purchaseRequest).filter(Boolean)
@@ -109,6 +175,8 @@ function InspectionDocsPanel({ order, inspection }) {
   const primaryPr = prs[0] || null;
   const prSpecsUrl = primaryPr?.materialSpecsPdfUrl;
   const poDocumentUrl = order?.poDocumentUrl;
+  const invoiceFileUrl = inspection?.invoiceFileUrl;
+  const invoiceLabelTail = inspection?.lotNumber ? ` (Lot ${inspection.lotNumber})` : '';
 
   const DocLink = ({ href, label, hint, missingHint }) => {
     if (!href) {
@@ -202,6 +270,14 @@ function InspectionDocsPanel({ order, inspection }) {
           missingHint="PO has not uploaded the signed PO PDF yet."
         />
         <DocLink
+          href={invoiceFileUrl}
+          label={`Invoice${invoiceLabelTail}`}
+          hint={inspection?.invoiceNo
+            ? `${inspection.invoiceNo} • Supplier invoice for this lot`
+            : 'Supplier invoice for this lot'}
+          missingHint="No invoice uploaded for this lot."
+        />
+        <DocLink
           href={ANNEXURE_URL}
           label="PO Terms & Conditions (Annexure)"
           hint="Standard annexure attached to every PO"
@@ -292,7 +368,7 @@ function CreateRequestModal({ order, onClose, onCreated }) {
           Once submitted, QC will be notified to perform inspection.
         </div>
 
-        <OrderInfoHeader order={order} />
+        <OrderInfoHeader order={order} inspection={null} />
 
         <InspectionDocsPanel order={order} inspection={null} />
 
@@ -701,7 +777,7 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
           <strong>Inward Inspection Report</strong> — Verify material, record dimensional inspection and submit result.
         </div>
 
-        <OrderInfoHeader order={order} />
+        <OrderInfoHeader order={order} inspection={inspection} />
 
         <InspectionDocsPanel order={order} inspection={inspection} />
 
@@ -1070,7 +1146,7 @@ function HoldActionModal({ inspection, onClose, onActioned }) {
           )}
         </div>
 
-        <OrderInfoHeader order={order} />
+        <OrderInfoHeader order={order} inspection={inspection} />
 
         <InspectionDocsPanel order={order} inspection={inspection} />
 
@@ -1183,7 +1259,7 @@ function ViewInspectionModal({ inspection, onClose }) {
           </div>
         )}
 
-        <OrderInfoHeader order={order} />
+        <OrderInfoHeader order={order} inspection={inspection} />
 
         <InspectionDocsPanel order={order} inspection={inspection} />
 

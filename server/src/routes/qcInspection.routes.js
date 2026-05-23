@@ -53,12 +53,33 @@ const PR_SPEC_SELECT = {
 const INSPECTION_INCLUDE = {
   inspectedBy: { select: { id: true, name: true } },
   requestCreatedBy: { select: { id: true, name: true, role: true } },
+  // Per-PO-item arrived qty rows for THIS lot — lets QC see exactly
+  // which items arrived and how much of each.
+  items: {
+    include: {
+      purchaseOrderItem: {
+        select: {
+          id: true, productName: true, productUnit: true,
+          quantity: true, receivedQty: true,
+        },
+      },
+    },
+  },
   purchaseOrder: {
     select: {
       id: true, orderNumber: true, customName: true, supplierName: true,
       totalAmount: true, status: true, goodsArrivedAt: true, poDocumentUrl: true,
       isUnion: true,
       items: true,
+      // Sibling lots for this PO so QC can see prior lot history alongside this one.
+      qcInspections: {
+        select: {
+          id: true, inspectionNumber: true, lotNumber: true, arrivedQty: true,
+          invoiceNo: true, invoiceFileUrl: true, result: true,
+          materialReceiptDate: true, createdAt: true,
+        },
+        orderBy: { lotNumber: 'asc' },
+      },
       purchaseRequest: { select: PR_SPEC_SELECT },
       sourceRequests: {
         select: {

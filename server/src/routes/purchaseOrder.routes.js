@@ -5,7 +5,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { poDocumentUpload, publicUrlFor, UPLOAD_ROOT } = require('../middleware/upload');
+const { poDocumentUpload, invoiceUpload, publicUrlFor, UPLOAD_ROOT } = require('../middleware/upload');
 const {
   generateSequentialNumber, generateMirNumber, generateProductSku,
   normalizeMaterialType, paginate, applyDateFilter, isUniqueViolation,
@@ -15,6 +15,16 @@ const {
 function acceptPoDocument(req, res, next) {
   poDocumentUpload.single('poDocument')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message || 'PO document upload failed' });
+    next();
+  });
+}
+
+// Invoice PDF accompanying a "mark goods arrived" lot. Optional — if no file
+// is uploaded the inspection is still created (invoice can be added later via
+// the QC docs endpoint), but ideally the PO uploads it at arrival time.
+function acceptInvoice(req, res, next) {
+  invoiceUpload.single('invoiceFile')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Invoice upload failed' });
     next();
   });
 }
@@ -93,6 +103,7 @@ const ORDER_INCLUDE = {
     include: {
       inspectedBy: { select: { id: true, name: true } },
       requestCreatedBy: { select: { id: true, name: true } },
+      items: true,
     },
     orderBy: { createdAt: 'desc' },
   },
@@ -224,6 +235,18 @@ router.get('/:id', authenticate, async (req, res) => {
 // Inward Inspection Request (IIR) fields — purchase officer fills these when
 // marking goods arrived. They feed straight into the QCInspection record so
 // the QC team sees the full RAPS/IIR Rev 01 form (page 1) on arrival.
+//
+// `items` is the per-PO-item arrived qty for THIS lot. PO Officer enters how
+// much of each ordered item physically reached stores with this delivery.
+// e.g. ordered 1000 kg, this lot 400 kg → items: [{poItemId, arrivedQty: 400}].
+const goodsArrivedItemSchema = z.object({
+  poItemId: z.string().min(1, 'poItemId is required'),
+  arrivedQty: z.preprocess(
+    (v) => (typeof v === 'string' ? parseFloat(v) : v),
+    z.number().positive('arrivedQty must be > 0'),
+  ),
+});
+
 const goodsArrivedSchema = z.object({
   invoiceNo: z.string().min(1, 'Invoice no. is required'),
   invoiceDate: z.string().min(1, 'Invoice date is required'),
@@ -242,6 +265,7 @@ const goodsArrivedSchema = z.object({
     dimInspAtSupplier: z.boolean().optional(),
     dimInspAtRapsInward: z.boolean().optional(),
   }).partial().optional(),
+  items: z.array(goodsArrivedItemSchema).min(1, 'At least one item with arrived qty is required'),
 });
 
 // PUT /api/purchase-orders/:id/place-on-credit — PO Officer places the order on word-of-trust.
@@ -386,15 +410,30 @@ router.put('/:id/place-on-credit', authenticate, authorize('PURCHASE_OFFICER'), 
   }
 });
 
-// PUT /api/purchase-orders/:id/goods-arrived — PO marks goods as arrived (supports partial deliveries)
-router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
+// PUT /api/purchase-orders/:id/goods-arrived — PO marks a lot as arrived.
+// Accepts multipart/form-data so the invoice PDF can be uploaded alongside
+// the IIR page-1 fields. `items` is a JSON-stringified array of per-PO-item
+// arrived quantities for THIS lot (partial delivery).
+router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), acceptInvoice, async (req, res) => {
   try {
-    const iir = goodsArrivedSchema.parse(req.body || {});
+    // Multer parsed form fields land as strings; rehydrate the structured pieces.
+    const body = { ...req.body };
+    if (typeof body.items === 'string') {
+      try { body.items = JSON.parse(body.items); }
+      catch { return res.status(400).json({ error: 'items must be valid JSON' }); }
+    }
+    if (typeof body.documentTypes === 'string') {
+      try { body.documentTypes = JSON.parse(body.documentTypes); }
+      catch { return res.status(400).json({ error: 'documentTypes must be valid JSON' }); }
+    }
+
+    const iir = goodsArrivedSchema.parse(body);
 
     const order = await prisma.purchaseOrder.findUnique({
       where: { id: req.params.id },
       include: {
         items: true,
+        qcInspections: { select: { id: true, lotNumber: true } },
         purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } },
         sourceRequests: {
           include: { purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } } },
@@ -402,10 +441,14 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
       },
     });
 
-    if (!order) return res.status(404).json({ error: 'Purchase order not found' });
+    if (!order) {
+      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+      return res.status(404).json({ error: 'Purchase order not found' });
+    }
 
     const allowedStatuses = ['ORDERED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'PARTIAL'];
     if (!allowedStatuses.includes(order.status)) {
+      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
       return res.status(400).json({
         error: order.status === 'GOODS_ARRIVED' || order.status === 'QC_PENDING' || order.status === 'QC_PASSED'
           ? 'A delivery batch is already being processed (QC / inward). Complete that first.'
@@ -413,9 +456,33 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
       });
     }
 
+    // Validate each lot item exists on this PO and the cumulative arrived qty
+    // (received so far + this lot) does not exceed the ordered quantity.
+    const itemById = new Map(order.items.map((i) => [i.id, i]));
+    for (const li of iir.items) {
+      const poItem = itemById.get(li.poItemId);
+      if (!poItem) {
+        if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+        return res.status(400).json({ error: `Item ${li.poItemId} is not on this purchase order` });
+      }
+      const alreadyReceived = poItem.receivedQty || 0;
+      if (alreadyReceived + li.arrivedQty > poItem.quantity + 0.0001) {
+        if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+        const remaining = Math.max(0, poItem.quantity - alreadyReceived);
+        return res.status(400).json({
+          error: `Lot qty exceeds remaining for "${poItem.productName}": ` +
+            `${alreadyReceived} of ${poItem.quantity} ${poItem.productUnit} already received, ` +
+            `only ${remaining} left to arrive.`,
+        });
+      }
+    }
+
     const totalOrdered = order.items.reduce((s, i) => s + i.quantity, 0);
-    const totalReceived = order.items.reduce((s, i) => s + (i.receivedQty || 0), 0);
-    const isPartial = totalReceived > 0;
+    const totalReceivedBefore = order.items.reduce((s, i) => s + (i.receivedQty || 0), 0);
+    const lotArrivedQty = iir.items.reduce((s, i) => s + i.arrivedQty, 0);
+    const isFollowupLot = totalReceivedBefore > 0;
+    const lotNumber = (order.qcInspections?.length || 0) + 1;
+    const invoiceFileUrl = req.file ? publicUrlFor('invoices', req.file.filename) : null;
 
     const sourcePRs = order.isUnion
       ? (order.sourceRequests || []).map((s) => s.purchaseRequest)
@@ -457,22 +524,33 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
           probableDateOfReturn: iir.probableDateOfReturn ? new Date(iir.probableDateOfReturn) : null,
           materialReceiptDate: new Date(iir.materialReceiptDate),
           qtyOrdered: totalOrdered,
+          qtyReceived: lotArrivedQty, // pre-fill so QC sees what arrived in this lot
           materialCategory: iir.materialCategory || null,
           documentTypes: iir.documentTypes || null,
+          lotNumber,
+          arrivedQty: lotArrivedQty,
+          invoiceFileUrl,
+          items: {
+            create: iir.items.map((li) => ({
+              purchaseOrderItemId: li.poItemId,
+              arrivedQty: li.arrivedQty,
+            })),
+          },
         },
+        include: { items: true },
       });
 
       return { updated: updatedOrder, inspection: createdInspection };
     });
 
-    const deliveryNote = isPartial
-      ? `More goods arrived for order "${order.customName}" (${order.orderNumber}) from ${order.supplierName}. Previously received ${totalReceived} of ${totalOrdered} items. Please inspect the new delivery.`
-      : `Goods for order "${order.customName}" (${order.orderNumber}) from ${order.supplierName} have arrived. Please proceed with quality inspection.`;
+    const deliveryNote = isFollowupLot
+      ? `Lot ${lotNumber} arrived for order "${order.customName}" (${order.orderNumber}) from ${order.supplierName}. ${lotArrivedQty} unit(s) in this lot; ${totalReceivedBefore} previously received of ${totalOrdered} ordered. Please inspect.`
+      : `Lot ${lotNumber} (${lotArrivedQty} of ${totalOrdered} units) for order "${order.customName}" (${order.orderNumber}) from ${order.supplierName} has arrived. Please proceed with quality inspection.`;
 
     await prisma.notification.create({
       data: {
         type: 'INSPECTION_REQUEST',
-        title: `Inspection Request ${inspection.inspectionNumber}: ${order.customName}`,
+        title: `Inspection Request ${inspection.inspectionNumber} (Lot ${lotNumber}): ${order.customName}`,
         message: `${deliveryNote} Inspection request ${inspection.inspectionNumber} has been auto-created — please fill the report.`,
         targetRole: 'QC',
         sentById: req.user.id,
@@ -484,12 +562,12 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
       await prisma.notification.create({
         data: {
           type: 'GOODS_ARRIVED',
-          title: `${isPartial ? 'More ' : ''}Goods Arrived: Your PR ${pr.requestNumber}`,
+          title: `${isFollowupLot ? 'More ' : ''}Goods Arrived (Lot ${lotNumber}): Your PR ${pr.requestNumber}`,
           message: order.isUnion
-            ? `Goods for Union PO "${order.customName}" (${order.orderNumber}) — your PR ${pr.requestNumber} — have arrived and are being inspected.`
-            : (isPartial
-              ? `More goods for "${order.customName}" (${pr.requestNumber}) have arrived (${totalReceived} of ${totalOrdered} already received).`
-              : `Goods for your purchase request "${order.customName}" (${pr.requestNumber}) have arrived and are being inspected.`),
+            ? `Lot ${lotNumber} for Union PO "${order.customName}" (${order.orderNumber}) — your PR ${pr.requestNumber} — has arrived (${lotArrivedQty} unit(s)) and is being inspected.`
+            : (isFollowupLot
+              ? `Lot ${lotNumber} for "${order.customName}" (${pr.requestNumber}) has arrived: ${lotArrivedQty} unit(s) in this lot, ${totalReceivedBefore} of ${totalOrdered} previously received.`
+              : `Lot ${lotNumber} (${lotArrivedQty} of ${totalOrdered}) for your purchase request "${order.customName}" (${pr.requestNumber}) has arrived and is being inspected.`),
           targetUserId: pr.managerId,
           sentById: req.user.id,
         },
@@ -504,7 +582,9 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
         entityId: order.id,
         details: {
           orderNumber: order.orderNumber, customName: order.customName,
-          isPartialDelivery: isPartial, totalReceived, totalOrdered,
+          lotNumber, lotArrivedQty,
+          isFollowupLot, totalReceivedBefore, totalOrdered,
+          invoiceFileUrl,
         },
         ipAddress: req.ip,
       },
@@ -512,6 +592,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), as
 
     res.json(updated);
   } catch (error) {
+    if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
     if (error?.name === 'ZodError') {
       return res.status(400).json({ error: error.errors?.[0]?.message || 'Invalid input', details: error.errors });
     }
@@ -565,6 +646,17 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
     if (order.status !== 'QC_PASSED') {
       return res.status(400).json({ error: 'Inward entry can only be done after QC approval' });
     }
+
+    // Find the lot being inwarded: the most recent QC inspection on this PO
+    // whose result was finalised (PASSED/PARTIAL). Each "mark goods arrived"
+    // creates exactly one inspection, and the workflow guarantees only one
+    // active lot reaches QC_PASSED at a time.
+    const activeInspection = await prisma.qCInspection.findFirst({
+      where: { purchaseOrderId: req.params.id, result: { in: ['PASSED', 'PARTIAL'] } },
+      orderBy: { lotNumber: 'desc' },
+      select: { id: true, lotNumber: true, invoiceNo: true, qtyAccepted: true },
+    });
+    const lotTag = activeInspection?.lotNumber ? ` — Lot ${activeInspection.lotNumber}` : '';
 
     // Auto-generate MIR number (daily reset) on first inward only
     const mirNo = order.mirNo || (await generateMirNumber(prisma));
@@ -724,8 +816,9 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
               remaining: share,
               referenceType: 'PurchaseOrder',
               referenceId: movement.id,
-              notes: `PO ${order.orderNumber} — ${orderItem.productName}${prTag}${unitTag} (MIR ${mirNo})`,
+              notes: `PO ${order.orderNumber}${lotTag} — ${orderItem.productName}${prTag}${unitTag} (MIR ${mirNo})`,
               createdById: req.user.id,
+              sourceQcInspectionId: activeInspection?.id || null,
             },
           });
 

@@ -41,6 +41,7 @@ model User {
   gatePassesStoreApproved    GatePass[]                 @relation("GatePassStoreIncharge")
   gatePassesAccountsApproved GatePass[]                 @relation("GatePassAccountsApprover")
   gatePassesFinalApproved    GatePass[]                 @relation("GatePassFinalApprover")
+  gatePassesCollected        GatePass[]                 @relation("GatePassCollector")
   ionsCreated                InterOfficeNote[]          @relation("IONCreator")
   ionsAssigned               InterOfficeNote[]          @relation("IONAssignee")
   transferRequestsCreated    InventoryTransferRequest[] @relation("TransferRequester")
@@ -88,6 +89,7 @@ model Unit {
   transfersTo      InventoryTransferRequest[] @relation("TransferToUnit")
   productStocks    ProductUnitStock[]
   tenders          Tender[]
+  inwardGatePasses GatePass[]                 @relation("GatePassDestinationUnit")
 }
 
 // ──── AUDIT LOG ────
@@ -169,9 +171,15 @@ model ProductBatch {
   sourceInwardGatePassItemId String?
   sourceInwardGatePassItem   GatePassItem? @relation("FimSourceItem", fields: [sourceInwardGatePassItemId], references: [id])
 
+  // PO-flow lot linkage: which QC inspection (lot) this batch came from.
+  // Lets the product list show PR → PO → Lot N (invoice) → Batch chain.
+  sourceQcInspectionId String?
+  sourceQcInspection   QCInspection? @relation("BatchSourceInspection", fields: [sourceQcInspectionId], references: [id])
+
   @@index([productId, receivedDate])
   @@index([productId, remaining])
   @@index([sourceInwardGatePassItemId])
+  @@index([sourceQcInspectionId])
 }
 
 // ──── STOCK MOVEMENTS ────
@@ -465,6 +473,7 @@ model PurchaseOrderItem {
   statusUpdatedAt       DateTime?
   statusUpdatedBy       String?
   allocations           PurchaseOrderItemAllocation[]
+  inspectionItems       QCInspectionItem[]
 }
 
 // For union PO items: tracks per-PR-item allocation of the consolidated quantity.
@@ -593,6 +602,32 @@ model QCInspection {
   rejectionReason      String? // Reason for Rejection/Non conformity
   remarks              String? // Remarks
   mirNo                String? // MIR No. (Store to be filled)
+  // ── Per-lot delivery tracking ──
+  // Lot number scoped per PO: 1st lot = 1, 2nd = 2, ... Set on creation.
+  lotNumber            Int?
+  // Total qty arrived in this lot (sum of items[].arrivedQty)
+  arrivedQty           Float?
+  // Invoice PDF uploaded by Purchase Officer for this specific lot
+  invoiceFileUrl       String?
+  // Per-item arrived qty rows for this lot
+  items                QCInspectionItem[]
+  // Batches inwarded against this lot (FIFO traceability)
+  batches              ProductBatch[]    @relation("BatchSourceInspection")
+}
+
+// Per-item arrived qty for a specific lot (QCInspection).
+// Allows "Lot 1: Item A 400kg, Item B 100kg" attribution.
+model QCInspectionItem {
+  id                  String            @id @default(uuid())
+  inspectionId        String
+  inspection          QCInspection      @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  purchaseOrderItemId String
+  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
+  arrivedQty          Float
+  createdAt           DateTime          @default(now())
+
+  @@index([inspectionId])
+  @@index([purchaseOrderItemId])
 }
 
 enum QCResult {
@@ -619,7 +654,16 @@ model GatePass {
   customerName         String?
   customerGatePassNo   String? // customer's gate pass number (their format, not RAPS)
   customerGatePassDate DateTime?
-  customerContact      String?
+  customerContact      String? // Deprecated — no longer collected; kept for legacy rows.
+  // INWARD only: how the material is being inwarded.
+  // STORES = goes through the From-Gatepass acceptance into the product list (existing flow).
+  // DIRECT_TO_UNIT = sent straight to a unit; that unit's manager marks it Collected on the gatepass itself.
+  inwardKind           InwardKind?
+  destinationUnitId    String?
+  destinationUnit      Unit?     @relation("GatePassDestinationUnit", fields: [destinationUnitId], references: [id])
+  collectedAt          DateTime?
+  collectedById        String?
+  collectedBy          User?     @relation("GatePassCollector", fields: [collectedById], references: [id])
   vehicleNo            String? // Filled by Store Incharge when arranging the vehicle
   driverName           String? // Filled by Store Incharge when arranging the vehicle
   invoiceNo            String?
@@ -699,6 +743,11 @@ enum GatePassType {
 enum GatePassDirection {
   INWARD
   OUTWARD
+}
+
+enum InwardKind {
+  STORES
+  DIRECT_TO_UNIT
 }
 
 enum GatePassStatus {
