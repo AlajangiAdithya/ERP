@@ -289,8 +289,30 @@ router.get('/:id', authenticate, async (req, res) => {
         sourceQcInspection: {
           select: {
             id: true, inspectionNumber: true, lotNumber: true, arrivedQty: true,
+            batchNo: true,
             invoiceNo: true, invoiceDate: true, invoiceFileUrl: true,
             materialReceiptDate: true, result: true,
+            dcNo: true, gatePassNo: true, gatePassType: true,
+            // Inspection request (IIR) metadata — who raised it, when
+            requestCreatedBy: { select: { id: true, name: true } },
+            createdAt: true,
+            // Inspection report metadata — who QC'd, when, accept/reject totals
+            inspectedBy: { select: { id: true, name: true } },
+            inspectedAt: true,
+            reportNo: true, reportDate: true,
+            qtyOrdered: true, qtyReceived: true, qtyAccepted: true, qtyRejected: true,
+            rejectionReason: true, remarks: true,
+            location: true,
+            materialCategory: true, documentTypes: true,
+            packingCondition: true, packingDamageNotes: true,
+            dateOfManufacturing: true, dateOfExpiry: true,
+            items: {
+              include: {
+                purchaseOrderItem: {
+                  select: { id: true, productName: true, productUnit: true }
+                }
+              }
+            },
             purchaseOrder: {
               select: {
                 id: true, orderNumber: true, customName: true, supplierName: true,

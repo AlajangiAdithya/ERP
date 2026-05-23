@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowDown, ArrowUp, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine, FileText, GitBranch } from 'lucide-react';
+import { ArrowLeft, ArrowDown, ArrowUp, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine, FileText, GitBranch, Box } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -11,6 +11,54 @@ import Input from '../components/ui/Input';
 import { formatDate, formatDateTime, formatNotes } from '../utils/formatters';
 
 const formatCurrency = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+// Expiry status helper — QC fills `dateOfExpiry` on the inspection report. Each batch
+// derived from that inspection inherits the same shelf life. We surface this on the
+// product page so stores notice expired/expiring stock before issuing it.
+function expiryStatusOf(dateOfExpiry) {
+  if (!dateOfExpiry) return null;
+  const exp = new Date(dateOfExpiry);
+  if (Number.isNaN(exp.getTime())) return null;
+  const now = new Date();
+  const diffDays = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return { kind: 'expired', days: -diffDays, date: exp };
+  if (diffDays <= 30) return { kind: 'soon', days: diffDays, date: exp };
+  return { kind: 'ok', days: diffDays, date: exp };
+}
+
+function ExpiryBadge({ dateOfExpiry, className = '' }) {
+  const s = expiryStatusOf(dateOfExpiry);
+  if (!s) return null;
+  if (s.kind === 'expired') {
+    // animate-pulse approximates a "blinking" alarm without harsh strobing.
+    return (
+      <span
+        className={`inline-flex items-center gap-1 text-[11px] font-bold text-white bg-red-600 border border-red-700 rounded px-2 py-0.5 animate-pulse shadow-sm ${className}`}
+        title={`Expired on ${formatDate(s.date)} (${s.days} day${s.days === 1 ? '' : 's'} ago)`}
+      >
+        ⚠ EXPIRED · {s.days}d ago
+      </span>
+    );
+  }
+  if (s.kind === 'soon') {
+    return (
+      <span
+        className={`inline-flex items-center gap-1 text-[11px] font-semibold text-amber-900 bg-amber-100 border border-amber-300 rounded px-2 py-0.5 ${className}`}
+        title={`Expires on ${formatDate(s.date)}`}
+      >
+        Expires in {s.days}d
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[11px] text-gray-600 ${className}`}
+      title={`Expires on ${formatDate(s.date)}`}
+    >
+      Expires {formatDate(s.date)}
+    </span>
+  );
+}
 
 // ─── Quick Re-quote Modal ─────────────────────────────────────────────────
 // Pre-fills supplier + product from history row. Asks which open Purchase Request
@@ -439,12 +487,13 @@ function FimTab({ product }) {
   );
 }
 
-// ─── Procurement Chain Tab ───────────────────────────────────────────────
-// Shows, for each PO-flow batch of this product, the full origin chain:
+// ─── Procurement Chain / Stores Trace Tab ────────────────────────────────
+// For every PO-flow batch of this product, render the full origin chain:
 //   PR (raised by Unit Manager) → PO → Lot N (invoice/MRD) → Batch (inwarded qty)
-// This is the user-visible end of "Where did this stock come from?" for purchased
-// (non-FIM) material, mirroring the FIM tab for customer-supplied material.
-function ProcurementChainTab({ product }) {
+// Stores team (STORE_MANAGER) additionally see the full IIR + QC report data
+// for each batch so they can answer "where did this stock come from and is it OK
+// to issue?" without leaving the page.
+function ProcurementChainTab({ product, isStores }) {
   const batches = product.poBatches || [];
   if (batches.length === 0) {
     return <p className="text-sm text-gray-400 py-6 text-center">No purchased batches yet — this product has not been inwarded against any Purchase Order.</p>;
@@ -456,15 +505,18 @@ function ProcurementChainTab({ product }) {
         Each card traces one inwarded batch back to its origin:
         <strong> PR → PO → Lot N (invoice) → Batch</strong>.
         Multiple lots can come from the same PO when material arrives in instalments.
+        {isStores && <span className="ml-1">Stores view: inspection request and report data are included below each batch.</span>}
       </div>
 
       {batches.map(b => {
         const insp = b.sourceQcInspection;
         const po = insp?.purchaseOrder;
         const pr = po?.purchaseRequest;
+        const docTypes = insp?.documentTypes || {};
+        const ticked = Object.entries(docTypes).filter(([, v]) => v).map(([k]) => k);
         return (
           <div key={b.id} className="border border-gray-200 rounded p-4 bg-white">
-            <div className="flex items-start justify-between mb-3">
+            <div className="flex items-start justify-between mb-3 gap-3">
               <div>
                 <p className="text-sm font-semibold text-navy-700">
                   Batch <span className="font-mono">{b.batchNo || b.id.slice(0, 8)}</span>
@@ -478,9 +530,10 @@ function ProcurementChainTab({ product }) {
                   Inwarded {formatDate(b.receivedDate)} · {b.quantity} {product.unit} ({b.remaining} remaining)
                 </p>
               </div>
-              {!insp && (
-                <Badge color="gray">Legacy (no QC link)</Badge>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                {insp?.dateOfExpiry && <ExpiryBadge dateOfExpiry={insp.dateOfExpiry} />}
+                {!insp && <Badge color="gray">Legacy (no QC link)</Badge>}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
@@ -557,6 +610,122 @@ function ProcurementChainTab({ product }) {
                 )}
               </div>
             </div>
+
+            {/* Stores-only deep trace: full Inspection Request + Inspection Report data
+                for this batch. PO/QC/Admin users see the summary above; stores get the
+                line-level info they need to make issuing decisions. */}
+            {isStores && insp && (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="p-3 border border-blue-200 bg-blue-50 rounded">
+                  <div className="text-xs uppercase tracking-wide text-blue-700 font-semibold mb-2">
+                    Inspection Request (IIR)
+                  </div>
+                  <div className="text-xs text-gray-700 space-y-1">
+                    <div><span className="text-gray-500">IIR no.:</span> <span className="font-mono">{insp.inspectionNumber}</span></div>
+                    {insp.requestCreatedBy?.name && (
+                      <div><span className="text-gray-500">Raised by:</span> {insp.requestCreatedBy.name}</div>
+                    )}
+                    {insp.createdAt && (
+                      <div><span className="text-gray-500">Raised on:</span> {formatDateTime(insp.createdAt)}</div>
+                    )}
+                    {insp.materialReceiptDate && (
+                      <div><span className="text-gray-500">Material receipt date:</span> {formatDate(insp.materialReceiptDate)}</div>
+                    )}
+                    {insp.materialCategory && (
+                      <div><span className="text-gray-500">Material category:</span> {insp.materialCategory}</div>
+                    )}
+                    {insp.dcNo && (
+                      <div><span className="text-gray-500">DC no.:</span> <span className="font-mono">{insp.dcNo}</span></div>
+                    )}
+                    {insp.gatePassNo && (
+                      <div>
+                        <span className="text-gray-500">Gate pass:</span>{' '}
+                        <span className="font-mono">{insp.gatePassNo}</span>
+                        {insp.gatePassType && <span className="text-gray-500"> ({insp.gatePassType})</span>}
+                      </div>
+                    )}
+                    {ticked.length > 0 && (
+                      <div>
+                        <span className="text-gray-500">Docs requested:</span>{' '}
+                        {ticked.map(k => (
+                          <span key={k} className="inline-block mr-1 text-[10px] bg-white border border-blue-200 rounded px-1.5 py-0.5">
+                            {k}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Itemized lot breakdown for stores */}
+                  {Array.isArray(insp.items) && insp.items.length > 0 && (
+                    <div className="mt-2.5 pt-2 border-t border-blue-200">
+                      <div className="text-[10px] font-bold text-blue-800 uppercase mb-1 flex items-center gap-1">
+                        <Box size={10} /> Lot Items
+                      </div>
+                      <div className="space-y-1">
+                        {insp.items.map(li => (
+                          <div key={li.id} className="flex justify-between items-center text-[11px] text-gray-700 bg-white/40 rounded px-1.5 py-0.5">
+                            <span className="truncate mr-2">{li.purchaseOrderItem?.productName || 'Material'}</span>
+                            <span className="font-semibold shrink-0">{li.arrivedQty} {li.purchaseOrderItem?.productUnit}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-3 border border-green-200 bg-green-50 rounded">
+                  <div className="text-xs uppercase tracking-wide text-green-700 font-semibold mb-2">
+                    Inspection Report (QC)
+                  </div>
+                  {insp.inspectedAt || insp.reportNo || insp.qtyAccepted != null ? (
+                    <div className="text-xs text-gray-700 space-y-1">
+                      {insp.reportNo && (
+                        <div><span className="text-gray-500">Report no.:</span> <span className="font-mono">{insp.reportNo}</span></div>
+                      )}
+                      {insp.inspectedBy?.name && (
+                        <div><span className="text-gray-500">QC by:</span> {insp.inspectedBy.name}</div>
+                      )}
+                      {(insp.inspectedAt || insp.reportDate) && (
+                        <div><span className="text-gray-500">Reported on:</span> {formatDateTime(insp.inspectedAt || insp.reportDate)}</div>
+                      )}
+                      {(insp.qtyAccepted != null || insp.qtyRejected != null) && (
+                        <div>
+                          <span className="text-gray-500">Accept/Reject:</span>{' '}
+                          <strong className="text-green-700">{insp.qtyAccepted ?? '—'}</strong>
+                          {' / '}
+                          <strong className="text-red-700">{insp.qtyRejected ?? 0}</strong>
+                          {insp.qtyReceived != null && <span className="text-gray-500"> of {insp.qtyReceived} received</span>}
+                        </div>
+                      )}
+                      {insp.rejectionReason && (
+                        <div><span className="text-gray-500">Rejection reason:</span> {insp.rejectionReason}</div>
+                      )}
+                      {insp.packingCondition && (
+                        <div>
+                          <span className="text-gray-500">Packing:</span> {insp.packingCondition}
+                          {insp.packingDamageNotes && <span className="text-red-700"> — {insp.packingDamageNotes}</span>}
+                        </div>
+                      )}
+                      {insp.dateOfManufacturing && (
+                        <div><span className="text-gray-500">Manufactured:</span> {formatDate(insp.dateOfManufacturing)}</div>
+                      )}
+                      {insp.dateOfExpiry && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-500">Expiry:</span>
+                          <span>{formatDate(insp.dateOfExpiry)}</span>
+                          <ExpiryBadge dateOfExpiry={insp.dateOfExpiry} />
+                        </div>
+                      )}
+                      {insp.remarks && (
+                        <div><span className="text-gray-500">Remarks:</span> {insp.remarks}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-500 italic">QC report not filled yet.</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
@@ -742,6 +911,7 @@ export default function ProductDetail() {
                         <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Received Qty</th>
                         <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Remaining</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Expiry</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Origin</th>
                       </tr>
                     </thead>
@@ -756,13 +926,20 @@ export default function ProductDetail() {
                           <tr key={b.id} className={`border-b border-gray-50 ${depleted ? 'bg-gray-50 text-gray-400' : ''}`}>
                             <td className="px-3 py-2 text-xs">{formatDate(b.receivedDate)}</td>
                             <td className="px-3 py-2 text-xs">{age}d</td>
-                            <td className="px-3 py-2 font-mono text-xs">{b.batchNo || <span className="text-gray-400">—</span>}</td>
+                            <td className="px-3 py-2 font-mono text-xs font-semibold text-amber-800">
+                              {b.batchNo || <span className="text-gray-400 font-normal">—</span>}
+                            </td>
                             <td className="px-3 py-2 text-right">{b.quantity} {product.unit}</td>
                             <td className="px-3 py-2 text-right font-semibold">{b.remaining} {product.unit}</td>
                             <td className="px-3 py-2">
                               {depleted ? <Badge color="gray">Depleted</Badge>
                                 : partial ? <Badge color="yellow">Partial</Badge>
                                 : <Badge color="green">Full</Badge>}
+                            </td>
+                            <td className="px-3 py-2 text-xs">
+                              {insp?.dateOfExpiry
+                                ? <ExpiryBadge dateOfExpiry={insp.dateOfExpiry} />
+                                : <span className="text-gray-300 italic">—</span>}
                             </td>
                             <td className="px-3 py-2 text-xs">
                               {insp?.purchaseOrder ? (
@@ -788,7 +965,7 @@ export default function ProductDetail() {
                         <tr className="bg-gray-50 border-t-2 font-semibold text-sm">
                           <td colSpan={4} className="px-3 py-2 text-right">Active total:</td>
                           <td className="px-3 py-2 text-right">{activeBatches.reduce((s, b) => s + b.remaining, 0)} {product.unit}</td>
-                          <td colSpan={2} />
+                          <td colSpan={3} />
                         </tr>
                       </tfoot>
                     )}
@@ -838,7 +1015,12 @@ export default function ProductDetail() {
           </div>
         )}
 
-        {activeTab === 'procurement' && <ProcurementChainTab product={product} />}
+        {activeTab === 'procurement' && (
+          <ProcurementChainTab
+            product={product}
+            isStores={user?.role === 'STORE_MANAGER' || user?.role === 'ADMIN'}
+          />
+        )}
 
         {activeTab === 'suppliers' && (
           <SupplierHistoryTab product={product} onRequote={openRequote} />

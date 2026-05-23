@@ -11,6 +11,8 @@ export default function InwardPdf({ data }) {
     prNumber,
     customName,
     batchNumber,
+    lotNumber,
+    lotArrivedQty,
     receivedBy,
     notes,
     items = [],
@@ -44,10 +46,14 @@ export default function InwardPdf({ data }) {
             <View style={[styles.cellLabel, { width: '18%' }]}><Text>Order Name</Text></View>
             <View style={[styles.cell, { width: '32%' }]}><Text>{customName || '—'}</Text></View>
           </View>
-          {batchNumber && (
+          {(batchNumber || lotNumber != null) && (
             <View style={styles.row}>
               <View style={[styles.cellLabel, { width: '18%' }]}><Text>Batch No.</Text></View>
-              <View style={[styles.cell, { width: '82%' }]}><Text>{batchNumber}</Text></View>
+              <View style={[styles.cell, { width: '32%' }]}><Text>{batchNumber || '—'}</Text></View>
+              <View style={[styles.cellLabel, { width: '18%' }]}><Text>Lot / Arrived</Text></View>
+              <View style={[styles.cell, { width: '32%' }]}>
+                <Text>{lotNumber != null ? `Lot ${lotNumber}` : '—'}{lotArrivedQty != null ? ` · ${lotArrivedQty}` : ''}</Text>
+              </View>
             </View>
           )}
           {receivedBy && (

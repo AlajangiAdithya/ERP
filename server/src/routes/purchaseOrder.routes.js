@@ -248,6 +248,10 @@ const goodsArrivedItemSchema = z.object({
 });
 
 const goodsArrivedSchema = z.object({
+  // Purchase Officer sets the batch number ONCE here. Locked thereafter — QC, Inward,
+  // ProductBatch all read from QCInspection.batchNo. The MIV, FIFO list, stock movements
+  // all carry this same identifier.
+  batchNumber: z.string().trim().min(1, 'Batch number is required').max(64, 'Batch number too long'),
   invoiceNo: z.string().min(1, 'Invoice no. is required'),
   invoiceDate: z.string().min(1, 'Invoice date is required'),
   dcNo: z.string().optional().nullable(),
@@ -433,7 +437,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), ac
       where: { id: req.params.id },
       include: {
         items: true,
-        qcInspections: { select: { id: true, lotNumber: true } },
+        qcInspections: { select: { id: true, lotNumber: true, batchNo: true } },
         purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } },
         sourceRequests: {
           include: { purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } } },
@@ -475,6 +479,19 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), ac
             `only ${remaining} left to arrive.`,
         });
       }
+    }
+
+    // Batch number must be unique across all lots on this PO so the FIFO/audit
+    // trail can't be confused by two different lots sharing the same identifier.
+    const incomingBatchNo = iir.batchNumber.trim();
+    const duplicate = (order.qcInspections || []).find(
+      (q) => (q.batchNo || '').trim().toLowerCase() === incomingBatchNo.toLowerCase(),
+    );
+    if (duplicate) {
+      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+      return res.status(400).json({
+        error: `Batch number "${incomingBatchNo}" was already used on Lot ${duplicate.lotNumber || '?'} of this PO. Use a different batch number.`,
+      });
     }
 
     const totalOrdered = order.items.reduce((s, i) => s + i.quantity, 0);
@@ -530,6 +547,9 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), ac
           lotNumber,
           arrivedQty: lotArrivedQty,
           invoiceFileUrl,
+          // Locked-in batch number set by Purchase Officer. Used as ProductBatch.batchNo
+          // at inward and shown read-only on QC + Inward forms.
+          batchNo: incomingBatchNo,
           items: {
             create: iir.items.map((li) => ({
               purchaseOrderItemId: li.poItemId,
@@ -582,7 +602,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), ac
         entityId: order.id,
         details: {
           orderNumber: order.orderNumber, customName: order.customName,
-          lotNumber, lotArrivedQty,
+          lotNumber, lotArrivedQty, batchNumber: incomingBatchNo,
           isFollowupLot, totalReceivedBefore, totalOrdered,
           invoiceFileUrl,
         },
@@ -654,9 +674,12 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
     const activeInspection = await prisma.qCInspection.findFirst({
       where: { purchaseOrderId: req.params.id, result: { in: ['PASSED', 'PARTIAL'] } },
       orderBy: { lotNumber: 'desc' },
-      select: { id: true, lotNumber: true, invoiceNo: true, qtyAccepted: true },
+      select: { id: true, lotNumber: true, invoiceNo: true, qtyAccepted: true, batchNo: true },
     });
     const lotTag = activeInspection?.lotNumber ? ` — Lot ${activeInspection.lotNumber}` : '';
+    // Locked batch number: set by Purchase Officer at goods-arrived, never editable downstream.
+    // Every ProductBatch row created for this inward gets stamped with this exact identifier.
+    const lockedBatchNo = activeInspection?.batchNo || null;
 
     // Auto-generate MIR number (daily reset) on first inward only
     const mirNo = order.mirNo || (await generateMirNumber(prisma));
@@ -814,6 +837,10 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
               receivedDate: new Date(),
               quantity: share,
               remaining: share,
+              // Locked batch number from the QC inspection — same identifier across PO,
+              // QC, Inward, MIV, FIFO. Client-supplied batch numbers are intentionally
+              // ignored here so no one downstream can change the lot's identity.
+              batchNo: lockedBatchNo,
               referenceType: 'PurchaseOrder',
               referenceId: movement.id,
               notes: `PO ${order.orderNumber}${lotTag} — ${orderItem.productName}${prTag}${unitTag} (MIR ${mirNo})`,

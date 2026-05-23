@@ -392,17 +392,33 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
       if (reportReferenceNo !== undefined) updateData.reportReferenceNo = reportReferenceNo || null;
       if (packingCondition !== undefined) updateData.packingCondition = packingCondition || null;
       if (packingDamageNotes !== undefined) updateData.packingDamageNotes = packingDamageNotes || null;
-      if (batchNo !== undefined) updateData.batchNo = batchNo || null;
+      
+      // Locked Identification: if batchNo or qtyReceived were already defined (at arrival),
+      // they MUST NOT be changed by QC. We ignore any overrides from the request body
+      // and keep the current database values to maintain the audit trail.
+      if (inspection.batchNo) {
+        updateData.batchNo = inspection.batchNo;
+      } else if (batchNo !== undefined) {
+        updateData.batchNo = batchNo || null;
+      }
+
+      if (inspection.qtyReceived != null) {
+        updateData.qtyReceived = inspection.qtyReceived;
+      } else if (result !== 'ON_HOLD') {
+        updateData.qtyReceived = recNum;
+      }
+
       if (dateOfManufacturing !== undefined) updateData.dateOfManufacturing = dateOfManufacturing ? new Date(dateOfManufacturing) : null;
       if (dateOfExpiry !== undefined) updateData.dateOfExpiry = dateOfExpiry ? new Date(dateOfExpiry) : null;
       if (tappedHolesCondition !== undefined) updateData.tappedHolesCondition = tappedHolesCondition || null;
       if (qtyAsPerPR !== undefined) updateData.qtyAsPerPR = qtyAsPerPR;
       if (qtyOrdered !== undefined) updateData.qtyOrdered = qtyOrdered;
+      
       if (result !== 'ON_HOLD') {
-        updateData.qtyReceived = recNum;
         updateData.qtyAccepted = accNum;
-        updateData.qtyRejected = derivedRejected;
+        updateData.qtyRejected = Math.max(0, (updateData.qtyReceived || 0) - accNum);
       }
+
       if (rejectionReason !== undefined) updateData.rejectionReason = rejectionReason || null;
       if (remarks !== undefined) updateData.remarks = remarks || null;
       if (mirNo !== undefined) updateData.mirNo = mirNo || null;

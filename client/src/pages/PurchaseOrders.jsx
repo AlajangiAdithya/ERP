@@ -376,6 +376,36 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
         </div>
       </div>
 
+      {/* Locked batch identifier — Purchase Officer sets it ONCE. Used everywhere downstream:
+          QC inspection, Inward, ProductBatch, MIV, FIFO. No one can change it afterwards. */}
+      <div className="border-2 border-amber-300 bg-amber-50 rounded-md p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <div className="text-xs font-bold text-amber-900 uppercase tracking-wide mb-1">
+              Batch Number for Lot {lotNumber} <span className="text-red-600">*</span>
+            </div>
+            <p className="text-[11px] text-amber-800 mb-2">
+              Once submitted, this batch number is <strong>locked</strong> and travels with this delivery
+              through QC, Inward Entry, the MIV, the product list and FIFO. Nobody downstream can change it.
+            </p>
+            <input
+              type="text"
+              value={iir.batchNumber}
+              onChange={(e) => setIir({ ...iir, batchNumber: e.target.value })}
+              placeholder="e.g. BATCH-001"
+              className="w-full max-w-xs px-3 py-2 border border-amber-400 rounded text-sm font-mono font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] uppercase text-amber-700 font-semibold">This lot</div>
+            <div className="text-2xl font-bold text-amber-900">Lot {lotNumber}</div>
+            <div className="text-[11px] text-amber-700">
+              {cumulativeReceived > 0 ? `${cumulativeReceived} of ${totalOrdered} received so far` : `First delivery of ${totalOrdered}`}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* The 16-row form */}
       <div className="overflow-x-auto">
         <table className="w-full border border-gray-300 text-sm">
@@ -746,6 +776,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [lotItems, setLotItems] = useState([]);
   const [invoiceFile, setInvoiceFile] = useState(null);
   const [iir, setIir] = useState({
+    batchNumber: '',
     invoiceNo: '',
     invoiceDate: '',
     dcNo: '',
@@ -918,7 +949,12 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
 
   const openIirForm = () => {
     const today = new Date().toISOString().slice(0, 10);
+    // Suggest the next sequential batch identifier: <PO>-B<n> where n is the next lot
+    // number. PO can override freely; uniqueness per PO is enforced server-side.
+    const nextLotNo = (order.qcInspections?.length || 0) + 1;
+    const suggestedBatch = `${order.orderNumber || 'PO'}-B${nextLotNo}`;
     setIir({
+      batchNumber: suggestedBatch,
       invoiceNo: '',
       invoiceDate: today,
       dcNo: '',
@@ -949,6 +985,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   };
 
   const submitIir = async () => {
+    if (!iir.batchNumber.trim()) return alert('Batch number is required — it is locked to this lot for inspection, inward, and the product list.');
     if (!iir.invoiceNo.trim()) return alert('Invoice no. is required.');
     if (!iir.invoiceDate) return alert('Invoice date is required.');
     if (!iir.materialReceiptDate) return alert('Material receipt date is required.');
@@ -975,6 +1012,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     setProcessing(true);
     try {
       const fd = new FormData();
+      fd.append('batchNumber', iir.batchNumber.trim());
       fd.append('invoiceNo', iir.invoiceNo.trim());
       fd.append('invoiceDate', iir.invoiceDate);
       if (iir.dcNo.trim()) fd.append('dcNo', iir.dcNo.trim());
@@ -1630,7 +1668,13 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
 
       {open && (
         <div className="border-t border-gray-100 bg-gray-50 px-4 py-3 space-y-2">
-          {orders.map(o => (
+          {orders.map(o => {
+            const totalOrdered = (o.items || []).reduce((s, it) => s + (it.quantity || 0), 0);
+            const totalReceived = (o.items || []).reduce((s, it) => s + (it.receivedQty || 0), 0);
+            const lotCount = (o.qcInspections || []).length;
+            const lastLot = (o.qcInspections || []).find(q => q.lotNumber);
+            const arrivedPct = totalOrdered > 0 ? Math.min(100, (totalReceived / totalOrdered) * 100) : 0;
+            return (
             <div key={o.id} className="bg-white rounded-md p-3 border border-gray-100 hover:border-navy-200 transition-colors">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
@@ -1642,7 +1686,30 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
                       {o.orderNumber}
                     </button>
                     <Badge color={statusColor(o.status)}>{statusLabel(o.status)}</Badge>
+                    {lotCount > 0 && (
+                      <span className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                        {lotCount} lot{lotCount > 1 ? 's' : ''}
+                        {lastLot?.batchNo ? ` · last: ${lastLot.batchNo}` : ''}
+                      </span>
+                    )}
                   </div>
+                  {/* Overall received progress — visible to every role */}
+                  {totalOrdered > 0 && (
+                    <div className="mt-1.5">
+                      <div className="flex items-center justify-between text-[11px] text-gray-600 mb-0.5">
+                        <span><strong className={totalReceived >= totalOrdered ? 'text-green-700' : 'text-amber-700'}>{totalReceived}</strong> of {totalOrdered} received</span>
+                        <span className="text-gray-400">{Math.round(arrivedPct)}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-gray-200 rounded">
+                        <div
+                          className={`h-1.5 rounded transition-all ${
+                            totalReceived >= totalOrdered ? 'bg-green-500' : totalReceived > 0 ? 'bg-amber-500' : 'bg-gray-300'
+                          }`}
+                          style={{ width: `${arrivedPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-2 space-y-1">
                     {(o.items || []).map(it => {
                       const recv = it.receivedQty || 0;
@@ -1676,7 +1743,8 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

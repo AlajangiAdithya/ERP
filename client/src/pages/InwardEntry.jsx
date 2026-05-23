@@ -130,6 +130,7 @@ function FromPOMode({ onSuccess, refreshKey }) {
                     {insp?.lotNumber != null && (
                       <div className="mt-0.5 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 inline-block">
                         Lot {insp.lotNumber}
+                        {insp.batchNo ? ` · Batch ${insp.batchNo}` : ''}
                         {insp.arrivedQty != null ? ` · ${insp.arrivedQty} arrived` : ''}
                       </div>
                     )}
@@ -178,6 +179,9 @@ function POInwardForm({ order, onCancel, onComplete }) {
   const lotNumber = latestInspection?.lotNumber;
   const lotArrivedQty = latestInspection?.arrivedQty;
   const invoiceUrl = latestInspection?.invoiceFileUrl;
+  // Batch number is set ONCE by Purchase Officer at goods-arrival. Locked thereafter —
+  // shown read-only here and stamped onto every ProductBatch row by the server.
+  const lockedBatchNo = latestInspection?.batchNo;
   // Per-PO-item arrived qty for this specific lot
   const arrivedByItem = Object.fromEntries(
     (latestInspection?.items || []).map(it => [it.purchaseOrderItemId, it.arrivedQty || 0]),
@@ -202,7 +206,6 @@ function POInwardForm({ order, onCancel, onComplete }) {
         arrivedQty: arrived,
         productUnit: i.productUnit,
         receivedQty: prefill,
-        batchNumber: '',
       };
     })
   );
@@ -245,12 +248,11 @@ function POInwardForm({ order, onCancel, onComplete }) {
         items: items.map(i => ({
           id: i.id,
           receivedQty: parseFloat(i.receivedQty),
-          batchNumber: i.batchNumber || undefined,
         })),
       });
       onComplete({
         title: 'Inward entry recorded',
-        message: `${order.customName} (${order.orderNumber}) — Lot ${lotNumber ?? '—'} inwarded.`,
+        message: `${order.customName} (${order.orderNumber}) — Lot ${lotNumber ?? '—'} (Batch ${lockedBatchNo || '—'}) inwarded.`,
         pdfData: {
           mivNumber: `MIV-${order.orderNumber}${lotNumber != null ? `-L${lotNumber}` : ''}`,
           date: new Date().toISOString(),
@@ -260,6 +262,7 @@ function POInwardForm({ order, onCancel, onComplete }) {
           customName: order.customName,
           lotNumber,
           lotArrivedQty,
+          batchNumber: lockedBatchNo,
           invoiceUrl,
           items: items.map(i => ({
             productName: i.productName,
@@ -267,7 +270,7 @@ function POInwardForm({ order, onCancel, onComplete }) {
             arrivedQty: i.arrivedQty,
             receivedQty: parseFloat(i.receivedQty),
             productUnit: i.productUnit,
-            batchNumber: i.batchNumber,
+            batchNumber: lockedBatchNo,
           })),
         },
       });
@@ -299,10 +302,14 @@ function POInwardForm({ order, onCancel, onComplete }) {
       </div>
 
       {latestInspection && (
-        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 grid grid-cols-2 md:grid-cols-5 gap-2">
           <div>
             <div className="text-[10px] uppercase text-amber-700 font-semibold">Lot</div>
             <div className="font-bold text-amber-900">#{lotNumber ?? '—'}</div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase text-amber-700 font-semibold">Batch No (locked)</div>
+            <div className="font-bold font-mono text-amber-900">{lockedBatchNo || '—'}</div>
           </div>
           <div>
             <div className="text-[10px] uppercase text-amber-700 font-semibold">Arrived (this lot)</div>
@@ -350,7 +357,7 @@ function POInwardForm({ order, onCancel, onComplete }) {
               <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Ordered</th>
               <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Arrived (Lot {lotNumber ?? '—'})</th>
               <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Received *</th>
-              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Batch No.</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Batch No (locked)</th>
             </tr>
           </thead>
           <tbody>
@@ -367,11 +374,8 @@ function POInwardForm({ order, onCancel, onComplete }) {
                     className="w-24 px-2 py-1 border border-gray-300 rounded text-sm" />
                   <span className="ml-1 text-xs text-gray-500">{it.productUnit}</span>
                 </td>
-                <td className="px-3 py-2">
-                  <input type="text" value={it.batchNumber}
-                    onChange={(e) => updateItem(idx, 'batchNumber', e.target.value)}
-                    placeholder="Batch"
-                    className="w-32 px-2 py-1 border border-gray-300 rounded text-sm" />
+                <td className="px-3 py-2 font-mono text-xs text-amber-800 font-semibold">
+                  {lockedBatchNo || <span className="text-gray-400 italic">—</span>}
                 </td>
               </tr>
             ))}
@@ -388,6 +392,7 @@ function POInwardForm({ order, onCancel, onComplete }) {
             <thead>
               <tr className="bg-gray-50 text-gray-500">
                 <th className="px-3 py-1.5 text-left">Lot</th>
+                <th className="px-3 py-1.5 text-left">Batch No</th>
                 <th className="px-3 py-1.5 text-left">Arrived</th>
                 <th className="px-3 py-1.5 text-left">Date</th>
                 <th className="px-3 py-1.5 text-left">QC Result</th>
@@ -398,6 +403,7 @@ function POInwardForm({ order, onCancel, onComplete }) {
               {allLots.map(l => (
                 <tr key={l.id} className={`border-t border-gray-100 ${l.id === latestInspection?.id ? 'bg-amber-50/40' : ''}`}>
                   <td className="px-3 py-1.5 font-semibold">#{l.lotNumber ?? '—'}</td>
+                  <td className="px-3 py-1.5 font-mono text-amber-800">{l.batchNo || '—'}</td>
                   <td className="px-3 py-1.5">{l.arrivedQty ?? '—'}</td>
                   <td className="px-3 py-1.5 text-gray-600">{l.createdAt ? formatDateTime(l.createdAt) : '—'}</td>
                   <td className="px-3 py-1.5">
