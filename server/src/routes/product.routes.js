@@ -302,7 +302,7 @@ router.get('/:id', authenticate, async (req, res) => {
             reportNo: true, reportDate: true,
             qtyOrdered: true, qtyReceived: true, qtyAccepted: true, qtyRejected: true,
             rejectionReason: true, remarks: true,
-            location: true,
+            inspectionLocation: true,
             materialCategory: true, documentTypes: true,
             packingCondition: true, packingDamageNotes: true,
             dateOfManufacturing: true, dateOfExpiry: true,
