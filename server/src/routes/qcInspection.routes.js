@@ -3,8 +3,10 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
+const path = require('path');
+const fs = require('fs');
 const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, withDocRetry } = require('../utils/helpers');
-const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
+const { qcDocsUpload, invoiceUpload, publicUrlFor, UPLOAD_ROOT } = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -14,6 +16,23 @@ function acceptQcDocs(req, res, next) {
     if (err) return res.status(400).json({ error: err.message || 'Document upload failed' });
     next();
   });
+}
+
+// Optional replacement invoice PDF when PO edits the IIR.
+function acceptInvoice(req, res, next) {
+  invoiceUpload.single('invoiceFile')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Invoice upload failed' });
+    next();
+  });
+}
+
+function unlinkPublicFile(publicUrl) {
+  if (!publicUrl || !publicUrl.startsWith('/uploads/')) return;
+  const relative = publicUrl.replace(/^\/uploads\//, '');
+  const target = path.join(UPLOAD_ROOT, relative);
+  const resolved = path.resolve(target);
+  if (!resolved.startsWith(path.resolve(UPLOAD_ROOT))) return;
+  fs.promises.unlink(resolved).catch(() => {});
 }
 
 // Full PR + item spec fields the QC team needs when filling the inspection
@@ -531,6 +550,132 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
 });
 
 // PUT /api/qc-inspections/:id/upload-docs — PO uploads supporting documents for QC verification
+// PUT /api/qc-inspections/:id/iir — Purchase Officer edits the page-1 IIR fields.
+// Allowed while QC has not yet submitted a result (PENDING or ON_HOLD). Lot items
+// (per-PO-item arrived quantities) are NOT editable here — that requires reversing
+// receivedQty on the PO, which is out of scope. Optional new invoice PDF replaces
+// the existing one.
+const iirEditSchema = z.object({
+  batchNumber: z.string().trim().min(1, 'Batch number is required').max(64, 'Batch number too long'),
+  invoiceNo: z.string().min(1, 'Invoice no. is required'),
+  invoiceDate: z.string().min(1, 'Invoice date is required'),
+  dcNo: z.string().optional().nullable(),
+  gatePassNo: z.string().optional().nullable(),
+  gatePassType: z.string().optional().nullable(),
+  probableDateOfReturn: z.string().optional().nullable(),
+  materialReceiptDate: z.string().min(1, 'Material receipt date is required'),
+  materialCategory: z.string().optional().nullable(),
+  documentTypes: z.object({
+    testReport: z.boolean().optional(),
+    coc: z.boolean().optional(),
+    coa: z.boolean().optional(),
+    thirdParty: z.boolean().optional(),
+    dimInspAtSupplier: z.boolean().optional(),
+    dimInspAtRapsInward: z.boolean().optional(),
+  }).partial().optional(),
+});
+
+router.put('/:id/iir', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), acceptInvoice, async (req, res) => {
+  try {
+    const body = { ...req.body };
+    if (typeof body.documentTypes === 'string') {
+      try { body.documentTypes = JSON.parse(body.documentTypes); }
+      catch {
+        if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+        return res.status(400).json({ error: 'documentTypes must be valid JSON' });
+      }
+    }
+
+    const data = iirEditSchema.parse(body);
+
+    const inspection = await prisma.qCInspection.findUnique({
+      where: { id: req.params.id },
+      include: {
+        purchaseOrder: {
+          select: {
+            id: true, orderNumber: true, customName: true,
+            qcInspections: { select: { id: true, lotNumber: true, batchNo: true } },
+          },
+        },
+      },
+    });
+    if (!inspection) {
+      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+      return res.status(404).json({ error: 'Inspection not found' });
+    }
+
+    if (!['PENDING', 'ON_HOLD'].includes(inspection.result)) {
+      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+      return res.status(400).json({
+        error: `Cannot edit IIR — inspection result is already ${inspection.result}. The form is locked after QC submits.`,
+      });
+    }
+
+    // Batch number must stay unique across sibling lots on the same PO.
+    const newBatch = data.batchNumber.trim();
+    const duplicate = (inspection.purchaseOrder?.qcInspections || []).find(
+      (q) => q.id !== inspection.id && (q.batchNo || '').trim().toLowerCase() === newBatch.toLowerCase(),
+    );
+    if (duplicate) {
+      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+      return res.status(400).json({
+        error: `Batch number "${newBatch}" is already used on Lot ${duplicate.lotNumber || '?'} of this PO.`,
+      });
+    }
+
+    const oldInvoiceUrl = inspection.invoiceFileUrl;
+    const newInvoiceUrl = req.file ? publicUrlFor('invoices', req.file.filename) : oldInvoiceUrl;
+
+    const updated = await prisma.qCInspection.update({
+      where: { id: inspection.id },
+      data: {
+        batchNo: newBatch,
+        invoiceNo: data.invoiceNo,
+        invoiceDate: new Date(data.invoiceDate),
+        dcNo: data.dcNo || null,
+        gatePassNo: data.gatePassNo || null,
+        gatePassType: data.gatePassType || null,
+        probableDateOfReturn: data.probableDateOfReturn ? new Date(data.probableDateOfReturn) : null,
+        materialReceiptDate: new Date(data.materialReceiptDate),
+        materialCategory: data.materialCategory || null,
+        documentTypes: data.documentTypes || null,
+        invoiceFileUrl: newInvoiceUrl,
+      },
+      include: INSPECTION_INCLUDE,
+    });
+
+    // Replace the old invoice file on disk only after the DB row points to the new one.
+    if (req.file && oldInvoiceUrl && oldInvoiceUrl !== newInvoiceUrl) {
+      unlinkPublicFile(oldInvoiceUrl);
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'EDIT_IIR',
+        entity: 'QCInspection',
+        entityId: inspection.id,
+        details: {
+          inspectionNumber: inspection.inspectionNumber,
+          orderNumber: inspection.purchaseOrder?.orderNumber,
+          batchNoChanged: inspection.batchNo !== newBatch,
+          invoiceReplaced: !!req.file,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+    if (error?.name === 'ZodError') {
+      return res.status(400).json({ error: error.errors?.[0]?.message || 'Invalid input', details: error.errors });
+    }
+    console.error('Edit IIR error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.put('/:id/upload-docs', authenticate, authorize('PURCHASE_OFFICER', 'STORE_MANAGER'), acceptQcDocs, async (req, res) => {
   try {
     const inspection = await prisma.qCInspection.findUnique({

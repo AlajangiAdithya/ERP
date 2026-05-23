@@ -293,8 +293,19 @@ function QCInspectionCard({ qc }) {
 }
 
 // ─── Inward Inspection Request Form (RAPS/IIR Rev 01, page 1) ───
-function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setInvoiceFile, processing, onCancel, onSubmit }) {
-  const lotNumber = (order.qcInspections?.length || 0) + 1;
+function IIRRow({ sno, label, children, sectionFirst }) {
+  return (
+    <tr className={sectionFirst ? 'border-t-2 border-gray-300' : ''}>
+      <td className="border border-gray-300 px-2 py-1.5 text-xs font-bold w-12 text-center align-top">{sno}</td>
+      <td className="border border-gray-300 px-2 py-1.5 text-xs w-1/3 align-top font-medium">{label}</td>
+      <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">{children}</td>
+    </tr>
+  );
+}
+
+function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setInvoiceFile, processing, onCancel, onSubmit, mode = 'create', editingInspection = null }) {
+  const isEdit = mode === 'edit';
+  const lotNumber = isEdit ? (editingInspection?.lotNumber || 1) : (order.qcInspections?.length || 0) + 1;
   const cumulativeReceived = (order.items || []).reduce((s, i) => s + (i.receivedQty || 0), 0);
   const totalOrdered = (order.items || []).reduce((s, i) => s + (i.quantity || 0), 0);
   const lotTotal = lotItems.reduce((s, li) => s + (parseFloat(li.arrivedQty) || 0), 0);
@@ -320,13 +331,7 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
   const qtyText = (order.items || []).map(i => `${i.quantity} ${i.productUnit || ''}`).join(', ');
   const scopeOfWork = order.customName || materialDescription;
 
-  const Row = ({ sno, label, children, sectionFirst }) => (
-    <tr className={sectionFirst ? 'border-t-2 border-gray-300' : ''}>
-      <td className="border border-gray-300 px-2 py-1.5 text-xs font-bold w-12 text-center align-top">{sno}</td>
-      <td className="border border-gray-300 px-2 py-1.5 text-xs w-1/3 align-top font-medium">{label}</td>
-      <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">{children}</td>
-    </tr>
-  );
+  const Row = IIRRow;
 
   return (
     <div className="space-y-6">
@@ -355,11 +360,13 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
           <div className="flex flex-col md:flex-row justify-between gap-4">
             <div className="flex-1">
               <label className="block text-xs font-black text-amber-900 uppercase tracking-tighter mb-1">
-                Batch/Lot Identifier (Locked) <span className="text-red-600">*</span>
+                Batch/Lot Identifier {isEdit ? '(Editable until QC submits)' : '(Locked)'} <span className="text-red-600">*</span>
               </label>
               <p className="text-[11px] text-amber-800 leading-tight mb-3">
-                This batch number is <strong>immutable</strong> after submission. It propagates through QC, 
-                Inward Entry, MIV, and the final Product Batch list for traceability.
+                {isEdit
+                  ? 'You can still adjust this batch number until QC submits the result. After that the value is frozen everywhere downstream.'
+                  : <>This batch number is <strong>immutable</strong> after submission. It propagates through QC, Inward Entry, MIV, and the final Product Batch list for traceability.</>
+                }
               </p>
               <input
                 type="text"
@@ -408,21 +415,63 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
               <Row sno="10" label="Purpose/Scope">{scopeOfWork}</Row>
               
               <Row sno="11" label="Invoice No. & Date *">
-                <div className="flex gap-2">
-                  <input type="text" value={iir.invoiceNo} onChange={e => setIir({...iir, invoiceNo: e.target.value})} placeholder="No." className="w-1/2 p-1 border rounded" />
-                  <input type="date" value={iir.invoiceDate} onChange={e => setIir({...iir, invoiceDate: e.target.value})} className="w-1/2 p-1 border rounded" />
-                </div>
+                <span className="italic text-gray-500">See editable fields below</span>
               </Row>
               <Row sno="12" label="DC No. if any">
-                <input type="text" value={iir.dcNo} onChange={e => setIir({...iir, dcNo: e.target.value})} placeholder="DC No." className="w-full p-1 border rounded" />
+                <span className="italic text-gray-500">See editable fields below</span>
               </Row>
               <tr><td colSpan={3} className="bg-slate-50 p-2 font-bold uppercase text-center border border-gray-300">4. Receipt Metadata</td></tr>
-              <Row sno="13" label="Gate Pass No">{iir.gatePassNo}</Row>
+              <Row sno="13" label="Gate Pass No">{iir.gatePassNo || <span className="italic text-gray-400">—</span>}</Row>
               <Row sno="16" label="Material Receipt Date *">
-                <input type="date" value={iir.materialReceiptDate} onChange={e => setIir({...iir, materialReceiptDate: e.target.value})} className="w-full p-1 border rounded" />
+                <span className="italic text-gray-500">See editable fields below</span>
               </Row>
             </tbody>
           </table>
+        </div>
+
+        {/* Editable fields — kept outside the table so inputs stay focusable */}
+        <div className="border border-gray-300 rounded mb-6 overflow-hidden">
+          <div className="bg-gray-100 p-2 font-bold text-xs uppercase border-b border-gray-300">Editable Details</div>
+          <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold mb-1">Invoice No. <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                value={iir.invoiceNo}
+                onChange={e => setIir({ ...iir, invoiceNo: e.target.value })}
+                placeholder="Invoice No."
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold mb-1">Invoice Date <span className="text-red-500">*</span></label>
+              <input
+                type="date"
+                value={iir.invoiceDate}
+                onChange={e => setIir({ ...iir, invoiceDate: e.target.value })}
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold mb-1">DC No. <span className="text-gray-400">(if any)</span></label>
+              <input
+                type="text"
+                value={iir.dcNo}
+                onChange={e => setIir({ ...iir, dcNo: e.target.value })}
+                placeholder="DC No."
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold mb-1">Material Receipt Date <span className="text-red-500">*</span></label>
+              <input
+                type="date"
+                value={iir.materialReceiptDate}
+                onChange={e => setIir({ ...iir, materialReceiptDate: e.target.value })}
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+              />
+            </div>
+          </div>
         </div>
 
         {/* Inspection Scope */}
@@ -454,11 +503,11 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
           </div>
         </div>
 
-        {/* Quantities Table - Partial delivery */}
+        {/* Quantities Table - Partial delivery (lot items locked in edit mode) */}
         <div className="border border-amber-300 rounded mb-6 overflow-hidden shadow-sm">
           <div className="bg-amber-100 p-2 font-bold text-[10px] uppercase text-amber-900 border-b border-amber-300 flex justify-between">
-            <span>6. Lot Itemization (Physical Arrival)</span>
-            <span>Lot Total: {lotTotal}</span>
+            <span>6. Lot Itemization (Physical Arrival){isEdit ? ' — Locked' : ''}</span>
+            <span>Lot Total: {isEdit ? (editingInspection?.arrivedQty ?? lotTotal) : lotTotal}</span>
           </div>
           <table className="w-full text-xs">
             <thead className="bg-amber-50 font-bold border-b border-amber-200">
@@ -474,23 +523,31 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
                 const already = it.receivedQty || 0;
                 const rem = Math.max(0, it.quantity - already);
                 const row = lotItems.find(r => r.poItemId === it.id) || { arrivedQty: '' };
+                // In edit mode, show the qty that arrived in THIS lot (from inspection.items), not remaining.
+                const editLotQty = isEdit
+                  ? (editingInspection?.items || []).find(i => i.purchaseOrderItemId === it.id)?.arrivedQty ?? 0
+                  : null;
                 return (
                   <tr key={it.id}>
                     <td className="p-2 font-medium">{it.productName}</td>
                     <td className="p-2 text-right">{it.quantity}</td>
                     <td className="p-2 text-right text-amber-600 font-bold">{rem}</td>
                     <td className="p-2 text-right">
-                      <input 
-                        type="number" step="any" min="0" max={rem} placeholder="0"
-                        value={row.arrivedQty}
-                        disabled={rem <= 0}
-                        onChange={e => {
-                          const next = lotItems.map(r => r.poItemId === it.id ? {...r, arrivedQty: e.target.value} : r);
-                          if (!lotItems.some(r => r.poItemId === it.id)) next.push({ poItemId: it.id, arrivedQty: e.target.value });
-                          setLotItems(next);
-                        }}
-                        className="w-24 p-1 border border-gray-300 rounded text-right"
-                      />
+                      {isEdit ? (
+                        <span className="font-mono text-gray-700">{editLotQty}</span>
+                      ) : (
+                        <input
+                          type="number" step="any" min="0" max={rem} placeholder="0"
+                          value={row.arrivedQty}
+                          disabled={rem <= 0}
+                          onChange={e => {
+                            const next = lotItems.map(r => r.poItemId === it.id ? {...r, arrivedQty: e.target.value} : r);
+                            if (!lotItems.some(r => r.poItemId === it.id)) next.push({ poItemId: it.id, arrivedQty: e.target.value });
+                            setLotItems(next);
+                          }}
+                          className="w-24 p-1 border border-gray-300 rounded text-right"
+                        />
+                      )}
                     </td>
                   </tr>
                 );
@@ -501,20 +558,31 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
 
         {/* Invoice File */}
         <div className="bg-blue-50 border border-blue-200 rounded p-4 mb-4">
-          <div className="text-xs font-bold text-blue-900 mb-2">7. Supporting Documentation (PDF) <span className="text-red-500">*</span></div>
+          <div className="text-xs font-bold text-blue-900 mb-2">
+            7. Supporting Documentation (PDF) {isEdit ? '(optional — replaces existing)' : <span className="text-red-500">*</span>}
+          </div>
+          {isEdit && editingInspection?.invoiceFileUrl && (
+            <div className="mb-2 text-[11px] text-blue-800">
+              Current: <a href={editingInspection.invoiceFileUrl} target="_blank" rel="noreferrer" className="underline">view existing invoice</a>
+            </div>
+          )}
           <input type="file" accept=".pdf" onChange={e => setInvoiceFile(e.target.files?.[0] || null)} className="text-xs" />
           {invoiceFile && <div className="mt-1 text-[10px] text-green-700 font-bold">✓ {invoiceFile.name}</div>}
         </div>
 
         <div className="text-[10px] text-gray-500 italic pb-2 text-center">
-          Digitally signed on submission by {order.createdBy?.name || 'Authorized Personnel'}. IIR created auto-notifies QC group.
+          {isEdit
+            ? 'Edits are logged. QC will see the updated form on their next view.'
+            : `Digitally signed on submission by ${order.createdBy?.name || 'Authorized Personnel'}. IIR created auto-notifies QC group.`}
         </div>
       </div>
 
       <div className="flex justify-end gap-3 pt-4 border-t sticky bottom-0 bg-white p-2">
         <Button variant="secondary" onClick={onCancel} disabled={processing}>Cancel</Button>
         <Button onClick={onSubmit} disabled={processing}>
-          {processing ? 'Creating IIR Request...' : 'Submit Arrival & Notify QC'}
+          {processing
+            ? (isEdit ? 'Saving Changes...' : 'Creating IIR Request...')
+            : (isEdit ? 'Save IIR Changes' : 'Submit Arrival & Notify QC')}
         </Button>
       </div>
     </div>
@@ -536,6 +604,8 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [showCreditForm, setShowCreditForm] = useState(false);
   const [creditNote, setCreditNote] = useState('');
   const [showIirForm, setShowIirForm] = useState(false);
+  const [iirMode, setIirMode] = useState('create'); // 'create' | 'edit'
+  const [editingInspection, setEditingInspection] = useState(null);
   const [lotItems, setLotItems] = useState([]);
   const [invoiceFile, setInvoiceFile] = useState(null);
   const [iir, setIir] = useState({
@@ -744,6 +814,37 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
       }))
     );
     setInvoiceFile(null);
+    setIirMode('create');
+    setEditingInspection(null);
+    setShowIirForm(true);
+  };
+
+  // Open the IIR form pre-filled for editing the most recent pending/on-hold inspection.
+  const openEditIirForm = () => {
+    const pending = (order.qcInspections || [])
+      .filter(q => q.result === 'PENDING' || q.result === 'ON_HOLD')
+      .sort((a, b) => (b.lotNumber || 0) - (a.lotNumber || 0))[0];
+    if (!pending) return alert('No editable IIR found — QC has already submitted for every lot.');
+    const toDateStr = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+    setIir({
+      batchNumber: pending.batchNo || '',
+      invoiceNo: pending.invoiceNo || '',
+      invoiceDate: toDateStr(pending.invoiceDate),
+      dcNo: pending.dcNo || '',
+      gatePassNo: pending.gatePassNo || '',
+      gatePassType: pending.gatePassType || '',
+      probableDateOfReturn: toDateStr(pending.probableDateOfReturn),
+      materialReceiptDate: toDateStr(pending.materialReceiptDate),
+      materialCategory: pending.materialCategory || '',
+      documentTypes: pending.documentTypes || {
+        testReport: false, coc: false, coa: false, thirdParty: false,
+        dimInspAtSupplier: false, dimInspAtRapsInward: false,
+      },
+    });
+    setLotItems([]); // not editable in edit mode
+    setInvoiceFile(null);
+    setEditingInspection(pending);
+    setIirMode('edit');
     setShowIirForm(true);
   };
 
@@ -754,23 +855,27 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     if (!iir.materialReceiptDate) return alert('Material receipt date is required.');
     if (!iir.materialCategory) return alert('Please select the material category.');
 
-    // Drop empty/zero rows; ensure at least one positive arrived qty.
-    const arrivedItems = lotItems
-      .map((r) => ({ poItemId: r.poItemId, arrivedQty: parseFloat(r.arrivedQty) || 0 }))
-      .filter((r) => r.arrivedQty > 0);
-    if (arrivedItems.length === 0) {
-      return alert('Enter the arrived quantity for at least one item in this lot.');
-    }
-    // Validate against remaining qty per item.
-    for (const r of arrivedItems) {
-      const it = order.items.find((i) => i.id === r.poItemId);
-      if (!it) continue;
-      const remaining = Math.max(0, it.quantity - (it.receivedQty || 0));
-      if (r.arrivedQty > remaining + 0.0001) {
-        return alert(`Arrived qty for "${it.productName}" exceeds remaining (${remaining}).`);
+    const isEdit = iirMode === 'edit';
+
+    // Lot items + invoice file only apply when creating a fresh IIR.
+    let arrivedItems = [];
+    if (!isEdit) {
+      arrivedItems = lotItems
+        .map((r) => ({ poItemId: r.poItemId, arrivedQty: parseFloat(r.arrivedQty) || 0 }))
+        .filter((r) => r.arrivedQty > 0);
+      if (arrivedItems.length === 0) {
+        return alert('Enter the arrived quantity for at least one item in this lot.');
       }
+      for (const r of arrivedItems) {
+        const it = order.items.find((i) => i.id === r.poItemId);
+        if (!it) continue;
+        const remaining = Math.max(0, it.quantity - (it.receivedQty || 0));
+        if (r.arrivedQty > remaining + 0.0001) {
+          return alert(`Arrived qty for "${it.productName}" exceeds remaining (${remaining}).`);
+        }
+      }
+      if (!invoiceFile) return alert('Please upload the invoice PDF for this lot.');
     }
-    if (!invoiceFile) return alert('Please upload the invoice PDF for this lot.');
 
     setProcessing(true);
     try {
@@ -785,12 +890,13 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
       fd.append('materialReceiptDate', iir.materialReceiptDate || '');
       fd.append('materialCategory', iir.materialCategory || '');
       fd.append('documentTypes', JSON.stringify(iir.documentTypes || {}));
-      fd.append('items', JSON.stringify(arrivedItems));
-      fd.append('invoiceFile', invoiceFile);
+      if (!isEdit) fd.append('items', JSON.stringify(arrivedItems));
+      if (invoiceFile) fd.append('invoiceFile', invoiceFile);
 
-      console.log('SUBMITTING IIR:', Object.fromEntries(fd.entries()));
-
-      await api.put(`/purchase-orders/${order.id}/goods-arrived`, fd, {
+      const url = isEdit
+        ? `/qc-inspections/${editingInspection.id}/iir`
+        : `/purchase-orders/${order.id}/goods-arrived`;
+      await api.put(url, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setShowIirForm(false);
@@ -1377,6 +1483,13 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             </Button>
           )}
 
+          {/* Edit IIR: PO can amend an unsubmitted IIR (page 1) until QC posts the result. */}
+          {isPO && (order.qcInspections || []).some(q => q.result === 'PENDING' || q.result === 'ON_HOLD') && (
+            <Button variant="secondary" onClick={openEditIirForm} disabled={processing}>
+              <Truck size={16} className="mr-1" /> Edit IIR (Page 1)
+            </Button>
+          )}
+
           {isSM && order.status === 'QC_PASSED' && (
             <Button onClick={doInward} disabled={processing}>
               <PackagePlus size={16} className="mr-1" /> {processing ? 'Processing...' : 'Record Inward Entry'}
@@ -1386,7 +1499,12 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
       </div>
 
       {showIirForm && (
-        <Modal isOpen onClose={() => setShowIirForm(false)} title={`Inward Inspection Request Form — ${order.orderNumber}`} size="xl">
+        <Modal
+          isOpen
+          onClose={() => setShowIirForm(false)}
+          title={`${iirMode === 'edit' ? 'Edit Inward Inspection Request' : 'Inward Inspection Request Form'} — ${order.orderNumber}`}
+          size="xl"
+        >
           <IIRForm
             order={order}
             iir={iir}
@@ -1398,6 +1516,8 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             processing={processing}
             onCancel={() => setShowIirForm(false)}
             onSubmit={submitIir}
+            mode={iirMode}
+            editingInspection={editingInspection}
           />
         </Modal>
       )}
