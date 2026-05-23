@@ -7,15 +7,6 @@ const {
   generateSequentialNumber, generateProductSku, normalizeMaterialType,
   paginate, applyDateFilter, isUniqueViolation,
 } = require('../utils/helpers');
-const { prSpecsUpload, publicUrlFor } = require('../middleware/upload');
-
-// Wrap multer so file-validation errors return 400 instead of bubbling to the 500 handler.
-const acceptSpecsPdf = (req, res, next) => {
-  prSpecsUpload.single('materialSpecsPdf')(req, res, (err) => {
-    if (err) return res.status(400).json({ error: err.message || 'File upload failed' });
-    next();
-  });
-};
 
 const router = express.Router();
 
@@ -26,7 +17,6 @@ const REQUESTER_ROLES = ['MANAGER', 'LAB'];
 const MONITOR_ROLES = ['SAFETY'];
 
 const createSchema = z.object({
-  requestId: z.string().trim().min(1, 'Order name is required'),
   notes: z.string().optional(),
   items: z.array(z.object({
     productName: z.string().min(1),
@@ -182,7 +172,7 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
       prisma.purchaseRequest.findMany({
         where: { status: { in: prInProgressStatuses } },
         select: {
-          id: true, requestNumber: true, requestId: true, status: true, createdAt: true,
+          id: true, requestNumber: true, status: true, createdAt: true,
           manager: { select: { name: true } },
           unit: { select: { name: true, code: true } },
         },
@@ -370,20 +360,13 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // POST /api/purchase-requests — Requester creates.
-// Accepts multipart/form-data (when a material-specs PDF is attached) or JSON.
-// In multipart mode the JSON body lives in `payload`.
-router.post('/', authenticate, authorize('MANAGER', 'LAB', 'SAFETY'), acceptSpecsPdf, async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'LAB', 'SAFETY'), async (req, res) => {
   try {
-    const rawBody = req.is('multipart/form-data') && req.body?.payload
-      ? JSON.parse(req.body.payload)
-      : req.body;
-    const data = createSchema.parse(rawBody);
+    const data = createSchema.parse(req.body);
 
     if (!req.user.unitId) {
       return res.status(400).json({ error: 'You must be assigned to a unit to create purchase requests' });
     }
-
-    const materialSpecsPdfUrl = req.file ? publicUrlFor('pr-specs', req.file.filename) : null;
 
     // Resolve productId for each item BEFORE the transactional create:
     //   - if productId given, use it
@@ -437,11 +420,9 @@ router.post('/', authenticate, authorize('MANAGER', 'LAB', 'SAFETY'), acceptSpec
         request = await prisma.purchaseRequest.create({
           data: {
             requestNumber,
-            requestId: data.requestId.trim(),
             managerId: req.user.id,
             unitId: req.user.unitId,
             notes: data.notes || null,
-            materialSpecsPdfUrl,
             items: {
               create: itemsResolved.map(item => ({
                 productName: item.productName,

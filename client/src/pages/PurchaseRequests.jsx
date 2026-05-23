@@ -68,18 +68,12 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
   };
   const [items, setItems] = useState([{ ...emptyItem }]);
   const [notes, setNotes] = useState('');
-  const [requestId, setRequestId] = useState('');
-  const [specsPdf, setSpecsPdf] = useState(null);
-  const [specsPdfError, setSpecsPdfError] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setItems([{ ...emptyItem }]);
       setNotes('');
-      setRequestId('');
-      setSpecsPdf(null);
-      setSpecsPdfError('');
     }
   }, [isOpen]);
 
@@ -110,34 +104,13 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
     setItems(updated);
   };
 
-  const handleSpecsPdfChange = (e) => {
-    setSpecsPdfError('');
-    const file = e.target.files?.[0] || null;
-    if (!file) { setSpecsPdf(null); return; }
-    if (file.type !== 'application/pdf') {
-      setSpecsPdf(null);
-      setSpecsPdfError('Only PDF files are allowed');
-      e.target.value = '';
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setSpecsPdf(null);
-      setSpecsPdfError('PDF must be under 10 MB');
-      e.target.value = '';
-      return;
-    }
-    setSpecsPdf(file);
-  };
-
   const submit = async () => {
     const validItems = items.filter(i => i.productName.trim());
     if (validItems.length === 0) return alert('Enter at least one material description');
-    if (!requestId.trim()) return alert('Order Name is required — this will identify your order throughout the system.');
     setSaving(true);
     try {
       const payload = {
         notes: notes || undefined,
-        requestId: requestId.trim(),
         items: validItems.map(i => ({
           productName: i.productName.trim(),
           productUnit: i.productUnit || 'pcs',
@@ -156,16 +129,7 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
           itemRemarks: i.itemRemarks || undefined,
         })),
       };
-      if (specsPdf) {
-        const fd = new FormData();
-        fd.append('payload', JSON.stringify(payload));
-        fd.append('materialSpecsPdf', specsPdf);
-        await api.post('/purchase-requests', fd, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-      } else {
-        await api.post('/purchase-requests', payload);
-      }
+      await api.post('/purchase-requests', payload);
       onClose();
       onCreated();
     } catch (err) {
@@ -214,37 +178,6 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
               <td className={labelCell}>Indenter</td>
               <td className={dataCell}>
                 <span className="px-2 py-1 text-xs text-gray-700">{user?.name || '—'}</span>
-              </td>
-            </tr>
-            <tr>
-              <td className={labelCell}>Order Name <span className="text-red-600">*</span></td>
-              <td className={dataCell} colSpan={3}>
-                <input
-                  type="text" value={requestId}
-                  onChange={(e) => setRequestId(e.target.value)}
-                  placeholder="Required — this name identifies the order end-to-end (e.g. SO-2024-0123, R&D Alpha, Bearings-Q2)"
-                  className={cellInput}
-                  required
-                />
-              </td>
-            </tr>
-            <tr>
-              <td className={labelCell}>Material Specs (PDF)</td>
-              <td className={dataCell} colSpan={3}>
-                <div className="flex items-center gap-2 px-2 py-1">
-                  <input
-                    type="file" accept="application/pdf"
-                    onChange={handleSpecsPdfChange}
-                    className="text-xs"
-                  />
-                  {specsPdf && (
-                    <span className="text-xs text-gray-600 truncate">
-                      {specsPdf.name} ({(specsPdf.size / 1024).toFixed(0)} KB)
-                    </span>
-                  )}
-                  {specsPdfError && <span className="text-xs text-red-600">{specsPdfError}</span>}
-                  <span className="text-[10px] text-gray-400 ml-auto">Optional · max 10 MB</span>
-                </div>
               </td>
             </tr>
           </tbody>
@@ -456,7 +389,7 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
 
         <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving || !requestId.trim() || items.every(i => !i.productName.trim())}>
+          <Button onClick={submit} disabled={saving || items.every(i => !i.productName.trim())}>
             {saving ? 'Submitting...' : `Submit Request (${items.filter(i => i.productName.trim()).length} material${items.filter(i => i.productName.trim()).length === 1 ? '' : 's'})`}
           </Button>
         </div>
@@ -526,12 +459,6 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
   return (
     <Modal isOpen={!!request} onClose={onClose} title={`${isPending ? 'Review' : 'View'} ${request.requestNumber}`} size="xl">
       <div className="space-y-4">
-        {request.requestId && (
-          <div className="bg-navy-50 border border-navy-200 rounded-md p-3">
-            <div className="text-xs uppercase tracking-wide text-navy-600 font-medium">Order Name (set by manager, locked)</div>
-            <div className="text-xl font-bold text-navy-700">{request.requestId}</div>
-          </div>
-        )}
         {/* Info Header */}
         <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-md p-4">
           <div><span className="text-gray-500">Request #:</span> <span className="font-medium">{request.requestNumber}</span></div>
@@ -547,15 +474,6 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
         {request.notes && (
           <div className="bg-yellow-50 rounded-md p-3 text-sm">
             <span className="text-yellow-700 font-medium">Manager's Note:</span> <span>{request.notes}</span>
-          </div>
-        )}
-
-        {request.materialSpecsPdfUrl && (
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm flex items-center gap-2">
-            <FileText size={16} className="text-blue-600" />
-            <span className="text-blue-700 font-medium">Material Specs:</span>
-            <a href={request.materialSpecsPdfUrl} target="_blank" rel="noreferrer"
-              className="text-blue-700 underline hover:text-blue-900">View / Download PDF</a>
           </div>
         )}
 
@@ -722,14 +640,6 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
           {request.notes && (
             <div className="mt-1"><span className="text-blue-700 font-medium">Note:</span> {request.notes}</div>
           )}
-          {request.materialSpecsPdfUrl && (
-            <div className="mt-1 flex items-center gap-1">
-              <FileText size={14} className="text-blue-600" />
-              <span className="text-blue-700 font-medium">Specs:</span>
-              <a href={request.materialSpecsPdfUrl} target="_blank" rel="noreferrer"
-                className="text-blue-700 underline hover:text-blue-900">View / Download PDF</a>
-            </div>
-          )}
         </div>
 
         <table className="w-full text-sm">
@@ -880,13 +790,6 @@ function DetailModal({ request, onClose }) {
   return (
     <Modal isOpen={!!request} onClose={onClose} title={`Purchase Request ${request.requestNumber}`} size="xl">
       <div className="space-y-4">
-        {request.requestId && (
-          <div className="bg-navy-50 border border-navy-200 rounded-md p-3">
-            <div className="text-xs uppercase tracking-wide text-navy-600 font-medium">Order Name</div>
-            <div className="text-xl font-bold text-navy-700">{request.requestId}</div>
-          </div>
-        )}
-
         <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-md p-4">
           <div><span className="text-gray-500">Request #:</span> <span className="font-medium">{request.requestNumber}</span></div>
           <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(request.status)}>{statusLabel(request.status)}</Badge></div>
@@ -923,15 +826,6 @@ function DetailModal({ request, onClose }) {
             <span className="text-blue-600 font-medium">Admin Notes:</span> <span>{request.adminNotes}</span>
           </div>
         )}
-        {request.materialSpecsPdfUrl && (
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm flex items-center gap-2">
-            <FileText size={16} className="text-blue-600" />
-            <span className="text-blue-700 font-medium">Material Specs:</span>
-            <a href={request.materialSpecsPdfUrl} target="_blank" rel="noreferrer"
-              className="text-blue-700 underline hover:text-blue-900">View / Download PDF</a>
-          </div>
-        )}
-
         <ProcurementJourney request={request} />
 
         <div>
@@ -1121,7 +1015,6 @@ export default function PurchaseRequests() {
               <thead>
                 <tr className="border-b">
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Request #</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Request ID</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Manager</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
@@ -1143,13 +1036,6 @@ export default function PurchaseRequests() {
                     <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
                       <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => handleRowClick(r)}>
                         {r.requestNumber}
-                      </td>
-                      <td className="px-3 py-2 text-gray-600 text-xs">
-                        {r.requestId ? (
-                          <span className="font-medium">{r.requestId}</span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
                       </td>
                       <td className="px-3 py-2 text-gray-600">{r.manager?.name}</td>
                       <td className="px-3 py-2"><Badge color="blue">{r.unit?.code}</Badge></td>

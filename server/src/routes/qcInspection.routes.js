@@ -22,8 +22,6 @@ function acceptQcDocs(req, res, next) {
 const PR_SPEC_SELECT = {
   id: true,
   requestNumber: true,
-  requestId: true,
-  materialSpecsPdfUrl: true,
   createdAt: true,
   manager: { select: { id: true, name: true } },
   unit: { select: { id: true, name: true, code: true } },

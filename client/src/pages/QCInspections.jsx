@@ -74,9 +74,6 @@ function OrderInfoHeader({ order, inspection }) {
           <>
             <div><span className="text-gray-500">PR No.:</span> <span>{pr.requestNumber}</span></div>
             <div><span className="text-gray-500">Manager:</span> <span>{pr.manager?.name}</span></div>
-            {pr.requestId && (
-              <div className="col-span-2"><span className="text-gray-500">Request/Work ID:</span> <span className="font-medium">{pr.requestId}</span></div>
-            )}
             {requiredBy && (
               <div><span className="text-gray-500">Delivery Required By:</span> <span>{fmtDate(requiredBy)}</span></div>
             )}
@@ -173,7 +170,6 @@ function InspectionDocsPanel({ order, inspection }) {
     ? (order?.sourceRequests || []).map((s) => s.purchaseRequest).filter(Boolean)
     : (order?.purchaseRequest ? [order.purchaseRequest] : []);
   const primaryPr = prs[0] || null;
-  const prSpecsUrl = primaryPr?.materialSpecsPdfUrl;
   const poDocumentUrl = order?.poDocumentUrl;
   const invoiceFileUrl = inspection?.invoiceFileUrl;
   const invoiceLabelTail = inspection?.lotNumber ? ` (Lot ${inspection.lotNumber})` : '';
@@ -241,7 +237,7 @@ function InspectionDocsPanel({ order, inspection }) {
         <div>
           <div className="font-semibold">{busy ? 'Opening PR…' : `View PR ${pr.requestNumber || ''}`.trim()}</div>
           <div className="text-emerald-700">
-            {busy ? 'Generating PDF' : (pr.requestId ? `${pr.requestId} • Full requisition form` : 'Full requisition form')}
+            {busy ? 'Generating PDF' : 'Full requisition form'}
           </div>
         </div>
       </button>
@@ -257,12 +253,6 @@ function InspectionDocsPanel({ order, inspection }) {
         {prs.length > 0
           ? prs.map((pr) => <ViewPRButton key={pr.id} pr={pr} />)
           : <ViewPRButton pr={null} />}
-        <DocLink
-          href={prSpecsUrl}
-          label={`PR ${primaryPr?.requestNumber || ''} Specs`.trim()}
-          hint={primaryPr?.requestId ? `${primaryPr.requestId} • Material specs` : 'Material specifications'}
-          missingHint={primaryPr ? 'No specs PDF was attached to this PR.' : 'No PR linked to this PO.'}
-        />
         <DocLink
           href={poDocumentUrl}
           label="Purchase Order (signed)"
@@ -510,7 +500,6 @@ function PRSpecsPanel({ order }) {
             <div className="text-xs">
               <div className="font-semibold text-gray-800">
                 {pr.requestNumber}
-                {pr.requestId && <span className="ml-2 text-gray-500 font-normal">· {pr.requestId}</span>}
               </div>
               <div className="text-gray-600">
                 {pr.manager?.name && <span>Raised by {pr.manager.name}</span>}

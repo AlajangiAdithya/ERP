@@ -107,7 +107,7 @@ router.get('/', authenticate, async (req, res) => {
             include: {
               purchaseRequest: {
                 select: {
-                  id: true, requestNumber: true, status: true, requestId: true,
+                  id: true, requestNumber: true, status: true,
                   manager: { select: { id: true, name: true } },
                   unit: { select: { id: true, name: true, code: true } },
                 },
@@ -149,7 +149,7 @@ router.get('/:id', authenticate, async (req, res) => {
           include: {
             purchaseRequest: {
               select: {
-                id: true, requestNumber: true, status: true, requestId: true,
+                id: true, requestNumber: true, status: true,
                 manager: { select: { id: true, name: true } },
                 unit: { select: { id: true, name: true, code: true } },
                 items: true,
@@ -715,11 +715,11 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
       });
     }
 
-    // Order name: for unions, build a synthetic name listing source PR requestIds;
-    // for single PR, keep the existing behavior.
+    // PO display name: derived from the source PR number(s). For unions list every
+    // source PR; for single, use that PR's number directly.
     const orderName = quotation.isUnion
-      ? `UNION: ${sourcePRs.map(p => p.requestId || p.requestNumber).join(' + ')}`
-      : quotation.purchaseRequest.requestId;
+      ? `UNION: ${sourcePRs.map(p => p.requestNumber).join(' + ')}`
+      : quotation.purchaseRequest.requestNumber;
 
     // For non-union: match by productName as before.
     const allPRItems = sourcePRs.flatMap(p => p.items);

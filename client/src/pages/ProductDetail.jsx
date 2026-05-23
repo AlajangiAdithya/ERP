@@ -161,7 +161,7 @@ function QuickRequoteModal({ isOpen, onClose, product, source, onCreated }) {
               <option value="">— Select PR —</option>
               {openPRs.map(pr => (
                 <option key={pr.id} value={pr.id}>
-                  {pr.requestNumber} · {pr.requestId || '—'} · {pr.unit?.name || pr.unit?.code || ''} · {pr.manager?.name || ''}
+                  {pr.requestNumber} · {pr.unit?.name || pr.unit?.code || ''} · {pr.manager?.name || ''}
                 </option>
               ))}
             </select>
@@ -546,7 +546,6 @@ function ProcurementChainTab({ product, isStores }) {
                   <>
                     <p className="font-mono text-navy-700 font-medium">{pr.requestNumber}</p>
                     <div className="text-xs text-gray-600 mt-1 space-y-0.5">
-                      {pr.requestId && <div><span className="text-gray-500">ID:</span> <span className="font-mono">{pr.requestId}</span></div>}
                       {pr.manager?.name && <div><span className="text-gray-500">Raised by:</span> {pr.manager.name}</div>}
                       {pr.unit && <div><span className="text-gray-500">Unit:</span> {pr.unit.name || pr.unit.code}</div>}
                     </div>

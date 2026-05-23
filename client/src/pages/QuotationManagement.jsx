@@ -213,12 +213,6 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
         <div className="bg-gray-50 p-3 rounded-md text-sm flex flex-wrap gap-x-6 gap-y-1">
           <div><span className="text-gray-500">For PR:</span>{' '}<span className="font-medium">{purchaseRequest?.requestNumber}</span></div>
           <div className="text-xs text-gray-500">Enter a supplier name beside each product. Products sharing one supplier become a single Purchase Order on approval.</div>
-          {purchaseRequest?.materialSpecsPdfUrl && (
-            <a href={purchaseRequest.materialSpecsPdfUrl} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-blue-700 underline hover:text-blue-900">
-              <FileText size={14} /> Material specs PDF
-            </a>
-          )}
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
@@ -574,21 +568,6 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
               </Badge>
             ))}
           </div>
-          {purchaseRequests?.some(pr => pr.materialSpecsPdfUrl) && (
-            <div className="flex flex-wrap gap-3 mt-2">
-              {purchaseRequests.filter(pr => pr.materialSpecsPdfUrl).map(pr => (
-                <a
-                  key={pr.id}
-                  href={pr.materialSpecsPdfUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-blue-700 underline hover:text-blue-900"
-                >
-                  <FileText size={14} /> {pr.requestNumber} specs PDF
-                </a>
-              ))}
-            </div>
-          )}
           <p className="text-xs text-navy-700/70 mt-2">
             For each product group below, uncheck PR-items you don't want in the union. Lines with fewer than 2 PRs checked are skipped.
           </p>
@@ -803,12 +782,6 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
   return (
     <Modal isOpen={!!purchaseRequest} onClose={onClose} title={`Review Quotations — ${purchaseRequest.requestNumber}`} size="xl">
       <div className="space-y-4">
-        {purchaseRequest.requestId && (
-          <div className="bg-navy-50 border border-navy-200 rounded-md p-3">
-            <div className="text-xs uppercase tracking-wide text-navy-600 font-medium">Order Name (set by manager)</div>
-            <div className="text-xl font-bold text-navy-700">{purchaseRequest.requestId}</div>
-          </div>
-        )}
         <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-md p-4">
           <div><span className="text-gray-500">Request #:</span> <span className="font-medium">{purchaseRequest.requestNumber}</span></div>
           <div><span className="text-gray-500">Manager:</span> <span className="font-medium">{purchaseRequest.manager?.name}</span></div>
@@ -952,9 +925,9 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
             </div>
             <div className="text-xs text-gray-500">
               {selectedSuppliers.length > 1 ? (
-                <>Approving will create <span className="font-semibold text-navy-700">{selectedSuppliers.length} Purchase Orders</span> (one per supplier) all named <span className="font-semibold text-navy-700">"{purchaseRequest.requestId}"</span>.</>
+                <>Approving will create <span className="font-semibold text-navy-700">{selectedSuppliers.length} Purchase Orders</span> (one per supplier) linked to PR <span className="font-semibold text-navy-700">{purchaseRequest.requestNumber}</span>.</>
               ) : (
-                <>The selected quotation will create a Purchase Order named <span className="font-semibold text-navy-700">"{purchaseRequest.requestId}"</span> (the manager's order name).</>
+                <>The selected quotation will create a Purchase Order linked to PR <span className="font-semibold text-navy-700">{purchaseRequest.requestNumber}</span>.</>
               )}{' '}
               Purchase will then place the order(s) with accounting.
             </div>

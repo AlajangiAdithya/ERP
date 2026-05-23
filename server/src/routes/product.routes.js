@@ -319,7 +319,7 @@ router.get('/:id', authenticate, async (req, res) => {
                 mirNo: true,
                 purchaseRequest: {
                   select: {
-                    id: true, requestNumber: true, requestId: true,
+                    id: true, requestNumber: true,
                     manager: { select: { id: true, name: true } },
                     unit: { select: { id: true, name: true, code: true } },
                   },

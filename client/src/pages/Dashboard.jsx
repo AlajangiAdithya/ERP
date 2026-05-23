@@ -768,7 +768,7 @@ function PurchaseOfficerDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
-  const [requests, setRequests] = useState([]);
+  const [feed, setFeed] = useState({ partiallyReceived: [], awaitingQc: [], pendingQuotations: [], overdue: [] });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -776,14 +776,14 @@ function PurchaseOfficerDashboard() {
     const load = async () => {
       const results = await Promise.allSettled([
         api.get('/purchase-requests/dashboard-stats'),
-        api.get('/purchase-requests', { params: { limit: 20 } }),
+        api.get('/purchase-orders/po-dashboard-feed'),
       ]);
 
       if (cancelled) return;
 
-      const [statsRes, reqRes] = results;
+      const [statsRes, feedRes] = results;
       if (statsRes.status === 'fulfilled') setStats(statsRes.value.data);
-      if (reqRes.status === 'fulfilled') setRequests(reqRes.value.data.requests || []);
+      if (feedRes.status === 'fulfilled') setFeed(feedRes.value.data || feed);
       setLoading(false);
     };
     load();
@@ -814,66 +814,162 @@ function PurchaseOfficerDashboard() {
         <StatsCard title="Completed" value={stats?.completed || 0} icon={PackageCheck} color="green" onClick={() => navigate('/purchase-requests')} />
       </div>
 
-      {/* Active Purchase Assignments */}
+      {/* Partially received POs — exact received/ordered counts per item */}
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700">Active Purchase Assignments</h3>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/purchase-requests')}>View All</Button>
+          <h3 className="text-sm font-semibold text-gray-700">
+            Partially Received POs
+            <span className="ml-2 text-xs font-normal text-gray-500">({feed.partiallyReceived.length})</span>
+          </h3>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/purchase-orders')}>View All POs</Button>
         </div>
-
-        {requests.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">No active purchase assignments</div>
+        {feed.partiallyReceived.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">No POs currently in partial-delivery state</div>
         ) : (
-          <div className="space-y-4">
-            {requests.map(r => {
-              const totalApproved = r.items.reduce((sum, i) => sum + (i.adminApprovedQty || 0), 0);
-              const totalPurchased = r.items.reduce((sum, i) => sum + (i.purchasedQty || 0), 0);
-
-              return (
-                <div key={r.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate('/purchase-requests')}>
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <span className="font-semibold text-navy-700 text-sm">{r.requestNumber}</span>
-                      <Badge color={r.status === 'APPROVED' ? 'blue' : 'navy'} className="ml-2">
-                        {r.status === 'IN_PROGRESS' ? 'In Progress' : r.status}
-                      </Badge>
-                    </div>
-                    <span className="text-xs text-gray-500">{formatDateTime(r.createdAt)}</span>
+          <div className="space-y-3">
+            {feed.partiallyReceived.map(po => (
+              <div key={po.id} className="border rounded-lg p-3 hover:shadow-sm cursor-pointer" onClick={() => navigate('/purchase-orders')}>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <span className="font-semibold text-navy-700 text-sm">{po.orderNumber}</span>
+                    {po.customName && <span className="ml-2 text-xs text-gray-500">{po.customName}</span>}
+                    <Badge color="yellow" className="ml-2">Partial</Badge>
                   </div>
-
-                  <div className="text-xs text-gray-500 mb-3">
-                    <span className="font-medium text-gray-700">Manager:</span> {r.manager?.name} •
-                    <span className="font-medium text-gray-700 ml-2">Unit:</span> {r.unit?.name}
-                  </div>
-
-                  {/* Overall progress */}
-                  <div className="mb-3">
-                    <ProgressBar purchased={totalPurchased} total={totalApproved} />
-                  </div>
-
-                  {/* Item-level breakdown */}
-                  <div className="space-y-2">
-                    {r.items.map(item => {
-                      const approved = item.adminApprovedQty || 0;
-                      const purchased = item.purchasedQty || 0;
-                      const pending = approved - purchased;
-                      return (
-                        <div key={item.id} className="flex items-center gap-3 text-xs bg-gray-50 rounded p-2">
-                          <span className="font-medium text-gray-700 flex-1">{item.productName}</span>
-                          <span className="text-gray-500">{purchased}/{approved} {item.productUnit}</span>
-                          {pending > 0 && (
-                            <Badge color="red">{pending} {item.productUnit} pending</Badge>
-                          )}
-                          {pending <= 0 && (
-                            <Badge color="green">✓ Done</Badge>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <span className="text-xs font-semibold text-amber-700">
+                    {po.totalReceived} / {po.totalOrdered} received
+                  </span>
                 </div>
-              );
-            })}
+                <div className="text-xs text-gray-500 mb-2">
+                  <span className="font-medium text-gray-700">Supplier:</span> {po.supplierName || '—'}
+                </div>
+                <div className="space-y-1">
+                  {po.items.map((it, idx) => (
+                    <div key={idx} className="flex items-center gap-3 text-xs bg-amber-50 rounded p-1.5">
+                      <span className="font-medium text-gray-700 flex-1">{it.productName}</span>
+                      <span className="text-gray-600">{it.receivedQty} / {it.quantity} {it.productUnit}</span>
+                      <Badge color="red">{it.pending} {it.productUnit} pending</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Awaiting QC inspection */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-700">
+            Awaiting QC Inspection
+            <span className="ml-2 text-xs font-normal text-gray-500">({feed.awaitingQc.length})</span>
+          </h3>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/qc-inspections')}>Open QC</Button>
+        </div>
+        {feed.awaitingQc.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">No lots awaiting inspection</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">PO #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Supplier</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Goods Arrived</th>
+                </tr>
+              </thead>
+              <tbody>
+                {feed.awaitingQc.map(po => (
+                  <tr key={po.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/qc-inspections')}>
+                    <td className="px-3 py-2 font-medium text-navy-700">{po.orderNumber}</td>
+                    <td className="px-3 py-2 text-gray-600">{po.customName || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{po.goodsArrivedAt ? formatDateTime(po.goodsArrivedAt) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Pending quotations — approved PRs waiting for the PO to collect quotes */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-700">
+            PRs Awaiting Quotations
+            <span className="ml-2 text-xs font-normal text-gray-500">({feed.pendingQuotations.length})</span>
+          </h3>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/quotations')}>Open Quotations</Button>
+        </div>
+        {feed.pendingQuotations.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">No PRs waiting for quotations</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">PR #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Manager</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
+                </tr>
+              </thead>
+              <tbody>
+                {feed.pendingQuotations.map(pr => (
+                  <tr key={pr.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/quotations')}>
+                    <td className="px-3 py-2 font-medium text-navy-700">{pr.requestNumber}</td>
+                    <td className="px-3 py-2 text-gray-600">{pr.managerName || '—'}</td>
+                    <td className="px-3 py-2"><Badge color="blue">{pr.unit?.code || pr.unit?.name || '—'}</Badge></td>
+                    <td className="px-3 py-2 text-gray-600">{pr.itemCount}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(pr.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Overdue POs — past the earliest PR required-by date */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-700">
+            Overdue POs
+            <span className="ml-2 text-xs font-normal text-red-600">({feed.overdue.length})</span>
+          </h3>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/purchase-orders')}>View All POs</Button>
+        </div>
+        {feed.overdue.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">No overdue POs ✓</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">PO #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Supplier</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Required By</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Days Late</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {feed.overdue.map(po => (
+                  <tr key={po.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/purchase-orders')}>
+                    <td className="px-3 py-2 font-medium text-navy-700">{po.orderNumber}</td>
+                    <td className="px-3 py-2 text-gray-600">{po.customName || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{new Date(po.requiredByDate).toLocaleDateString()}</td>
+                    <td className="px-3 py-2"><Badge color="red">{po.daysOverdue} day{po.daysOverdue === 1 ? '' : 's'}</Badge></td>
+                    <td className="px-3 py-2"><Badge color="yellow">{po.status}</Badge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </Card>

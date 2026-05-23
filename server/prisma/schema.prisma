@@ -256,7 +256,7 @@ enum RequestStatus {
 model PurchaseRequest {
   id                   String                @id @default(uuid())
   requestNumber        String                @unique
-  requestId            String // Order name (required, locked after create) — filled by unit manager only
+  requestId            String? // Legacy order-name column (kept for backward compat; new PRs leave this null and use requestNumber as the identifier)
   managerId            String?
   manager              User?                 @relation("PurchaseRequestManager", fields: [managerId], references: [id], onDelete: SetNull)
   unitId               String

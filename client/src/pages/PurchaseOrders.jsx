@@ -1561,7 +1561,7 @@ function PRGroup({ prNumber, prInfo, isUnion = false, sourceRequests = [], order
           {isUnion ? <Layers size={18} className="text-purple-700" /> : <FileText size={18} className="text-navy-700" />}
           <div>
             <div className={`font-bold flex items-center gap-2 ${isUnion ? 'text-purple-800' : 'text-navy-800'}`}>
-              {isUnion ? (orders[0]?.customName || 'Union Order') : (prInfo?.requestId || prNumber)}
+              {isUnion ? (orders[0]?.customName || 'Union Order') : prNumber}
               {isUnion && <Badge color="purple">UNION</Badge>}
             </div>
             <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">

@@ -43,8 +43,8 @@ export default function PRPdf({ request }) {
             <View style={[styles.cell, { width: '35%' }]}><Text>{request?.manager?.name || '—'}</Text></View>
           </View>
           <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '15%' }]}><Text>Request/Work ID</Text></View>
-            <View style={[styles.cell, { width: '35%' }]}><Text>{request?.requestId || '—'}</Text></View>
+            <View style={[styles.cellLabel, { width: '15%' }]}><Text>PR No.</Text></View>
+            <View style={[styles.cell, { width: '35%' }]}><Text>{request?.requestNumber || '—'}</Text></View>
             <View style={[styles.cellLabel, { width: '15%' }]}><Text>Status</Text></View>
             <View style={[styles.cell, { width: '35%' }]}><Text>{request?.status || '—'}</Text></View>
           </View>
@@ -95,7 +95,6 @@ export default function PRPdf({ request }) {
 
         <AuditTrail entries={[
           { label: 'Created by', value: request?.manager?.name ? `${request.manager.name} • ${formatDateTime(request.createdAt)}` : null },
-          { label: 'Order Name', value: request?.requestId || null },
           { label: 'Admin approved', value: request?.adminApprovedBy?.name ? `${request.adminApprovedBy.name} • ${formatDateTime(request.adminApprovedAt)}` : null },
           { label: 'Store cleared', value: request?.storeManager?.name ? `${request.storeManager.name} • ${formatDateTime(request.clearedAt)}` : null },
           { label: 'Current status', value: request?.status || null },

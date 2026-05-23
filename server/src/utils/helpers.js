@@ -37,8 +37,9 @@ const normalizeMaterialType = (value) => {
   return 'Others';
 };
 
-// ──── Document numbering: <KIND>/<DD-MM-YY>/<N> ────
-// Counter resets daily, per kind. Plain number (no zero-padding).
+// ──── Document numbering: RAPS/<KIND>/<FY>/<N> ────
+// Counter resets every Indian financial year (Apr 1 – Mar 31), per kind.
+// Plain number (no zero-padding). Old records keep their legacy format.
 // On unique-constraint collision we retry — handles concurrent inserts.
 const DOC_NUMBER_MAP = {
   PR:  { model: 'purchaseRequest',          field: 'requestNumber' },
@@ -60,9 +61,19 @@ const formatDDMMYY = (date = new Date()) => {
   return `${d}-${m}-${y}`;
 };
 
-// Compute the next plain count for (kind, day). Reads existing numbers matching the
-// `<KIND>/<DD-MM-YY>/` prefix and returns max+1. Caller must catch P2002 and retry.
-const nextDailyCount = async (prisma, modelName, field, prefix) => {
+// Indian financial year label: Apr 1 starts a new FY. e.g. 23 May 2026 → "26-27",
+// 15 Feb 2027 → "26-27", 5 Apr 2027 → "27-28".
+const getFinancialYear = (date = new Date()) => {
+  const y = date.getFullYear();
+  const isAfterApril = date.getMonth() >= 3; // 0-indexed: 3 = April
+  const startYear = isAfterApril ? y : y - 1;
+  const endYear = startYear + 1;
+  return `${String(startYear).slice(-2)}-${String(endYear).slice(-2)}`;
+};
+
+// Compute the next plain count for (kind, FY). Reads existing numbers matching the
+// `RAPS/<KIND>/<FY>/` prefix and returns max+1. Caller must catch P2002 and retry.
+const nextFyCount = async (prisma, modelName, field, prefix) => {
   const rows = await prisma[modelName].findMany({
     where: { [field]: { startsWith: prefix } },
     select: { [field]: true },
@@ -81,15 +92,15 @@ const nextDailyCount = async (prisma, modelName, field, prefix) => {
 const generateSequentialNumber = async (prisma, kind, date = new Date()) => {
   const meta = DOC_NUMBER_MAP[kind];
   if (!meta) throw new Error(`Unknown document kind: ${kind}`);
-  const prefix = `${kind}/${formatDDMMYY(date)}/`;
-  const next = await nextDailyCount(prisma, meta.model, meta.field, prefix);
+  const prefix = `RAPS/${kind}/${getFinancialYear(date)}/`;
+  const next = await nextFyCount(prisma, meta.model, meta.field, prefix);
   return `${prefix}${next}`;
 };
 
-// MIR uses the same day-scoped scheme but lives on PurchaseOrder.mirNo.
+// MIR uses the same FY-scoped scheme but lives on PurchaseOrder.mirNo.
 const generateMirNumber = async (prisma, date = new Date()) => {
-  const prefix = `MIR/${formatDDMMYY(date)}/`;
-  const next = await nextDailyCount(prisma, 'purchaseOrder', 'mirNo', prefix);
+  const prefix = `RAPS/MIR/${getFinancialYear(date)}/`;
+  const next = await nextFyCount(prisma, 'purchaseOrder', 'mirNo', prefix);
   return `${prefix}${next}`;
 };
 
@@ -133,6 +144,7 @@ module.exports = {
   materialTypeToSkuPrefix,
   normalizeMaterialType,
   formatDDMMYY,
+  getFinancialYear,
   generateMirNumber,
   generateSequentialNumber,
   generateProductSku,

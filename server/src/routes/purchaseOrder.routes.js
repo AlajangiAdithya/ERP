@@ -204,6 +204,125 @@ router.get('/dashboard', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), a
   }
 });
 
+// GET /api/purchase-orders/po-dashboard-feed — actionable lists for the PO dashboard
+// Replaces the old "Active Purchase Assignments" tile which incorrectly merged
+// purchasedQty (set via record-purchase) with receivedQty (set via inward).
+// This feed returns four distinct buckets, each computed from authoritative
+// fields so partial deliveries are never shown as fully delivered.
+router.get('/po-dashboard-feed', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [partialOrders, awaitingQc, pendingPrs, openOrders] = await Promise.all([
+      // Partially received: status PARTIAL is the canonical marker (set whenever
+      // a lot arrives but the PO still has open quantity remaining).
+      prisma.purchaseOrder.findMany({
+        where: { status: 'PARTIAL' },
+        select: {
+          id: true, orderNumber: true, customName: true, supplierName: true, status: true,
+          items: { select: { id: true, productName: true, productUnit: true, quantity: true, receivedQty: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 10,
+      }),
+      // Awaiting QC inspection
+      prisma.purchaseOrder.findMany({
+        where: { status: { in: ['GOODS_ARRIVED', 'QC_PENDING'] } },
+        select: {
+          id: true, orderNumber: true, customName: true, supplierName: true,
+          goodsArrivedAt: true,
+        },
+        orderBy: { goodsArrivedAt: 'desc' },
+        take: 10,
+      }),
+      // PRs approved but no quotations entered yet — the PO needs to source quotes.
+      prisma.purchaseRequest.findMany({
+        where: {
+          status: 'APPROVED',
+          quotations: { none: {} },
+          quotationSources: { none: {} },
+        },
+        select: {
+          id: true, requestNumber: true, createdAt: true,
+          manager: { select: { name: true } },
+          unit: { select: { name: true, code: true } },
+          _count: { select: { items: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 10,
+      }),
+      // Open POs we'll filter for overdue (PR items.requiredByDate in the past)
+      prisma.purchaseOrder.findMany({
+        where: { status: { in: ['PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'PARTIAL'] } },
+        select: {
+          id: true, orderNumber: true, customName: true, supplierName: true, status: true,
+          purchaseRequest: { select: { items: { select: { requiredByDate: true } } } },
+          sourceRequests: {
+            select: {
+              purchaseRequest: { select: { items: { select: { requiredByDate: true } } } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const partiallyReceived = partialOrders.map(o => {
+      const totalOrdered = o.items.reduce((s, i) => s + (i.quantity || 0), 0);
+      const totalReceived = o.items.reduce((s, i) => s + (i.receivedQty || 0), 0);
+      return {
+        id: o.id,
+        orderNumber: o.orderNumber,
+        customName: o.customName,
+        supplierName: o.supplierName,
+        status: o.status,
+        totalOrdered, totalReceived,
+        items: o.items
+          .filter(i => (i.receivedQty || 0) < (i.quantity || 0))
+          .map(i => ({
+            productName: i.productName, productUnit: i.productUnit,
+            quantity: i.quantity, receivedQty: i.receivedQty || 0,
+            pending: (i.quantity || 0) - (i.receivedQty || 0),
+          })),
+      };
+    });
+
+    const overdue = openOrders
+      .map(o => {
+        const dates = [
+          ...(o.purchaseRequest?.items || []).map(i => i.requiredByDate),
+          ...(o.sourceRequests || []).flatMap(s => (s.purchaseRequest?.items || []).map(i => i.requiredByDate)),
+        ].filter(Boolean).map(d => new Date(d));
+        if (dates.length === 0) return null;
+        const earliest = dates.reduce((a, b) => (a < b ? a : b));
+        if (earliest >= today) return null;
+        const daysOverdue = Math.floor((today - earliest) / (1000 * 60 * 60 * 24));
+        return {
+          id: o.id, orderNumber: o.orderNumber, customName: o.customName,
+          supplierName: o.supplierName, status: o.status,
+          requiredByDate: earliest, daysOverdue,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.daysOverdue - a.daysOverdue)
+      .slice(0, 10);
+
+    res.json({
+      partiallyReceived,
+      awaitingQc,
+      pendingQuotations: pendingPrs.map(pr => ({
+        id: pr.id, requestNumber: pr.requestNumber,
+        managerName: pr.manager?.name, unit: pr.unit,
+        itemCount: pr._count?.items || 0, createdAt: pr.createdAt,
+      })),
+      overdue,
+    });
+  } catch (error) {
+    console.error('PO dashboard feed error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/purchase-orders/:id
 router.get('/:id', authenticate, async (req, res) => {
   try {
@@ -997,7 +1116,7 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
       where: { id: req.params.id },
       include: {
         items: true,
-        purchaseRequest: { select: { id: true, requestNumber: true, managerId: true, requestId: true } },
+        purchaseRequest: { select: { id: true, requestNumber: true, managerId: true } },
       },
     });
 
