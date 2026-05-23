@@ -2,7 +2,10 @@ const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, withDocRetry } = require('../utils/helpers');
+const {
+  generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation,
+  withDocRetry, generateProductSku, normalizeMaterialType,
+} = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -13,12 +16,27 @@ const GATEPASS_INCLUDE = {
   storeIncharge: USER_SELECT,
   accountsApprover: USER_SELECT,
   finalApprover: USER_SELECT,
-  items: true,
+  items: {
+    include: {
+      sourceInwardGatePassItem: {
+        include: { gatePass: { select: { id: true, passNumber: true, customerName: true, customerGatePassNo: true } } },
+      },
+      outwardLinkedItems: {
+        include: { gatePass: { select: { id: true, passNumber: true, direction: true, date: true } } },
+      },
+      fimBatches: {
+        include: { product: { select: { id: true, name: true, sku: true, unit: true } } },
+      },
+    },
+  },
 };
 
 const PASS_TYPES = ['RETURNABLE', 'NON_RETURNABLE', 'DELIVERY_CHALLAN'];
+const INWARD_PASS_TYPES = ['RETURNABLE', 'NON_RETURNABLE']; // DC is outward-only
+const DIRECTIONS = ['INWARD', 'OUTWARD'];
 const ALL_STATUSES = [
   'DRAFT', 'PENDING_STORE', 'PENDING_ACCOUNTS', 'PENDING_APPROVAL',
+  'PENDING_ACCEPTANCE', 'ACCEPTED',
   'APPROVED', 'RETURNED', 'CLOSED', 'REJECTED', 'OPEN',
 ];
 
@@ -31,13 +49,14 @@ const notify = async (data) => {
 // GET /api/gatepasses — list
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { passType, status, page, limit, fromDate, toDate: toDateQ, mine } = req.query;
+    const { passType, status, page, limit, fromDate, toDate: toDateQ, mine, direction } = req.query;
     const { skip, take } = paginate(page, limit);
 
     const where = {};
     applyDateFilter(where, { fromDate, toDate: toDateQ });
     if (passType && PASS_TYPES.includes(passType)) where.passType = passType;
     if (status && ALL_STATUSES.includes(status)) where.status = status;
+    if (direction && DIRECTIONS.includes(direction)) where.direction = direction;
     if (mine === 'true') where.createdById = req.user.id;
 
     const [gatePasses, total] = await Promise.all([
@@ -78,14 +97,33 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/gatepasses — Manager raises the request (paper form RAMS/GPR/01)
-router.post('/', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+// POST /api/gatepasses — Create an OUTWARD or INWARD gate pass.
+// OUTWARD: Manager raises (RAMS/GPR/01) → Store → Accounts → Approved.
+// INWARD: Stores / Manager records customer-supplied FIM. Status starts at
+// PENDING_ACCEPTANCE; items get inwarded into Products via the From-Gatepass flow.
+router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
-    const { siteName, remarks, items } = req.body;
+    const {
+      siteName, remarks, items, direction: rawDirection,
+      customerName, customerGatePassNo, customerGatePassDate, customerContact,
+    } = req.body;
+
+    const direction = DIRECTIONS.includes(rawDirection) ? rawDirection : 'OUTWARD';
+    const isInward = direction === 'INWARD';
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'At least one item is required' });
     }
+
+    if (isInward) {
+      if (!customerName || !customerName.trim()) {
+        return res.status(400).json({ error: 'Customer name is required for inward gate pass' });
+      }
+      if (!customerGatePassNo || !customerGatePassNo.trim()) {
+        return res.status(400).json({ error: "Customer's gate pass number is required for inward gate pass" });
+      }
+    }
+
     for (const it of items) {
       if (!it.description || !it.description.trim()) {
         return res.status(400).json({ error: 'Each item requires a name/description' });
@@ -93,18 +131,51 @@ router.post('/', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) =
       if (it.quantity == null || isNaN(Number(it.quantity)) || Number(it.quantity) <= 0) {
         return res.status(400).json({ error: 'Each item requires a positive quantity' });
       }
-      if (it.itemPassType && !PASS_TYPES.includes(it.itemPassType)) {
-        return res.status(400).json({ error: 'Invalid item gate pass type' });
+      if (it.itemPassType) {
+        if (!PASS_TYPES.includes(it.itemPassType)) {
+          return res.status(400).json({ error: 'Invalid item gate pass type' });
+        }
+        if (isInward && !INWARD_PASS_TYPES.includes(it.itemPassType)) {
+          return res.status(400).json({ error: 'Inward items must be RETURNABLE or NON_RETURNABLE' });
+        }
       }
     }
 
-    const primaryType = items.find((i) => i.itemPassType)?.itemPassType || 'RETURNABLE';
+    // For OUTWARD delivery-challan items linking back to an inward FIM item, verify
+    // the source exists, is an inward item, and belongs to a non-rejected gate pass.
+    if (!isInward) {
+      const sourceIds = [...new Set(items.map(i => i.sourceInwardGatePassItemId).filter(Boolean))];
+      if (sourceIds.length) {
+        const sources = await prisma.gatePassItem.findMany({
+          where: { id: { in: sourceIds } },
+          include: { gatePass: { select: { id: true, direction: true, status: true } } },
+        });
+        if (sources.length !== sourceIds.length) {
+          return res.status(400).json({ error: 'One or more source inward items not found' });
+        }
+        for (const s of sources) {
+          if (s.gatePass.direction !== 'INWARD') {
+            return res.status(400).json({ error: 'Source must be an inward gate pass item' });
+          }
+        }
+      }
+    }
 
-    // Derive a display "Dispatched-to" summary from the per-row entries
-    const dispatchTargets = [...new Set(items.map((i) => i.dispatchedTo?.trim()).filter(Boolean))];
-    const derivedPartyName = dispatchTargets.length
-      ? dispatchTargets.join('; ')
-      : (siteName?.trim() || 'In-house');
+    const primaryType = items.find((i) => i.itemPassType)?.itemPassType
+      || (isInward ? 'RETURNABLE' : 'RETURNABLE');
+
+    // Display "party" summary
+    let derivedPartyName;
+    if (isInward) {
+      derivedPartyName = customerName.trim();
+    } else {
+      const dispatchTargets = [...new Set(items.map((i) => i.dispatchedTo?.trim()).filter(Boolean))];
+      derivedPartyName = dispatchTargets.length
+        ? dispatchTargets.join('; ')
+        : (siteName?.trim() || 'In-house');
+    }
+
+    const initialStatus = isInward ? 'PENDING_ACCEPTANCE' : 'PENDING_STORE';
 
     let passNumber;
     const gatePass = await withDocRetry(async () => {
@@ -113,13 +184,18 @@ router.post('/', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) =
         data: {
           passNumber,
           passType: primaryType,
+          direction,
           siteName: siteName?.trim() || null,
           partyName: derivedPartyName,
+          customerName: isInward ? customerName.trim() : null,
+          customerGatePassNo: isInward ? customerGatePassNo.trim() : null,
+          customerGatePassDate: isInward ? toDate(customerGatePassDate) : null,
+          customerContact: isInward ? (customerContact?.trim() || null) : null,
           remarks: remarks?.trim() || null,
-          status: 'PENDING_STORE',
+          status: initialStatus,
           createdById: req.user.id,
-          siteInchargeById: req.user.id,
-          siteInchargeAt: new Date(),
+          siteInchargeById: isInward ? null : req.user.id,
+          siteInchargeAt: isInward ? null : new Date(),
           items: {
             create: items.map((it) => ({
               description: it.description.trim(),
@@ -132,6 +208,8 @@ router.post('/', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) =
               gatePassDetails: it.gatePassDetails?.trim() || null,
               transportation: it.transportation?.trim() || null,
               contactPersonDetails: it.contactPersonDetails?.trim() || null,
+              sourceInwardGatePassItemId: !isInward && it.sourceInwardGatePassItemId
+                ? it.sourceInwardGatePassItemId : null,
             })),
           },
         },
@@ -145,18 +223,28 @@ router.post('/', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) =
         action: 'CREATE',
         entity: 'GatePass',
         entityId: gatePass.id,
-        details: { passNumber, partyName: gatePass.partyName },
+        details: { passNumber, partyName: gatePass.partyName, direction },
         ipAddress: req.ip,
       },
     });
 
-    await notify({
-      type: 'GATE_PASS_REQUEST',
-      title: `Gate Pass Request: ${gatePass.passNumber}`,
-      message: `${req.user.name} submitted gate pass request ${gatePass.passNumber} (${items.length} item${items.length === 1 ? '' : 's'}). Awaiting Store Incharge review.`,
-      targetRole: 'STORE_MANAGER',
-      sentById: req.user.id,
-    });
+    if (isInward) {
+      await notify({
+        type: 'GATE_PASS_INWARD',
+        title: `Inward Gate Pass: ${gatePass.passNumber}`,
+        message: `${req.user.name} recorded inward gate pass ${gatePass.passNumber} from ${gatePass.customerName} (Customer GP ${gatePass.customerGatePassNo}). Awaiting acceptance into stores.`,
+        targetRole: 'STORE_MANAGER',
+        sentById: req.user.id,
+      });
+    } else {
+      await notify({
+        type: 'GATE_PASS_REQUEST',
+        title: `Gate Pass Request: ${gatePass.passNumber}`,
+        message: `${req.user.name} submitted gate pass request ${gatePass.passNumber} (${items.length} item${items.length === 1 ? '' : 's'}). Awaiting Store Incharge review.`,
+        targetRole: 'STORE_MANAGER',
+        sentById: req.user.id,
+      });
+    }
 
     res.status(201).json(gatePass);
   } catch (error) {
@@ -371,6 +459,175 @@ router.put('/:id/return', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
   } catch (error) {
     console.error('Return gate pass error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/gatepasses/:id/accept-inward — Stores accepts inward gate pass items into Products.
+// Body: { items: [{ itemId, productId?, newProduct?: {name, materialType, unit}, quantity, batchNumber? }] }
+// Each item entry inwards the customer's material as FIM into either an existing Product
+// or a freshly created one, and links the ProductBatch back to the source inward item.
+router.put('/:id/accept-inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const { items } = req.body || {};
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'At least one item to accept is required' });
+    }
+
+    const gatePass = await prisma.gatePass.findUnique({
+      where: { id: req.params.id },
+      include: { items: true },
+    });
+    if (!gatePass) return res.status(404).json({ error: 'Gate pass not found' });
+    if (gatePass.direction !== 'INWARD') {
+      return res.status(400).json({ error: 'Only INWARD gate passes can be accepted into stores' });
+    }
+    if (!['PENDING_ACCEPTANCE', 'ACCEPTED'].includes(gatePass.status)) {
+      return res.status(400).json({ error: `Gate pass is in status ${gatePass.status}; cannot accept items` });
+    }
+
+    const itemMap = new Map(gatePass.items.map(i => [i.id, i]));
+    for (const row of items) {
+      const src = itemMap.get(row.itemId);
+      if (!src) return res.status(400).json({ error: `Item ${row.itemId} not on this gate pass` });
+      const qty = parseFloat(row.quantity);
+      if (!qty || qty <= 0) return res.status(400).json({ error: `Item ${src.description}: positive quantity required` });
+      const remainingToInward = (src.quantity || 0) - (src.inwardedQty || 0);
+      if (qty > remainingToInward + 1e-9) {
+        return res.status(400).json({ error: `Item ${src.description}: cannot inward ${qty} (only ${remainingToInward} remaining)` });
+      }
+      if (!row.productId && !row.newProduct) {
+        return res.status(400).json({ error: `Item ${src.description}: choose an existing product or provide newProduct details` });
+      }
+      if (row.newProduct && (!row.newProduct.name || !row.newProduct.name.trim())) {
+        return res.status(400).json({ error: `Item ${src.description}: new product requires a name` });
+      }
+    }
+
+    const owningUnitId = req.user.unitId || null;
+
+    const out = await prisma.$transaction(async (tx) => {
+      const created = [];
+      for (const row of items) {
+        const src = itemMap.get(row.itemId);
+        const qty = parseFloat(row.quantity);
+
+        let productId = row.productId;
+        let product;
+        if (!productId) {
+          // Create new product (FIM product), retry SKU collisions
+          const matType = normalizeMaterialType(row.newProduct.materialType || 'Others');
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              const sku = await generateProductSku(tx, matType);
+              product = await tx.product.create({
+                data: {
+                  name: row.newProduct.name.trim(),
+                  sku,
+                  category: matType,
+                  unit: row.newProduct.unit || src.unit || 'pcs',
+                  currentStock: 0, // we'll increment below
+                  isActive: true,
+                },
+              });
+              productId = product.id;
+              break;
+            } catch (err) {
+              if (!isUniqueViolation(err) || attempt === 4) throw err;
+            }
+          }
+        } else {
+          product = await tx.product.findUnique({ where: { id: productId } });
+          if (!product) throw new Error(`Product ${productId} not found`);
+        }
+
+        const updatedProduct = await tx.product.update({
+          where: { id: productId },
+          data: { currentStock: { increment: qty } },
+        });
+
+        const movement = await tx.stockMovement.create({
+          data: {
+            productId,
+            type: 'IN',
+            quantity: qty,
+            batchNumber: row.batchNumber || null,
+            referenceType: 'InwardGatePass',
+            referenceId: gatePass.id,
+            notes: `FIM from ${gatePass.customerName || 'customer'} (Customer GP ${gatePass.customerGatePassNo || '—'})`,
+            performedBy: req.user.id,
+            unitId: owningUnitId,
+          },
+        });
+
+        const batch = await tx.productBatch.create({
+          data: {
+            productId,
+            batchNo: row.batchNumber || null,
+            quantity: qty,
+            remaining: qty,
+            referenceType: 'InwardGatePass',
+            referenceId: movement.id,
+            notes: `FIM ${gatePass.passNumber} · ${src.description}`,
+            createdById: req.user.id,
+            isFim: true,
+            sourceInwardGatePassId: gatePass.id,
+            sourceInwardGatePassItemId: src.id,
+          },
+        });
+
+        if (owningUnitId) {
+          await tx.productUnitStock.upsert({
+            where: { productId_unitId: { productId, unitId: owningUnitId } },
+            update: { quantity: { increment: qty } },
+            create: { productId, unitId: owningUnitId, quantity: qty },
+          });
+        }
+
+        await tx.gatePassItem.update({
+          where: { id: src.id },
+          data: { inwardedQty: { increment: qty } },
+        });
+
+        created.push({ product: updatedProduct, movement, batch, sourceItemId: src.id });
+      }
+
+      // After all items processed, decide gate pass status.
+      const refreshed = await tx.gatePass.findUnique({
+        where: { id: gatePass.id },
+        include: { items: true },
+      });
+      const allFullyInwarded = refreshed.items.every(i => (i.inwardedQty || 0) + 1e-9 >= (i.quantity || 0));
+      const newStatus = allFullyInwarded ? 'ACCEPTED' : 'PENDING_ACCEPTANCE';
+      if (newStatus !== refreshed.status) {
+        await tx.gatePass.update({ where: { id: gatePass.id }, data: { status: newStatus } });
+      }
+
+      return { created, status: newStatus };
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'INWARD_ACCEPT',
+        entity: 'GatePass',
+        entityId: gatePass.id,
+        details: {
+          passNumber: gatePass.passNumber,
+          itemsAccepted: out.created.length,
+          newStatus: out.status,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    const updated = await prisma.gatePass.findUnique({
+      where: { id: gatePass.id },
+      include: GATEPASS_INCLUDE,
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('Accept inward gate pass error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 

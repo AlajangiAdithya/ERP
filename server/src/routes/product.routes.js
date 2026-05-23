@@ -251,7 +251,35 @@ router.get('/:id', authenticate, async (req, res) => {
     });
 
     if (!product) return res.status(404).json({ error: 'Product not found' });
-    res.json(product);
+
+    // FIM batches (customer property) for this product + their source inward GP + outward DC return links
+    const fimBatches = await prisma.productBatch.findMany({
+      where: { productId: req.params.id, isFim: true },
+      orderBy: { receivedDate: 'desc' },
+      include: {
+        sourceInwardGatePass: {
+          select: {
+            id: true, passNumber: true, customerName: true,
+            customerGatePassNo: true, customerGatePassDate: true, customerContact: true,
+            date: true, passType: true,
+          },
+        },
+        sourceInwardGatePassItem: {
+          select: {
+            id: true, description: true, quantity: true, unit: true,
+            probableReturnDate: true, itemPassType: true,
+            outwardLinkedItems: {
+              select: {
+                id: true, description: true, quantity: true, unit: true,
+                gatePass: { select: { id: true, passNumber: true, date: true, partyName: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    res.json({ ...product, fimBatches });
   } catch (error) {
     console.error('Get product error:', error);
     res.status(500).json({ error: 'Internal server error' });

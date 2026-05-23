@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Check, Package, ClipboardList, Truck, Plus } from 'lucide-react';
+import { Check, Package, ClipboardList, Truck, Plus, FileInput } from 'lucide-react';
 import api from '../api/axios';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Input, { Select } from '../components/ui/Input';
 import Badge from '../components/ui/Badge';
 import SearchBar from '../components/shared/SearchBar';
-import { formatDateTime } from '../utils/formatters';
+import { formatDate, formatDateTime } from '../utils/formatters';
 import InwardPdf from '../components/pdf/InwardPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 
@@ -61,10 +61,12 @@ export default function InwardEntry() {
       <div className="flex gap-2 border-b border-gray-200">
         {tabBtn('po', 'From Purchase Order', Truck)}
         {tabBtn('direct', 'Direct Entry', ClipboardList)}
+        {tabBtn('gatepass', 'From Gate Pass (FIM)', FileInput)}
       </div>
 
       {mode === 'po' && <FromPOMode onSuccess={onSuccess} refreshKey={refreshKey} />}
       {mode === 'direct' && <DirectEntryMode onSuccess={onSuccess} />}
+      {mode === 'gatepass' && <FromGatePassMode onSuccess={onSuccess} refreshKey={refreshKey} />}
     </div>
   );
 }
@@ -493,6 +495,248 @@ function NewProductForm({ onSuccess }) {
           </Button>
         </div>
       </form>
+    </Card>
+  );
+}
+
+// ─── From Gate Pass (FIM) Mode ──────────────────────────────────────────
+// Lists pending INWARD gate passes (customer FIM) and accepts items into
+// Products. Created ProductBatches are linked back to the inward gate pass.
+function FromGatePassMode({ onSuccess, refreshKey }) {
+  const [gatePasses, setGatePasses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null);
+
+  const load = () => {
+    setLoading(true);
+    api.get('/gatepasses', { params: { direction: 'INWARD', status: 'PENDING_ACCEPTANCE', limit: 100 } })
+      .then(({ data }) => setGatePasses(data.gatePasses || []))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, [refreshKey]);
+
+  if (selected) {
+    return (
+      <AcceptInwardForm
+        gatePass={selected}
+        onCancel={() => setSelected(null)}
+        onComplete={(msg) => { setSelected(null); load(); onSuccess(msg); }}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <h3 className="text-lg font-semibold text-gray-800 mb-3">Inward Gate Passes Awaiting Acceptance (FIM)</h3>
+      {loading ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : gatePasses.length === 0 ? (
+        <Card className="text-center text-gray-500 py-8">
+          No inward gate passes waiting for acceptance.
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {gatePasses.map(g => {
+            const pending = (g.items || []).filter(i => (i.inwardedQty || 0) < (i.quantity || 0));
+            return (
+              <Card key={g.id} className="cursor-pointer hover:border-navy-400 hover:shadow-md transition-all border border-gray-200"
+                onClick={() => setSelected(g)}>
+                <div className="flex items-start justify-between mb-2">
+                  <h4 className="font-semibold text-navy-700">{g.passNumber}</h4>
+                  <Badge color="yellow">Pending Acceptance</Badge>
+                </div>
+                <div className="text-xs text-gray-600 space-y-1">
+                  <div><span className="text-gray-500">Customer:</span> {g.customerName || '—'}</div>
+                  <div><span className="text-gray-500">Customer GP:</span> {g.customerGatePassNo || '—'}{g.customerGatePassDate ? ` (${formatDate(g.customerGatePassDate)})` : ''}</div>
+                  <div><span className="text-gray-500">Type:</span> {g.passType === 'NON_RETURNABLE' ? 'Non-Returnable' : 'Returnable'}</div>
+                  <div><span className="text-gray-500">Items pending:</span> {pending.length} of {g.items?.length || 0}</div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AcceptInwardForm({ gatePass, onCancel, onComplete }) {
+  const items = (gatePass.items || []).filter(i => (i.inwardedQty || 0) < (i.quantity || 0));
+  const [products, setProducts] = useState([]);
+  const [rows, setRows] = useState(
+    items.map(i => ({
+      itemId: i.id,
+      description: i.description,
+      quantity: i.quantity,
+      inwardedQty: i.inwardedQty || 0,
+      unit: i.unit || 'pcs',
+      probableReturnDate: i.probableReturnDate,
+      itemPassType: i.itemPassType,
+      // Form state
+      mode: 'new', // 'new' | 'existing'
+      productId: '',
+      newName: i.description,
+      newMaterialType: 'Others',
+      acceptQty: (i.quantity || 0) - (i.inwardedQty || 0),
+      batchNumber: '',
+    }))
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/products', { params: { limit: 'all' } })
+      .then(({ data }) => setProducts(data.products || []))
+      .catch(() => setProducts([]));
+  }, []);
+
+  const update = (idx, field, value) => {
+    const copy = [...rows];
+    copy[idx] = { ...copy[idx], [field]: value };
+    setRows(copy);
+  };
+
+  const submit = async () => {
+    setError('');
+    for (const r of rows) {
+      const qty = parseFloat(r.acceptQty);
+      const remaining = r.quantity - r.inwardedQty;
+      if (!qty || qty <= 0) return setError(`Enter accept qty for ${r.description}`);
+      if (qty > remaining + 1e-9) return setError(`${r.description}: cannot accept ${qty} (only ${remaining} pending)`);
+      if (r.mode === 'existing' && !r.productId) return setError(`${r.description}: select a product or switch to "New product"`);
+      if (r.mode === 'new' && !r.newName.trim()) return setError(`${r.description}: new product name is required`);
+    }
+
+    setSaving(true);
+    try {
+      await api.put(`/gatepasses/${gatePass.id}/accept-inward`, {
+        items: rows.map(r => ({
+          itemId: r.itemId,
+          quantity: parseFloat(r.acceptQty),
+          batchNumber: r.batchNumber || undefined,
+          productId: r.mode === 'existing' ? r.productId : undefined,
+          newProduct: r.mode === 'new' ? {
+            name: r.newName.trim(),
+            materialType: r.newMaterialType,
+            unit: r.unit || 'pcs',
+          } : undefined,
+        })),
+      });
+      onComplete({
+        title: 'Inward gate pass accepted',
+        message: `${rows.length} FIM item${rows.length === 1 ? '' : 's'} from ${gatePass.customerName || 'customer'} added to inventory.`,
+      });
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to accept inward gate pass');
+    }
+    setSaving(false);
+  };
+
+  const cellInput = "w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700";
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-semibold text-navy-700">{gatePass.passNumber}</h3>
+          <p className="text-xs text-gray-500">
+            Customer: <strong>{gatePass.customerName}</strong> · Customer GP <strong>{gatePass.customerGatePassNo}</strong>
+            {gatePass.customerGatePassDate ? ` (${formatDate(gatePass.customerGatePassDate)})` : ''}
+            {' · '}
+            Type: <strong>{gatePass.passType === 'NON_RETURNABLE' ? 'Non-Returnable' : 'Returnable'}</strong>
+          </p>
+        </div>
+        <Button variant="secondary" onClick={onCancel}>Back to list</Button>
+      </div>
+
+      <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
+        <strong>FIM (Free Issue Material):</strong> these items belong to the customer. Each accepted item creates (or adds to) a Product
+        and marks the resulting batch as <em>FIM</em>, linked to this gate pass so the product can be traced back to the customer.
+      </div>
+
+      {error && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+
+      <div className="space-y-4">
+        {rows.map((r, idx) => (
+          <div key={r.itemId} className="border border-gray-200 rounded p-3 bg-gray-50">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <span className="font-medium text-gray-800">{r.description}</span>
+                <span className="ml-2 text-xs text-gray-500">
+                  on gatepass: {r.quantity} {r.unit} · pending: {(r.quantity - r.inwardedQty).toFixed(2)} {r.unit}
+                </span>
+              </div>
+              <Badge color={r.itemPassType === 'NON_RETURNABLE' ? 'orange' : 'blue'}>
+                {r.itemPassType === 'NON_RETURNABLE' ? 'Non-Returnable' : 'Returnable'}
+              </Badge>
+            </div>
+
+            <div className="flex gap-3 text-xs mb-2">
+              <label className="inline-flex items-center gap-1.5">
+                <input type="radio" checked={r.mode === 'new'} onChange={() => update(idx, 'mode', 'new')} />
+                Create new product
+              </label>
+              <label className="inline-flex items-center gap-1.5">
+                <input type="radio" checked={r.mode === 'existing'} onChange={() => update(idx, 'mode', 'existing')} />
+                Add to existing product
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-sm">
+              {r.mode === 'new' ? (
+                <>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs text-gray-500 mb-1">Product name *</label>
+                    <input className={cellInput}
+                      value={r.newName} onChange={(e) => update(idx, 'newName', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Material type</label>
+                    <select className={cellInput}
+                      value={r.newMaterialType} onChange={(e) => update(idx, 'newMaterialType', e.target.value)}>
+                      <option>Others</option>
+                      <option>Raw Material</option>
+                      <option>Consumable</option>
+                      <option>Tooling</option>
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <div className="md:col-span-3">
+                  <label className="block text-xs text-gray-500 mb-1">Pick product *</label>
+                  <select className={cellInput}
+                    value={r.productId} onChange={(e) => update(idx, 'productId', e.target.value)}>
+                    <option value="">— Select existing product —</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Accept qty * ({r.unit})</label>
+                <input type="number" min="0" step="any" className={cellInput}
+                  value={r.acceptQty} onChange={(e) => update(idx, 'acceptQty', e.target.value)} />
+              </div>
+
+              <div className="md:col-span-4">
+                <label className="block text-xs text-gray-500 mb-1">Batch number (optional)</label>
+                <input className={cellInput}
+                  value={r.batchNumber} onChange={(e) => update(idx, 'batchNumber', e.target.value)} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex justify-end gap-3 mt-4">
+        <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+        <Button onClick={submit} disabled={saving || rows.length === 0}>
+          {saving ? 'Saving…' : 'Accept & Inward FIM'}
+        </Button>
+      </div>
     </Card>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowDown, ArrowUp, Layers, History, Send, ShoppingBag, FileQuestion } from 'lucide-react';
+import { ArrowLeft, ArrowDown, ArrowUp, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -350,6 +350,95 @@ function SupplierHistoryTab({ product, onRequote }) {
   );
 }
 
+// ─── FIM / Gate Pass Tab ─────────────────────────────────────────────────
+// Surfaces, for each FIM batch of this product:
+//   - the inward gate pass (customer GP number, customer name, etc.)
+//   - any outward delivery challans that returned/delivered this FIM back
+// This is the visible end of the inward↔outward mapping for customer-property
+// material.
+function FimTab({ product }) {
+  const batches = product.fimBatches || [];
+  if (batches.length === 0) {
+    return <p className="text-sm text-gray-400 py-6 text-center">No FIM batches on record for this product.</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
+        These batches are <strong>customer property (FIM)</strong>. They were inwarded against the
+        customer's own gate pass, so the original GP number is preserved here. Delivery Challans
+        that sent the material (or finished goods derived from it) back are shown beside each batch.
+      </div>
+
+      {batches.map(b => {
+        const gp = b.sourceInwardGatePass;
+        const item = b.sourceInwardGatePassItem;
+        const outwards = item?.outwardLinkedItems || [];
+        return (
+          <div key={b.id} className="border border-gray-200 rounded p-4 bg-white">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <p className="text-sm font-semibold text-navy-700">
+                  Batch <span className="font-mono">{b.batchNo || b.id.slice(0, 8)}</span>
+                </p>
+                <p className="text-xs text-gray-500">
+                  Received {formatDate(b.receivedDate)} · {b.quantity} {product.unit} ({b.remaining} remaining)
+                </p>
+              </div>
+              <Badge color={gp?.passType === 'NON_RETURNABLE' ? 'orange' : 'blue'}>
+                {gp?.passType === 'NON_RETURNABLE' ? 'Non-Returnable FIM' : 'Returnable FIM'}
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded">
+                <p className="text-xs uppercase tracking-wide text-gray-500 font-medium mb-1">Inward Gate Pass</p>
+                <p className="font-mono text-navy-700 font-medium">{gp?.passNumber || '—'}</p>
+                <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                  <div><span className="text-gray-500">Customer:</span> {gp?.customerName || '—'}</div>
+                  <div><span className="text-gray-500">Customer GP No.:</span> <span className="font-mono">{gp?.customerGatePassNo || '—'}</span></div>
+                  {gp?.customerGatePassDate && (
+                    <div><span className="text-gray-500">Customer GP date:</span> {formatDate(gp.customerGatePassDate)}</div>
+                  )}
+                  {gp?.customerContact && (
+                    <div><span className="text-gray-500">Contact:</span> {gp.customerContact}</div>
+                  )}
+                  {item?.probableReturnDate && (
+                    <div><span className="text-gray-500">Probable return:</span> {formatDate(item.probableReturnDate)}</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded">
+                <p className="text-xs uppercase tracking-wide text-gray-500 font-medium mb-1 inline-flex items-center gap-1">
+                  <ArrowUpFromLine size={11} /> Returned via Delivery Challan
+                </p>
+                {outwards.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic mt-1">Not yet sent back — no Delivery Challan linked.</p>
+                ) : (
+                  <ul className="space-y-1 mt-1">
+                    {outwards.map(lo => (
+                      <li key={lo.id} className="text-xs text-gray-700">
+                        <Link2 size={10} className="inline mr-0.5 text-blue-600" />
+                        <span className="font-mono text-blue-700">{lo.gatePass?.passNumber}</span>
+                        <span className="text-gray-500"> · {formatDate(lo.gatePass?.date)}</span>
+                        <span className="text-gray-700"> · sent {lo.quantity} {lo.unit}</span>
+                        {lo.gatePass?.partyName && (
+                          <span className="text-gray-500"> → {lo.gatePass.partyName}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Main ProductDetail page ─────────────────────────────────────────────
 export default function ProductDetail() {
   const { id } = useParams();
@@ -416,6 +505,14 @@ export default function ProductDetail() {
             {product.description && (
               <div className="col-span-2"><span className="text-gray-500">Description:</span> <span>{product.description}</span></div>
             )}
+            {(product.fimBatches || []).length > 0 && (
+              <div className="col-span-2">
+                <Badge color="blue"><FileInput size={10} className="inline mr-1" /> FIM (Customer Property)</Badge>
+                <span className="text-xs text-gray-500 ml-2">
+                  Some or all stock of this product is customer-supplied. See "FIM / Gate Pass" tab below.
+                </span>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -477,6 +574,16 @@ export default function ProductDetail() {
           >
             <History size={14} className="inline mr-1.5" /> Supplier History
           </button>
+          {(product.fimBatches || []).length > 0 && (
+            <button
+              onClick={() => setActiveTab('fim')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+                activeTab === 'fim' ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <FileInput size={14} className="inline mr-1.5" /> FIM / Gate Pass ({product.fimBatches.length})
+            </button>
+          )}
         </div>
 
         {activeTab === 'overview' && (
@@ -581,6 +688,8 @@ export default function ProductDetail() {
         {activeTab === 'suppliers' && (
           <SupplierHistoryTab product={product} onRequote={openRequote} />
         )}
+
+        {activeTab === 'fim' && <FimTab product={product} />}
       </Card>
 
       <QuickRequoteModal
