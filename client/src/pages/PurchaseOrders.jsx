@@ -294,9 +294,7 @@ function QCInspectionCard({ qc }) {
 
 // ─── Inward Inspection Request Form (RAPS/IIR Rev 01, page 1) ───
 function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setInvoiceFile, processing, onCancel, onSubmit }) {
-  // Lot number for this delivery = next inspection slot on the PO.
   const lotNumber = (order.qcInspections?.length || 0) + 1;
-  // Cumulative received so far across all items (visibility: "500 of 1000 already received").
   const cumulativeReceived = (order.items || []).reduce((s, i) => s + (i.receivedQty || 0), 0);
   const totalOrdered = (order.items || []).reduce((s, i) => s + (i.quantity || 0), 0);
   const lotTotal = lotItems.reduce((s, li) => s + (parseFloat(li.arrivedQty) || 0), 0);
@@ -311,447 +309,212 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
     ? new Date(order.createdAt).toLocaleDateString('en-IN')
     : '—';
 
-  const prItemsById = new Map(
-    (order.purchaseRequest?.items || []).map(it => [it.id, it])
-  );
+  const prItemsById = new Map((order.purchaseRequest?.items || []).map(it => [it.id, it]));
   const materialDescription = (order.items || [])
     .map(i => {
       const prItem = prItemsById.get(i.purchaseRequestItemId);
-      const spec = prItem?.materialSpecification ? ` (${prItem.materialSpecification})` : '';
-      return `${i.productName}${spec}`;
+      return `${i.productName}${prItem?.materialSpecification ? ` (${prItem.materialSpecification})` : ''}`;
     })
     .join('; ') || '—';
   const totalQty = (order.items || []).reduce((s, i) => s + (i.quantity || 0), 0);
-  const qtyText = (order.items || [])
-    .map(i => `${i.quantity} ${i.productUnit || ''}`)
-    .join(', ');
+  const qtyText = (order.items || []).map(i => `${i.quantity} ${i.productUnit || ''}`).join(', ');
   const scopeOfWork = order.customName || materialDescription;
-
-  const supplierLine = [order.supplierName, order.quotation?.supplierContact, order.quotation?.supplierAddress]
-    .filter(Boolean)
-    .join(' · ');
-  const budgetaryQuote = order.quotation
-    ? `Quotation ${order.quotation.quotationNumber} — ₹${Number(order.quotation.totalAmount || 0).toLocaleString('en-IN')}`
-    : '—';
 
   const Row = ({ sno, label, children, sectionFirst }) => (
     <tr className={sectionFirst ? 'border-t-2 border-gray-300' : ''}>
-      <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium w-12 text-center align-top">{sno}</td>
-      <td className="border border-gray-300 px-2 py-1.5 text-xs w-1/3 align-top">{label}</td>
+      <td className="border border-gray-300 px-2 py-1.5 text-xs font-bold w-12 text-center align-top">{sno}</td>
+      <td className="border border-gray-300 px-2 py-1.5 text-xs w-1/3 align-top font-medium">{label}</td>
       <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">{children}</td>
     </tr>
   );
 
-  const SectionHeader = ({ children }) => (
-    <tr>
-      <td colSpan={3} className="border border-gray-300 px-2 py-1.5 text-xs font-bold text-center bg-gray-100 uppercase tracking-wide">
-        {children}
-      </td>
-    </tr>
-  );
-
   return (
-    <div className="space-y-4">
-      {/* Letterhead-style header */}
-      <div className="border border-gray-400 rounded-md overflow-hidden">
-        <div className="grid grid-cols-3 bg-gray-50">
-          <div className="p-3 border-r border-gray-400 flex items-center justify-center">
-            <span className="font-bold text-lg text-navy-700">RAPS</span>
-          </div>
-          <div className="p-3 border-r border-gray-400 flex items-center justify-center text-center">
-            <div>
-              <div className="text-sm font-bold">INWARD INSPECTION</div>
-              <div className="text-sm font-bold">REQUEST FORM</div>
+    <div className="space-y-6">
+      <div className="bg-white border rounded shadow-sm p-4 overflow-y-auto max-h-[80vh]">
+        {/* Letterhead header */}
+        <div className="border border-gray-400 rounded-md overflow-hidden mb-4">
+          <div className="grid grid-cols-3 bg-gray-50 border-b border-gray-400">
+            <div className="p-3 border-r border-gray-400 flex items-center justify-center font-bold text-xl">RAPS</div>
+            <div className="p-3 border-r border-gray-400 flex flex-col items-center justify-center text-center font-bold text-sm">
+              <span>INWARD INSPECTION</span>
+              <span>REQUEST FORM</span>
+            </div>
+            <div className="p-3 text-xs leading-tight">
+              <div><strong>Form no.:</strong> RAPS/IIR Rev 01</div>
+              <div><strong>Dt:</strong> 01/09/2024</div>
             </div>
           </div>
-          <div className="p-3 text-xs">
-            <div><span className="font-medium">Form no.:</span> RAPS/IIR Rev 01</div>
-            <div><span className="font-medium">Dt:</span> 01/09/2024</div>
+          <div className="px-3 py-2 text-xs bg-white flex flex-wrap gap-x-4 items-center">
+            <div><strong>ION No. & Date:</strong> <span className="text-blue-700">Auto-generated on submit</span></div>
+            <div className="text-gray-500 italic">Format: QC/DDMMYY/N · today {new Date().toLocaleDateString('en-IN')}</div>
           </div>
         </div>
-        <div className="px-3 py-1.5 text-xs border-t border-gray-400 bg-white">
-          <span className="font-medium">Inspection ION No. &amp; Date:</span>{' '}
-          <span className="text-blue-700 font-medium">Auto-generated on submit</span>
-          <span className="text-gray-500"> · format: QC/DDMMYY/N · today {new Date().toLocaleDateString('en-IN')}</span>
-        </div>
-      </div>
 
-      {/* Locked batch identifier — Purchase Officer sets it ONCE. Used everywhere downstream:
-          QC inspection, Inward, ProductBatch, MIV, FIFO. No one can change it afterwards. */}
-      <div className="border-2 border-amber-300 bg-amber-50 rounded-md p-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1">
-            <div className="text-xs font-bold text-amber-900 uppercase tracking-wide mb-1">
-              Batch Number for Lot {lotNumber} <span className="text-red-600">*</span>
+        {/* BATCH NUMBER - CRITICAL */}
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 mb-6 shadow-sm">
+          <div className="flex flex-col md:flex-row justify-between gap-4">
+            <div className="flex-1">
+              <label className="block text-xs font-black text-amber-900 uppercase tracking-tighter mb-1">
+                Batch/Lot Identifier (Locked) <span className="text-red-600">*</span>
+              </label>
+              <p className="text-[11px] text-amber-800 leading-tight mb-3">
+                This batch number is <strong>immutable</strong> after submission. It propagates through QC, 
+                Inward Entry, MIV, and the final Product Batch list for traceability.
+              </p>
+              <input
+                type="text"
+                required
+                value={iir.batchNumber}
+                onChange={(e) => setIir({ ...iir, batchNumber: e.target.value })}
+                placeholder="e.g. LOT-2024-001"
+                className="w-full max-w-sm px-3 py-2 border-2 border-amber-400 rounded-md text-sm font-mono font-bold bg-white focus:ring-2 focus:ring-amber-500 outline-none"
+              />
             </div>
-            <p className="text-[11px] text-amber-800 mb-2">
-              Once submitted, this batch number is <strong>locked</strong> and travels with this delivery
-              through QC, Inward Entry, the MIV, the product list and FIFO. Nobody downstream can change it.
-            </p>
-            <input
-              type="text"
-              value={iir.batchNumber}
-              onChange={(e) => setIir({ ...iir, batchNumber: e.target.value })}
-              placeholder="e.g. BATCH-001"
-              className="w-full max-w-xs px-3 py-2 border border-amber-400 rounded text-sm font-mono font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-            />
-          </div>
-          <div className="text-right">
-            <div className="text-[10px] uppercase text-amber-700 font-semibold">This lot</div>
-            <div className="text-2xl font-bold text-amber-900">Lot {lotNumber}</div>
-            <div className="text-[11px] text-amber-700">
-              {cumulativeReceived > 0 ? `${cumulativeReceived} of ${totalOrdered} received so far` : `First delivery of ${totalOrdered}`}
+            <div className="text-right whitespace-nowrap">
+              <div className="text-[10px] font-bold text-amber-600 uppercase">Tracking Status</div>
+              <div className="text-3xl font-black text-amber-900">Lot {lotNumber}</div>
+              <div className="text-xs font-medium text-amber-800">
+                {cumulativeReceived > 0 ? `${cumulativeReceived} of ${totalOrdered} received` : `First lot of ${totalOrdered}`}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* The 16-row form */}
-      <div className="overflow-x-auto">
-        <table className="w-full border border-gray-300 text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="border border-gray-300 px-2 py-1.5 text-xs w-12">S.no</th>
-              <th className="border border-gray-300 px-2 py-1.5 text-xs">Details (To be filled by Purchase &amp; stores)</th>
-              <th className="border border-gray-300 px-2 py-1.5 text-xs">Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            <SectionHeader>Purchase Requisition details</SectionHeader>
-            <Row sno="01" label="Purchase requisition no. & Date">
-              <span className="font-medium">{prNumber}</span>
-              <span className="text-gray-500"> · {prDate}</span>
-            </Row>
-            <Row sno="02" label="Material description and Specification">
-              {materialDescription}
-            </Row>
-            <Row sno="03" label="Quantity as per PR">
-              {qtyText || `${totalQty}`}
-            </Row>
-
-            <SectionHeader>Enquiry &amp; Budgetary quote details</SectionHeader>
-            <Row sno="04" label="Supplier details">
-              {supplierLine || order.supplierName || '—'}
-            </Row>
-            <Row sno="05" label="Budgetary quote details">
-              {budgetaryQuote}
-            </Row>
-            <Row sno="06" label="Supplier Assessment form">
-              <span className="text-gray-500 italic">On file with Purchase team</span>
-            </Row>
-
-            <SectionHeader>Purchase order details</SectionHeader>
-            <Row sno="07" label="Purchase order no. & date">
-              <span className="font-medium">{order.orderNumber}</span>
-              <span className="text-gray-500"> · {poDate}</span>
-            </Row>
-            <Row sno="08" label="Quantity ordered">
-              {qtyText || `${totalQty}`}
-            </Row>
-            <Row sno="09" label="Delivery Required by">
-              <span className="text-gray-500 italic">As per PO terms (mutually agreed)</span>
-            </Row>
-            <Row sno="10" label="Scope of Work as per PO">
-              {scopeOfWork}
-            </Row>
-
-            <SectionHeader>Invoice &amp; DC Details</SectionHeader>
-            <tr>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">11</td>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">Invoice no. &amp; date <span className="text-red-600">*</span></td>
-              <td className="border border-gray-300 px-2 py-1.5 align-top">
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="text"
-                    value={iir.invoiceNo}
-                    onChange={(e) => setIir({ ...iir, invoiceNo: e.target.value })}
-                    placeholder="Invoice no."
-                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                  />
-                  <input
-                    type="date"
-                    value={iir.invoiceDate}
-                    onChange={(e) => setIir({ ...iir, invoiceDate: e.target.value })}
-                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                  />
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">12</td>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">DC no. if any</td>
-              <td className="border border-gray-300 px-2 py-1.5 align-top">
-                <input
-                  type="text"
-                  value={iir.dcNo}
-                  onChange={(e) => setIir({ ...iir, dcNo: e.target.value })}
-                  placeholder="Delivery challan no."
-                  className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                />
-              </td>
-            </tr>
-            <tr>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">13</td>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">Gate pass no. (FIM/others)</td>
-              <td className="border border-gray-300 px-2 py-1.5 align-top">
-                <input
-                  type="text"
-                  value={iir.gatePassNo}
-                  onChange={(e) => setIir({ ...iir, gatePassNo: e.target.value })}
-                  placeholder="Gate pass no."
-                  className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                />
-              </td>
-            </tr>
-            <tr>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">14</td>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">Gate pass type</td>
-              <td className="border border-gray-300 px-2 py-1.5 align-top">
-                <select
-                  value={iir.gatePassType}
-                  onChange={(e) => setIir({ ...iir, gatePassType: e.target.value })}
-                  className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                >
-                  <option value="">— select —</option>
-                  <option value="FIM">FIM</option>
-                  <option value="OTHERS">Others</option>
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">15</td>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">Probable date of Return</td>
-              <td className="border border-gray-300 px-2 py-1.5 align-top">
-                <input
-                  type="date"
-                  value={iir.probableDateOfReturn}
-                  onChange={(e) => setIir({ ...iir, probableDateOfReturn: e.target.value })}
-                  className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                />
-              </td>
-            </tr>
-            <tr>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs font-medium text-center align-top">16</td>
-              <td className="border border-gray-300 px-2 py-1.5 text-xs align-top">Material receipt date @RAPS, Store <span className="text-red-600">*</span></td>
-              <td className="border border-gray-300 px-2 py-1.5 align-top">
-                <input
-                  type="date"
-                  value={iir.materialReceiptDate}
-                  onChange={(e) => setIir({ ...iir, materialReceiptDate: e.target.value })}
-                  className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      {/* Inspection scope — ticked by Purchase, visible to QC */}
-      <div className="border border-gray-300 rounded-md overflow-hidden">
-        <div className="bg-gray-100 px-3 py-1.5 border-b border-gray-300 text-xs font-bold text-gray-700">
-          Inspection Scope (to be ticked by Purchase, verified by QC)
-        </div>
-        <div className="p-3 space-y-3">
-          {/* Material category */}
-          <div>
-            <div className="text-xs font-semibold text-gray-700 mb-1">
-              Material category <span className="text-red-600">*</span>
-            </div>
-            <div className="flex flex-wrap gap-4 text-xs">
-              {['Raw Materials', 'Consumables', 'Tooling & Fixtures', 'FIM'].map(c => (
-                <label key={c} className="inline-flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="materialCategory"
-                    value={c}
-                    checked={iir.materialCategory === c}
-                    onChange={() => setIir({ ...iir, materialCategory: c })}
-                  />
-                  {c}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Documents required */}
-          <div>
-            <div className="text-xs font-semibold text-gray-700 mb-1">
-              Documents required with delivery
-            </div>
-            <div className="flex flex-wrap gap-4 text-xs">
-              {[
-                { k: 'testReport', label: 'Test Report' },
-                { k: 'coc', label: 'COC' },
-                { k: 'coa', label: 'COA' },
-                { k: 'thirdParty', label: '3rd Party / Customer Clearance' },
-              ].map(opt => (
-                <label key={opt.k} className="inline-flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!!iir.documentTypes[opt.k]}
-                    onChange={(e) => setIir({
-                      ...iir,
-                      documentTypes: { ...iir.documentTypes, [opt.k]: e.target.checked },
-                    })}
-                  />
-                  {opt.label}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Dimensional inspection */}
-          <div>
-            <div className="text-xs font-semibold text-gray-700 mb-1">
-              Dimensional inspection
-            </div>
-            <div className="flex flex-wrap gap-4 text-xs">
-              {[
-                { k: 'dimInspAtSupplier', label: 'Dimensional inspection at Supplier place' },
-                { k: 'dimInspAtRapsInward', label: 'Dimensional inspection at RAPS inward' },
-              ].map(opt => (
-                <label key={opt.k} className="inline-flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!!iir.documentTypes[opt.k]}
-                    onChange={(e) => setIir({
-                      ...iir,
-                      documentTypes: { ...iir.documentTypes, [opt.k]: e.target.checked },
-                    })}
-                  />
-                  {opt.label}
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Lot delivery — per-item arrived qty + invoice for THIS batch */}
-      <div className="border border-amber-300 rounded-md overflow-hidden">
-        <div className="bg-amber-50 px-3 py-1.5 border-b border-amber-300 text-xs font-bold text-amber-900 flex items-center justify-between">
-          <span>Lot {lotNumber} — arrived quantity (this delivery)</span>
-          {cumulativeReceived > 0 && (
-            <span className="font-normal text-amber-800">
-              {cumulativeReceived} of {totalOrdered} previously received
-            </span>
-          )}
-        </div>
-        <div className="p-3 space-y-3">
-          <p className="text-[11px] text-gray-600">
-            Enter how much of each item physically reached stores in this delivery.
-            Leave 0 if an item did not arrive in this lot.
-          </p>
-          <table className="w-full text-xs border border-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="border border-gray-200 px-2 py-1 text-left">Material</th>
-                <th className="border border-gray-200 px-2 py-1 text-right">Ordered</th>
-                <th className="border border-gray-200 px-2 py-1 text-right">Already received</th>
-                <th className="border border-gray-200 px-2 py-1 text-right">Remaining</th>
-                <th className="border border-gray-200 px-2 py-1 text-right w-32">
-                  Arrived this lot <span className="text-red-600">*</span>
-                </th>
+        {/* 16-Row Form Table */}
+        <div className="mb-6">
+          <table className="w-full border-collapse border border-gray-300 text-xs">
+            <thead className="bg-gray-100">
+              <tr className="uppercase font-bold tracking-wider">
+                <th className="border border-gray-300 p-2 w-12">S#</th>
+                <th className="border border-gray-300 p-2 text-left">Description of particulars</th>
+                <th className="border border-gray-300 p-2 text-left">Values/Details</th>
               </tr>
             </thead>
             <tbody>
-              {(order.items || []).map((it) => {
+              <tr><td colSpan={3} className="bg-slate-50 p-2 font-bold uppercase text-center border border-gray-300">1. Requisition & Material</td></tr>
+              <Row sno="01" label="PR No. & Date">{prNumber} · {prDate}</Row>
+              <Row sno="02" label="Material Description">{materialDescription}</Row>
+              <Row sno="03" label="Qty as per PR">{qtyText || totalQty}</Row>
+              
+              <tr><td colSpan={3} className="bg-slate-50 p-2 font-bold uppercase text-center border border-gray-300">2. Supplier & Quote</td></tr>
+              <Row sno="04" label="Supplier Details">{order.supplierName || '—'}</Row>
+              <Row sno="05" label="Quote Details">{order.quotation?.quotationNumber || '—'}</Row>
+              <Row sno="06" label="Assessment Status"><span className="italic text-gray-500">Verified by Purchase</span></Row>
+
+              <tr><td colSpan={3} className="bg-slate-50 p-2 font-bold uppercase text-center border border-gray-300">3. PO & Invoice Details</td></tr>
+              <Row sno="07" label="PO No. & Date">{order.orderNumber} · {poDate}</Row>
+              <Row sno="08" label="Qty as per PO">{qtyText || totalQty}</Row>
+              <Row sno="09" label="Delivery Required by"><span className="italic text-gray-500">As per PO Terms</span></Row>
+              <Row sno="10" label="Purpose/Scope">{scopeOfWork}</Row>
+              
+              <Row sno="11" label="Invoice No. & Date *">
+                <div className="flex gap-2">
+                  <input type="text" value={iir.invoiceNo} onChange={e => setIir({...iir, invoiceNo: e.target.value})} placeholder="No." className="w-1/2 p-1 border rounded" />
+                  <input type="date" value={iir.invoiceDate} onChange={e => setIir({...iir, invoiceDate: e.target.value})} className="w-1/2 p-1 border rounded" />
+                </div>
+              </Row>
+              <Row sno="12" label="DC No. if any">
+                <input type="text" value={iir.dcNo} onChange={e => setIir({...iir, dcNo: e.target.value})} placeholder="DC No." className="w-full p-1 border rounded" />
+              </Row>
+              <tr><td colSpan={3} className="bg-slate-50 p-2 font-bold uppercase text-center border border-gray-300">4. Receipt Metadata</td></tr>
+              <Row sno="13" label="Gate Pass No">{iir.gatePassNo}</Row>
+              <Row sno="16" label="Material Receipt Date *">
+                <input type="date" value={iir.materialReceiptDate} onChange={e => setIir({...iir, materialReceiptDate: e.target.value})} className="w-full p-1 border rounded" />
+              </Row>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Inspection Scope */}
+        <div className="border border-gray-300 rounded mb-6 overflow-hidden">
+          <div className="bg-gray-100 p-2 font-bold text-xs uppercase border-b border-gray-300">5. Inspection Scope & Category</div>
+          <div className="p-4 space-y-4">
+            <div>
+              <div className="text-xs font-bold mb-2">Material Category <span className="text-red-500">*</span></div>
+              <div className="flex gap-4 text-xs font-medium">
+                {['Raw Materials', 'Consumables', 'Tooling & Fixtures', 'FIM'].map(cat => (
+                  <label key={cat} className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="radio" checked={iir.materialCategory === cat} onChange={() => setIir({ ...iir, materialCategory: cat })} />
+                    {cat}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-bold mb-2">Scope of Inspection</div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {[{k:'testReport',l:'Test Report'}, {k:'coc',l:'COC'}, {k:'coa',l:'COA'}, {k:'dimInspAtRapsInward',l:'Dimensional (RAPS)'}].map(opt => (
+                  <label key={opt.k} className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={!!iir.documentTypes?.[opt.k]} onChange={e => setIir({...iir, documentTypes: {...iir.documentTypes, [opt.k]: e.target.checked}})} />
+                    {opt.l}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Quantities Table - Partial delivery */}
+        <div className="border border-amber-300 rounded mb-6 overflow-hidden shadow-sm">
+          <div className="bg-amber-100 p-2 font-bold text-[10px] uppercase text-amber-900 border-b border-amber-300 flex justify-between">
+            <span>6. Lot Itemization (Physical Arrival)</span>
+            <span>Lot Total: {lotTotal}</span>
+          </div>
+          <table className="w-full text-xs">
+            <thead className="bg-amber-50 font-bold border-b border-amber-200">
+              <tr>
+                <th className="p-2 text-left">Item Name</th>
+                <th className="p-2 text-right">Ordered</th>
+                <th className="p-2 text-right">Remaining</th>
+                <th className="p-2 text-right w-32">Arrived Now *</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {(order.items || []).map(it => {
                 const already = it.receivedQty || 0;
-                const remaining = Math.max(0, it.quantity - already);
-                const row = lotItems.find((r) => r.poItemId === it.id) || { arrivedQty: '' };
-                const value = row.arrivedQty;
-                const num = parseFloat(value) || 0;
-                const overflow = num > remaining + 0.0001;
+                const rem = Math.max(0, it.quantity - already);
+                const row = lotItems.find(r => r.poItemId === it.id) || { arrivedQty: '' };
                 return (
-                  <tr key={it.id} className="border-t border-gray-200">
-                    <td className="border border-gray-200 px-2 py-1 font-medium">{it.productName}</td>
-                    <td className="border border-gray-200 px-2 py-1 text-right">{it.quantity} {it.productUnit}</td>
-                    <td className="border border-gray-200 px-2 py-1 text-right">{already}</td>
-                    <td className={`border border-gray-200 px-2 py-1 text-right ${remaining === 0 ? 'text-gray-400' : 'text-amber-700 font-medium'}`}>
-                      {remaining}
-                    </td>
-                    <td className="border border-gray-200 px-2 py-1 text-right">
-                      <input
-                        type="number"
-                        min="0"
-                        max={remaining}
-                        step="any"
-                        value={value}
-                        disabled={remaining === 0}
-                        onChange={(e) => {
-                          const next = lotItems.map((r) =>
-                            r.poItemId === it.id ? { ...r, arrivedQty: e.target.value } : r
-                          );
-                          // If row not present yet (defensive), append
-                          if (!lotItems.some((r) => r.poItemId === it.id)) {
-                            next.push({ poItemId: it.id, arrivedQty: e.target.value });
-                          }
+                  <tr key={it.id}>
+                    <td className="p-2 font-medium">{it.productName}</td>
+                    <td className="p-2 text-right">{it.quantity}</td>
+                    <td className="p-2 text-right text-amber-600 font-bold">{rem}</td>
+                    <td className="p-2 text-right">
+                      <input 
+                        type="number" step="any" min="0" max={rem} placeholder="0"
+                        value={row.arrivedQty}
+                        disabled={rem <= 0}
+                        onChange={e => {
+                          const next = lotItems.map(r => r.poItemId === it.id ? {...r, arrivedQty: e.target.value} : r);
+                          if (!lotItems.some(r => r.poItemId === it.id)) next.push({ poItemId: it.id, arrivedQty: e.target.value });
                           setLotItems(next);
                         }}
-                        className={`w-28 px-2 py-1 border rounded text-right text-xs ${overflow ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
-                        placeholder="0"
+                        className="w-24 p-1 border border-gray-300 rounded text-right"
                       />
                     </td>
                   </tr>
                 );
               })}
             </tbody>
-            <tfoot>
-              <tr className="bg-gray-50 font-semibold">
-                <td colSpan={4} className="border border-gray-200 px-2 py-1 text-right">Lot total</td>
-                <td className="border border-gray-200 px-2 py-1 text-right">{lotTotal || 0}</td>
-              </tr>
-            </tfoot>
           </table>
         </div>
-      </div>
 
-      {/* Invoice PDF for this lot */}
-      <div className="border border-blue-300 rounded-md p-3 space-y-2">
-        <div className="text-xs font-bold text-blue-900">
-          Invoice PDF for Lot {lotNumber} <span className="text-red-600">*</span>
+        {/* Invoice File */}
+        <div className="bg-blue-50 border border-blue-200 rounded p-4 mb-4">
+          <div className="text-xs font-bold text-blue-900 mb-2">7. Supporting Documentation (PDF) <span className="text-red-500">*</span></div>
+          <input type="file" accept=".pdf" onChange={e => setInvoiceFile(e.target.files?.[0] || null)} className="text-xs" />
+          {invoiceFile && <div className="mt-1 text-[10px] text-green-700 font-bold">✓ {invoiceFile.name}</div>}
         </div>
-        <p className="text-[11px] text-gray-600">
-          Upload the supplier invoice that accompanies this delivery. QC will see it alongside
-          the PR specs and PO annexure.
-        </p>
-        <input
-          type="file"
-          accept="application/pdf"
-          onChange={(e) => setInvoiceFile(e.target.files?.[0] || null)}
-          className="block text-xs"
-        />
-        {invoiceFile && (
-          <div className="text-xs text-green-700 font-medium">
-            Selected: {invoiceFile.name} ({Math.round(invoiceFile.size / 1024)} KB)
-          </div>
-        )}
-      </div>
 
-      {/* Footer text */}
-      <div className="border border-gray-300 rounded p-2 text-xs bg-gray-50">
-        <span className="font-medium">Requesting QA/QC Group</span> to inspect the particulars mentioned above and inspect the material as per Material specification / Scope of PO.
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 text-xs">
-        <div className="border border-gray-300 rounded p-3 min-h-[60px]">
-          <div className="font-medium text-gray-700">Stores / Purchase / Indenter</div>
-          <div className="text-gray-500 mt-1 italic">Signed digitally on submission</div>
-        </div>
-        <div className="border border-gray-300 rounded p-3 min-h-[60px]">
-          <div className="font-medium text-gray-700">Quality group</div>
-          <div className="text-gray-500 mt-1 italic">Filled by QC on the Inspection Report (page 2)</div>
+        <div className="text-[10px] text-gray-500 italic pb-2 text-center">
+          Digitally signed on submission by {order.createdBy?.name || 'Authorized Personnel'}. IIR created auto-notifies QC group.
         </div>
       </div>
 
-      <p className="text-[11px] text-gray-500">
-        Submitting this form auto-creates a QC Inspection Request and notifies the QC team. Page 2 (Inspection Report) is filled by QC.
-      </p>
-
-      <div className="flex justify-end gap-2 pt-2 border-t">
+      <div className="flex justify-end gap-3 pt-4 border-t sticky bottom-0 bg-white p-2">
         <Button variant="secondary" onClick={onCancel} disabled={processing}>Cancel</Button>
         <Button onClick={onSubmit} disabled={processing}>
-          {processing ? 'Submitting...' : 'Submit & Notify QC'}
+          {processing ? 'Creating IIR Request...' : 'Submit Arrival & Notify QC'}
         </Button>
       </div>
     </div>
@@ -1012,18 +775,21 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     setProcessing(true);
     try {
       const fd = new FormData();
-      fd.append('batchNumber', iir.batchNumber.trim());
-      fd.append('invoiceNo', iir.invoiceNo.trim());
-      fd.append('invoiceDate', iir.invoiceDate);
-      if (iir.dcNo.trim()) fd.append('dcNo', iir.dcNo.trim());
-      if (iir.gatePassNo.trim()) fd.append('gatePassNo', iir.gatePassNo.trim());
+      fd.append('batchNumber', (iir.batchNumber || '').trim());
+      fd.append('invoiceNo', (iir.invoiceNo || '').trim());
+      fd.append('invoiceDate', iir.invoiceDate || '');
+      if (iir.dcNo?.trim()) fd.append('dcNo', iir.dcNo.trim());
+      if (iir.gatePassNo?.trim()) fd.append('gatePassNo', iir.gatePassNo.trim());
       if (iir.gatePassType) fd.append('gatePassType', iir.gatePassType);
       if (iir.probableDateOfReturn) fd.append('probableDateOfReturn', iir.probableDateOfReturn);
-      fd.append('materialReceiptDate', iir.materialReceiptDate);
-      fd.append('materialCategory', iir.materialCategory);
-      fd.append('documentTypes', JSON.stringify(iir.documentTypes));
+      fd.append('materialReceiptDate', iir.materialReceiptDate || '');
+      fd.append('materialCategory', iir.materialCategory || '');
+      fd.append('documentTypes', JSON.stringify(iir.documentTypes || {}));
       fd.append('items', JSON.stringify(arrivedItems));
       fd.append('invoiceFile', invoiceFile);
+
+      console.log('SUBMITTING IIR:', Object.fromEntries(fd.entries()));
+
       await api.put(`/purchase-orders/${order.id}/goods-arrived`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
@@ -1031,9 +797,17 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
       onClose();
       onUpdated();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed');
+      console.error('SUBMIT_IIR_FAILED:', err.response?.data || err.message);
+      const serverErr = err.response?.data?.error;
+      const serverDetails = err.response?.data?.details;
+      let msg = serverErr || 'Failed to submit goods arrived';
+      if (serverDetails && Array.isArray(serverDetails)) {
+        msg += '\n' + serverDetails.map(d => `- ${d.path.join('.')}: ${d.message}`).join('\n');
+      }
+      alert(msg);
+    } finally {
+      setProcessing(false);
     }
-    setProcessing(false);
   };
 
   const requestPayment = async () => {
