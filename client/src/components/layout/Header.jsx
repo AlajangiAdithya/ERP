@@ -12,6 +12,15 @@ const ROLE_LABELS = {
   ACCOUNTING: 'Accounting',
   QC: 'Quality Control',
   LAB: 'Lab',
+  METROLOGY: 'Metrology',
+  NDT: 'NDT',
+  RND: 'R&D',
+  SAFETY: 'Safety',
+  SUPPLY_CHAIN: 'Supply Chain',
+  DESIGNS: 'Designs',
+  FINANCE: 'Finance',
+  PLANNING: 'Planning',
+  LOGISTICS: 'Logistics',
 };
 
 const getInitials = (name) => {

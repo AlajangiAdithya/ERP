@@ -13,8 +13,8 @@ const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation }
 
 const router = express.Router();
 
-const ION_ROLES = ['MANAGER', 'LAB', 'METEOROLOGY', 'NDT', 'RND', 'SAFETY'];
-const ION_RECIPIENT_ROLES = ['LAB', 'METEOROLOGY', 'NDT', 'RND'];
+const ION_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND', 'DESIGNS', 'SAFETY'];
+const ION_RECIPIENT_ROLES = ['LAB', 'METROLOGY', 'NDT', 'RND', 'DESIGNS'];
 
 const ION_INCLUDE = {
   createdBy:  { select: { id: true, name: true, role: true, unit: { select: { name: true, code: true } } } },
@@ -39,7 +39,7 @@ router.get('/', authenticate, authorize(...ION_ROLES), async (req, res) => {
         { assignedToId: req.user.id },
       ];
     } else if (ION_RECIPIENT_ROLES.includes(req.user.role)) {
-      // Recipient roles (LAB/METEOROLOGY/NDT/RND) see ions sent to their role:
+      // Recipient roles (LAB/METROLOGY/NDT/RND) see ions sent to their role:
       // either unassigned with createdBy targeting their role (handled implicitly
       // by recipientRole field — we filter on either no assignee with matching
       // role bucket OR assigned to a user of that same role).
@@ -102,7 +102,7 @@ router.get('/:id', authenticate, authorize(...ION_ROLES), async (req, res) => {
 });
 
 // POST /api/ion — MANAGER creates
-//   recipientType:  'LAB' (default) | 'METEOROLOGY' | 'NDT' | 'RND' | 'MANAGER'
+//   recipientType:  'LAB' (default) | 'METROLOGY' | 'NDT' | 'RND' | 'MANAGER'
 //   assignedToId:   required when recipientType === 'MANAGER' (must be a MANAGER user id)
 router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
   try {
@@ -209,8 +209,8 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
 });
 
 // PUT /api/ion/:id/status — recipient transitions SENT → WAITING → COLLECTED
-//   Recipient = LAB/METEOROLOGY/NDT/RND user (for unassigned/role-assigned) OR the specific manager assigned to it.
-router.put('/:id/status', authenticate, authorize('LAB', 'MANAGER', 'METEOROLOGY', 'NDT', 'RND'), async (req, res) => {
+//   Recipient = LAB/METROLOGY/NDT/RND user (for unassigned/role-assigned) OR the specific manager assigned to it.
+router.put('/:id/status', authenticate, authorize('LAB', 'MANAGER', 'METROLOGY', 'NDT', 'RND', 'DESIGNS'), async (req, res) => {
   try {
     const { status, remarks } = req.body;
     if (!['WAITING', 'COLLECTED'].includes(status)) {

@@ -10,7 +10,8 @@ const router = express.Router();
 
 const VALID_ROLES = [
   'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
-  'METEOROLOGY', 'NDT', 'RND', 'SAFETY', 'TENDER_MANAGER',
+  'METROLOGY', 'NDT', 'RND', 'SAFETY', 'SUPPLY_CHAIN',
+  'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS',
 ];
 
 const createUserSchema = z.object({
@@ -27,8 +28,8 @@ const updateUserSchema = z.object({
 });
 
 // GET /api/users/managers — lightweight list of active managers.
-// Used by ION recipient picker (MANAGER/LAB) and the Tender assignment picker (TENDER_MANAGER).
-router.get('/managers', authenticate, authorize('MANAGER', 'LAB', 'ADMIN', 'TENDER_MANAGER'), async (req, res) => {
+// Used by ION recipient picker (MANAGER/LAB) and the Tender assignment picker (SUPPLY_CHAIN).
+router.get('/managers', authenticate, authorize('MANAGER', 'LAB', 'ADMIN', 'SUPPLY_CHAIN'), async (req, res) => {
   try {
     // Tender manager assigning a tender to a unit needs to see ALL active managers
     // including themselves' counterparts. ION picker excludes the requester.

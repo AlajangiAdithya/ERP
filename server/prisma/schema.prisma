@@ -67,11 +67,15 @@ enum Role {
   ACCOUNTING
   QC
   LAB
-  METEOROLOGY
+  METROLOGY
   NDT
   RND
   SAFETY
-  TENDER_MANAGER
+  SUPPLY_CHAIN
+  DESIGNS
+  FINANCE
+  PLANNING
+  LOGISTICS
 }
 
 // ──── UNITS ────
@@ -784,7 +788,7 @@ model InterOfficeNote {
   qcContactDetails   String?
   otherInformation   String?
   status             IONStatus @default(SENT)
-  recipientRole      String?   @default("LAB") // LAB | METEOROLOGY | NDT | RND (when not assigned to a specific manager)
+  recipientRole      String?   @default("LAB") // LAB | METROLOGY | NDT | RND | DESIGNS (when not assigned to a specific manager)
   createdById        String
   createdBy          User      @relation("IONCreator", fields: [createdById], references: [id])
   assignedToId       String?

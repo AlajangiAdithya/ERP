@@ -11,7 +11,7 @@ const {
 const router = express.Router();
 
 // Roles that can create/manage their own purchase requests (same privileges as MANAGER)
-const REQUESTER_ROLES = ['MANAGER', 'LAB'];
+const REQUESTER_ROLES = ['MANAGER', 'LAB', 'PLANNING'];
 // SAFETY can create PRs AND monitor all of them (handled as a non-requester so it
 // sees the full list without being filtered to its own records).
 const MONITOR_ROLES = ['SAFETY'];
@@ -360,7 +360,7 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // POST /api/purchase-requests — Requester creates.
-router.post('/', authenticate, authorize('MANAGER', 'LAB', 'SAFETY'), async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'LAB', 'PLANNING', 'SAFETY'), async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
 
@@ -767,7 +767,7 @@ router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), 
 });
 
 // PUT /api/purchase-requests/:id/cancel — Requester cancels own pending request
-router.put('/:id/cancel', authenticate, authorize('MANAGER', 'LAB', 'SAFETY'), async (req, res) => {
+router.put('/:id/cancel', authenticate, authorize('MANAGER', 'LAB', 'PLANNING', 'SAFETY'), async (req, res) => {
   try {
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: req.params.id },

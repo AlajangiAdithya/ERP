@@ -1,5 +1,5 @@
 // ──────────────────────────────────────────────────────────────
-// Tender — TENDER_MANAGER assigns tenders to a unit's MANAGER.
+// Tender — SUPPLY_CHAIN (formerly Tender Manager) assigns tenders to a unit's MANAGER.
 // MANAGER updates progress (IN_PROGRESS → SUBMITTED → WON/LOST).
 // SAFETY + ADMIN: read-only monitor.
 // ──────────────────────────────────────────────────────────────
@@ -11,7 +11,7 @@ const { generateSequentialNumber, paginate, applyDateFilter } = require('../util
 
 const router = express.Router();
 
-const TENDER_VIEW_ROLES = ['TENDER_MANAGER', 'ADMIN', 'MANAGER', 'SAFETY'];
+const TENDER_VIEW_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY'];
 const TENDER_STATUSES = ['ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 'WON', 'LOST', 'CANCELLED'];
 
 const TENDER_INCLUDE = {
@@ -37,7 +37,7 @@ router.get('/', authenticate, authorize(...TENDER_VIEW_ROLES), async (req, res) 
         { unitId: req.user.unitId },
       ];
     }
-    // TENDER_MANAGER, ADMIN, SAFETY: see all
+    // SUPPLY_CHAIN, ADMIN, SAFETY: see all
 
     const [tenders, total] = await Promise.all([
       prisma.tender.findMany({
@@ -83,8 +83,8 @@ router.get('/:id', authenticate, authorize(...TENDER_VIEW_ROLES), async (req, re
   }
 });
 
-// POST /api/tenders — TENDER_MANAGER creates and assigns to a unit / manager
-router.post('/', authenticate, authorize('TENDER_MANAGER', 'ADMIN'), async (req, res) => {
+// POST /api/tenders — SUPPLY_CHAIN creates and assigns to a unit / manager
+router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
     const {
       title, description, clientName, estimatedValue,
@@ -164,8 +164,8 @@ router.post('/', authenticate, authorize('TENDER_MANAGER', 'ADMIN'), async (req,
   }
 });
 
-// PUT /api/tenders/:id/status — MANAGER (assignee) progresses; TENDER_MANAGER/ADMIN can cancel
-router.put('/:id/status', authenticate, authorize('MANAGER', 'TENDER_MANAGER', 'ADMIN'), async (req, res) => {
+// PUT /api/tenders/:id/status — MANAGER (assignee) progresses; SUPPLY_CHAIN/ADMIN can cancel
+router.put('/:id/status', authenticate, authorize('MANAGER', 'SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
     const { status, notes } = req.body;
     if (!TENDER_STATUSES.includes(status)) {

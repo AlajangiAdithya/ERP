@@ -63,10 +63,10 @@ const blankItem = () => ({
 
 export default function GatePass() {
   const { user } = useAuth();
-  const canCreateOutward = user?.role === 'MANAGER' || user?.role === 'ADMIN';
-  // Inward FIM is captured by Stores Manager only (or Admin). Unit managers receive
+  const canCreateOutward = ['MANAGER', 'LOGISTICS', 'ADMIN'].includes(user?.role);
+  // Inward FIM is captured by Stores Manager / Logistics (or Admin). Unit managers receive
   // direct-to-unit FIM via the Gate Pass list and mark it Collected from the detail modal.
-  const canCreateInward = user?.role === 'STORE_MANAGER' || user?.role === 'ADMIN';
+  const canCreateInward = ['STORE_MANAGER', 'LOGISTICS', 'ADMIN'].includes(user?.role);
   const [direction, setDirection] = useState('OUTWARD');
   const STATUS_TABS = direction === 'INWARD' ? INWARD_STATUS_TABS : OUTWARD_STATUS_TABS;
   const defaultTab = direction === 'INWARD' ? 'PENDING_ACCEPTANCE' : 'PENDING_STORE';
@@ -575,8 +575,8 @@ function DetailModal({ gatePass: initial, onClose, onAction }) {
 
   const role = user?.role;
   const isAdmin = role === 'ADMIN';
-  const canStoreApprove = !isInward && g.status === 'PENDING_STORE' && (role === 'STORE_MANAGER' || isAdmin);
-  const canAccountsApprove = !isInward && g.status === 'PENDING_ACCOUNTS' && (role === 'ACCOUNTING' || isAdmin);
+  const canStoreApprove = !isInward && g.status === 'PENDING_STORE' && (role === 'STORE_MANAGER' || role === 'LOGISTICS' || isAdmin);
+  const canAccountsApprove = !isInward && g.status === 'PENDING_ACCOUNTS' && (role === 'ACCOUNTING' || role === 'FINANCE' || isAdmin);
   const canReject = !isInward && ['PENDING_STORE', 'PENDING_ACCOUNTS'].includes(g.status) &&
     (canStoreApprove || canAccountsApprove);
 

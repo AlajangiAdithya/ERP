@@ -1346,11 +1346,11 @@ export default function Dashboard() {
   const { user } = useAuth();
 
   if (user?.role === 'ADMIN') return <AdminDashboard />;
-  if (['MANAGER', 'LAB'].includes(user?.role)) return <ManagerDashboard />;
-  if (user?.role === 'STORE_MANAGER') return <StoreManagerDashboard />;
-  if (user?.role === 'PURCHASE_OFFICER') return <PurchaseOfficerDashboard />;
-  if (user?.role === 'ACCOUNTING') return <AccountingDashboard />;
-  if (user?.role === 'QC') return <QCDashboard />;
+  if (['MANAGER', 'LAB', 'PLANNING'].includes(user?.role)) return <ManagerDashboard />;
+  if (['STORE_MANAGER', 'LOGISTICS'].includes(user?.role)) return <StoreManagerDashboard />;
+  if (['PURCHASE_OFFICER', 'SUPPLY_CHAIN'].includes(user?.role)) return <PurchaseOfficerDashboard />;
+  if (['ACCOUNTING', 'FINANCE'].includes(user?.role)) return <AccountingDashboard />;
+  if (['QC', 'METROLOGY', 'NDT', 'RND', 'DESIGNS'].includes(user?.role)) return <QCDashboard />;
 
   return <AdminDashboard />;
 }

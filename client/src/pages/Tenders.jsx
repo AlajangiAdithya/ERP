@@ -23,7 +23,7 @@ const STATUS_TABS = ['ALL', 'ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 'WON', 'LOST
 
 export default function Tenders() {
   const { user } = useAuth();
-  const canCreate = user?.role === 'TENDER_MANAGER' || user?.role === 'ADMIN';
+  const canCreate = user?.role === 'SUPPLY_CHAIN' || user?.role === 'ADMIN';
   const [tenders, setTenders] = useState([]);
   const [units, setUnits] = useState([]);
   const [managers, setManagers] = useState([]);
@@ -235,7 +235,7 @@ function TenderDetailModal({ tender, currentUser, onClose, onUpdated }) {
   const [error, setError] = useState('');
 
   const isAssignee = currentUser?.id === tender.assignedToId;
-  const isTenderMgr = currentUser?.role === 'TENDER_MANAGER' || currentUser?.role === 'ADMIN';
+  const isTenderMgr = currentUser?.role === 'SUPPLY_CHAIN' || currentUser?.role === 'ADMIN';
   const canTransition =
     (isAssignee && ['IN_PROGRESS', 'SUBMITTED', 'WON', 'LOST'].includes(status)) ||
     (isTenderMgr && status === 'CANCELLED');

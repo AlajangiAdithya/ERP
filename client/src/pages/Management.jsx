@@ -11,7 +11,10 @@ import { formatDateTime } from '../utils/formatters';
 const FIXED_ADMINS = ['madhubabu', 'sureshbabu', 'rameshbabu'];
 const isFixedAdmin = (user) => FIXED_ADMINS.includes(user.username);
 
-const GLOBAL_ONLY_ROLES = ['STORE_MANAGER', 'PURCHASE_OFFICER', 'TENDER_MANAGER', 'SAFETY'];
+const GLOBAL_ONLY_ROLES = [
+  'STORE_MANAGER', 'PURCHASE_OFFICER', 'SUPPLY_CHAIN', 'SAFETY',
+  'FINANCE', 'LOGISTICS', 'DESIGNS', 'PLANNING',
+];
 
 const roleLabel = (role) => ({
   ADMIN: 'Admin',
@@ -21,11 +24,15 @@ const roleLabel = (role) => ({
   ACCOUNTING: 'Accounting',
   QC: 'Quality Control',
   LAB: 'Lab',
-  METEOROLOGY: 'Meteorology',
+  METROLOGY: 'Metrology',
   NDT: 'NDT',
   RND: 'R&D',
   SAFETY: 'Safety',
-  TENDER_MANAGER: 'Tender Manager',
+  SUPPLY_CHAIN: 'Supply Chain',
+  DESIGNS: 'Designs',
+  FINANCE: 'Finance',
+  PLANNING: 'Planning',
+  LOGISTICS: 'Logistics',
 }[role] || role);
 
 const roleBadgeColor = (role) => ({
@@ -36,11 +43,15 @@ const roleBadgeColor = (role) => ({
   ACCOUNTING: 'green',
   QC: 'purple',
   LAB: 'purple',
-  METEOROLOGY: 'blue',
+  METROLOGY: 'blue',
   NDT: 'blue',
   RND: 'blue',
   SAFETY: 'red',
-  TENDER_MANAGER: 'yellow',
+  SUPPLY_CHAIN: 'yellow',
+  DESIGNS: 'purple',
+  FINANCE: 'green',
+  PLANNING: 'navy',
+  LOGISTICS: 'blue',
 }[role] || 'gray');
 
 export default function Management() {
@@ -229,13 +240,17 @@ function UsersSection() {
             <option value="STORE_MANAGER">Store Manager</option>
             <option value="PURCHASE_OFFICER">Purchase Officer</option>
             <option value="ACCOUNTING">Accounting</option>
+            <option value="FINANCE">Finance</option>
             <option value="QC">Quality Control</option>
             <option value="LAB">Lab</option>
-            <option value="METEOROLOGY">Meteorology</option>
+            <option value="METROLOGY">Metrology</option>
             <option value="NDT">NDT</option>
             <option value="RND">R&amp;D</option>
+            <option value="DESIGNS">Designs</option>
+            <option value="PLANNING">Planning</option>
+            <option value="LOGISTICS">Logistics</option>
             <option value="SAFETY">Safety</option>
-            <option value="TENDER_MANAGER">Tender Manager</option>
+            <option value="SUPPLY_CHAIN">Supply Chain</option>
             <option value="ADMIN">Admin</option>
           </Select>
 

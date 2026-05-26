@@ -54,7 +54,7 @@ function canApprove(user, amount) {
   const role = user.role;
 
   if (tier === 'L1') {
-    if (role === 'ACCOUNTING') return true;
+    if (role === 'ACCOUNTING' || role === 'FINANCE') return true;
     if (role === 'ADMIN' && matchesAnyApprover(user, APPROVER_NAMES.L2)) return true;
     return false;
   }

@@ -918,10 +918,10 @@ export default function PurchaseRequests() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const isManager = ['MANAGER', 'LAB'].includes(user?.role);
+  const isManager = ['MANAGER', 'LAB', 'PLANNING'].includes(user?.role);
   const isAdmin = user?.role === 'ADMIN';
   const isPO = user?.role === 'PURCHASE_OFFICER';
-  const isAccounting = user?.role === 'ACCOUNTING';
+  const isAccounting = ['ACCOUNTING', 'FINANCE'].includes(user?.role);
   const isQC = user?.role === 'QC';
 
   const fetchRequests = () => {

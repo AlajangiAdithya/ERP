@@ -207,7 +207,7 @@ router.put('/:id/approve', authenticate, authorize('ADMIN'), async (req, res) =>
 });
 
 // PUT /api/payment-requests/:id/pay — ACCOUNTING marks as paid (after admin approval)
-router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (req, res) => {
+router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
   try {
     const request = await prisma.paymentRequest.findUnique({
       where: { id: req.params.id },
@@ -376,7 +376,7 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
 });
 
 // PUT /api/payment-requests/:id/reject — ACCOUNTING rejects
-router.put('/:id/reject', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (req, res) => {
+router.put('/:id/reject', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
   try {
     const { notes } = req.body;
 

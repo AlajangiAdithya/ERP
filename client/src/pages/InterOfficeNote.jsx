@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, FlaskConical, Send, CheckCircle2, Users, Atom, Ruler, Microscope } from 'lucide-react';
+import { Plus, Trash2, FlaskConical, Send, CheckCircle2, Users, Atom, Ruler, Microscope, Pencil } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { useAutoRefresh } from '../context/NotificationContext';
@@ -23,7 +23,7 @@ const STATUS_TABS = [
 const statusColor = (s) => ({ SENT: 'yellow', WAITING: 'blue', COLLECTED: 'green' }[s] || 'gray');
 const statusLabel = (s) => ({ SENT: 'Sent', WAITING: 'In Progress', COLLECTED: 'Completed' }[s] || s);
 
-const RECIPIENT_ROLES = ['LAB', 'METEOROLOGY', 'NDT', 'RND'];
+const RECIPIENT_ROLES = ['LAB', 'METROLOGY', 'NDT', 'RND', 'DESIGNS'];
 
 export default function InterOfficeNote() {
   const { user } = useAuth();
@@ -128,6 +128,8 @@ export default function InterOfficeNote() {
               <tbody>
                 {ions.map(n => {
                   const roleBucket = n.recipientRole === 'RND' ? 'R&D' :
+                    n.recipientRole === 'METROLOGY' ? 'Metrology' :
+                    n.recipientRole === 'DESIGNS' ? 'Designs' :
                     n.recipientRole ? n.recipientRole.charAt(0) + n.recipientRole.slice(1).toLowerCase() : 'Lab';
                   const recipientLabel = n.assignedTo
                     ? `${n.assignedTo.name}${n.assignedTo.unit?.code ? ` (${n.assignedTo.unit.code})` : ''}`
@@ -265,9 +267,10 @@ function CreateIONModal({ onClose, onCreated }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {[
               { v: 'LAB', icon: <FlaskConical size={14} />, label: 'Lab (testing/QC)', help: 'For sample tests, reports, and inspections.' },
-              { v: 'METEOROLOGY', icon: <Ruler size={14} />, label: 'Meteorology', help: 'For dimensional/metrology checks and reports.' },
+              { v: 'METROLOGY', icon: <Ruler size={14} />, label: 'Metrology', help: 'For dimensional/metrology checks and reports.' },
               { v: 'NDT', icon: <Atom size={14} />, label: 'NDT', help: 'For non-destructive testing.' },
               { v: 'RND', icon: <Microscope size={14} />, label: 'R&D', help: 'For research / development work.' },
+              { v: 'DESIGNS', icon: <Pencil size={14} />, label: 'Designs', help: 'For drawing / design review or release.' },
               { v: 'MANAGER', icon: <Users size={14} />, label: 'Manager (another unit)', help: 'For machining or production work in another unit.' },
             ].map(opt => (
               <label key={opt.v} className={`flex items-start gap-3 p-3 border rounded-md cursor-pointer transition-colors ${recipientType === opt.v ? 'border-navy-400 bg-white shadow-sm' : 'border-gray-200 bg-white hover:border-navy-300'}`}>
@@ -381,7 +384,7 @@ function CreateIONModal({ onClose, onCreated }) {
         <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
           <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>
-            {saving ? 'Sending…' : recipientType === 'MANAGER' ? 'Send to Manager' : `Send to ${recipientType === 'RND' ? 'R&D' : recipientType.charAt(0) + recipientType.slice(1).toLowerCase()}`}
+            {saving ? 'Sending…' : recipientType === 'MANAGER' ? 'Send to Manager' : `Send to ${recipientType === 'RND' ? 'R&D' : (recipientType.charAt(0) + recipientType.slice(1).toLowerCase())}`}
           </Button>
         </div>
       </div>

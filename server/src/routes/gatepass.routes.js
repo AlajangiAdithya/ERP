@@ -119,7 +119,7 @@ router.get('/:id', authenticate, async (req, res) => {
 // OUTWARD: Manager raises (RAMS/GPR/01) → Store → Accounts → Approved.
 // INWARD: Stores / Manager records customer-supplied FIM. Status starts at
 // PENDING_ACCEPTANCE; items get inwarded into Products via the From-Gatepass flow.
-router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS', 'ADMIN'), async (req, res) => {
   try {
     const {
       siteName, remarks, items, direction: rawDirection,
@@ -369,7 +369,7 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
 });
 
 // PUT /api/gatepasses/:id/accounts-approve — Accounts gives final approval (closes the workflow)
-router.put('/:id/accounts-approve', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (req, res) => {
+router.put('/:id/accounts-approve', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
   try {
     const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Gate pass not found' });

@@ -25,7 +25,7 @@ const createSchema = z.object({
 });
 
 // GET /api/inventory-transfers — list (scope: MANAGER sees only their own unit's in/out; ADMIN sees all)
-router.get('/', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY'), async (req, res) => {
+router.get('/', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY', 'LOGISTICS'), async (req, res) => {
   try {
     const { status, direction, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -71,7 +71,7 @@ router.get('/', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY'), async (re
 });
 
 // GET /api/inventory-transfers/:id
-router.get('/:id', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY'), async (req, res) => {
+router.get('/:id', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY', 'LOGISTICS'), async (req, res) => {
   try {
     const t = await prisma.inventoryTransferRequest.findUnique({
       where: { id: req.params.id },
