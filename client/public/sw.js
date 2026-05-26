@@ -1,6 +1,6 @@
 // Bump this on every deploy that needs to invalidate clients.
 // Browsers detect any byte change in /sw.js and trigger reinstall.
-const SW_VERSION = '2026-05-22-logo-and-pa-banner';
+const SW_VERSION = '2026-05-26-square-app-icons';
 
 self.addEventListener('install', () => self.skipWaiting());
 
