@@ -4,17 +4,16 @@ const generateAccessToken = (user) => {
   return jwt.sign(
     { id: user.id, email: user.email, role: user.role, name: user.name },
     process.env.JWT_SECRET,
-    { expiresIn: '15m' }
+    { expiresIn: '7d' }
   );
 };
 
-// Refresh tokens are effectively non-expiring (10 years). Sessions only end when
-// the user explicitly logs out — DB-side Session row is the authoritative kill switch.
+// Refresh token has no `exp` claim — it never JWT-expires. The DB Session row
+// is the sole kill switch and is deleted only on explicit logout.
 const generateRefreshToken = (user) => {
   return jwt.sign(
     { id: user.id },
-    process.env.JWT_REFRESH_SECRET,
-    { expiresIn: '3650d' }
+    process.env.JWT_REFRESH_SECRET
   );
 };
 

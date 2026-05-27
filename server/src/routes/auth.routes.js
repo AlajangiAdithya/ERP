@@ -33,19 +33,22 @@ router.post('/login', async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // Session persists for 10 years — only an explicit logout (or admin
-    // deactivation) ends it. The DB row, not the JWT expiry, is the truth.
-    const PERSISTENT_TTL_MS = 10 * 365 * 24 * 60 * 60 * 1000;
-    const expiresAt = new Date(Date.now() + PERSISTENT_TTL_MS);
+    // Session never expires on its own — only explicit logout (or admin
+    // deactivation) ends it. expiresAt is set far in the future as a sentinel
+    // since the schema requires it, but the /refresh handler no longer checks it.
+    const FAR_FUTURE = new Date('9999-12-31T23:59:59Z');
     await prisma.session.create({
-      data: { userId: user.id, refreshToken, expiresAt },
+      data: { userId: user.id, refreshToken, expiresAt: FAR_FUTURE },
     });
 
+    // Browsers cap cookie maxAge at ~400 days, but /refresh re-issues the
+    // cookie on every token refresh, giving daily users a rolling renewal.
+    const COOKIE_MAX_AGE_MS = 400 * 24 * 60 * 60 * 1000;
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: PERSISTENT_TTL_MS,
+      maxAge: COOKIE_MAX_AGE_MS,
     });
 
     // Audit log
@@ -86,8 +89,9 @@ router.post('/refresh', async (req, res) => {
     const decoded = verifyRefreshToken(token);
     const session = await prisma.session.findUnique({ where: { refreshToken: token } });
 
-    if (!session || session.expiresAt < new Date()) {
-      return res.status(401).json({ error: 'Invalid or expired refresh token' });
+    // Session row presence is the only kill switch — no time-based expiry check.
+    if (!session) {
+      return res.status(401).json({ error: 'Invalid refresh token' });
     }
 
     const user = await prisma.user.findUnique({ where: { id: decoded.id } });
@@ -95,16 +99,14 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
 
-    const PERSISTENT_TTL_MS = 10 * 365 * 24 * 60 * 60 * 1000;
-    await prisma.session.update({
-      where: { id: session.id },
-      data: { expiresAt: new Date(Date.now() + PERSISTENT_TTL_MS) },
-    });
+    // Re-issue the cookie so its 400-day browser cap slides forward on every
+    // refresh. Active users effectively get an indefinite session.
+    const COOKIE_MAX_AGE_MS = 400 * 24 * 60 * 60 * 1000;
     res.cookie('refreshToken', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: PERSISTENT_TTL_MS,
+      maxAge: COOKIE_MAX_AGE_MS,
     });
 
     const accessToken = generateAccessToken(user);

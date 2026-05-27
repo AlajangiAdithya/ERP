@@ -138,9 +138,18 @@ function FromPOMode({ onSuccess, refreshKey }) {
                   <Badge color="green">QC Passed</Badge>
                 </div>
                 <div className="text-xs text-gray-600 space-y-1">
-                  <div><span className="text-gray-500">Order:</span> {o.orderNumber}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-gray-500">Order:</span> {o.orderNumber}
+                    {o.isUnion && (
+                      <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">
+                        UNION · {(o.sourceRequests?.length || 0)} PRs
+                      </span>
+                    )}
+                  </div>
                   <div><span className="text-gray-500">Supplier:</span> {o.supplierName}</div>
-                  <div><span className="text-gray-500">PR:</span> {o.purchaseRequest?.requestNumber}</div>
+                  <div><span className="text-gray-500">PR:</span> {o.isUnion
+                    ? (o.sourceRequests || []).map(s => s.purchaseRequest?.requestNumber).filter(Boolean).join(', ') || '—'
+                    : (o.purchaseRequest?.requestNumber || '—')}</div>
                   <div>
                     <span className="text-gray-500">Ordered:</span> {totalOrdered}
                     {cumulative > 0 && (
@@ -295,7 +304,15 @@ function POInwardForm({ order, onCancel, onComplete }) {
             )}
           </div>
           <p className="text-xs text-gray-500 mt-0.5">
-            Order: {order.orderNumber} • Supplier: {order.supplierName} • PR: {order.purchaseRequest?.requestNumber}
+            Order: {order.orderNumber}
+            {order.isUnion && (
+              <span className="ml-1 text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">
+                UNION · {(order.sourceRequests?.length || 0)} PRs
+              </span>
+            )}
+            {' • '}Supplier: {order.supplierName} • PR: {order.isUnion
+              ? (order.sourceRequests || []).map(s => s.purchaseRequest?.requestNumber).filter(Boolean).join(', ') || '—'
+              : (order.purchaseRequest?.requestNumber || '—')}
           </p>
         </div>
         <Button variant="secondary" onClick={onCancel}>Back to list</Button>

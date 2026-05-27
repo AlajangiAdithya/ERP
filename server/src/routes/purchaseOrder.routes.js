@@ -118,11 +118,16 @@ router.get('/', authenticate, async (req, res) => {
     const where = {};
     applyDateFilter(where, { fromDate, toDate });
 
-    // Role-based filtering
+    // Role-based status visibility (intersected with the tab/status filter below)
+    const STORE_MANAGER_STATUSES = ['ORDERED', 'PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED'];
+    const QC_STATUSES = ['GOODS_ARRIVED', 'QC_PENDING'];
+
     if (req.user.role === 'QC') {
-      where.status = { in: ['GOODS_ARRIVED', 'QC_PENDING'] };
+      where.status = { in: QC_STATUSES };
     } else if (req.user.role === 'STORE_MANAGER') {
-      where.status = { in: ['QC_PASSED'] };
+      // Stores need to anticipate incoming material, act on QC_PASSED, and review history.
+      // Union POs follow the same status flow so this also exposes them.
+      where.status = { in: STORE_MANAGER_STATUSES };
     } else if (req.user.role === 'MANAGER' || req.user.role === 'LAB') {
       // Unit managers/labs only see POs originating from their own purchase requests
       where.OR = [
@@ -131,8 +136,15 @@ router.get('/', authenticate, async (req, res) => {
       ];
     }
 
-    if (status && !['QC', 'STORE_MANAGER'].includes(req.user.role)) {
-      where.status = status;
+    // Apply explicit status filter from tabs, intersected with role permissions
+    if (status) {
+      if (req.user.role === 'QC') {
+        where.status = QC_STATUSES.includes(status) ? status : { in: [] };
+      } else if (req.user.role === 'STORE_MANAGER') {
+        where.status = STORE_MANAGER_STATUSES.includes(status) ? status : { in: [] };
+      } else {
+        where.status = status;
+      }
     }
 
     const [orders, total] = await Promise.all([

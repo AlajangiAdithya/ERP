@@ -98,13 +98,14 @@ export default function StockMovements() {
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">SKU</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Type</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Quantity</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Batch</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Reference</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {movements.length === 0 ? (
-                    <tr><td colSpan={7} className="px-3 py-4 text-center text-gray-400">No movements found</td></tr>
+                    <tr><td colSpan={8} className="px-3 py-4 text-center text-gray-400">No movements found</td></tr>
                   ) : movements.map(m => (
                     <tr key={m.id} className="border-b border-gray-50 hover:bg-gray-50">
                       <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">{formatDateTime(m.createdAt)}</td>
@@ -119,6 +120,9 @@ export default function StockMovements() {
                         </Badge>
                       </td>
                       <td className="px-3 py-2 text-gray-700 font-medium">{m.quantity} {m.product?.unit}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-amber-800">
+                        {m.batchNumber || <span className="text-gray-300">—</span>}
+                      </td>
                       <td className="px-3 py-2 text-gray-600">{m.referenceType || '—'}</td>
                       <td className="px-3 py-2 text-gray-500 text-xs max-w-xs truncate" title={formatNotes(m.notes)}>{formatNotes(m.notes)}</td>
                     </tr>

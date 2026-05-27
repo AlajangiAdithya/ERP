@@ -983,13 +983,14 @@ export default function ProductDetail() {
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Type</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Quantity</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Batch</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Reference</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Notes</th>
                     </tr>
                   </thead>
                   <tbody>
                     {product.stockMovements?.length === 0 ? (
-                      <tr><td colSpan={5} className="px-3 py-4 text-center text-gray-400">No stock movements</td></tr>
+                      <tr><td colSpan={6} className="px-3 py-4 text-center text-gray-400">No stock movements</td></tr>
                     ) : (
                       product.stockMovements?.map(m => (
                         <tr key={m.id} className="border-b border-gray-50">
@@ -1002,6 +1003,9 @@ export default function ProductDetail() {
                             </Badge>
                           </td>
                           <td className="px-3 py-2 text-gray-700 font-medium">{m.quantity} {product.unit}</td>
+                          <td className="px-3 py-2 font-mono text-xs text-amber-800">
+                            {m.batchNumber || <span className="text-gray-300">—</span>}
+                          </td>
                           <td className="px-3 py-2 text-gray-600">{m.referenceType || '—'}</td>
                           <td className="px-3 py-2 text-gray-500 text-xs max-w-xs truncate" title={formatNotes(m.notes)}>{formatNotes(m.notes)}</td>
                         </tr>
