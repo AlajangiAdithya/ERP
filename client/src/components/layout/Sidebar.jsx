@@ -5,7 +5,7 @@ import {
   FileText, BarChart3, Settings, Menu, X,
   ClipboardList, CheckSquare, ScrollText, Bell, History, ShoppingCart,
   FileSearch, Truck, CreditCard, ClipboardCheck, DoorOpen, FlaskConical, ArrowLeftRight,
-  Building2, ShieldCheck, Briefcase, Database, HardDrive
+  Building2, ShieldCheck, Briefcase, Database, HardDrive, Activity
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -41,6 +41,7 @@ const buildAllItems = (role) => {
     { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
     { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },
     // SUPERADMIN-only owner hatch — invisible to everyone else.
+    { to: '/superadmin/health', icon: Activity, label: 'System Health', roles: ['SUPERADMIN'] },
     { to: '/superadmin/corrections', icon: Database, label: 'Real-time Corrections', roles: ['SUPERADMIN'] },
     { to: '/superadmin/backups', icon: HardDrive, label: 'Backups', roles: ['SUPERADMIN'] },
   ];

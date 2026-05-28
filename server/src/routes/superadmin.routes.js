@@ -154,7 +154,150 @@ router.get('/backups/preview', async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────
-//  System info — disk / db / uploads usage
+//  System health — full snapshot for the System Health page
+// ────────────────────────────────────────────────────────────
+
+// GET /api/superadmin/health
+router.get('/health', async (req, res) => {
+  const out = { server: {}, app: {}, db: {}, activity: {}, backups: {} };
+
+  // ── Server: load, memory, swap, uptime ────
+  try {
+    const { stdout } = await execAsync('cat /proc/loadavg');
+    const parts = stdout.trim().split(/\s+/);
+    out.server.loadavg = { '1m': Number(parts[0]), '5m': Number(parts[1]), '15m': Number(parts[2]) };
+  } catch (_) { /* ignore */ }
+
+  try {
+    const { stdout: mi } = await execAsync('cat /proc/meminfo');
+    const kB = (k) => {
+      const m = mi.match(new RegExp(`^${k}:\\s+(\\d+)`, 'm'));
+      return m ? parseInt(m[1], 10) * 1024 : null;
+    };
+    const memTotal = kB('MemTotal');
+    const memAvail = kB('MemAvailable');
+    const swapTotal = kB('SwapTotal');
+    const swapFree = kB('SwapFree');
+    if (memTotal && memAvail != null) {
+      out.server.memory = {
+        total: memTotal,
+        used: memTotal - memAvail,
+        available: memAvail,
+        percent: Math.round(((memTotal - memAvail) / memTotal) * 100),
+      };
+    }
+    if (swapTotal) {
+      out.server.swap = {
+        total: swapTotal,
+        used: swapTotal - swapFree,
+        percent: Math.round(((swapTotal - swapFree) / swapTotal) * 100),
+      };
+    }
+  } catch (_) { /* ignore */ }
+
+  try {
+    const { stdout } = await execAsync('cat /proc/uptime');
+    out.server.uptimeSeconds = Math.floor(parseFloat(stdout.trim().split(' ')[0]));
+  } catch (_) { /* ignore */ }
+
+  // ── App: pm2 process list ────
+  try {
+    const { stdout } = await execAsync('pm2 jlist', { env: { ...process.env, PATH: `${process.env.PATH}:/usr/local/bin:/usr/bin` } });
+    const procs = JSON.parse(stdout);
+    out.app.processes = procs.map((p) => ({
+      name: p.name,
+      status: p.pm2_env?.status || null,
+      uptimeMs: p.pm2_env?.pm_uptime ? Date.now() - p.pm2_env.pm_uptime : null,
+      restarts: p.pm2_env?.restart_time ?? 0,
+      cpu: p.monit?.cpu ?? null,
+      memBytes: p.monit?.memory ?? null,
+    }));
+  } catch (_) { /* pm2 missing or not running */ }
+
+  // ── Database ────
+  try {
+    const rows = await prisma.$queryRawUnsafe('SELECT pg_database_size(current_database())::bigint AS size');
+    out.db.sizeBytes = Number(rows?.[0]?.size) || 0;
+  } catch (_) { /* ignore */ }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS total,
+              count(*) FILTER (WHERE state = 'active')::int AS active,
+              count(*) FILTER (WHERE state = 'idle')::int AS idle
+       FROM pg_stat_activity WHERE datname = current_database()`
+    );
+    out.db.connections = rows[0] || null;
+  } catch (_) { /* ignore */ }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT relname AS name,
+              n_live_tup::bigint AS rows,
+              pg_total_relation_size(relid)::bigint AS bytes
+       FROM pg_stat_user_tables
+       ORDER BY pg_total_relation_size(relid) DESC
+       LIMIT 5`
+    );
+    out.db.topTables = rows.map((r) => ({
+      name: r.name,
+      rows: Number(r.rows),
+      bytes: Number(r.bytes),
+    }));
+  } catch (_) { /* ignore */ }
+
+  // ── Activity (last 24h) ────
+  try {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [logins24h, activeSessions, totalUsers] = await Promise.all([
+      prisma.auditLog.count({ where: { action: 'LOGIN', createdAt: { gte: since } } }),
+      prisma.session.count(),
+      prisma.user.count({ where: { isActive: true } }),
+    ]);
+    out.activity = { logins24h, activeSessions, totalUsers };
+  } catch (_) { /* ignore */ }
+
+  try {
+    const { stdout } = await execAsync('tail -n 30 /var/log/pm2/raps-error.log 2>/dev/null || true');
+    out.activity.recentErrors = stdout
+      .trim()
+      .split('\n')
+      .filter((l) => l && !/^\s*$/.test(l))
+      .slice(-15);
+  } catch (_) { /* ignore */ }
+
+  // ── Backups ────
+  try {
+    const { stdout } = await execAsync('tail -n 200 /var/log/raps-backup.log 2>/dev/null || true');
+    const lines = stdout.trim().split('\n').filter(Boolean);
+    const lastComplete = [...lines].reverse().find((l) => /Backup complete/.test(l));
+    const lastError = [...lines].reverse().find((l) => /\bERROR\b|pg_dump: error|copy failed/i.test(l));
+    out.backups.lastSuccessAt = lastComplete?.match(/^\S+/)?.[0] || null;
+    out.backups.lastErrorLine = lastError || null;
+  } catch (_) { /* ignore */ }
+
+  try {
+    const REGION = process.env.AWS_REGION || 'ap-south-1';
+    const BUCKET = process.env.S3_BACKUP_BUCKET || process.env.S3_BUCKET || '';
+    if (BUCKET) {
+      const { stdout } = await execAsync(
+        `aws s3 ls s3://${BUCKET}/ --recursive --summarize --region ${REGION} 2>/dev/null | tail -n 5`
+      );
+      const totalMatch = stdout.match(/Total Size:\s+(\d+)/);
+      const objMatch = stdout.match(/Total Objects:\s+(\d+)/);
+      out.backups.s3 = {
+        bucket: BUCKET,
+        totalBytes: totalMatch ? parseInt(totalMatch[1], 10) : null,
+        totalObjects: objMatch ? parseInt(objMatch[1], 10) : null,
+      };
+    }
+  } catch (_) { /* ignore */ }
+
+  res.json(out);
+});
+
+// ────────────────────────────────────────────────────────────
+//  System info — disk / db / uploads usage (used by Backups page)
 // ────────────────────────────────────────────────────────────
 
 // GET /api/superadmin/system-info
