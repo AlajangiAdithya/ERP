@@ -1,7 +1,7 @@
 // Idempotent seed for the hidden owner-only SUPERADMIN account.
 // Run: node prisma/seed-superadmin.js
 const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 
 const prisma = new PrismaClient();
 
