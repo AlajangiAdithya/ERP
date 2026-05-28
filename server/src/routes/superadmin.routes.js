@@ -270,8 +270,16 @@ router.get('/health', async (req, res) => {
   try {
     const { stdout } = await execAsync('tail -n 200 /var/log/raps-backup.log 2>/dev/null || true');
     const lines = stdout.trim().split('\n').filter(Boolean);
-    const lastComplete = [...lines].reverse().find((l) => /Backup complete/.test(l));
-    const lastError = [...lines].reverse().find((l) => /\bERROR\b|pg_dump: error|copy failed/i.test(l));
+    // Find the LAST "Backup complete" line — anything before it is ancient history.
+    let lastCompleteIdx = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (/Backup complete/.test(lines[i])) { lastCompleteIdx = i; break; }
+    }
+    const lastComplete = lastCompleteIdx >= 0 ? lines[lastCompleteIdx] : null;
+    // Only surface errors that occurred AFTER the most recent successful backup —
+    // otherwise stale failures (e.g. from before a fix) keep showing forever.
+    const errorPool = lastCompleteIdx >= 0 ? lines.slice(lastCompleteIdx + 1) : lines;
+    const lastError = [...errorPool].reverse().find((l) => /\bERROR\b|pg_dump: error|copy failed/i.test(l));
     out.backups.lastSuccessAt = lastComplete?.match(/^\S+/)?.[0] || null;
     out.backups.lastErrorLine = lastError || null;
   } catch (_) { /* ignore */ }
