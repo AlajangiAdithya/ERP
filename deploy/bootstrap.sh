@@ -106,6 +106,12 @@ JWT_REFRESH_SECRET=$(openssl rand -hex 64)
 ENCODED_PW=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${DB_PASSWORD}', safe=''))")
 PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 || echo "localhost")
 
+# Backup bucket: matches the convention used by deploy/setup-infra.sh + deploy/backup.sh.
+# The API's s3Browse service reads S3_BACKUP_BUCKET to power the SUPERADMIN Backups page.
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
+S3_BACKUP_BUCKET="raps-backups-${AWS_ACCOUNT_ID}"
+AWS_REGION_FOR_S3="${AWS_REGION:-ap-south-1}"
+
 cat > server/.env <<EOF
 DATABASE_URL="postgresql://${DB_USER}:${ENCODED_PW}@127.0.0.1:5432/${DB_NAME}?schema=public"
 DIRECT_URL="postgresql://${DB_USER}:${ENCODED_PW}@127.0.0.1:5432/${DB_NAME}?schema=public"
@@ -114,6 +120,8 @@ JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET}"
 PORT=4000
 NODE_ENV="production"
 CLIENT_URL="http://${PUBLIC_IP}"
+S3_BACKUP_BUCKET="${S3_BACKUP_BUCKET}"
+AWS_REGION="${AWS_REGION_FOR_S3}"
 EOF
 
 echo "VITE_API_URL=http://${PUBLIC_IP}" > client/.env.production
