@@ -35,6 +35,10 @@ if [ -z "$DB_URL" ]; then
   exit 1
 fi
 
+# Prisma adds ?schema=public which libpq (pg_dump/psql) rejects. Strip just that param,
+# preserving any other libpq-valid params (e.g. sslmode=require).
+DB_URL=$(echo "$DB_URL" | sed -E 's/([?&])schema=[^&]*(&|$)/\1/' | sed -E 's/[?&]$//')
+
 mkdir -p "$WORK"
 rm -rf "${WORK:?}"/*
 
