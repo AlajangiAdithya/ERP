@@ -162,6 +162,8 @@ sudo chmod 755 /usr/local/bin/raps-backup
 sudo cp "$APP_DIR/deploy/backup.cron" /etc/cron.d/raps-backup
 sudo chmod 644 /etc/cron.d/raps-backup
 sudo touch /var/log/raps-backup.log
+# Restore script is invoked manually only (sudo bash /var/www/raps/deploy/restore.sh ...)
+# — no symlink, no cron. Lives in the repo so it can be edited and version-controlled.
 
 # ── Done ────────────────────────────────────────────
 echo ""

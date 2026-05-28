@@ -24,6 +24,7 @@ const ionRoutes = require('./routes/ion.routes');
 const inventoryTransferRoutes = require('./routes/inventoryTransfer.routes');
 const supplierRoutes = require('./routes/supplier.routes');
 const tenderRoutes = require('./routes/tender.routes');
+const superadminRoutes = require('./routes/superadmin.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -85,6 +86,7 @@ app.use('/api/ion', ionRoutes);
 app.use('/api/inventory-transfers', inventoryTransferRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/tenders', tenderRoutes);
+app.use('/api/superadmin', superadminRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

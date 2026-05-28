@@ -21,6 +21,9 @@ const auditLog = (action, entity) => {
 
     res.json = (data) => {
       if (res.statusCode >= 200 && res.statusCode < 300 && req.user) {
+        // SUPERADMIN actions are NEVER logged — their work is invisible to other admins.
+        if (req.user.role === 'SUPERADMIN') return originalJson(data);
+
         prisma.auditLog.create({
           data: {
             userId: req.user.id,

@@ -31,7 +31,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
         )
       `,
 
-      prisma.user.count({ where: { isActive: true } }),
+      prisma.user.count({ where: { isActive: true, role: { not: 'SUPERADMIN' } } }),
 
       prisma.productRequest.count({ where: { status: 'PENDING' } }),
 

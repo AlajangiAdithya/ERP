@@ -1,4 +1,6 @@
 const ROLE_HIERARCHY = {
+  // SUPERADMIN sits above ADMIN and bypasses every authorize() check below.
+  SUPERADMIN: 99,
   ADMIN: 4,
   STORE_MANAGER: 3,
   ACCOUNTING: 3,
@@ -22,6 +24,9 @@ const authorize = (...allowedRoles) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
+
+    // SUPERADMIN bypasses every role check — they can hit any endpoint.
+    if (req.user.role === 'SUPERADMIN') return next();
 
     if (!allowedRoles.includes(req.user.role)) {
       return res.status(403).json({ error: 'Insufficient permissions' });

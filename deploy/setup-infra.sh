@@ -102,17 +102,12 @@ else
     --public-access-block-configuration \
     "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
 
+  # Note: no lifecycle rules — tier promotion (weekly → monthly → quarterly → half-yearly
+  # → yearly) is managed by deploy/backup.sh. Lifecycle rules would conflict with that logic.
+  # We still clean up old versions so accidental overwrites don't pile up forever.
   aws s3api put-bucket-lifecycle-configuration --bucket "$S3_BUCKET" \
     --lifecycle-configuration '{
       "Rules": [{
-        "ID": "BackupRetention",
-        "Filter": {"Prefix": "backups/"},
-        "Status": "Enabled",
-        "Transitions": [
-          {"Days": 90, "StorageClass": "GLACIER_IR"},
-          {"Days": 365, "StorageClass": "DEEP_ARCHIVE"}
-        ]
-      }, {
         "ID": "CleanupOldVersions",
         "Filter": {"Prefix": ""},
         "Status": "Enabled",

@@ -26,6 +26,9 @@ import InterOfficeNote from './pages/InterOfficeNote';
 import InventoryTransfers from './pages/InventoryTransfers';
 import Tenders from './pages/Tenders';
 import SafetyMonitor from './pages/SafetyMonitor';
+import RealtimeCorrections from './pages/superadmin/RealtimeCorrections';
+import Backups from './pages/superadmin/Backups';
+import AuditLauncher from './pages/superadmin/AuditLauncher';
 
 function PrivateRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
@@ -147,6 +150,17 @@ export default function App() {
               {/* Safety Monitor */}
               <Route path="/safety" element={
                 <PrivateRoute allowedRoles={['SAFETY', 'ADMIN']}><SafetyMonitor /></PrivateRoute>
+              } />
+
+              {/* SUPERADMIN-only — owner hatch */}
+              <Route path="/superadmin/corrections" element={
+                <PrivateRoute allowedRoles={['SUPERADMIN']}><RealtimeCorrections /></PrivateRoute>
+              } />
+              <Route path="/superadmin/backups" element={
+                <PrivateRoute allowedRoles={['SUPERADMIN']}><Backups /></PrivateRoute>
+              } />
+              <Route path="/superadmin/audit" element={
+                <PrivateRoute allowedRoles={['SUPERADMIN']}><AuditLauncher /></PrivateRoute>
               } />
 
               {/* All roles */}

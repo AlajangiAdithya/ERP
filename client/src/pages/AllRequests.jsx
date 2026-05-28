@@ -31,7 +31,7 @@ export default function AllRequests() {
     PENDING: 'yellow', APPROVED: 'green', PARTIAL: 'orange', COLLECTED: 'blue', REJECTED: 'red', CANCELLED: 'gray'
   }[s] || 'gray');
 
-  const statuses = ['', 'PENDING', 'APPROVED', 'PARTIAL', 'COLLECTED', 'REJECTED', 'CANCELLED'];
+  const statuses = ['', 'PENDING', 'COLLECTED', 'REJECTED', 'CANCELLED'];
 
   return (
     <div className="space-y-6">

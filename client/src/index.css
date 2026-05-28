@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Audit-mode overlay ──
+   When the SUPERADMIN-launched audit tab is active, any element marked as a
+   mutation control gets hidden by default. Hold Ctrl+Shift to reveal them
+   (toggled by the auditOverlay hook which adds `audit-edits-on` to <body>). */
+body.audit-mode [data-mutates="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+body.audit-mode.audit-edits-on [data-mutates="true"] {
+  visibility: visible;
+  pointer-events: auto;
+}
+
 body {
   font-family: 'DM Sans', system-ui, sans-serif;
   background-color: #EEF1F6;

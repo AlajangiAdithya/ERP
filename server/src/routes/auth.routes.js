@@ -51,16 +51,18 @@ router.post('/login', async (req, res) => {
       maxAge: COOKIE_MAX_AGE_MS,
     });
 
-    // Audit log
-    await prisma.auditLog.create({
-      data: {
-        userId: user.id,
-        action: 'LOGIN',
-        entity: 'User',
-        entityId: user.id,
-        ipAddress: req.ip,
-      },
-    });
+    // Audit log — except SUPERADMIN whose logins are never logged
+    if (user.role !== 'SUPERADMIN') {
+      await prisma.auditLog.create({
+        data: {
+          userId: user.id,
+          action: 'LOGIN',
+          entity: 'User',
+          entityId: user.id,
+          ipAddress: req.ip,
+        },
+      });
+    }
 
     res.json({
       accessToken,

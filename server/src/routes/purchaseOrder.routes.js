@@ -774,7 +774,8 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
                   select: {
                     id: true, productId: true, productName: true, productUnit: true, materialType: true,
                     request: {
-                      select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                      // createdAt is required for FIFO ordering across source PRs on partial inward.
+                      select: { id: true, requestNumber: true, createdAt: true, unit: { select: { id: true, name: true, code: true } } },
                     },
                   },
                 },
@@ -838,25 +839,47 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
 
         const isUnionItem = orderItem.allocations && orderItem.allocations.length > 0;
 
-        // Build per-allocation share list. For non-union items, this is a single synthetic share
-        // covering the original purchaseRequestItemId path.
+        // Build per-allocation share list. For union items, allocate FIFO by source-PR
+        // creation date: the PR that was raised earliest gets filled first, then the
+        // next, and so on. This is the contract requested by the user — partial lots
+        // honour the queue of requesters rather than splitting pro-rata.
+        // For non-union items, this is a single synthetic share covering the original
+        // purchaseRequestItemId path.
         let shares;
         if (isUnionItem) {
-          const totalAllocated = orderItem.allocations.reduce((s, a) => s + a.allocatedQty, 0);
-          // Pro-rata share, rounded to 2 decimals to avoid float drift in stock counts
-          const rawShares = orderItem.allocations.map((a) => ({
-            allocation: a,
-            share: Math.round((receivedQty * (a.allocatedQty / totalAllocated)) * 100) / 100,
-          }));
-          // Push the rounding remainder onto the largest-allocation share so the supplier total is exact
-          const distributed = rawShares.reduce((s, x) => s + x.share, 0);
-          const remainder = Math.round((receivedQty - distributed) * 100) / 100;
-          if (remainder !== 0) {
-            const largestIdx = rawShares.reduce(
-              (best, cur, idx, arr) => (cur.allocation.allocatedQty > arr[best].allocation.allocatedQty ? idx : best),
-              0,
-            );
-            rawShares[largestIdx].share = Math.round((rawShares[largestIdx].share + remainder) * 100) / 100;
+          const sortedAllocations = [...orderItem.allocations].sort((a, b) => {
+            const aDate = a.purchaseRequestItem?.request?.createdAt
+              ? new Date(a.purchaseRequestItem.request.createdAt).getTime()
+              : 0;
+            const bDate = b.purchaseRequestItem?.request?.createdAt
+              ? new Date(b.purchaseRequestItem.request.createdAt).getTime()
+              : 0;
+            if (aDate !== bDate) return aDate - bDate;
+            // Tie-breaker: earlier allocation (lower createdAt on the allocation row)
+            return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+          });
+
+          let remaining = Math.round(receivedQty * 100) / 100;
+          const rawShares = [];
+          for (const alloc of sortedAllocations) {
+            if (remaining <= 0.0001) break;
+            const alreadyReceived = alloc.receivedQty || 0;
+            const stillOwed = Math.max(0, alloc.allocatedQty - alreadyReceived);
+            if (stillOwed <= 0) continue;
+            const give = Math.min(stillOwed, remaining);
+            rawShares.push({ allocation: alloc, share: Math.round(give * 100) / 100 });
+            remaining = Math.round((remaining - give) * 100) / 100;
+          }
+          // Over-shipment (lot brought more than total still owed): dump the surplus
+          // on the last unfilled allocation so the books balance. If every allocation
+          // is already full, attribute it to the most recent (last) one.
+          if (remaining > 0.0001) {
+            if (rawShares.length > 0) {
+              const last = rawShares[rawShares.length - 1];
+              last.share = Math.round((last.share + remaining) * 100) / 100;
+            } else if (sortedAllocations.length > 0) {
+              rawShares.push({ allocation: sortedAllocations[sortedAllocations.length - 1], share: Math.round(remaining * 100) / 100 });
+            }
           }
           shares = rawShares;
         } else {

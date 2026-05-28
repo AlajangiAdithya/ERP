@@ -5,9 +5,10 @@ import {
   FileText, BarChart3, Settings, Menu, X,
   ClipboardList, CheckSquare, ScrollText, Bell, History, ShoppingCart,
   FileSearch, Truck, CreditCard, ClipboardCheck, DoorOpen, FlaskConical, ArrowLeftRight,
-  Building2, ShieldCheck, Briefcase
+  Building2, ShieldCheck, Briefcase, Database, HardDrive
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useAuditMode } from '../../pages/superadmin/auditOverlay';
 
 const ALL_ROLES = [
   'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
@@ -40,6 +41,10 @@ const getNavItems = (role) => {
     { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
     { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
     { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },
+    // SUPERADMIN-only owner hatch — invisible to everyone else.
+    { to: '/superadmin/corrections', icon: Database, label: 'Real-time Corrections', roles: ['SUPERADMIN'] },
+    { to: '/superadmin/backups', icon: HardDrive, label: 'Backups', roles: ['SUPERADMIN'] },
+    { to: '/superadmin/audit', icon: ShieldCheck, label: 'Audit', roles: ['SUPERADMIN'] },
   ];
 
   return items.filter(item => item.roles.includes(role));
@@ -48,8 +53,16 @@ const getNavItems = (role) => {
 export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user } = useAuth();
+  const audit = useAuditMode();
 
-  const navItems = getNavItems(user?.role);
+  // In audit mode the SUPERADMIN-only entries (Real-time Corrections, Backups,
+  // Audit) must not appear — that's the giveaway we're hiding. The session is
+  // still logged in as SUPERADMIN; we just present the sidebar as if it were
+  // a regular admin.
+  const navItems = getNavItems(user?.role).filter((item) => {
+    if (!audit) return true;
+    return !item.to.startsWith('/superadmin');
+  });
 
   const sidebarContent = (
     <>

@@ -35,9 +35,18 @@ See `deploy/DEPLOY.md` for the full AWS (EC2 + RDS + Route 53 + Let's Encrypt) w
 
 ## Backups
 
-Half-yearly RDS snapshots automated via cron — see `deploy/raps-backup.sh` and `deploy/raps-backup-cron`.
+Tiered backups to S3 — `deploy/backup.sh` runs every Sunday 00:30 IST via cron
+(`deploy/backup.cron`). Each run bundles a Postgres dump + `/server/uploads/` +
+a metadata.json into one `.tar.gz` and promotes it through the FY-aligned ladder:
 
-- `raps-YYYY-h1-mar-sep` snapshot taken Apr 1 (covers Mar–Sep)
-- `raps-YYYY-h2-oct-feb` snapshot taken Oct 1 (covers Oct–Feb)
+| Tier | Trigger | S3 path | Older tier deleted on promotion? |
+|---|---|---|---|
+| Weekly      | every Sunday | `FY25-26/weekly/<date>.tar.gz` (only 1 file ever) | n/a — overwrites itself |
+| Monthly     | last Sunday of calendar month | `FY25-26/monthly/<year>-<month>.tar.gz` | weekly cleared |
+| Quarterly   | last Sunday of Jun/Sep/Dec/Mar | `FY25-26/quarterly/<year>-Q<n>.tar.gz` | 3 monthlies deleted |
+| Half-yearly | last Sunday of Sep, Mar         | `FY25-26/half-yearly/<year>-H<n>.tar.gz` | 2 quarterlies deleted |
+| Yearly      | last Sunday of March (FY end)   | `FY25-26/yearly/FY25-26.tar.gz` (kept forever) | 2 half-yearlies deleted |
+| Master      | every run | `FY25-26/master/<date>-master.json` (suppliers + products + users; kept forever) | — |
 
-List: `aws rds describe-db-snapshots --region ap-south-1 --db-instance-identifier raps-prod --snapshot-type manual`
+Browse / restore: see `deploy/RESTORE.md` for the kid-simple walkthrough, or log in as
+`superadmin` and use the **Backups** menu page.

@@ -84,13 +84,16 @@ async function resolveSupplierId(name, contact, address, hintId) {
 const QTY_TOLERANCE = 0.001;
 
 // Verify every supplier referenced by a quotation has the required compliance
-// documents on file: the one-time Vendor Evaluation PDF, and a Supplier
-// Assessment PDF stamped with the current Indian financial year. Returns a list
-// of issues (empty when all good) so the client can prompt the PO to upload
-// the missing PDFs inline.
+// documents on file. Returns a list of issues (empty when all good).
+//
+// Hard blocker: the one-time Vendor Evaluation PDF must be on file.
+// Soft warning: the Supplier Assessment PDF is stamped per FY and expires at
+//   the start of the next FY. An expired assessment surfaces in the response
+//   so the UI can warn the PO, but does NOT prevent submission — purchase work
+//   continues while procurement gets the new assessment uploaded.
 async function checkSuppliersCompliance(supplierIds) {
   const ids = [...new Set(supplierIds.filter(Boolean))];
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { hardIssues: [], softWarnings: [] };
   const currentFY = getFinancialYear();
   const suppliers = await prisma.supplier.findMany({
     where: { id: { in: ids } },
@@ -102,29 +105,28 @@ async function checkSuppliersCompliance(supplierIds) {
       assessmentFiscalYear: true,
     },
   });
-  const issues = [];
+  const hardIssues = [];
+  const softWarnings = [];
   for (const s of suppliers) {
-    const missing = [];
-    if (!s.vendorEvaluationPdfUrl) missing.push('vendor-evaluation');
-    if (!s.supplierAssessmentPdfUrl || s.assessmentFiscalYear !== currentFY) {
-      missing.push('supplier-assessment');
+    if (!s.vendorEvaluationPdfUrl) {
+      hardIssues.push({ supplierId: s.id, supplierName: s.name, missing: ['vendor-evaluation'] });
     }
-    if (missing.length > 0) {
-      issues.push({ supplierId: s.id, supplierName: s.name, missing });
+    if (!s.supplierAssessmentPdfUrl || s.assessmentFiscalYear !== currentFY) {
+      softWarnings.push({
+        supplierId: s.id,
+        supplierName: s.name,
+        expiredFY: s.assessmentFiscalYear || null,
+      });
     }
   }
-  return issues;
+  return { hardIssues, softWarnings };
 }
 
 function complianceErrorPayload(issues) {
   const currentFY = getFinancialYear();
-  const labels = {
-    'vendor-evaluation': 'Vendor Evaluation PDF',
-    'supplier-assessment': `Supplier Assessment PDF for FY ${currentFY}`,
-  };
-  const lines = issues.map(i => `${i.supplierName}: ${i.missing.map(m => labels[m]).join(', ')}`);
+  const lines = issues.map(i => `${i.supplierName}: Vendor Evaluation PDF`);
   return {
-    error: `Cannot submit quotation — the following supplier(s) need compliance documents uploaded first:\n${lines.join('\n')}`,
+    error: `Cannot submit quotation — the following supplier(s) need a Vendor Evaluation PDF uploaded first:\n${lines.join('\n')}`,
     complianceIssues: issues,
     currentFinancialYear: currentFY,
   };
@@ -266,12 +268,13 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf
       itemsWithSupplier.push({ ...item, supplierId });
     }
 
-    // Block the quotation if any referenced supplier is missing the one-time
-    // Vendor Evaluation or the current-FY Supplier Assessment. Newly upserted
-    // suppliers always trip this check until the PO uploads both PDFs.
-    const complianceIssues = await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
-    if (complianceIssues.length > 0) {
-      return res.status(400).json(complianceErrorPayload(complianceIssues));
+    // Block only if a referenced supplier has no Vendor Evaluation PDF on file.
+    // An expired Supplier Assessment is returned as a soft warning so the UI
+    // can show a banner — quotation submission still proceeds.
+    const { hardIssues, softWarnings: createSoftWarnings } =
+      await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
+    if (hardIssues.length > 0) {
+      return res.status(400).json(complianceErrorPayload(hardIssues));
     }
 
     // Use the most common supplierId for the top-level Quotation snapshot.
@@ -338,7 +341,11 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf
       },
     });
 
-    res.status(201).json(quotation);
+    res.status(201).json({
+      ...quotation,
+      assessmentWarnings: createSoftWarnings,
+      currentFinancialYear: getFinancialYear(),
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
@@ -410,9 +417,10 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotati
       itemsWithSupplier.push({ ...item, supplierId });
     }
 
-    const complianceIssues = await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
-    if (complianceIssues.length > 0) {
-      return res.status(400).json(complianceErrorPayload(complianceIssues));
+    const { hardIssues, softWarnings: unionSoftWarnings } =
+      await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
+    if (hardIssues.length > 0) {
+      return res.status(400).json(complianceErrorPayload(hardIssues));
     }
 
     const supplierCounts = new Map();
@@ -490,7 +498,11 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotati
       },
     });
 
-    res.status(201).json(quotation);
+    res.status(201).json({
+      ...quotation,
+      assessmentWarnings: unionSoftWarnings,
+      currentFinancialYear: getFinancialYear(),
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
@@ -536,9 +548,9 @@ router.put('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, res)
         itemsWithSupplier.push({ ...item, supplierId });
       }
 
-      const complianceIssues = await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
-      if (complianceIssues.length > 0) {
-        return res.status(400).json(complianceErrorPayload(complianceIssues));
+      const { hardIssues } = await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
+      if (hardIssues.length > 0) {
+        return res.status(400).json(complianceErrorPayload(hardIssues));
       }
 
       const updated = await prisma.quotation.update({
@@ -863,12 +875,16 @@ router.post('/:id/hold', authenticate, authorize('ADMIN'), async (req, res) => {
 });
 
 // PUT /api/quotations/:id/resubmit — PO fixes a held quotation (optionally
-// updates totals/notes/items) and re-notifies admin. Clears the hold fields.
+// updates totals/notes/items and the attached PDF) and re-notifies admin.
+// Clears the hold fields.
 //
-// Body: { notes?: string, items?: [...same shape as PUT /:id...] }
-//   Items are optional — PO may also fix the issue purely on the supplier side
-//   (e.g. uploaded missing compliance PDF) and resubmit unchanged.
-router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
+// Multipart body: `payload` (JSON) + optional `quotationPdf` file.
+// payload: { notes?, items?, clearPdf?: boolean }
+//   - `items` optional — PO may fix the issue purely on the supplier side
+//     (e.g. uploaded missing compliance PDF) and resubmit unchanged.
+//   - `clearPdf: true` removes the existing quotationPdfUrl.
+//   - A new file uploaded via `quotationPdf` replaces the existing one.
+router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf, async (req, res) => {
   try {
     const quotation = await prisma.quotation.findUnique({
       where: { id: req.params.id },
@@ -886,7 +902,13 @@ router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), async (
       return res.status(400).json({ error: 'Cannot resubmit a quotation that has already been approved' });
     }
 
-    const { notes, items } = req.body || {};
+    const { notes, items, clearPdf } = req.body || {};
+    const newPdfUrl = req.file ? publicUrlFor(req.file) : null;
+    // Decide what to do with the PDF: new upload replaces, clearPdf wipes,
+    // otherwise keep the existing one.
+    let nextPdfUrl = quotation.quotationPdfUrl;
+    if (newPdfUrl) nextPdfUrl = newPdfUrl;
+    else if (clearPdf === true || clearPdf === 'true') nextPdfUrl = null;
 
     const result = await prisma.$transaction(async (tx) => {
       // Optional item rewrite — mirrors PUT /:id behaviour for non-union quotations.
@@ -907,9 +929,9 @@ router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), async (
           itemsWithSupplier.push({ ...item, supplierId });
         }
 
-        const complianceIssues = await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
-        if (complianceIssues.length > 0) {
-          throw Object.assign(new Error('compliance'), { compliance: complianceIssues });
+        const { hardIssues } = await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
+        if (hardIssues.length > 0) {
+          throw Object.assign(new Error('compliance'), { compliance: hardIssues });
         }
 
         await tx.quotation.update({
@@ -919,6 +941,7 @@ router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), async (
             totalAmount,
             holdNote: null,
             heldAt: null,
+            quotationPdfUrl: nextPdfUrl,
             items: {
               create: itemsWithSupplier.map(it => ({
                 productId: it.productId || null,
@@ -936,13 +959,14 @@ router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), async (
           },
         });
       } else {
-        // Notes-only / no-payload resubmit: just clear hold fields.
+        // Notes / PDF-only resubmit: clear hold fields (+ update PDF if changed).
         await tx.quotation.update({
           where: { id: req.params.id },
           data: {
             notes: notes !== undefined ? notes : quotation.notes,
             holdNote: null,
             heldAt: null,
+            quotationPdfUrl: nextPdfUrl,
           },
         });
       }
@@ -1082,12 +1106,14 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
       });
     }
 
-    // Re-check supplier compliance at approval time — docs may have expired
-    // (FY rollover) or been removed since the quotation was submitted.
+    // Re-check supplier compliance at approval time. Vendor Evaluation is still
+    // a hard block (no PO without one), but an expired Supplier Assessment is
+    // only a soft warning — admin can approve and let procurement chase the
+    // updated assessment after the PO is in flight.
     const approvalSupplierIds = quotation.items.map(i => i.supplierId).filter(Boolean);
-    const approvalIssues = await checkSuppliersCompliance(approvalSupplierIds);
-    if (approvalIssues.length > 0) {
-      return res.status(400).json(complianceErrorPayload(approvalIssues));
+    const { hardIssues: approvalHard } = await checkSuppliersCompliance(approvalSupplierIds);
+    if (approvalHard.length > 0) {
+      return res.status(400).json(complianceErrorPayload(approvalHard));
     }
 
     // PO display name: derived from the source PR number(s). For unions list every

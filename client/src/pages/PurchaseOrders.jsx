@@ -1289,12 +1289,68 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
 
         {/* Items */}
         <div>
-          <h4 className="text-sm font-semibold text-gray-700 mb-2">Materials in this order</h4>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-gray-700">Materials in this order</h4>
+            {(() => {
+              const totalOrdered = (order.items || []).reduce((s, it) => s + (it.quantity || 0), 0);
+              const totalReceived = (order.items || []).reduce((s, it) => s + (it.receivedQty || 0), 0);
+              if (totalOrdered <= 0 || totalReceived <= 0) return null;
+              const fullyReceived = totalReceived >= totalOrdered;
+              const pct = Math.round((totalReceived / totalOrdered) * 100);
+              const shortItems = (order.items || []).filter(it => (it.receivedQty || 0) < it.quantity && (it.receivedQty || 0) > 0).length;
+              const pendingItems = (order.items || []).filter(it => (it.receivedQty || 0) === 0 && it.itemStatus !== 'CANCELLED').length;
+              return (
+                <div className={`flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded ${
+                  fullyReceived ? 'bg-green-50 text-green-800 border border-green-300'
+                  : 'bg-amber-50 text-amber-800 border border-amber-300'
+                }`}>
+                  <span>{totalReceived} of {totalOrdered} {fullyReceived ? '✓ fully arrived' : `arrived (${pct}%)`}</span>
+                  {!fullyReceived && (pendingItems > 0 || shortItems > 0) && (
+                    <span className="text-[10px] text-amber-700 font-normal">
+                      {pendingItems > 0 && <>{pendingItems} item{pendingItems > 1 ? 's' : ''} not yet arrived</>}
+                      {pendingItems > 0 && shortItems > 0 && ' · '}
+                      {shortItems > 0 && <>{shortItems} short</>}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Partial arrival banner — everyone sees this when at least one item is short or missing */}
+          {(() => {
+            const totalOrdered = (order.items || []).reduce((s, it) => s + (it.quantity || 0), 0);
+            const totalReceived = (order.items || []).reduce((s, it) => s + (it.receivedQty || 0), 0);
+            const hasArrivals = totalReceived > 0;
+            const partial = hasArrivals && totalReceived < totalOrdered;
+            if (!partial) return null;
+            const short = (order.items || []).filter(it => (it.receivedQty || 0) < it.quantity);
+            return (
+              <div className="mb-2 bg-amber-50 border-l-4 border-amber-500 rounded-r-md p-2 text-xs text-amber-900">
+                <div className="font-semibold flex items-center gap-1">
+                  <AlertTriangle size={14} className="text-amber-700" /> Partial arrival — only {totalReceived} of {totalOrdered} units have arrived
+                </div>
+                <ul className="mt-1 ml-5 list-disc">
+                  {short.map(it => (
+                    <li key={it.id}>
+                      <span className="font-medium">{it.productName}:</span>{' '}
+                      {(it.receivedQty || 0)} of {it.quantity} {it.productUnit} arrived
+                      {(it.receivedQty || 0) === 0
+                        ? <span className="text-amber-700"> — not yet arrived</span>
+                        : <span className="text-amber-700"> — {(it.quantity - (it.receivedQty || 0)).toFixed(2)} {it.productUnit} pending</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })()}
+
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b">
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Material</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Ordered</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Arrived / Pending</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit Price</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Total</th>
                 {order.isUnion && <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Sources</th>}
@@ -1307,10 +1363,30 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             <tbody>
               {order.items?.map((item, idx) => {
                 const canEditItemStatus = isPO && ['ORDERED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED'].includes(order.status);
+                const recv = item.receivedQty || 0;
+                const pending = Math.max(0, item.quantity - recv);
+                const fullyArrived = recv >= item.quantity && item.quantity > 0;
+                const notArrived = recv === 0;
                 return (
                   <tr key={item.id} className="border-b border-gray-50">
                     <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
                     <td className="px-3 py-2 text-gray-600">{item.quantity} {item.productUnit}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-col gap-0.5">
+                        <span className={`text-xs font-semibold ${
+                          fullyArrived ? 'text-green-700' : recv > 0 ? 'text-amber-700' : 'text-gray-400'
+                        }`}>
+                          {fullyArrived ? `✓ All ${recv} ${item.productUnit} arrived`
+                            : recv > 0 ? `${recv} of ${item.quantity} ${item.productUnit} arrived`
+                            : `Not yet arrived`}
+                        </span>
+                        {!fullyArrived && (
+                          <span className="text-[11px] text-amber-700">
+                            {pending} {item.productUnit} {notArrived ? 'awaiting delivery' : 'still pending'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-3 py-2 text-gray-600">{formatCurrency(item.unitPrice)}</td>
                     <td className="px-3 py-2 text-gray-600">{formatCurrency(item.totalPrice)}</td>
                     {order.isUnion && (

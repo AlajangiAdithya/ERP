@@ -22,6 +22,12 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
   const [quotationPdf, setQuotationPdf] = useState(null);
   const [complianceIssues, setComplianceIssues] = useState([]);
   const [complianceFY, setComplianceFY] = useState('');
+  // Supplier compliance flags indexed by supplierId, loaded once when the modal
+  // opens. Used to surface a soft "assessment expired" banner without blocking
+  // submission — the PO can still send the quote even if the FY assessment is
+  // overdue.
+  const [supplierIndex, setSupplierIndex] = useState({});
+  const [currentFY, setCurrentFY] = useState('');
   // history[productKey] = [{ supplierId, supplierName, supplierContact, supplierAddress, lastUnitPrice, lastDate, timesUsed, wasSelected }]
   const [history, setHistory] = useState({});
   // Common supplier fields applied across all rows on demand
@@ -113,8 +119,36 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
           return { ...row, supplierMode: list.length > 0 ? 'existing' : 'new' };
         }));
       });
+
+      // Load suppliers in parallel so we can flag any whose annual assessment
+      // has expired. Used only for the inline soft-warning banner.
+      api.get('/suppliers?limit=all').then(({ data }) => {
+        const idx = {};
+        for (const s of data.suppliers || []) {
+          idx[s.id] = {
+            name: s.name,
+            assessmentValid: !!s.assessmentValidForCurrentFY,
+            assessmentFiscalYear: s.assessmentFiscalYear || null,
+          };
+        }
+        setSupplierIndex(idx);
+        setCurrentFY(data.currentFinancialYear || '');
+      }).catch(() => {});
     }
   }, [isOpen, purchaseRequest]);
+
+  // Suppliers selected on any row whose assessment is missing/expired.
+  const expiredAssessmentSuppliers = useMemo(() => {
+    const seen = new Map();
+    for (const row of items) {
+      const sid = row.supplierId;
+      const info = sid ? supplierIndex[sid] : null;
+      if (info && !info.assessmentValid && !seen.has(sid)) {
+        seen.set(sid, info);
+      }
+    }
+    return [...seen.entries()].map(([id, info]) => ({ id, ...info }));
+  }, [items, supplierIndex]);
 
   const updateItem = (idx, field, value) => {
     const updated = [...items];
@@ -254,6 +288,30 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
               Open Suppliers page to upload PDFs →
             </a>
             <p className="text-[11px] text-red-700 mt-1">After uploading, click "Submit Quotation" again.</p>
+          </div>
+        )}
+
+        {expiredAssessmentSuppliers.length > 0 && (
+          <div className="bg-amber-50 border border-amber-300 rounded p-3 text-sm text-amber-900">
+            <div className="flex items-start gap-2">
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5 text-amber-700" />
+              <div className="flex-1">
+                <p className="font-semibold mb-1">
+                  Supplier assessment expired{currentFY ? ` for FY ${currentFY}` : ''}
+                </p>
+                <ul className="text-xs space-y-0.5 list-disc list-inside">
+                  {expiredAssessmentSuppliers.map((s) => (
+                    <li key={s.id}>
+                      <strong>{s.name}</strong>
+                      {s.assessmentFiscalYear ? ` — last assessed in FY ${s.assessmentFiscalYear}` : ' — no assessment on file'}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-[11px] mt-1.5">
+                  You can still submit this quotation — the assessment can be uploaded later from the Suppliers page.
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -897,17 +955,32 @@ function SupplierComplianceStrip({ quotation, currentFY }) {
   );
 }
 
-// Dialog: PO writes an optional note explaining what was fixed and resubmits
-// the held quotation. The server clears holdNote/heldAt and notifies approvers.
+// Dialog: PO reviews the held quotation in full (items + supplier compliance +
+// the previously uploaded PDF), can replace/remove the PDF, optionally adds a
+// note explaining what was fixed, and resubmits. The server clears
+// holdNote/heldAt and notifies approvers.
 function ResubmitQuotationModal({ quotation, onClose, onResubmitted }) {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
+  const [newPdf, setNewPdf] = useState(null);
+  const [removeExistingPdf, setRemoveExistingPdf] = useState(false);
   if (!quotation) return null;
+  const existingPdfStillAttached = !!quotation.quotationPdfUrl && !removeExistingPdf && !newPdf;
+
   const submit = async () => {
     setSaving(true);
     try {
-      const payload = note.trim() ? { notes: note.trim() } : {};
-      await api.put(`/quotations/${quotation.id}/resubmit`, payload);
+      const payload = {};
+      if (note.trim()) payload.notes = note.trim();
+      if (removeExistingPdf && !newPdf) payload.clearPdf = true;
+
+      const form = new FormData();
+      form.append('payload', JSON.stringify(payload));
+      if (newPdf) form.append('quotationPdf', newPdf);
+
+      await api.put(`/quotations/${quotation.id}/resubmit`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
       onResubmitted();
       onClose();
     } catch (err) {
@@ -916,21 +989,129 @@ function ResubmitQuotationModal({ quotation, onClose, onResubmitted }) {
     setSaving(false);
   };
   return (
-    <Modal isOpen={!!quotation} onClose={onClose} title={`Resubmit ${quotation.quotationNumber}`} size="md">
-      <div className="space-y-3">
+    <Modal isOpen={!!quotation} onClose={onClose} title={`Resubmit ${quotation.quotationNumber}`} size="lg">
+      <div className="space-y-4">
         <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
-          <span className="font-semibold">Admin's hold reason:</span> {quotation.holdNote || '—'}
+          <div className="font-semibold mb-0.5 inline-flex items-center gap-1">
+            <PauseCircle size={12} /> Admin's hold reason
+          </div>
+          <div>{quotation.holdNote || '—'}</div>
         </div>
-        <p className="text-sm text-gray-700">
-          Confirm that the requested change is done (e.g. supplier compliance PDFs uploaded, item details fixed). Optionally leave a short note for admin. Resubmitting clears the hold and re-notifies approvers.
+
+        <div>
+          <div className="text-xs font-semibold text-gray-700 mb-1">
+            Quotation items ({quotation.items?.length || 0})
+          </div>
+          <div className="overflow-x-auto border rounded-md">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50">
+                <tr className="border-b">
+                  <th className="px-2 py-1.5 text-left text-gray-600 font-medium">Product</th>
+                  <th className="px-2 py-1.5 text-left text-gray-600 font-medium">Qty</th>
+                  <th className="px-2 py-1.5 text-left text-gray-600 font-medium">Unit Price</th>
+                  <th className="px-2 py-1.5 text-left text-gray-600 font-medium">Supplier</th>
+                  <th className="px-2 py-1.5 text-right text-gray-600 font-medium">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(quotation.items || []).map(it => (
+                  <tr key={it.id} className="border-b last:border-b-0">
+                    <td className="px-2 py-1.5">{it.productName}</td>
+                    <td className="px-2 py-1.5">{it.quantity} {it.productUnit}</td>
+                    <td className="px-2 py-1.5">{formatCurrency(it.unitPrice)}</td>
+                    <td className="px-2 py-1.5">{it.supplierName}</td>
+                    <td className="px-2 py-1.5 text-right">{formatCurrency(it.totalPrice)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-gray-50">
+                  <td colSpan={4} className="px-2 py-1.5 text-right font-semibold">Total</td>
+                  <td className="px-2 py-1.5 text-right font-semibold">{formatCurrency(quotation.totalAmount)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs font-semibold text-gray-700 mb-1">Supplier quotation PDF</div>
+          {existingPdfStillAttached && (
+            <div className="flex items-center justify-between border rounded-md px-3 py-2 bg-gray-50">
+              <a
+                href={quotation.quotationPdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline"
+              >
+                <Paperclip size={12} /> View current quotation PDF
+              </a>
+              <button
+                type="button"
+                onClick={() => setRemoveExistingPdf(true)}
+                className="inline-flex items-center gap-1 text-xs text-red-700 hover:text-red-900"
+              >
+                <Trash2 size={12} /> Remove
+              </button>
+            </div>
+          )}
+          {removeExistingPdf && !newPdf && (
+            <div className="flex items-center justify-between border border-red-200 rounded-md px-3 py-2 bg-red-50">
+              <span className="text-xs text-red-800">Existing PDF will be removed on resubmit.</span>
+              <button
+                type="button"
+                onClick={() => setRemoveExistingPdf(false)}
+                className="text-xs text-navy-700 hover:underline"
+              >
+                Undo
+              </button>
+            </div>
+          )}
+          {newPdf && (
+            <div className="flex items-center justify-between border border-green-200 rounded-md px-3 py-2 bg-green-50 mb-1">
+              <span className="inline-flex items-center gap-1 text-xs text-green-800">
+                <Paperclip size={12} /> New: {newPdf.name}
+              </span>
+              <button
+                type="button"
+                onClick={() => setNewPdf(null)}
+                className="text-xs text-red-700 hover:text-red-900"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+          <label className="mt-2 inline-flex items-center gap-2 cursor-pointer text-xs text-navy-700 border border-dashed border-navy-300 rounded-md px-3 py-2 hover:bg-navy-50">
+            <Paperclip size={12} />
+            {quotation.quotationPdfUrl ? 'Upload replacement PDF' : 'Upload quotation PDF'}
+            <input
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0] || null;
+                setNewPdf(f);
+                if (f) setRemoveExistingPdf(false);
+              }}
+            />
+          </label>
+        </div>
+
+        <div>
+          <div className="text-xs font-semibold text-gray-700 mb-1">Note for admin (optional)</div>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. Uploaded Vendor Evaluation PDF for ABC Suppliers / re-attached supplier quotation."
+            rows={3}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-navy-500"
+          />
+        </div>
+
+        <p className="text-xs text-gray-500">
+          Resubmitting clears the hold and notifies approvers to re-review.
         </p>
-        <textarea
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="e.g. Uploaded Vendor Evaluation PDF for ABC Suppliers."
-          rows={3}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-navy-500"
-        />
+
         <div className="flex justify-end gap-3 pt-1">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>

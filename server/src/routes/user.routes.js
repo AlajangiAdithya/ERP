@@ -56,6 +56,8 @@ router.get('/managers', authenticate, authorize('MANAGER', 'LAB', 'ADMIN', 'SUPP
 router.get('/', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
     const users = await prisma.user.findMany({
+      // SUPERADMIN account is never returned here — only its own session can see it.
+      where: req.user.role === 'SUPERADMIN' ? {} : { role: { not: 'SUPERADMIN' } },
       select: {
         id: true, username: true, name: true, role: true,
         unitId: true, unit: { select: { id: true, name: true, code: true } },

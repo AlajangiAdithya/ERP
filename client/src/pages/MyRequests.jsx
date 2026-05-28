@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, PackageCheck, X, Scissors } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import api from '../api/axios';
 import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
@@ -23,10 +23,7 @@ export default function MyRequests() {
   const [cartItems, setCartItems] = useState([]);
   const [notes, setNotes] = useState('');
   const [remarks, setRemarks] = useState('');
-  const [referenceNo, setReferenceNo] = useState('');
   const [saving, setSaving] = useState(false);
-  const [collecting, setCollecting] = useState(false);
-  const [collectModal, setCollectModal] = useState(null); // { request, rows: [{id, productName, unit, approved, alreadyTaken, remaining, take}] }
   const refreshKey = useAutoRefresh();
 
   const fetchRequests = () => {
@@ -43,7 +40,6 @@ export default function MyRequests() {
     setCartItems([]);
     setNotes('');
     setRemarks('');
-    setReferenceNo('');
     setShowCreate(true);
   };
 
@@ -71,7 +67,6 @@ export default function MyRequests() {
       await api.post('/requests', {
         notes: notes || undefined,
         remarks: remarks || undefined,
-        referenceNo: referenceNo || undefined,
         items: cartItems.map(i => ({
           productId: i.productId,
           quantity: i.quantity,
@@ -84,67 +79,6 @@ export default function MyRequests() {
       alert(err.response?.data?.error || 'Failed to create request');
     }
     setSaving(false);
-  };
-
-  const openCollectModal = (request) => {
-    const rows = (request.items || [])
-      .map((it) => {
-        const approved = it.approvedQty ?? it.quantity ?? 0;
-        const alreadyTaken = it.collectedQty || 0;
-        const remaining = Math.max(0, approved - alreadyTaken);
-        return {
-          id: it.id,
-          productName: it.product?.name || '',
-          unit: it.product?.unit || '',
-          approved,
-          alreadyTaken,
-          remaining,
-          take: remaining, // default: take everything remaining
-        };
-      })
-      .filter((r) => r.remaining > 0);
-    if (rows.length === 0) return alert('Nothing remaining to collect.');
-    setCollectModal({ request, rows });
-  };
-
-  const updateCollectTake = (itemId, value) => {
-    setCollectModal((m) => ({
-      ...m,
-      rows: m.rows.map((r) => {
-        if (r.id !== itemId) return r;
-        const n = Math.max(0, Math.min(r.remaining, parseFloat(value) || 0));
-        return { ...r, take: n };
-      }),
-    }));
-  };
-
-  const submitCollect = async () => {
-    if (!collectModal) return;
-    const items = collectModal.rows
-      .filter((r) => r.take > 0)
-      .map((r) => ({ id: r.id, collectedQty: r.take }));
-    if (items.length === 0) return alert('Enter qty > 0 for at least one item.');
-    setCollecting(true);
-    try {
-      await api.put(`/requests/${collectModal.request.id}/collect`, { items });
-      setCollectModal(null);
-      setShowDetail(null);
-      fetchRequests();
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to collect');
-    }
-    setCollecting(false);
-  };
-
-  const killRemaining = async (requestId) => {
-    if (!confirm('Close this request without collecting the remaining qty? The remaining reserved stock will be released.')) return;
-    try {
-      await api.put(`/requests/${requestId}/kill-remaining`);
-      setShowDetail(null);
-      fetchRequests();
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to close');
-    }
   };
 
   const cancelRequest = async (requestId) => {
@@ -209,16 +143,6 @@ export default function MyRequests() {
                     <td className="px-3 py-2">
                       <div className="flex gap-2">
                         <Button size="sm" variant="secondary" onClick={() => setShowDetail(r)}>View</Button>
-                        {(r.status === 'APPROVED' || r.status === 'PARTIAL') && (
-                          <Button size="sm" onClick={() => openCollectModal(r)}>
-                            {r.status === 'PARTIAL' ? 'Collect More' : 'Collect'}
-                          </Button>
-                        )}
-                        {r.status === 'PARTIAL' && (
-                          <Button size="sm" variant="secondary" onClick={() => killRemaining(r.id)}>
-                            <Scissors size={14} className="mr-1" /> Close
-                          </Button>
-                        )}
                         {r.status === 'PENDING' && (
                           <Button size="sm" variant="danger" onClick={() => cancelRequest(r.id)}>Cancel</Button>
                         )}
@@ -291,19 +215,16 @@ export default function MyRequests() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Reference No. & Date"
-              value={referenceNo}
-              onChange={(e) => setReferenceNo(e.target.value)}
-              placeholder="e.g. REF/2025/001"
-            />
+          <div>
             <Input
               label="Remarks"
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               placeholder="Any remarks..."
             />
+            <p className="text-[11px] text-gray-500 mt-1">
+              MIV reference number is auto-generated on submit — no manual entry needed.
+            </p>
           </div>
 
           <div>
@@ -364,108 +285,30 @@ export default function MyRequests() {
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purpose</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Collected</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Remaining</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Batch No.</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Issued</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">FIFO Batch No.</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {showDetail.items?.map(item => {
-                    const approved = item.approvedQty ?? item.quantity ?? 0;
-                    const collected = item.collectedQty || 0;
-                    const remaining = Math.max(0, approved - collected);
-                    return (
-                      <tr key={item.id} className="border-b border-gray-50">
-                        <td className="px-3 py-2 text-gray-700">{item.product?.name}</td>
-                        <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || '—'}</td>
-                        <td className="px-3 py-2 text-gray-600">{item.quantity} {item.product?.unit}</td>
-                        <td className="px-3 py-2 text-gray-600">
-                          {item.approvedQty != null ? `${item.approvedQty} ${item.product?.unit}` : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-gray-600">{collected} {item.product?.unit}</td>
-                        <td className={`px-3 py-2 ${remaining > 0 && showDetail.status === 'PARTIAL' ? 'text-amber-700 font-medium' : 'text-gray-600'}`}>
-                          {remaining} {item.product?.unit}
-                        </td>
-                        <td className="px-3 py-2 text-gray-500 text-xs">{item.materialBatchNo || '—'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              {(showDetail.status === 'APPROVED' || showDetail.status === 'PARTIAL') && (
-                <Button onClick={() => openCollectModal(showDetail)} disabled={collecting}>
-                  <PackageCheck size={16} className="mr-1" />
-                  {showDetail.status === 'PARTIAL' ? 'Collect More' : 'Collect'}
-                </Button>
-              )}
-              {showDetail.status === 'PARTIAL' && (
-                <Button variant="secondary" onClick={() => killRemaining(showDetail.id)}>
-                  <Scissors size={16} className="mr-1" /> Close without remaining
-                </Button>
-              )}
-              {showDetail.status === 'PENDING' && (
-                <Button variant="danger" onClick={() => cancelRequest(showDetail.id)}>Cancel Request</Button>
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* Partial / Full Collect Modal */}
-      <Modal
-        isOpen={!!collectModal}
-        onClose={() => setCollectModal(null)}
-        title={`Collect items — ${collectModal?.request.requestNumber || ''}`}
-        size="lg"
-      >
-        {collectModal && (
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600">
-              Enter the quantity you are taking now. Leave at the remaining value to collect fully, or reduce for partial.
-            </p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Already taken</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Remaining</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Take now</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {collectModal.rows.map((r) => (
-                    <tr key={r.id} className="border-b border-gray-50">
-                      <td className="px-3 py-2 text-gray-700">{r.productName}</td>
-                      <td className="px-3 py-2 text-gray-600">{r.approved} {r.unit}</td>
-                      <td className="px-3 py-2 text-gray-600">{r.alreadyTaken} {r.unit}</td>
-                      <td className="px-3 py-2 text-gray-600">{r.remaining} {r.unit}</td>
-                      <td className="px-3 py-2">
-                        <Input
-                          type="number"
-                          min={0}
-                          max={r.remaining}
-                          step="any"
-                          value={r.take}
-                          onChange={(e) => updateCollectTake(r.id, e.target.value)}
-                          className="w-24"
-                        />
+                  {showDetail.items?.map(item => (
+                    <tr key={item.id} className="border-b border-gray-50">
+                      <td className="px-3 py-2 text-gray-700">{item.product?.name}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">{item.quantity} {item.product?.unit}</td>
+                      <td className="px-3 py-2 text-gray-600">
+                        {item.qtyIssued != null ? `${item.qtyIssued} ${item.product?.unit}` : '—'}
                       </td>
+                      <td className="px-3 py-2 text-xs font-mono text-amber-800">{item.materialBatchNo || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
             <div className="flex justify-end gap-3 pt-2">
-              <Button variant="secondary" onClick={() => setCollectModal(null)}>Cancel</Button>
-              <Button onClick={submitCollect} disabled={collecting}>
-                <PackageCheck size={16} className="mr-1" /> {collecting ? 'Recording...' : 'Record collection'}
-              </Button>
+              {showDetail.status === 'PENDING' && (
+                <Button variant="danger" onClick={() => cancelRequest(showDetail.id)}>Cancel Request</Button>
+              )}
             </div>
           </div>
         )}

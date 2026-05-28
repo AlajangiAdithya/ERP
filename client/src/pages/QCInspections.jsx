@@ -88,28 +88,44 @@ function OrderInfoHeader({ order, inspection, qcView = false }) {
         )}
       </div>
 
-      {/* Order Items — with cumulative receipt visibility */}
+      {/* Order Items — with cumulative receipt visibility + partial-arrival call-out */}
       {order.items?.length > 0 && (
         <div className="border-t border-gray-300">
+          {/* Partial-arrival header banner — shown when at least one item is short */}
+          {(() => {
+            const partial = order.items.some(i => (i.receivedQty || 0) < i.quantity) && totalReceived > 0;
+            if (!partial) return null;
+            const shortCount = order.items.filter(i => (i.receivedQty || 0) < i.quantity).length;
+            return (
+              <div className="bg-amber-50 border-b border-amber-300 px-3 py-1.5 text-[11px] text-amber-900 font-semibold flex items-center gap-1">
+                ⚠ Partial arrival — {totalReceived} of {totalQty} units in, {shortCount} item{shortCount > 1 ? 's' : ''} still short
+              </div>
+            );
+          })()}
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-300">
                 <th className="px-3 py-1.5 text-left text-gray-600 font-semibold">Product</th>
                 <th className="px-3 py-1.5 text-right text-gray-600 font-semibold">Ordered</th>
-                <th className="px-3 py-1.5 text-right text-gray-600 font-semibold">Received so far</th>
+                <th className="px-3 py-1.5 text-right text-gray-600 font-semibold">Arrived</th>
+                <th className="px-3 py-1.5 text-right text-gray-600 font-semibold">Pending</th>
                 <th className="px-3 py-1.5 text-left text-gray-600 font-semibold">Unit</th>
               </tr>
             </thead>
             <tbody>
               {order.items.map(item => {
                 const recv = item.receivedQty || 0;
-                const done = recv >= item.quantity;
+                const pending = Math.max(0, item.quantity - recv);
+                const done = recv >= item.quantity && item.quantity > 0;
                 return (
                   <tr key={item.id} className="border-b border-gray-100">
                     <td className="px-3 py-1.5">{item.productName}</td>
                     <td className="px-3 py-1.5 text-right">{item.quantity}</td>
-                    <td className={`px-3 py-1.5 text-right ${recv === 0 ? 'text-gray-400' : done ? 'text-green-700 font-medium' : 'text-amber-700 font-medium'}`}>
-                      {recv}
+                    <td className={`px-3 py-1.5 text-right font-semibold ${recv === 0 ? 'text-gray-400' : done ? 'text-green-700' : 'text-amber-700'}`}>
+                      {done ? `✓ ${recv}` : recv}
+                    </td>
+                    <td className={`px-3 py-1.5 text-right ${pending === 0 ? 'text-gray-300' : 'text-amber-700 font-medium'}`}>
+                      {pending === 0 ? '—' : pending}
                     </td>
                     <td className="px-3 py-1.5 text-gray-600">{item.productUnit}</td>
                   </tr>

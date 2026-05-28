@@ -6,18 +6,14 @@ import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
-import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
 
 export default function RequestClearance() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedRequest, setSelectedRequest] = useState(null);
-  const [clearanceNotes, setClearanceNotes] = useState('');
-  const [mirNo, setMirNo] = useState('');
-  const [issueNo, setIssueNo] = useState('');
-  const [issueDate, setIssueDate] = useState('');
-  const [adjustedItems, setAdjustedItems] = useState([]);
+  const [rejectMode, setRejectMode] = useState(false);
+  const [rejectNote, setRejectNote] = useState('');
   const [processing, setProcessing] = useState(false);
   const [tab, setTab] = useState('PENDING');
   const refreshKey = useAutoRefresh();
@@ -33,45 +29,35 @@ export default function RequestClearance() {
 
   const openRequest = (request) => {
     setSelectedRequest(request);
-    setClearanceNotes('');
-    setMirNo(request.mirNo || '');
-    setIssueNo(request.issueNo || '');
-    setIssueDate(request.issueDate ? request.issueDate.slice(0, 10) : '');
-    setAdjustedItems(request.items.map(i => ({
-      id: i.id,
-      approvedQty: i.approvedQty ?? i.quantity,
-      qtyIssued: i.qtyIssued ?? i.quantity,
-      materialBatchNo: i.materialBatchNo || '',
-    })));
+    setRejectMode(false);
+    setRejectNote('');
   };
 
-  const approveRequest = async () => {
+  const acceptRequest = async () => {
     if (!selectedRequest) return;
     setProcessing(true);
     try {
-      await api.put(`/requests/${selectedRequest.id}/approve`, {
-        clearanceNotes: clearanceNotes || undefined,
-        mirNo: mirNo || undefined,
-        issueNo: issueNo || undefined,
-        issueDate: issueDate || undefined,
-        items: adjustedItems,
-      });
+      await api.put(`/requests/${selectedRequest.id}/approve`, {});
       setSelectedRequest(null);
       fetchRequests();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to approve');
+      const shortages = err.response?.data?.shortages;
+      if (Array.isArray(shortages) && shortages.length > 0) {
+        const lines = shortages.map(s => `• ${s.product}: need ${s.requested}, have ${s.available}`).join('\n');
+        alert(`${err.response?.data?.error}\n\n${lines}`);
+      } else {
+        alert(err.response?.data?.error || 'Failed to accept');
+      }
     }
     setProcessing(false);
   };
 
   const rejectRequest = async () => {
     if (!selectedRequest) return;
-    if (!clearanceNotes.trim()) return alert('Please provide a reason for rejection');
+    if (!rejectNote.trim()) return alert('Please provide a reason for rejection');
     setProcessing(true);
     try {
-      await api.put(`/requests/${selectedRequest.id}/reject`, {
-        clearanceNotes,
-      });
+      await api.put(`/requests/${selectedRequest.id}/reject`, { clearanceNotes: rejectNote.trim() });
       setSelectedRequest(null);
       fetchRequests();
     } catch (err) {
@@ -81,14 +67,14 @@ export default function RequestClearance() {
   };
 
   const statusColor = (s) => ({
-    PENDING: 'yellow', APPROVED: 'green', COLLECTED: 'blue', REJECTED: 'red', CANCELLED: 'gray'
+    PENDING: 'yellow', APPROVED: 'green', PARTIAL: 'orange', COLLECTED: 'blue', REJECTED: 'red', CANCELLED: 'gray'
   }[s] || 'gray');
 
-  const tabs = ['PENDING', 'APPROVED', 'COLLECTED', 'REJECTED', 'ALL'];
+  const tabs = ['PENDING', 'COLLECTED', 'REJECTED', 'ALL'];
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Request Clearance</h1>
+      <h1 className="text-2xl font-bold text-gray-900">MIV Clearance</h1>
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
@@ -113,11 +99,12 @@ export default function RequestClearance() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Request #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">MIV #</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Manager</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Issue No</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
                 </tr>
@@ -130,6 +117,7 @@ export default function RequestClearance() {
                     <td className="px-3 py-2"><Badge color="blue">{r.unit?.code}</Badge></td>
                     <td className="px-3 py-2 text-gray-600">{r.items?.length}</td>
                     <td className="px-3 py-2"><Badge color={statusColor(r.status)}>{r.status}</Badge></td>
+                    <td className="px-3 py-2 text-xs font-mono text-gray-700">{r.issueNo || '—'}</td>
                     <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
                     <td className="px-3 py-2">
                       <Button size="sm" variant="secondary" onClick={() => openRequest(r)}>
@@ -153,11 +141,17 @@ export default function RequestClearance() {
               <div><span className="text-gray-500">Unit:</span> <Badge color="blue">{selectedRequest.unit?.name}</Badge></div>
               <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(selectedRequest.status)}>{selectedRequest.status}</Badge></div>
               <div><span className="text-gray-500">Date:</span> <span>{formatDateTime(selectedRequest.createdAt)}</span></div>
-              {selectedRequest.referenceNo && <div><span className="text-gray-500">Reference No:</span> <span className="font-medium">{selectedRequest.referenceNo}</span></div>}
+              <div><span className="text-gray-500">Reference No:</span> <span className="font-mono text-xs">{selectedRequest.referenceNo || selectedRequest.requestNumber}</span></div>
               {selectedRequest.remarks && <div><span className="text-gray-500">Remarks:</span> <span>{selectedRequest.remarks}</span></div>}
-              {selectedRequest.mirNo && <div><span className="text-gray-500">MIR No:</span> <span className="font-medium">{selectedRequest.mirNo}</span></div>}
-              {selectedRequest.issueNo && <div><span className="text-gray-500">Issue No:</span> <span className="font-medium">{selectedRequest.issueNo}</span></div>}
+              {selectedRequest.issueNo && <div><span className="text-gray-500">Issue No:</span> <span className="font-mono text-xs">{selectedRequest.issueNo}</span></div>}
+              {selectedRequest.issueDate && <div><span className="text-gray-500">Issue Date:</span> <span>{formatDateTime(selectedRequest.issueDate)}</span></div>}
             </div>
+
+            {selectedRequest.status === 'PENDING' && (
+              <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-900">
+                Accept to auto-issue: an Issue No, issue date, and FIFO batch numbers are filled in automatically and stock is reduced immediately. No further input needed unless rejecting.
+              </div>
+            )}
 
             {selectedRequest.notes && (
               <div className="bg-yellow-50 rounded-md p-3 text-sm">
@@ -175,23 +169,16 @@ export default function RequestClearance() {
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purpose</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Available</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested</th>
-                      {selectedRequest.status === 'PENDING' ? (
+                      {selectedRequest.status !== 'PENDING' && (
                         <>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approve Qty</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty Issue</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Batch No.</th>
-                        </>
-                      ) : (
-                        <>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty Issued</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Batch No.</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">FIFO Batch No.</th>
                         </>
                       )}
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedRequest.items?.map((item, idx) => (
+                    {selectedRequest.items?.map((item) => (
                       <tr key={item.id} className="border-b border-gray-50">
                         <td className="px-3 py-2 font-medium text-gray-700">{item.product?.name}</td>
                         <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || '—'}</td>
@@ -201,51 +188,10 @@ export default function RequestClearance() {
                           </span>
                         </td>
                         <td className="px-3 py-2 text-gray-700">{item.quantity} {item.product?.unit}</td>
-                        {selectedRequest.status === 'PENDING' ? (
+                        {selectedRequest.status !== 'PENDING' && (
                           <>
-                            <td className="px-3 py-2">
-                              <Input
-                                type="number" min={0} max={item.product?.currentStock}
-                                value={adjustedItems[idx]?.approvedQty || ''}
-                                onChange={(e) => {
-                                  const newItems = [...adjustedItems];
-                                  newItems[idx] = { ...newItems[idx], approvedQty: parseFloat(e.target.value) || 0 };
-                                  setAdjustedItems(newItems);
-                                }}
-                                className="w-24"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <Input
-                                type="number" min={0}
-                                value={adjustedItems[idx]?.qtyIssued || ''}
-                                onChange={(e) => {
-                                  const newItems = [...adjustedItems];
-                                  newItems[idx] = { ...newItems[idx], qtyIssued: parseFloat(e.target.value) || 0 };
-                                  setAdjustedItems(newItems);
-                                }}
-                                className="w-24"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <Input
-                                type="text"
-                                value={adjustedItems[idx]?.materialBatchNo || ''}
-                                onChange={(e) => {
-                                  const newItems = [...adjustedItems];
-                                  newItems[idx] = { ...newItems[idx], materialBatchNo: e.target.value };
-                                  setAdjustedItems(newItems);
-                                }}
-                                placeholder="Batch no."
-                                className="w-28"
-                              />
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="px-3 py-2 text-gray-600">{item.approvedQty != null ? `${item.approvedQty} ${item.product?.unit}` : '—'}</td>
-                            <td className="px-3 py-2 text-gray-600">{item.qtyIssued != null ? item.qtyIssued : '—'}</td>
-                            <td className="px-3 py-2 text-gray-500 text-xs">{item.materialBatchNo || '—'}</td>
+                            <td className="px-3 py-2 text-gray-600">{item.qtyIssued != null ? `${item.qtyIssued} ${item.product?.unit}` : '—'}</td>
+                            <td className="px-3 py-2 text-xs font-mono text-amber-800">{item.materialBatchNo || '—'}</td>
                           </>
                         )}
                       </tr>
@@ -255,52 +201,42 @@ export default function RequestClearance() {
               </div>
             </div>
 
-            {selectedRequest.status === 'PENDING' && (
-              <>
-                <div className="grid grid-cols-3 gap-4">
-                  <Input
-                    label="MIR No."
-                    value={mirNo}
-                    onChange={(e) => setMirNo(e.target.value)}
-                    placeholder="MIR number"
-                  />
-                  <Input
-                    label="Issue No."
-                    value={issueNo}
-                    onChange={(e) => setIssueNo(e.target.value)}
-                    placeholder="Issue number"
-                  />
-                  <Input
-                    label="Issue Date"
-                    type="date"
-                    value={issueDate}
-                    onChange={(e) => setIssueDate(e.target.value)}
-                  />
-                </div>
+            {selectedRequest.status === 'PENDING' && !rejectMode && (
+              <div className="flex justify-end gap-3 pt-2">
+                <Button variant="danger" onClick={() => setRejectMode(true)} disabled={processing}>
+                  <XCircle size={16} className="mr-1" /> Reject
+                </Button>
+                <Button onClick={acceptRequest} disabled={processing}>
+                  <CheckCircle size={16} className="mr-1" /> {processing ? 'Accepting…' : 'Accept'}
+                </Button>
+              </div>
+            )}
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Clearance Notes</label>
-                  <textarea
-                    value={clearanceNotes} onChange={(e) => setClearanceNotes(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
-                    rows={2} placeholder="Optional notes for the manager..."
-                  />
-                </div>
-
-                <div className="flex justify-end gap-3 pt-2">
-                  <Button variant="danger" onClick={rejectRequest} disabled={processing}>
-                    <XCircle size={16} className="mr-1" /> Reject
-                  </Button>
-                  <Button onClick={approveRequest} disabled={processing}>
-                    <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Approve'}
+            {selectedRequest.status === 'PENDING' && rejectMode && (
+              <div className="space-y-3 border-t pt-3">
+                <label className="block text-sm font-medium text-gray-700">Reason for rejection <span className="text-red-600">*</span></label>
+                <textarea
+                  value={rejectNote}
+                  onChange={(e) => setRejectNote(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  placeholder="e.g. Insufficient stock and no transfer raised, or duplicate request…"
+                />
+                <div className="flex justify-end gap-3">
+                  <Button variant="secondary" onClick={() => { setRejectMode(false); setRejectNote(''); }} disabled={processing}>Cancel</Button>
+                  <Button variant="danger" onClick={rejectRequest} disabled={processing || !rejectNote.trim()}>
+                    {processing ? 'Rejecting…' : 'Confirm reject & notify manager'}
                   </Button>
                 </div>
-              </>
+              </div>
             )}
 
             {selectedRequest.clearanceNotes && selectedRequest.status !== 'PENDING' && (
-              <div className="bg-blue-50 rounded-md p-3 text-sm">
-                <span className="text-blue-600 font-medium">Clearance Notes:</span> <span>{selectedRequest.clearanceNotes}</span>
+              <div className={`rounded-md p-3 text-sm ${selectedRequest.status === 'REJECTED' ? 'bg-red-50 text-red-800' : 'bg-blue-50'}`}>
+                <span className={`font-medium ${selectedRequest.status === 'REJECTED' ? 'text-red-700' : 'text-blue-600'}`}>
+                  {selectedRequest.status === 'REJECTED' ? 'Rejection reason:' : 'Notes:'}
+                </span>{' '}
+                <span>{selectedRequest.clearanceNotes}</span>
               </div>
             )}
           </div>

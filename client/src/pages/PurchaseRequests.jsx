@@ -554,10 +554,17 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
                         <td className="px-3 py-2 text-gray-600">{approvedQty} {item.productUnit}</td>
                         <td className="px-3 py-2 text-gray-600">{item.purchasedQty} {item.productUnit}</td>
                         <td className={`px-3 py-2 ${fullyReceived ? 'text-green-700 font-medium' : receivedQty > 0 ? 'text-amber-700' : 'text-gray-500'}`}>
-                          {receivedQty} {item.productUnit}
-                          {target > 0 && (
-                            <span className="ml-1 text-xs text-gray-400">/ {target}</span>
-                          )}
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-semibold">
+                              {fullyReceived ? `✓ ${receivedQty}` : receivedQty > 0 ? `${receivedQty}` : 'None'}
+                              {target > 0 && <span className="ml-1 text-xs font-normal text-gray-400">of {target} {item.productUnit}</span>}
+                            </span>
+                            {!fullyReceived && target > 0 && (
+                              <span className="text-[11px] text-amber-700">
+                                {(target - receivedQty).toFixed(2)} {item.productUnit} {receivedQty === 0 ? 'awaiting' : 'pending'}
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </>
                     )}
@@ -791,15 +798,39 @@ function DetailModal({ request, onClose }) {
     .filter(po => po?.isUnion);
   const primaryPO = unionPOs[0] || request.purchaseOrders?.[0];
 
-  // Map: prItemId → first union PO that has an allocation for it
+  // Map: prItemId → first union PO that has an allocation for it.
+  // We also walk the PO's full allocation list to compute the FIFO queue position
+  // (source-PRs in creation order) so each PR sees "you are 1st in queue" /
+  // "2nd in queue (waiting on earlier PR)" — matters because partial inwards
+  // now allocate FIFO by PR createdAt instead of pro-rata.
   const unionPOByItem = new Map();
   for (const po of unionPOs) {
     for (const poItem of (po.items || [])) {
-      for (const alloc of (poItem.allocations || [])) {
-        if (alloc.purchaseRequestItemId && !unionPOByItem.has(alloc.purchaseRequestItemId)) {
-          unionPOByItem.set(alloc.purchaseRequestItemId, { po, allocation: alloc, poItem });
-        }
+      const allocs = poItem.allocations || [];
+      // Build FIFO order: source-PR createdAt asc, fall back to allocation order.
+      const prCreatedAt = new Map();
+      for (const sr of (po.sourceRequests || [])) {
+        if (sr.purchaseRequest) prCreatedAt.set(sr.purchaseRequest.id, sr.purchaseRequest.createdAt || 0);
       }
+      const fifoOrdered = [...allocs].sort((a, b) => {
+        const aPr = a.purchaseRequestItem?.request?.id;
+        const bPr = b.purchaseRequestItem?.request?.id;
+        const aT = new Date(prCreatedAt.get(aPr) || 0).getTime();
+        const bT = new Date(prCreatedAt.get(bPr) || 0).getTime();
+        return aT - bT;
+      });
+      fifoOrdered.forEach((alloc, idx) => {
+        if (alloc.purchaseRequestItemId && !unionPOByItem.has(alloc.purchaseRequestItemId)) {
+          // Partner PRs = source PRs other than current (request.id)
+          const partnerPRs = (po.sourceRequests || [])
+            .map(s => s.purchaseRequest)
+            .filter(pr => pr && pr.id !== request.id);
+          unionPOByItem.set(alloc.purchaseRequestItemId, {
+            po, allocation: alloc, poItem, partnerPRs,
+            queuePosition: idx + 1, queueSize: fifoOrdered.length,
+          });
+        }
+      });
     }
   }
 
@@ -884,11 +915,41 @@ function DetailModal({ request, onClose }) {
                           <Badge color="gray" title="Product SKU">{item.product.sku}</Badge>
                         )}
                         {unionRef && (
-                          <Badge color="purple" title={`Part of Union PO ${unionRef.po.orderNumber} (${(unionRef.po.sourceRequests?.length || 0)} units) — your allocation: ${unionRef.allocation.allocatedQty} ${item.productUnit}`}>
+                          <Badge color="purple" title={`Part of Union PO ${unionRef.po.orderNumber}`}>
                             <Layers size={10} className="inline mr-0.5" /> Union {unionRef.po.orderNumber}
                           </Badge>
                         )}
                       </div>
+                      {unionRef && (
+                        <div className="mt-1 text-xs text-purple-900 bg-purple-50 border border-purple-200 rounded px-2 py-1 space-y-0.5">
+                          <div>
+                            <span className="font-medium">Pooled with:</span>{' '}
+                            {unionRef.partnerPRs.length === 0 ? (
+                              <span className="text-gray-500">(no other PRs)</span>
+                            ) : (
+                              unionRef.partnerPRs.map((pr, i) => (
+                                <span key={pr.id}>
+                                  {i > 0 && ', '}
+                                  <span className="font-mono">{pr.requestNumber}</span>
+                                  {pr.unit?.code && <span className="text-purple-700"> ({pr.unit.code})</span>}
+                                </span>
+                              ))
+                            )}
+                          </div>
+                          <div>
+                            <span className="font-medium">Your allocation:</span>{' '}
+                            {unionRef.allocation.receivedQty || 0} / {unionRef.allocation.allocatedQty} {item.productUnit} received
+                            {' · '}
+                            <span className="font-medium">FIFO queue:</span>{' '}
+                            <span className={unionRef.queuePosition === 1 ? 'text-green-700' : 'text-amber-800'}>
+                              #{unionRef.queuePosition} of {unionRef.queueSize}
+                            </span>
+                            {unionRef.queuePosition > 1 && (unionRef.allocation.receivedQty || 0) === 0 && (
+                              <span className="ml-1 text-amber-700">(waiting on earlier PR)</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo) && (
                         <div className="mt-1 text-xs text-gray-500 space-y-0.5">
                           {item.materialType && (

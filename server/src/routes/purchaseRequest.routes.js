@@ -125,8 +125,26 @@ router.get('/', authenticate, async (req, res) => {
                   id: true, orderNumber: true, customName: true, status: true, totalAmount: true, totalPaid: true, isUnion: true,
                   sourceRequests: {
                     include: {
+                      // createdAt needed on each source PR so the client can compute the
+                      // FIFO queue position (oldest PR fills first on partial inwards).
                       purchaseRequest: {
-                        select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                        select: { id: true, requestNumber: true, createdAt: true, unit: { select: { id: true, name: true, code: true } } },
+                      },
+                    },
+                  },
+                  items: {
+                    select: {
+                      id: true, productName: true, productUnit: true, quantity: true, receivedQty: true, itemStatus: true, purchaseRequestItemId: true,
+                      allocations: {
+                        select: {
+                          id: true, purchaseRequestItemId: true, allocatedQty: true, receivedQty: true,
+                          purchaseRequestItem: {
+                            select: {
+                              id: true,
+                              request: { select: { id: true, requestNumber: true, createdAt: true } },
+                            },
+                          },
+                        },
                       },
                     },
                   },
@@ -389,8 +407,10 @@ router.get('/:id', authenticate, async (req, res) => {
                 id: true, orderNumber: true, customName: true, status: true, totalAmount: true, totalPaid: true, isUnion: true,
                 sourceRequests: {
                   include: {
+                    // createdAt needed on each source PR so the client can compute the
+                    // FIFO queue position (oldest PR fills first on partial inwards).
                     purchaseRequest: {
-                      select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } },
+                      select: { id: true, requestNumber: true, createdAt: true, unit: { select: { id: true, name: true, code: true } } },
                     },
                   },
                 },
@@ -400,6 +420,12 @@ router.get('/:id', authenticate, async (req, res) => {
                     allocations: {
                       select: {
                         id: true, purchaseRequestItemId: true, allocatedQty: true, receivedQty: true,
+                        purchaseRequestItem: {
+                          select: {
+                            id: true,
+                            request: { select: { id: true, requestNumber: true, createdAt: true } },
+                          },
+                        },
                       },
                     },
                   },
