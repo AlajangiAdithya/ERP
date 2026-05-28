@@ -21,6 +21,7 @@ const getNavItems = (role) => {
     { to: '/products', icon: Package, label: 'Products', roles: ALL_ROLES },
     { to: '/purchase-requests', icon: ShoppingCart, label: role === 'PURCHASE_OFFICER' ? 'Purchase Assignments' : 'Purchase Requests', roles: ['ADMIN', 'MANAGER', 'ACCOUNTING', 'FINANCE', 'QC', 'LAB', 'PURCHASE_OFFICER', 'PLANNING', 'SAFETY'] },
     { to: '/quotations', icon: FileSearch, label: 'Quotations', roles: ['PURCHASE_OFFICER', 'ADMIN', 'SUPPLY_CHAIN', 'SAFETY'] },
+    { to: '/suppliers', icon: Building2, label: 'Suppliers', roles: ['PURCHASE_OFFICER', 'ADMIN', 'SAFETY'] },
     { to: '/purchase-orders', icon: Truck, label: 'Purchase Orders', roles: ['PURCHASE_OFFICER', 'ADMIN', 'ACCOUNTING', 'FINANCE', 'STORE_MANAGER', 'QC', 'MANAGER', 'LAB', 'PLANNING', 'SUPPLY_CHAIN', 'SAFETY'] },
     { to: '/payment-requests', icon: CreditCard, label: 'Payment Requests', roles: ['PURCHASE_OFFICER', 'ACCOUNTING', 'FINANCE', 'ADMIN', 'SAFETY'] },
     { to: '/qc-inspections', icon: ClipboardCheck, label: 'QC Inspections', roles: ['QC', 'ADMIN', 'SAFETY', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'MANAGER', 'LAB', 'PLANNING'] },

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ClipboardCheck, CheckCircle, XCircle, Plus, Eye, FileCheck, X, Paperclip, Upload, AlertCircle, RotateCcw, Download, FileText, Box } from 'lucide-react';
+import { ClipboardCheck, CheckCircle, XCircle, Plus, Eye, FileCheck, X, Paperclip, Upload, AlertCircle, RotateCcw, FileText, Box } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { useAutoRefresh } from '../context/NotificationContext';
@@ -35,7 +35,7 @@ const resultLabel = (r) => ({
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
 
 // ─── Shared: PR/PO Info Header (read-only) ───
-function OrderInfoHeader({ order, inspection }) {
+function OrderInfoHeader({ order, inspection, qcView = false }) {
   if (!order) return null;
   const pr = order.purchaseRequest;
   const totalQty = order.items?.reduce((s, i) => s + (i.quantity || 0), 0) || 0;
@@ -56,12 +56,20 @@ function OrderInfoHeader({ order, inspection }) {
         )}
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs p-3">
+        {/* Order requested by users (PR → PO → Delivery Req → Supplier → Goods Arrived). */}
+        {pr && <div><span className="text-gray-500">PR No.:</span> <span className="font-medium">{pr.requestNumber}</span></div>}
         <div><span className="text-gray-500">PO No.:</span> <span className="font-medium">{order.orderNumber}</span></div>
-        <div><span className="text-gray-500">PO Name:</span> <span className="font-medium">{order.customName}</span></div>
+        {pr && requiredBy && (
+          <div><span className="text-gray-500">Delivery Required By:</span> <span>{fmtDate(requiredBy)}</span></div>
+        )}
         <div><span className="text-gray-500">Supplier:</span> <span>{order.supplierName}</span></div>
-        <div><span className="text-gray-500">Amount:</span> <span>{formatCurrency(order.totalAmount)}</span></div>
         <div><span className="text-gray-500">Goods Arrived:</span> <span>{order.goodsArrivedAt ? formatDateTime(order.goodsArrivedAt) : '—'}</span></div>
+        <div><span className="text-gray-500">PO Name:</span> <span className="font-medium">{order.customName}</span></div>
+        <div><span className="text-gray-500">Amount:</span> <span>{formatCurrency(order.totalAmount)}</span></div>
         <div><span className="text-gray-500">Total Qty Ordered:</span> <span>{totalQty}</span></div>
+        {order.mirNo && (
+          <div><span className="text-gray-500">MIR No.:</span> <span className="font-mono font-medium text-navy-700">{order.mirNo}</span></div>
+        )}
         {totalReceived > 0 && (
           <div className="col-span-2">
             <span className="text-gray-500">Cumulative received:</span>{' '}
@@ -72,11 +80,7 @@ function OrderInfoHeader({ order, inspection }) {
         )}
         {pr && (
           <>
-            <div><span className="text-gray-500">PR No.:</span> <span>{pr.requestNumber}</span></div>
             <div><span className="text-gray-500">Manager:</span> <span>{pr.manager?.name}</span></div>
-            {requiredBy && (
-              <div><span className="text-gray-500">Delivery Required By:</span> <span>{fmtDate(requiredBy)}</span></div>
-            )}
             {scopes.length > 0 && (
               <div className="col-span-2"><span className="text-gray-500">Reports Required / Scope of Work:</span> <span>{scopes.join(' / ')}</span></div>
             )}
@@ -143,11 +147,17 @@ function OrderInfoHeader({ order, inspection }) {
                     <td className="px-3 py-1 text-right">{lot.arrivedQty ?? '—'}</td>
                     <td className="px-3 py-1">{lot.materialReceiptDate ? fmtDate(lot.materialReceiptDate) : '—'}</td>
                     <td className="px-3 py-1">
-                      {lot.invoiceFileUrl ? (
-                        <a href={lot.invoiceFileUrl} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
-                          {lot.invoiceNo || 'View'}
-                        </a>
-                      ) : (lot.invoiceNo || '—')}
+                      {qcView ? (
+                        lot.invoiceFileUrl
+                          ? <span className="text-green-700">Received</span>
+                          : <span className="text-gray-400">Not received</span>
+                      ) : (
+                        lot.invoiceFileUrl ? (
+                          <a href={lot.invoiceFileUrl} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
+                            {lot.invoiceNo || 'View'}
+                          </a>
+                        ) : (lot.invoiceNo || '—')
+                      )}
                     </td>
                     <td className="px-3 py-1">{lot.result}</td>
                   </tr>
@@ -165,7 +175,7 @@ function OrderInfoHeader({ order, inspection }) {
 const ANNEXURE_URL = '/po-terms-and-conditions.pdf';
 
 // ─── Shared: reference documents available to everyone on the PR chain (PR view, PR specs, PO PDF, Invoice, Annexure) ───
-function InspectionDocsPanel({ order, inspection }) {
+function InspectionDocsPanel({ order, inspection, qcView = false }) {
   const prs = order?.isUnion
     ? (order?.sourceRequests || []).map((s) => s.purchaseRequest).filter(Boolean)
     : (order?.purchaseRequest ? [order.purchaseRequest] : []);
@@ -259,19 +269,45 @@ function InspectionDocsPanel({ order, inspection }) {
           hint="Uploaded by Purchase Officer after quotation approval"
           missingHint="PO has not uploaded the signed PO PDF yet."
         />
-        <DocLink
-          href={invoiceFileUrl}
-          label={`Invoice${invoiceLabelTail}`}
-          hint={inspection?.invoiceNo
-            ? `${inspection.invoiceNo} • Supplier invoice for this lot`
-            : 'Supplier invoice for this lot'}
-          missingHint="No invoice uploaded for this lot."
-        />
+        {qcView ? (
+          <div className={`flex items-start gap-2 px-3 py-2 rounded border text-xs ${
+            invoiceFileUrl
+              ? 'border-green-200 bg-green-50 text-green-800'
+              : 'border-dashed border-gray-300 bg-gray-50 text-gray-500'
+          }`}>
+            <FileText size={14} className={`mt-0.5 ${invoiceFileUrl ? 'text-green-600' : 'text-gray-400'}`} />
+            <div>
+              <div className="font-semibold">{`Invoice${invoiceLabelTail}`}</div>
+              <div>{invoiceFileUrl ? 'Received from supplier' : 'Not received yet'}</div>
+            </div>
+          </div>
+        ) : (
+          <DocLink
+            href={invoiceFileUrl}
+            label={`Invoice${invoiceLabelTail}`}
+            hint={inspection?.invoiceNo
+              ? `${inspection.invoiceNo} • Supplier invoice for this lot`
+              : 'Supplier invoice for this lot'}
+            missingHint="No invoice uploaded for this lot."
+          />
+        )}
         <DocLink
           href={ANNEXURE_URL}
           label="PO Terms & Conditions (Annexure)"
           hint="Standard annexure attached to every PO"
           missingHint="—"
+        />
+        <DocLink
+          href={order?.supplier?.vendorEvaluationPdfUrl}
+          label="Vendor Evaluation"
+          hint={`Supplier: ${order?.supplier?.name || order?.supplierName || '—'}`}
+          missingHint="Purchase Officer has not uploaded the Vendor Evaluation PDF."
+        />
+        <DocLink
+          href={order?.supplier?.supplierAssessmentPdfUrl}
+          label={`Supplier Assessment${order?.supplier?.assessmentFiscalYear ? ` (FY ${order.supplier.assessmentFiscalYear})` : ''}`}
+          hint={`Supplier: ${order?.supplier?.name || order?.supplierName || '—'}`}
+          missingHint="Purchase Officer has not uploaded the current-FY Supplier Assessment PDF."
         />
       </div>
     </div>
@@ -609,7 +645,6 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
   const [qtyRejected, setQtyRejected] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
   const [remarks, setRemarks] = useState('');
-  const [mirNo, setMirNo] = useState('');
   const [parameters, setParameters] = useState([{ name: '', expected: '', actual: '', passed: true }]);
   const [pendingReason, setPendingReason] = useState('');
   const [processing, setProcessing] = useState(false);
@@ -638,7 +673,6 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
       setQtyRejected(inspection.qtyRejected ?? '');
       setRejectionReason(inspection.rejectionReason || '');
       setRemarks(inspection.remarks || '');
-      setMirNo(inspection.mirNo || '');
       setParameters(
         Array.isArray(inspection.parameters) && inspection.parameters.length > 0
           ? inspection.parameters
@@ -683,7 +717,7 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
           pendingReason: pendingReason.trim(),
           // Persist any partial work QC has already done.
           parameters: parameters.filter(p => p.name.trim()),
-          reportNo: reportNo || undefined,
+          // reportNo is auto-generated at creation; QC does not edit it.
           reportDate: reportDate || undefined,
           materialDescription: materialDescription || undefined,
           materialCategory: materialCategory || undefined,
@@ -707,7 +741,6 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
       return;
     }
 
-    if (!reportNo.trim()) return alert('Report No. is required');
     const recNum = parseFloat(qtyReceived);
     const accNum = parseFloat(qtyAccepted);
     if (isNaN(recNum) || recNum <= 0) return alert('Qty Received is required');
@@ -725,7 +758,7 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
       await api.put(`/qc-inspections/${inspection.id}/result`, {
         result: resultValue,
         parameters: parameters.filter(p => p.name.trim()),
-        reportNo: reportNo || undefined,
+        // reportNo is auto-generated at creation; QC does not edit it.
         reportDate: reportDate || undefined,
         materialDescription: materialDescription || undefined,
         materialCategory: materialCategory || undefined,
@@ -745,7 +778,6 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
         qtyRejected: qtyRejected !== '' ? parseFloat(qtyRejected) : undefined,
         rejectionReason: rejectionReason || undefined,
         remarks: remarks || undefined,
-        mirNo: mirNo || undefined,
       });
       onClose();
       onUpdated();
@@ -766,9 +798,9 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
           <strong>Inward Inspection Report</strong> — Verify material, record dimensional inspection and submit result.
         </div>
 
-        <OrderInfoHeader order={order} inspection={inspection} />
+        <OrderInfoHeader order={order} inspection={inspection} qcView />
 
-        <InspectionDocsPanel order={order} inspection={inspection} />
+        <InspectionDocsPanel order={order} inspection={inspection} qcView />
 
         <PRSpecsPanel order={order} />
 
@@ -806,7 +838,7 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
                   {inspection.uploadedDocs.map((d, idx) => (
                     <a key={idx} href={d.url} target="_blank" rel="noreferrer"
                       className="text-blue-600 hover:underline inline-flex items-center gap-1">
-                      <Download size={11} /> {d.filename}
+                      <Eye size={11} /> {d.filename}
                     </a>
                   ))}
                 </span>
@@ -856,8 +888,13 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
         <div>
           <h4 className="text-sm font-semibold text-gray-700 mb-2">Inspection Report</h4>
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Report No. *" value={reportNo} onChange={(e) => setReportNo(e.target.value)}
-              placeholder="e.g., IIR-2024-001" />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Report No.</label>
+              <div className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-50 text-navy-700 font-mono font-bold">
+                {reportNo || '—'}
+              </div>
+              <p className="text-[10px] text-gray-500 mt-1">Auto-generated at inspection creation</p>
+            </div>
             <Input label="Report Date" type="date" value={reportDate}
               onChange={(e) => setReportDate(e.target.value)} />
           </div>
@@ -1055,8 +1092,13 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
         <div className="grid grid-cols-2 gap-3">
           <Input label="Remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)}
             placeholder="Additional remarks" />
-          <Input label="MIR No. (Store fills)" value={mirNo} onChange={(e) => setMirNo(e.target.value)}
-            placeholder="MIR number" />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">MIR No.</label>
+            <div className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-50 text-navy-700 font-mono font-bold">
+              {order?.mirNo || '—'}
+            </div>
+            <p className="text-[10px] text-gray-500 mt-1">Auto-generated at stores inward</p>
+          </div>
         </div>
 
         {/* On Hold reason (only required when placing on hold) */}
@@ -1184,7 +1226,7 @@ function HoldActionModal({ inspection, onClose, onActioned }) {
                 <li key={idx}>
                   <a href={d.url} target="_blank" rel="noreferrer"
                     className="text-blue-600 hover:underline inline-flex items-center gap-1">
-                    <Download size={11} /> {d.filename}
+                    <Eye size={11} /> {d.filename}
                   </a>
                 </li>
               ))}
@@ -1314,7 +1356,7 @@ function ViewInspectionModal({ inspection, onClose }) {
                   {inspection.uploadedDocs.map((d, idx) => (
                     <a key={idx} href={d.url} target="_blank" rel="noreferrer"
                       className="text-blue-600 hover:underline inline-flex items-center gap-1">
-                      <Download size={11} /> {d.filename}
+                      <Eye size={11} /> {d.filename}
                     </a>
                   ))}
                 </span>
@@ -1347,7 +1389,7 @@ function ViewInspectionModal({ inspection, onClose }) {
               <div><span className="text-gray-500">Qty Received:</span> <span>{inspection.qtyReceived ?? '—'}</span></div>
               <div><span className="text-gray-500">Qty Accepted:</span> <span>{inspection.qtyAccepted ?? '—'}</span></div>
               <div><span className="text-gray-500">Qty Rejected:</span> <span>{inspection.qtyRejected ?? '—'}</span></div>
-              <div><span className="text-gray-500">MIR No.:</span> <span>{inspection.mirNo || '—'}</span></div>
+              <div><span className="text-gray-500">MIR No.:</span> <span className="font-mono">{inspection.purchaseOrder?.mirNo || inspection.mirNo || '—'}</span></div>
               {inspection.rejectionReason && (
                 <div className="col-span-3"><span className="text-gray-500">Rejection Reason:</span> <span>{inspection.rejectionReason}</span></div>
               )}

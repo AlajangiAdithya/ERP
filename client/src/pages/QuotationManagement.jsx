@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Send, CheckCircle, Trash2, Eye, FileText, X, Layers, Paperclip, Download, RefreshCw } from 'lucide-react';
+import { Plus, Send, CheckCircle, Trash2, Eye, FileText, X, Layers, Paperclip, RefreshCw, AlertCircle, PauseCircle } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -20,6 +20,8 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
   const [items, setItems] = useState([]);
   const [saving, setSaving] = useState(false);
   const [quotationPdf, setQuotationPdf] = useState(null);
+  const [complianceIssues, setComplianceIssues] = useState([]);
+  const [complianceFY, setComplianceFY] = useState('');
   // history[productKey] = [{ supplierId, supplierName, supplierContact, supplierAddress, lastUnitPrice, lastDate, timesUsed, wasSelected }]
   const [history, setHistory] = useState({});
   // Common supplier fields applied across all rows on demand
@@ -174,6 +176,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     }
 
     setSaving(true);
+    setComplianceIssues([]);
     try {
       const payload = {
         purchaseRequestId: purchaseRequest.id,
@@ -202,7 +205,13 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
       onClose();
       onCreated();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create quotation');
+      const issues = err.response?.data?.complianceIssues;
+      if (Array.isArray(issues) && issues.length > 0) {
+        setComplianceIssues(issues);
+        setComplianceFY(err.response?.data?.currentFinancialYear || '');
+      } else {
+        alert(err.response?.data?.error || 'Failed to create quotation');
+      }
     }
     setSaving(false);
   };
@@ -218,6 +227,35 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
         <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
           For each product below, choose <strong>Existing supplier</strong> (dropdown of past suppliers for that product, with last price) or <strong>New supplier</strong> (type a name). Last unit price is pre-filled — edit before submitting.
         </div>
+
+        {complianceIssues.length > 0 && (
+          <div className="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-900">
+            <p className="font-semibold mb-1">Supplier compliance documents required{complianceFY ? ` for FY ${complianceFY}` : ''}</p>
+            <ul className="list-disc pl-5 space-y-0.5 text-xs">
+              {complianceIssues.map((iss) => (
+                <li key={iss.supplierId}>
+                  <strong>{iss.supplierName}</strong>
+                  {' '}— missing{' '}
+                  {iss.missing.map((m, idx) => (
+                    <span key={m}>
+                      {idx > 0 ? ', ' : ''}
+                      {m === 'vendor-evaluation' ? 'Vendor Evaluation PDF' : `Supplier Assessment PDF (FY ${complianceFY})`}
+                    </span>
+                  ))}
+                </li>
+              ))}
+            </ul>
+            <a
+              href="/suppliers"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block mt-2 text-xs font-semibold text-red-900 underline hover:text-red-700"
+            >
+              Open Suppliers page to upload PDFs →
+            </a>
+            <p className="text-[11px] text-red-700 mt-1">After uploading, click "Submit Quotation" again.</p>
+          </div>
+        )}
 
         {/* Same-supplier quick fill — one click sets the supplier on every row */}
         <div className="border border-blue-200 bg-blue-50/40 rounded-md p-3">
@@ -422,6 +460,8 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [quotationPdf, setQuotationPdf] = useState(null);
+  const [complianceIssues, setComplianceIssues] = useState([]);
+  const [complianceFY, setComplianceFY] = useState('');
 
   useEffect(() => {
     if (!isOpen || !purchaseRequests?.length) return;
@@ -515,6 +555,7 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
     }
 
     setSaving(true);
+    setComplianceIssues([]);
     try {
       const payload = {
         purchaseRequestIds: [...usedPRIds],
@@ -547,7 +588,13 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
       onClose();
       onCreated();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create union quotation');
+      const issues = err.response?.data?.complianceIssues;
+      if (Array.isArray(issues) && issues.length > 0) {
+        setComplianceIssues(issues);
+        setComplianceFY(err.response?.data?.currentFinancialYear || '');
+      } else {
+        alert(err.response?.data?.error || 'Failed to create union quotation');
+      }
     }
     setSaving(false);
   };
@@ -572,6 +619,34 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
             For each product group below, uncheck PR-items you don't want in the union. Lines with fewer than 2 PRs checked are skipped.
           </p>
         </div>
+
+        {complianceIssues.length > 0 && (
+          <div className="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-900">
+            <p className="font-semibold mb-1">Supplier compliance documents required{complianceFY ? ` for FY ${complianceFY}` : ''}</p>
+            <ul className="list-disc pl-5 space-y-0.5 text-xs">
+              {complianceIssues.map((iss) => (
+                <li key={iss.supplierId}>
+                  <strong>{iss.supplierName}</strong>
+                  {' '}— missing{' '}
+                  {iss.missing.map((m, idx) => (
+                    <span key={m}>
+                      {idx > 0 ? ', ' : ''}
+                      {m === 'vendor-evaluation' ? 'Vendor Evaluation PDF' : `Supplier Assessment PDF (FY ${complianceFY})`}
+                    </span>
+                  ))}
+                </li>
+              ))}
+            </ul>
+            <a
+              href="/suppliers"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block mt-2 text-xs font-semibold text-red-900 underline hover:text-red-700"
+            >
+              Open Suppliers page to upload PDFs →
+            </a>
+          </div>
+        )}
 
         {unionLines.length === 0 ? (
           <p className="text-center text-gray-400 py-6">No items found in the selected PRs.</p>
@@ -735,21 +810,205 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
   );
 }
 
+// Aggregate unique suppliers across a quotation's items and return their
+// compliance status (Vendor Evaluation + current-FY Supplier Assessment).
+// Admins must be able to view both PDFs before approving.
+function buildSupplierCompliance(quotation, currentFY) {
+  const map = new Map();
+  for (const it of quotation.items || []) {
+    const s = it.supplier;
+    if (!s?.id) {
+      // Item with no resolved supplier — flag separately so admin notices.
+      const key = `name:${(it.supplierName || '').toLowerCase().trim() || 'unknown'}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          supplierId: null,
+          supplierName: it.supplierName || 'Unknown supplier',
+          vendorEvaluationPdfUrl: null,
+          supplierAssessmentPdfUrl: null,
+          assessmentFiscalYear: null,
+        });
+      }
+      continue;
+    }
+    if (!map.has(s.id)) map.set(s.id, { ...s });
+  }
+  return [...map.values()].map(s => {
+    const hasEval = !!s.vendorEvaluationPdfUrl;
+    const hasAssessment = !!s.supplierAssessmentPdfUrl && s.assessmentFiscalYear === currentFY;
+    return { ...s, hasEval, hasAssessment, compliant: hasEval && hasAssessment };
+  });
+}
+
+function SupplierComplianceStrip({ quotation, currentFY }) {
+  const suppliers = buildSupplierCompliance(quotation, currentFY);
+  if (suppliers.length === 0) return null;
+  const allCompliant = suppliers.every(s => s.compliant);
+  return (
+    <div className={`mt-3 border rounded p-2 text-xs ${allCompliant ? 'border-green-200 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
+      <div className="flex items-center gap-1 font-semibold mb-1">
+        {allCompliant ? <CheckCircle size={12} className="text-green-700" /> : <AlertCircle size={12} className="text-amber-700" />}
+        <span className={allCompliant ? 'text-green-800' : 'text-amber-900'}>
+          Supplier compliance {allCompliant ? '— all documents on file' : `— action required (FY ${currentFY})`}
+        </span>
+      </div>
+      <ul className="space-y-1.5">
+        {suppliers.map((s, idx) => (
+          <li key={s.supplierId || idx} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="font-medium text-gray-800">{s.supplierName}</span>
+            {s.vendorEvaluationPdfUrl ? (
+              <a
+                href={s.vendorEvaluationPdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-blue-700 hover:underline"
+              >
+                <Eye size={11} /> View Vendor Evaluation
+              </a>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-red-700">
+                <AlertCircle size={11} /> Vendor Evaluation missing
+              </span>
+            )}
+            {s.hasAssessment ? (
+              <a
+                href={s.supplierAssessmentPdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-blue-700 hover:underline"
+              >
+                <Eye size={11} /> View Assessment (FY {s.assessmentFiscalYear})
+              </a>
+            ) : s.supplierAssessmentPdfUrl ? (
+              <span className="inline-flex items-center gap-1 text-red-700">
+                <AlertCircle size={11} /> Assessment expired (FY {s.assessmentFiscalYear})
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-red-700">
+                <AlertCircle size={11} /> Assessment missing
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// Dialog: PO writes an optional note explaining what was fixed and resubmits
+// the held quotation. The server clears holdNote/heldAt and notifies approvers.
+function ResubmitQuotationModal({ quotation, onClose, onResubmitted }) {
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  if (!quotation) return null;
+  const submit = async () => {
+    setSaving(true);
+    try {
+      const payload = note.trim() ? { notes: note.trim() } : {};
+      await api.put(`/quotations/${quotation.id}/resubmit`, payload);
+      onResubmitted();
+      onClose();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to resubmit quotation');
+    }
+    setSaving(false);
+  };
+  return (
+    <Modal isOpen={!!quotation} onClose={onClose} title={`Resubmit ${quotation.quotationNumber}`} size="md">
+      <div className="space-y-3">
+        <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
+          <span className="font-semibold">Admin's hold reason:</span> {quotation.holdNote || '—'}
+        </div>
+        <p className="text-sm text-gray-700">
+          Confirm that the requested change is done (e.g. supplier compliance PDFs uploaded, item details fixed). Optionally leave a short note for admin. Resubmitting clears the hold and re-notifies approvers.
+        </p>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g. Uploaded Vendor Evaluation PDF for ABC Suppliers."
+          rows={3}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-navy-500"
+        />
+        <div className="flex justify-end gap-3 pt-1">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>
+            {saving ? 'Resubmitting…' : 'Resubmit & notify admin'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Dialog: admin writes a hold note that gets sent to the Purchase Officer.
+function HoldQuotationModal({ quotation, onClose, onHeld }) {
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  if (!quotation) return null;
+  const submit = async () => {
+    const trimmed = note.trim();
+    if (!trimmed) return alert('Please write the reason this quotation is on hold (e.g. which document the PO needs to attach).');
+    setSaving(true);
+    try {
+      await api.post(`/quotations/${quotation.id}/hold`, { holdNote: trimmed });
+      onHeld();
+      onClose();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to put quotation on hold');
+    }
+    setSaving(false);
+  };
+  return (
+    <Modal isOpen={!!quotation} onClose={onClose} title={`Hold ${quotation.quotationNumber}`} size="md">
+      <div className="space-y-3">
+        <p className="text-sm text-gray-700">
+          Send this quotation back to the Purchase Officer with a reason. The PO will be notified and can attach the required documents (Vendor Evaluation / Supplier Assessment) and resubmit for approval.
+        </p>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g. Vendor Evaluation PDF missing for supplier ABC. Please upload it on the Suppliers page and notify admin."
+          rows={4}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+        />
+        <div className="flex justify-end gap-3 pt-1">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={saving || !note.trim()}>
+            <PauseCircle size={16} className="mr-1" /> {saving ? 'Holding…' : 'Put on hold & notify PO'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── Review Quotations Modal (ADMIN approver only) ───
-function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover }) {
+function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover, isPO }) {
   const [quotations, setQuotations] = useState([]);
+  const [currentFY, setCurrentFY] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [selectionNote, setSelectionNote] = useState('');
+  const [resubmitTarget, setResubmitTarget] = useState(null);
+  const [holdTarget, setHoldTarget] = useState(null);
+
+  const reload = () => {
+    setLoading(true);
+    api.get('/quotations', { params: { purchaseRequestId: purchaseRequest.id, limit: 50 } })
+      .then(({ data }) => {
+        setQuotations((data.quotations || []).filter(q => !q.isUnion));
+        setCurrentFY(data.currentFinancialYear || '');
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
     if (purchaseRequest) {
-      setLoading(true);
-      api.get('/quotations', { params: { purchaseRequestId: purchaseRequest.id, limit: 50 } })
-        .then(({ data }) => setQuotations((data.quotations || []).filter(q => !q.isUnion)))
-        .catch(console.error)
-        .finally(() => setLoading(false));
+      reload();
       setSelectedId(null);
       setSelectionNote('');
     }
@@ -776,10 +1035,13 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
   const selectedSuppliers = selectedQuotation
     ? [...new Set(selectedQuotation.items.map(i => (i.supplierName || '').trim().toLowerCase()).filter(Boolean))]
     : [];
+  const selectedCompliance = selectedQuotation ? buildSupplierCompliance(selectedQuotation, currentFY) : [];
+  const selectedCompliant = selectedCompliance.length === 0 || selectedCompliance.every(s => s.compliant);
 
   if (!purchaseRequest) return null;
 
   return (
+    <>
     <Modal isOpen={!!purchaseRequest} onClose={onClose} title={`Review Quotations — ${purchaseRequest.requestNumber}`} size="xl">
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-md p-4">
@@ -833,7 +1095,7 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
                           onClick={(e) => e.stopPropagation()}
                           className="inline-flex items-center gap-1 mt-1 text-xs text-blue-600 hover:text-blue-800 underline"
                         >
-                          <Download size={12} /> Supplier quotation PDF
+                          <Eye size={12} /> View supplier quotation PDF
                         </a>
                       )}
                       {q.selectionNote && (
@@ -841,13 +1103,40 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
                           <span className="font-semibold">Admin note: </span>{q.selectionNote}
                         </div>
                       )}
+                      {q.holdNote && !q.isSelected && (
+                        <div className="mt-2 bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-900">
+                          <div>
+                            <span className="font-semibold inline-flex items-center gap-1"><PauseCircle size={11} /> On hold: </span>
+                            {q.holdNote}
+                          </div>
+                          {isPO && q.heldAt && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setResubmitTarget(q); }}
+                              className="mt-1.5 inline-flex items-center gap-1 text-xs text-navy-700 hover:text-navy-900 border border-navy-300 hover:bg-navy-50 rounded px-2 py-1 bg-white"
+                            >
+                              Edit & Resubmit
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="text-lg font-bold text-navy-700">{formatCurrency(q.totalAmount)}</p>
                       <p className="text-xs text-gray-400">by {q.createdBy?.name}</p>
+                      {isApprover && !q.isSelected && !q.heldAt && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setHoldTarget(q); }}
+                          className="mt-2 inline-flex items-center gap-1 text-xs text-amber-800 hover:text-amber-900 border border-amber-300 hover:bg-amber-50 rounded px-2 py-1"
+                        >
+                          <PauseCircle size={12} /> Put on hold
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className="overflow-x-auto border rounded-md">
+                  <SupplierComplianceStrip quotation={q} currentFY={currentFY} />
+                  <div className="overflow-x-auto border rounded-md mt-2">
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50">
                         <tr className="border-b">
@@ -931,9 +1220,25 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
               )}{' '}
               Purchase will then place the order(s) with accounting.
             </div>
+            {selectedId && !selectedCompliant && (
+              <div className="bg-amber-50 border border-amber-300 rounded-md p-3 text-xs text-amber-900 flex items-start gap-2">
+                <AlertCircle size={14} className="text-amber-700 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-semibold mb-0.5">Cannot approve — supplier compliance documents missing.</p>
+                  <p>Review the red items above. Put this quotation on hold so the Purchase Officer can upload the Vendor Evaluation / Supplier Assessment PDFs on the Suppliers page and resubmit.</p>
+                  <button
+                    type="button"
+                    onClick={() => setHoldTarget(selectedQuotation)}
+                    className="mt-1 inline-flex items-center gap-1 text-amber-900 font-semibold underline hover:text-amber-950"
+                  >
+                    <PauseCircle size={12} /> Put this quotation on hold
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="flex justify-end gap-3">
               <Button variant="secondary" onClick={onClose}>Cancel</Button>
-              <Button onClick={selectQuotation} disabled={processing || !selectedId || !selectionNote.trim()}>
+              <Button onClick={selectQuotation} disabled={processing || !selectedId || !selectionNote.trim() || !selectedCompliant}>
                 <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : `Approve & Create ${selectedSuppliers.length > 1 ? selectedSuppliers.length + ' Orders' : 'Order'}`}
               </Button>
             </div>
@@ -941,24 +1246,53 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
         )}
       </div>
     </Modal>
+    <HoldQuotationModal
+      quotation={holdTarget}
+      onClose={() => setHoldTarget(null)}
+      onHeld={() => { reload(); onUpdated(); }}
+    />
+    <ResubmitQuotationModal
+      quotation={resubmitTarget}
+      onClose={() => setResubmitTarget(null)}
+      onResubmitted={() => { reload(); onUpdated(); }}
+    />
+    </>
   );
 }
 
 // ─── Union Review Modal (ADMIN picks one from a competing-union batch) ───
-function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
+function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover, isPO }) {
   const [unions, setUnions] = useState([]);
+  const [currentFY, setCurrentFY] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [selectionNote, setSelectionNote] = useState('');
+  const [holdTarget, setHoldTarget] = useState(null);
+  const [resubmitTarget, setResubmitTarget] = useState(null);
+
+  const reload = () => {
+    if (!unionGroup) return;
+    setLoading(true);
+    const fyProbePr = unionGroup.prSet[0]?.id;
+    const tasks = [
+      Promise.all(unionGroup.unions.map(u => api.get(`/quotations/${u.id}`).then(r => r.data))),
+      fyProbePr
+        ? api.get('/quotations', { params: { purchaseRequestId: fyProbePr, limit: 1 } }).then(r => r.data.currentFinancialYear || '').catch(() => '')
+        : Promise.resolve(''),
+    ];
+    Promise.all(tasks)
+      .then(([fetchedUnions, fy]) => {
+        setUnions(fetchedUnions);
+        setCurrentFY(fy);
+      })
+      .catch((err) => { console.error(err); setUnions([]); })
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
     if (!unionGroup) return;
-    setLoading(true);
-    Promise.all(unionGroup.unions.map(u => api.get(`/quotations/${u.id}`).then(r => r.data)))
-      .then(setUnions)
-      .catch((err) => { console.error(err); setUnions([]); })
-      .finally(() => setLoading(false));
+    reload();
     setSelectedId(null);
     setSelectionNote('');
   }, [unionGroup]);
@@ -978,9 +1312,14 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
     setProcessing(false);
   };
 
+  const selectedUnion = unions.find(q => q.id === selectedId);
+  const selectedCompliance = selectedUnion ? buildSupplierCompliance(selectedUnion, currentFY) : [];
+  const selectedCompliant = selectedCompliance.length === 0 || selectedCompliance.every(s => s.compliant);
+
   if (!unionGroup) return null;
 
   return (
+    <>
     <Modal isOpen={!!unionGroup} onClose={onClose} title={`Review Union Quotations (${unionGroup.unions.length} competing)`} size="xl">
       <div className="space-y-4">
         <div className="bg-purple-50 border border-purple-200 rounded-md p-3">
@@ -1033,7 +1372,7 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
                           onClick={(e) => e.stopPropagation()}
                           className="inline-flex items-center gap-1 mt-1 text-xs text-blue-600 hover:text-blue-800 underline"
                         >
-                          <Download size={12} /> Supplier quotation PDF
+                          <Eye size={12} /> View supplier quotation PDF
                         </a>
                       )}
                       {q.selectionNote && (
@@ -1041,13 +1380,40 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
                           <span className="font-semibold">Admin note: </span>{q.selectionNote}
                         </div>
                       )}
+                      {q.holdNote && !q.isSelected && (
+                        <div className="mt-2 bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-900">
+                          <div>
+                            <span className="font-semibold inline-flex items-center gap-1"><PauseCircle size={11} /> On hold: </span>
+                            {q.holdNote}
+                          </div>
+                          {isPO && q.heldAt && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setResubmitTarget(q); }}
+                              className="mt-1.5 inline-flex items-center gap-1 text-xs text-navy-700 hover:text-navy-900 border border-navy-300 hover:bg-navy-50 rounded px-2 py-1 bg-white"
+                            >
+                              Edit & Resubmit
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="text-lg font-bold text-purple-700">{formatCurrency(q.totalAmount)}</p>
                       <p className="text-xs text-gray-400">by {q.createdBy?.name}</p>
+                      {isApprover && !q.isSelected && !q.heldAt && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setHoldTarget(q); }}
+                          className="mt-2 inline-flex items-center gap-1 text-xs text-amber-800 hover:text-amber-900 border border-amber-300 hover:bg-amber-50 rounded px-2 py-1"
+                        >
+                          <PauseCircle size={12} /> Put on hold
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className="overflow-x-auto border rounded-md">
+                  <SupplierComplianceStrip quotation={q} currentFY={currentFY} />
+                  <div className="overflow-x-auto border rounded-md mt-2">
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50">
                         <tr className="border-b">
@@ -1153,9 +1519,25 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
             <div className="text-xs text-gray-500">
               Approving will create one union Purchase Order per supplier across the {unionGroup.prSet.length} source PRs. The unselected competing unions will be skipped.
             </div>
+            {selectedId && !selectedCompliant && (
+              <div className="bg-amber-50 border border-amber-300 rounded-md p-3 text-xs text-amber-900 flex items-start gap-2">
+                <AlertCircle size={14} className="text-amber-700 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-semibold mb-0.5">Cannot approve — supplier compliance documents missing.</p>
+                  <p>Review the red items above. Put this union quotation on hold so the Purchase Officer can upload the Vendor Evaluation / Supplier Assessment PDFs on the Suppliers page and resubmit.</p>
+                  <button
+                    type="button"
+                    onClick={() => setHoldTarget(selectedUnion)}
+                    className="mt-1 inline-flex items-center gap-1 text-amber-900 font-semibold underline hover:text-amber-950"
+                  >
+                    <PauseCircle size={12} /> Put this union quotation on hold
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="flex justify-end gap-3">
               <Button variant="secondary" onClick={onClose}>Cancel</Button>
-              <Button onClick={selectQuotation} disabled={processing || !selectedId || !selectionNote.trim()}>
+              <Button onClick={selectQuotation} disabled={processing || !selectedId || !selectionNote.trim() || !selectedCompliant}>
                 <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Approve Union & Create POs'}
               </Button>
             </div>
@@ -1163,6 +1545,17 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover }) {
         )}
       </div>
     </Modal>
+    <HoldQuotationModal
+      quotation={holdTarget}
+      onClose={() => setHoldTarget(null)}
+      onHeld={() => { reload(); onUpdated(); }}
+    />
+    <ResubmitQuotationModal
+      quotation={resubmitTarget}
+      onClose={() => setResubmitTarget(null)}
+      onResubmitted={() => { reload(); onUpdated(); }}
+    />
+    </>
   );
 }
 
@@ -1525,12 +1918,14 @@ export default function QuotationManagement() {
         onClose={() => setReviewPR(null)}
         onUpdated={fetchData}
         isApprover={isApprover}
+        isPO={isPO}
       />
       <UnionReviewModal
         unionGroup={reviewUnionGroup}
         onClose={() => setReviewUnionGroup(null)}
         onUpdated={fetchData}
         isApprover={isApprover}
+        isPO={isPO}
       />
       <CreateUnionQuotationModal
         isOpen={showUnionModal}

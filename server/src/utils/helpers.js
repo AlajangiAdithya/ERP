@@ -49,6 +49,7 @@ const DOC_NUMBER_MAP = {
   ION: { model: 'interOfficeNote',          field: 'ionNumber' },
   QT:  { model: 'quotation',                field: 'quotationNumber' },
   QC:  { model: 'qCInspection',             field: 'inspectionNumber' },
+  IR:  { model: 'qCInspection',             field: 'reportNo' },
   PAY: { model: 'paymentRequest',           field: 'paymentNumber' },
   TRF: { model: 'inventoryTransferRequest', field: 'transferNumber' },
   TND: { model: 'tender',                   field: 'tenderNumber' },

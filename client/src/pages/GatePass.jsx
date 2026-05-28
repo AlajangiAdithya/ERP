@@ -607,7 +607,7 @@ function DetailModal({ gatePass: initial, onClose, onAction }) {
             <DownloadPdfButton
               document={<GatePassPdf data={g} />}
               fileName={`${g.passNumber}.pdf`}
-              label="Download Gate Pass PDF"
+              label="View Gate Pass PDF"
             />
           )}
         </div>

@@ -67,7 +67,7 @@ export default function StockMovements() {
             <DownloadPdfButton
               document={<StockStatementPdf movements={exportList} filters={{ fromDate, toDate, typeFilter }} />}
               fileName={`stock-statement-${new Date().toISOString().slice(0, 10)}.pdf`}
-              label={`Download (${exportList.length})`}
+              label={`View (${exportList.length})`}
             />
           )}
           {exportList.length > 0 && (

@@ -56,6 +56,22 @@ const itemStatusLabel = (s) => ({
   CANCELLED: 'Cancelled',
 }[s] || s);
 
+const quotationStatusColor = (s) => ({
+  AWAITING_QUOTATION: 'gray',
+  QUOTATION_SUBMITTED: 'yellow',
+  QUOTATION_HELD: 'red',
+  QUOTATION_APPROVED: 'green',
+  CANCELLED: 'red',
+}[s] || 'gray');
+
+const quotationStatusLabel = (s) => ({
+  AWAITING_QUOTATION: 'Quotation not sent yet',
+  QUOTATION_SUBMITTED: 'Quotation submitted — pending admin',
+  QUOTATION_HELD: 'On hold by admin',
+  QUOTATION_APPROVED: 'Approved',
+  CANCELLED: 'Cancelled',
+}[s] || s);
+
 // ─── Manager: Create New Request (paper-table format) ───
 function CreateRequestModal({ isOpen, onClose, onCreated }) {
   const { user } = useAuth();
@@ -138,7 +154,7 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
     setSaving(false);
   };
 
-  const unitOptions = ['kg', 'litre', 'pcs', 'meter', 'ton', 'box', 'drum', 'bag', 'roll', 'set'];
+  const unitOptions = ['kg', 'litre', 'pcs', 'meter', 'Sq. mtr', 'ton', 'box', 'drum', 'bag', 'roll', 'set'];
   const today = new Date().toISOString().split('T')[0];
 
   // Paper-form cell styles
@@ -573,7 +589,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
           <DownloadPdfButton
             document={<PRPdf request={request} />}
             fileName={`PR-${request.requestNumber}.pdf`}
-            label="Download PR PDF"
+            label="View PR PDF"
           />
           {isPending && (
             <div className="flex gap-3">
@@ -829,13 +845,29 @@ function DetailModal({ request, onClose }) {
         <ProcurementJourney request={request} />
 
         <div>
-          <h4 className="text-sm font-semibold text-gray-700 mb-2">Items & Procurement Status</h4>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-gray-700">Items & Procurement Status</h4>
+            {request.coverageSummary && request.coverageSummary.total > 0 && (() => {
+              const c = request.coverageSummary;
+              const covered = c.approved;
+              return (
+                <div className="text-xs text-gray-600">
+                  <span className="font-semibold text-gray-800">{covered} of {c.total}</span> materials covered
+                  {c.awaiting > 0 && <span className="text-gray-500"> · {c.awaiting} awaiting quotation</span>}
+                  {c.submitted > 0 && <span className="text-yellow-700"> · {c.submitted} pending admin</span>}
+                  {c.held > 0 && <span className="text-red-700"> · {c.held} on hold</span>}
+                  {c.cancelled > 0 && <span className="text-gray-500"> · {c.cancelled} cancelled</span>}
+                </div>
+              );
+            })()}
+          </div>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b">
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Quotation</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Item Status</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purchased</th>
               </tr>
@@ -879,6 +911,13 @@ function DetailModal({ request, onClose }) {
                       {item.adminApprovedQty != null ? `${item.adminApprovedQty} ${item.productUnit}` : '—'}
                     </td>
                     <td className="px-3 py-2">
+                      {item.itemQuotationStatus ? (
+                        <Badge color={quotationStatusColor(item.itemQuotationStatus)}>{quotationStatusLabel(item.itemQuotationStatus)}</Badge>
+                      ) : (
+                        <span className="text-gray-400 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
                       {item.itemStatus ? (
                         <Badge color={itemStatusColor(item.itemStatus)}>{itemStatusLabel(item.itemStatus)}</Badge>
                       ) : (
@@ -897,7 +936,7 @@ function DetailModal({ request, onClose }) {
           <DownloadPdfButton
             document={<PRPdf request={request} />}
             fileName={`PR-${request.requestNumber}.pdf`}
-            label="Download PR PDF"
+            label="View PR PDF"
           />
         </div>
       </div>

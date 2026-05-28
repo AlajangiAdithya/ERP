@@ -7,6 +7,7 @@ const {
   generateSequentialNumber, generateProductSku, normalizeMaterialType,
   paginate, applyDateFilter, isUniqueViolation,
 } = require('../utils/helpers');
+const { buildCoverageSummary } = require('../utils/prClosure');
 
 const router = express.Router();
 
@@ -141,8 +142,13 @@ router.get('/', authenticate, async (req, res) => {
       prisma.purchaseRequest.count({ where }),
     ]);
 
+    const requestsWithCoverage = requests.map(r => ({
+      ...r,
+      coverageSummary: buildCoverageSummary(r.items),
+    }));
+
     res.json({
-      requests,
+      requests: requestsWithCoverage,
       total,
       page: Math.ceil(skip / take) + 1,
       totalPages: Math.ceil(total / take),
@@ -193,6 +199,66 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
     res.json({ prCount, poCount, prSamples, poSamples });
   } catch (error) {
     console.error('In-progress summary error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/purchase-requests/unit-dashboard — Unit-scoped PR/PO/MIV stats for the current user's unit
+router.get('/unit-dashboard', authenticate, async (req, res) => {
+  try {
+    const unitId = req.user.unitId;
+    if (!unitId) {
+      return res.json({
+        miv: { total: 0, pending: 0, approved: 0, active: 0 },
+        pr: { total: 0, pending: 0, active: 0, completed: 0 },
+        po: { total: 0, active: 0, completed: 0 },
+      });
+    }
+
+    const poUnitWhere = {
+      OR: [
+        { purchaseRequest: { unitId } },
+        { sourceRequests: { some: { purchaseRequest: { unitId } } } },
+      ],
+    };
+
+    const [
+      mivTotal, mivPending, mivApproved,
+      prTotal, prPending, prCompleted, prRejected,
+      poTotal, poCompleted,
+    ] = await Promise.all([
+      prisma.productRequest.count({ where: { unitId } }),
+      prisma.productRequest.count({ where: { unitId, status: 'PENDING' } }),
+      prisma.productRequest.count({ where: { unitId, status: 'APPROVED' } }),
+      prisma.purchaseRequest.count({ where: { unitId } }),
+      prisma.purchaseRequest.count({ where: { unitId, status: 'PENDING_ADMIN' } }),
+      prisma.purchaseRequest.count({ where: { unitId, status: 'COMPLETED' } }),
+      prisma.purchaseRequest.count({ where: { unitId, status: 'REJECTED' } }),
+      prisma.purchaseOrder.count({ where: poUnitWhere }),
+      prisma.purchaseOrder.count({ where: { ...poUnitWhere, status: 'COMPLETED' } }),
+    ]);
+
+    res.json({
+      miv: {
+        total: mivTotal,
+        pending: mivPending,
+        approved: mivApproved,
+        active: mivPending + mivApproved,
+      },
+      pr: {
+        total: prTotal,
+        pending: prPending,
+        active: Math.max(0, prTotal - prCompleted - prRejected),
+        completed: prCompleted,
+      },
+      po: {
+        total: poTotal,
+        active: Math.max(0, poTotal - poCompleted),
+        completed: poCompleted,
+      },
+    });
+  } catch (error) {
+    console.error('Unit dashboard error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -352,7 +418,8 @@ router.get('/:id', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    res.json(request);
+    const coverageSummary = buildCoverageSummary(request.items);
+    res.json({ ...request, coverageSummary });
   } catch (error) {
     console.error('Get purchase request error:', error);
     res.status(500).json({ error: 'Internal server error' });

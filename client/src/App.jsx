@@ -17,6 +17,7 @@ import UnitUsageLogs from './pages/UnitUsageLogs';
 import Notifications from './pages/Notifications';
 import PurchaseRequests from './pages/PurchaseRequests';
 import QuotationManagement from './pages/QuotationManagement';
+import Suppliers from './pages/Suppliers';
 import PurchaseOrders from './pages/PurchaseOrders';
 import PaymentRequests from './pages/PaymentRequests';
 import QCInspections from './pages/QCInspections';
@@ -96,6 +97,11 @@ export default function App() {
               {/* Quotation Management — PO submits, ADMIN approves (no accounting tier) */}
               <Route path="/quotations" element={
                 <PrivateRoute allowedRoles={['PURCHASE_OFFICER', 'ADMIN', 'SUPPLY_CHAIN', 'SAFETY']}><QuotationManagement /></PrivateRoute>
+              } />
+
+              {/* Suppliers — PO manages compliance PDFs; Admin + Safety can view */}
+              <Route path="/suppliers" element={
+                <PrivateRoute allowedRoles={['PURCHASE_OFFICER', 'ADMIN', 'SAFETY']}><Suppliers /></PrivateRoute>
               } />
 
               {/* Purchase Orders */}

@@ -435,7 +435,7 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
           <DownloadPdfButton
             document={<IONPdf data={n} />}
             fileName={`${n.ionNumber}.pdf`}
-            label="Download ION PDF"
+            label="View ION PDF"
           />
         </div>
 

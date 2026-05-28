@@ -25,7 +25,7 @@ const productSchema = z.object({
 // GET /api/products
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { search, category, page, limit, includeUnitStock } = req.query;
+    const { search, category, page, limit, includeUnitStock, includeMir } = req.query;
 
     const where = { isActive: true };
     if (search) {
@@ -37,13 +37,41 @@ router.get('/', authenticate, async (req, res) => {
     if (category) where.category = category;
 
     const wantUnitStock = includeUnitStock === 'true' || includeUnitStock === '1';
+    const wantMir = includeMir === 'true' || includeMir === '1';
+
+    // Listing the MIRs each product has come in under requires walking the
+    // ProductBatch → QCInspection → PurchaseOrder.mirNo chain. We surface
+    // the most recent few so the products table stays light.
+    const batchInclude = wantMir
+      ? {
+          batches: {
+            where: { sourceQcInspectionId: { not: null } },
+            orderBy: { receivedDate: 'desc' },
+            take: 5,
+            select: {
+              id: true, batchNo: true, receivedDate: true, quantity: true, remaining: true,
+              sourceQcInspection: {
+                select: {
+                  id: true, inspectionNumber: true,
+                  purchaseOrder: { select: { id: true, orderNumber: true, mirNo: true, inwardedAt: true } },
+                },
+              },
+            },
+          },
+        }
+      : null;
+
+    const include = {
+      ...(wantUnitStock ? { unitStocks: { include: { unit: { select: { id: true, name: true, code: true } } } } } : {}),
+      ...(batchInclude || {}),
+    };
 
     // Support limit=all to bypass pagination (for product selection dropdowns)
     if (limit === 'all') {
       const products = await prisma.product.findMany({
         where,
         orderBy: { name: 'asc' },
-        include: wantUnitStock ? { unitStocks: { include: { unit: { select: { id: true, name: true, code: true } } } } } : undefined,
+        include: Object.keys(include).length ? include : undefined,
       });
       return res.json({ products, total: products.length, page: 1, totalPages: 1 });
     }
@@ -56,7 +84,7 @@ router.get('/', authenticate, async (req, res) => {
         orderBy: { createdAt: 'desc' },
         skip,
         take,
-        include: wantUnitStock ? { unitStocks: { include: { unit: { select: { id: true, name: true, code: true } } } } } : undefined,
+        include: Object.keys(include).length ? include : undefined,
       }),
       prisma.product.count({ where }),
     ]);

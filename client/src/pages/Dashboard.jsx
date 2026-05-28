@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, Users, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText } from 'lucide-react';
+import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -238,8 +238,15 @@ function AdminDashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard title="Total Products" value={stats.totalProducts} icon={Package} color="navy" onClick={() => navigate('/products')} />
         <StatsCard title="Low Stock Alerts" value={stats.lowStockAlerts} icon={AlertTriangle} color="red" onClick={openLowStockModal} />
-        <StatsCard title="Active Users" value={stats.totalUsers} icon={Users} color="green" onClick={() => navigate('/management')} />
-        <StatsCard title="Pending Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" onClick={() => navigate('/all-requests')} />
+        <StatsCard
+          title="Purchase Requests"
+          value={prStats ? `${(prStats.pendingAdmin || 0) + (prStats.inProgress || 0)} / ${prStats.total || 0}` : '— / —'}
+          subtitle="Active / Total"
+          icon={ShoppingCart}
+          color="blue"
+          onClick={() => navigate('/purchase-requests')}
+        />
+        <StatsCard title="Pending MIV Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" onClick={() => navigate('/all-requests')} />
       </div>
 
       {/* Purchase Request Stats */}
@@ -283,7 +290,6 @@ function AdminDashboard() {
               <tr className="border-b">
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Code</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Users</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requests</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items Consumed</th>
               </tr>
@@ -293,13 +299,12 @@ function AdminDashboard() {
                 <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50">
                   <td className="px-3 py-2 font-medium text-gray-700">{u.name}</td>
                   <td className="px-3 py-2"><Badge color="blue">{u.code}</Badge></td>
-                  <td className="px-3 py-2 text-gray-600">{u.totalUsers}</td>
                   <td className="px-3 py-2 text-gray-600">{u.totalRequests}</td>
                   <td className="px-3 py-2 text-gray-600">{u.totalItemsConsumed}</td>
                 </tr>
               ))}
               {unitSummary.length === 0 && (
-                <tr><td colSpan={5} className="px-3 py-4 text-center text-gray-400">No units found</td></tr>
+                <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400">No units found</td></tr>
               )}
             </tbody>
           </table>
@@ -398,9 +403,12 @@ function ManagerDashboard() {
   const [products, setProducts] = useState([]);
   const [totalProducts, setTotalProducts] = useState(0);
   const [requests, setRequests] = useState([]);
-  const [requestCounts, setRequestCounts] = useState({ pending: 0, approved: 0 });
   const [purchaseRequests, setPurchaseRequests] = useState([]);
-  const [prInProgressCount, setPrInProgressCount] = useState(0);
+  const [unitStats, setUnitStats] = useState({
+    miv: { total: 0, pending: 0, approved: 0, active: 0 },
+    pr: { total: 0, pending: 0, active: 0, completed: 0 },
+    po: { total: 0, active: 0, completed: 0 },
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -409,30 +417,22 @@ function ManagerDashboard() {
       const results = await Promise.allSettled([
         api.get('/products', { params: { limit: 50 } }),
         api.get('/requests', { params: { limit: 10 } }),
-        api.get('/requests', { params: { status: 'PENDING', limit: 1 } }),
-        api.get('/requests', { params: { status: 'APPROVED', limit: 1 } }),
         api.get('/purchase-requests', { params: { limit: 20 } }),
+        api.get('/purchase-requests/unit-dashboard'),
       ]);
 
       if (cancelled) return;
 
-      const [prodRes, reqRes, pendingRes, approvedRes, prRes] = results;
+      const [prodRes, reqRes, prRes, unitRes] = results;
       if (prodRes.status === 'fulfilled') {
         setProducts(prodRes.value.data.products || []);
         setTotalProducts(prodRes.value.data.total || 0);
       }
       if (reqRes.status === 'fulfilled') setRequests(reqRes.value.data.requests || []);
-      if (pendingRes.status === 'fulfilled' && approvedRes.status === 'fulfilled') {
-        setRequestCounts({
-          pending: pendingRes.value.data.total || 0,
-          approved: approvedRes.value.data.total || 0,
-        });
-      }
       if (prRes.status === 'fulfilled') {
-        const reqs = prRes.value.data.requests || [];
-        setPurchaseRequests(reqs);
-        setPrInProgressCount(reqs.filter(r => ['APPROVED', 'IN_PROGRESS'].includes(r.status)).length);
+        setPurchaseRequests(prRes.value.data.requests || []);
       }
+      if (unitRes.status === 'fulfilled') setUnitStats(unitRes.value.data);
       setLoading(false);
     };
     load();
@@ -460,10 +460,38 @@ function ManagerDashboard() {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard title="Available Products" value={totalProducts} icon={Package} color="navy" onClick={() => navigate('/products')} />
-        <StatsCard title="MIV Pending" value={requestCounts.pending} icon={ClipboardList} color="yellow" onClick={() => navigate('/my-requests')} />
-        <StatsCard title="Ready to Collect" value={requestCounts.approved} icon={Activity} color="green" onClick={() => navigate('/my-requests')} />
-        <StatsCard title="Purchase In Progress" value={prInProgressCount} icon={ShoppingCart} color="blue" onClick={() => navigate('/purchase-requests')} />
+        <StatsCard
+          title="Available Products"
+          value={totalProducts}
+          subtitle="In catalog"
+          icon={Package}
+          color="navy"
+          onClick={() => navigate('/products')}
+        />
+        <StatsCard
+          title="MIV Requests"
+          value={`${unitStats.miv.pending} / ${unitStats.miv.total}`}
+          subtitle="Pending / Total (unit)"
+          icon={ClipboardList}
+          color="yellow"
+          onClick={() => navigate('/my-requests')}
+        />
+        <StatsCard
+          title="Purchase Requests"
+          value={`${unitStats.pr.active} / ${unitStats.pr.total}`}
+          subtitle="Active / Total (unit)"
+          icon={ShoppingCart}
+          color="blue"
+          onClick={() => navigate('/purchase-requests')}
+        />
+        <StatsCard
+          title="Purchase Orders"
+          value={`${unitStats.po.active} / ${unitStats.po.total}`}
+          subtitle="Active / Total (unit)"
+          icon={TrendingUp}
+          color="green"
+          onClick={() => navigate('/purchase-orders')}
+        />
       </div>
 
       {/* Purchase Request Progress */}
@@ -657,7 +685,14 @@ function StoreManagerDashboard() {
         <StatsCard title="Total Products" value={stats.totalProducts} icon={Package} color="navy" onClick={() => navigate('/products')} />
         <StatsCard title="Low Stock Items" value={stats.lowStockAlerts} icon={AlertTriangle} color="red" onClick={() => setLowStockModal(true)} />
         <StatsCard title="Pending Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" onClick={() => navigate('/request-clearance')} />
-        <StatsCard title="Active Users" value={stats.totalUsers} icon={Users} color="green" />
+        <StatsCard
+          title="Out of Stock"
+          value={lowStock.filter(p => Number(p.currentStock) === 0).length}
+          subtitle="Items at zero stock"
+          icon={AlertTriangle}
+          color="red"
+          onClick={() => setLowStockModal(true)}
+        />
       </div>
 
       {/* Pending Requests */}

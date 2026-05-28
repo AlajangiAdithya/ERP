@@ -3,9 +3,10 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateSequentialNumber, paginate, isUniqueViolation, withDocRetry } = require('../utils/helpers');
-const { canApprove, getTier, getTierLabel } = require('../utils/approvalTiers');
+const { generateSequentialNumber, paginate, isUniqueViolation, withDocRetry, getFinancialYear } = require('../utils/helpers');
+const { canApprove, getTier, getTierLabel, getApproversForTier } = require('../utils/approvalTiers');
 const { quotationUpload, publicUrlFor } = require('../middleware/upload');
+const { recomputePRItemQuotationStatus, syncPRStatusAfterChange } = require('../utils/prClosure');
 
 const router = express.Router();
 
@@ -82,6 +83,53 @@ async function resolveSupplierId(name, contact, address, hintId) {
 // Tolerance for float-sum vs total comparison (kg/litre/pcs all use Float)
 const QTY_TOLERANCE = 0.001;
 
+// Verify every supplier referenced by a quotation has the required compliance
+// documents on file: the one-time Vendor Evaluation PDF, and a Supplier
+// Assessment PDF stamped with the current Indian financial year. Returns a list
+// of issues (empty when all good) so the client can prompt the PO to upload
+// the missing PDFs inline.
+async function checkSuppliersCompliance(supplierIds) {
+  const ids = [...new Set(supplierIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+  const currentFY = getFinancialYear();
+  const suppliers = await prisma.supplier.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      name: true,
+      vendorEvaluationPdfUrl: true,
+      supplierAssessmentPdfUrl: true,
+      assessmentFiscalYear: true,
+    },
+  });
+  const issues = [];
+  for (const s of suppliers) {
+    const missing = [];
+    if (!s.vendorEvaluationPdfUrl) missing.push('vendor-evaluation');
+    if (!s.supplierAssessmentPdfUrl || s.assessmentFiscalYear !== currentFY) {
+      missing.push('supplier-assessment');
+    }
+    if (missing.length > 0) {
+      issues.push({ supplierId: s.id, supplierName: s.name, missing });
+    }
+  }
+  return issues;
+}
+
+function complianceErrorPayload(issues) {
+  const currentFY = getFinancialYear();
+  const labels = {
+    'vendor-evaluation': 'Vendor Evaluation PDF',
+    'supplier-assessment': `Supplier Assessment PDF for FY ${currentFY}`,
+  };
+  const lines = issues.map(i => `${i.supplierName}: ${i.missing.map(m => labels[m]).join(', ')}`);
+  return {
+    error: `Cannot submit quotation — the following supplier(s) need compliance documents uploaded first:\n${lines.join('\n')}`,
+    complianceIssues: issues,
+    currentFinancialYear: currentFY,
+  };
+}
+
 // GET /api/quotations?purchaseRequestId=X — list quotations for a PR (includes unions touching that PR)
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -101,7 +149,20 @@ router.get('/', authenticate, async (req, res) => {
         where,
         include: {
           createdBy: { select: { id: true, name: true } },
-          items: true,
+          items: {
+            include: {
+              // Supplier compliance PDFs so admin can preview Vendor Evaluation
+              // and current-FY Assessment before approving.
+              supplier: {
+                select: {
+                  id: true, name: true,
+                  vendorEvaluationPdfUrl: true,
+                  supplierAssessmentPdfUrl: true,
+                  assessmentFiscalYear: true,
+                },
+              },
+            },
+          },
           purchaseRequest: { select: { id: true, requestNumber: true, status: true } },
           sourceRequests: {
             include: {
@@ -122,7 +183,7 @@ router.get('/', authenticate, async (req, res) => {
       prisma.quotation.count({ where }),
     ]);
 
-    res.json({ quotations, total, page: Math.ceil(skip / take) + 1, totalPages: Math.ceil(total / take) });
+    res.json({ quotations, total, page: Math.ceil(skip / take) + 1, totalPages: Math.ceil(total / take), currentFinancialYear: getFinancialYear() });
   } catch (error) {
     console.error('Get quotations error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -136,7 +197,18 @@ router.get('/:id', authenticate, async (req, res) => {
       where: { id: req.params.id },
       include: {
         createdBy: { select: { id: true, name: true } },
-        items: true,
+        items: {
+          include: {
+            supplier: {
+              select: {
+                id: true, name: true,
+                vendorEvaluationPdfUrl: true,
+                supplierAssessmentPdfUrl: true,
+                assessmentFiscalYear: true,
+              },
+            },
+          },
+        },
         purchaseRequest: {
           select: {
             id: true, requestNumber: true, status: true,
@@ -178,7 +250,10 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf
     });
 
     if (!pr) return res.status(404).json({ error: 'Purchase request not found' });
-    if (!['APPROVED', 'QUOTATION_SUBMITTED'].includes(pr.status)) {
+    // A PR can collect new quotations while items are still awaiting coverage —
+    // IN_PROGRESS and QUOTATION_APPROVED are valid because earlier batches may
+    // already have moved into POs while later items are still waiting on a quote.
+    if (!['APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS', 'QUOTATION_APPROVED'].includes(pr.status)) {
       return res.status(400).json({ error: 'Can only add quotations to approved purchase requests' });
     }
 
@@ -189,6 +264,14 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf
     for (const item of data.items) {
       const supplierId = await resolveSupplierId(item.supplierName, item.supplierContact, item.supplierAddress, item.supplierId);
       itemsWithSupplier.push({ ...item, supplierId });
+    }
+
+    // Block the quotation if any referenced supplier is missing the one-time
+    // Vendor Evaluation or the current-FY Supplier Assessment. Newly upserted
+    // suppliers always trip this check until the PO uploads both PDFs.
+    const complianceIssues = await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
+    if (complianceIssues.length > 0) {
+      return res.status(400).json(complianceErrorPayload(complianceIssues));
     }
 
     // Use the most common supplierId for the top-level Quotation snapshot.
@@ -229,6 +312,18 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf
         },
         include: { items: true, createdBy: { select: { id: true, name: true } } },
       });
+    });
+
+    // Flip every referenced PR item from AWAITING_QUOTATION → QUOTATION_SUBMITTED
+    // (only items still in AWAITING are touched — items already approved on another
+    // quotation are left alone). Then re-sync the parent PR's headline status.
+    await prisma.$transaction(async (tx) => {
+      const prItems = await tx.purchaseRequestItem.findMany({
+        where: { requestId: data.purchaseRequestId },
+        select: { id: true },
+      });
+      await recomputePRItemQuotationStatus(tx, prItems.map(i => i.id));
+      await syncPRStatusAfterChange(tx, data.purchaseRequestId);
     });
 
     const suppliers = [...new Set(data.items.map(i => i.supplierName.trim()))];
@@ -272,8 +367,8 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotati
       return res.status(404).json({ error: 'One or more purchase requests not found' });
     }
     for (const pr of prs) {
-      if (pr.status !== 'APPROVED') {
-        return res.status(400).json({ error: `PR ${pr.requestNumber} is not in APPROVED state for new quotations (status: ${pr.status})` });
+      if (!['APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS', 'QUOTATION_APPROVED'].includes(pr.status)) {
+        return res.status(400).json({ error: `PR ${pr.requestNumber} is not in a valid state for new quotations (status: ${pr.status})` });
       }
     }
 
@@ -314,6 +409,12 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotati
       const supplierId = await resolveSupplierId(item.supplierName, item.supplierContact, item.supplierAddress, item.supplierId);
       itemsWithSupplier.push({ ...item, supplierId });
     }
+
+    const complianceIssues = await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
+    if (complianceIssues.length > 0) {
+      return res.status(400).json(complianceErrorPayload(complianceIssues));
+    }
+
     const supplierCounts = new Map();
     for (const it of itemsWithSupplier) {
       if (it.supplierId) supplierCounts.set(it.supplierId, (supplierCounts.get(it.supplierId) || 0) + 1);
@@ -360,6 +461,17 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotati
           sourceRequests: { include: { purchaseRequest: { select: { id: true, requestNumber: true, unit: { select: { name: true, code: true } } } } } },
         },
       });
+    });
+
+    // Flip referenced PR items across every source PR to QUOTATION_SUBMITTED
+    // (only items still awaiting). Item ids come straight from the validated
+    // sourceAllocations payload.
+    const referencedItemIds = [...new Set(data.items.flatMap(it => it.sources.map(s => s.purchaseRequestItemId)))];
+    await prisma.$transaction(async (tx) => {
+      await recomputePRItemQuotationStatus(tx, referencedItemIds);
+      for (const prId of uniquePrIds) {
+        await syncPRStatusAfterChange(tx, prId);
+      }
     });
 
     await prisma.auditLog.create({
@@ -422,6 +534,11 @@ router.put('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, res)
       for (const item of items) {
         const supplierId = await resolveSupplierId(item.supplierName, item.supplierContact, item.supplierAddress, item.supplierId);
         itemsWithSupplier.push({ ...item, supplierId });
+      }
+
+      const complianceIssues = await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
+      if (complianceIssues.length > 0) {
+        return res.status(400).json(complianceErrorPayload(complianceIssues));
       }
 
       const updated = await prisma.quotation.update({
@@ -507,7 +624,7 @@ router.post('/submit/:purchaseRequestId', authenticate, authorize('PURCHASE_OFFI
     });
 
     if (!pr) return res.status(404).json({ error: 'Purchase request not found' });
-    if (pr.status !== 'APPROVED') {
+    if (!['APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS', 'QUOTATION_APPROVED'].includes(pr.status)) {
       return res.status(400).json({ error: 'Quotations can only be submitted for approved purchase requests' });
     }
 
@@ -524,9 +641,16 @@ router.post('/submit/:purchaseRequestId', authenticate, authorize('PURCHASE_OFFI
     const minTotal = Math.min(...quotations.map(q => q.totalAmount));
     const maxTier = getTier(maxTotal);
 
-    await prisma.purchaseRequest.update({
-      where: { id: purchaseRequestId },
-      data: { status: 'QUOTATION_SUBMITTED' },
+    // Recompute per-item statuses and let syncPRStatusAfterChange pick the right
+    // PR.status. With partial coverage the PR can stay at QUOTATION_APPROVED/IN_PROGRESS
+    // (some items already on POs) — we never downgrade.
+    await prisma.$transaction(async (tx) => {
+      const prItems = await tx.purchaseRequestItem.findMany({
+        where: { requestId: purchaseRequestId },
+        select: { id: true },
+      });
+      await recomputePRItemQuotationStatus(tx, prItems.map(i => i.id));
+      await syncPRStatusAfterChange(tx, purchaseRequestId);
     });
 
     await prisma.notification.create({
@@ -577,8 +701,8 @@ router.post('/union/submit', authenticate, authorize('PURCHASE_OFFICER'), async 
       return res.status(404).json({ error: 'One or more purchase requests not found' });
     }
     for (const pr of prs) {
-      if (pr.status !== 'APPROVED') {
-        return res.status(400).json({ error: `PR ${pr.requestNumber} is not in APPROVED state (current: ${pr.status})` });
+      if (!['APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS', 'QUOTATION_APPROVED'].includes(pr.status)) {
+        return res.status(400).json({ error: `PR ${pr.requestNumber} is not in a valid state for submission (current: ${pr.status})` });
       }
     }
 
@@ -609,9 +733,15 @@ router.post('/union/submit', authenticate, authorize('PURCHASE_OFFICER'), async 
       }
     }
 
-    await prisma.purchaseRequest.updateMany({
-      where: { id: { in: uniquePrIds } },
-      data: { status: 'QUOTATION_SUBMITTED' },
+    await prisma.$transaction(async (tx) => {
+      for (const prId of uniquePrIds) {
+        const prItems = await tx.purchaseRequestItem.findMany({
+          where: { requestId: prId },
+          select: { id: true },
+        });
+        await recomputePRItemQuotationStatus(tx, prItems.map(i => i.id));
+        await syncPRStatusAfterChange(tx, prId);
+      }
     });
 
     const maxTotal = Math.max(...unions.map(q => q.totalAmount));
@@ -650,6 +780,232 @@ router.post('/union/submit', authenticate, authorize('PURCHASE_OFFICER'), async 
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
     }
     console.error('Submit union quotations error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/quotations/:id/hold — ADMIN puts the quotation on hold and asks
+// the Purchase Officer to fix something (typically: upload missing supplier
+// compliance PDFs). The PR stays in QUOTATION_SUBMITTED so the PO can fix the
+// issue (no resubmission of the quotation needed) and admin can re-approve.
+const holdSchema = z.object({
+  holdNote: z.string().min(1).transform(s => s.trim()),
+});
+
+router.post('/:id/hold', authenticate, authorize('ADMIN'), async (req, res) => {
+  try {
+    const { holdNote } = holdSchema.parse(req.body);
+
+    const quotation = await prisma.quotation.findUnique({
+      where: { id: req.params.id },
+      include: {
+        createdBy: { select: { id: true, name: true } },
+        items: { select: { productName: true, sourceAllocations: true } },
+        purchaseRequest: { select: { id: true } },
+        sourceRequests: { select: { purchaseRequestId: true } },
+      },
+    });
+    if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
+    if (quotation.isSelected) {
+      return res.status(400).json({ error: 'Cannot hold a quotation that has already been approved' });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const q = await tx.quotation.update({
+        where: { id: req.params.id },
+        data: { holdNote, heldAt: new Date() },
+      });
+      // Recompute every item across every linked PR — the held quotation now
+      // demotes any item that was only covered by this quotation back to "HELD".
+      const linkedPRIds = quotation.isUnion
+        ? quotation.sourceRequests.map(s => s.purchaseRequestId)
+        : (quotation.purchaseRequest ? [quotation.purchaseRequest.id] : []);
+      for (const prId of linkedPRIds) {
+        const prItems = await tx.purchaseRequestItem.findMany({
+          where: { requestId: prId },
+          select: { id: true },
+        });
+        await recomputePRItemQuotationStatus(tx, prItems.map(i => i.id));
+        await syncPRStatusAfterChange(tx, prId);
+      }
+      return q;
+    });
+
+    await prisma.notification.create({
+      data: {
+        type: 'QUOTATION_HOLD',
+        title: `Quotation ${quotation.quotationNumber} on hold — action required`,
+        message: `Admin held quotation ${quotation.quotationNumber}. Reason: ${holdNote}. Please attach the required documents and re-notify admin.`,
+        targetUserId: quotation.createdById,
+        sentById: req.user.id,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'HOLD_QUOTATION',
+        entity: 'Quotation',
+        entityId: quotation.id,
+        details: { quotationNumber: quotation.quotationNumber, holdNote },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Hold note is required' });
+    }
+    console.error('Hold quotation error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/quotations/:id/resubmit — PO fixes a held quotation (optionally
+// updates totals/notes/items) and re-notifies admin. Clears the hold fields.
+//
+// Body: { notes?: string, items?: [...same shape as PUT /:id...] }
+//   Items are optional — PO may also fix the issue purely on the supplier side
+//   (e.g. uploaded missing compliance PDF) and resubmit unchanged.
+router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
+  try {
+    const quotation = await prisma.quotation.findUnique({
+      where: { id: req.params.id },
+      include: {
+        purchaseRequest: { select: { id: true, requestNumber: true } },
+        sourceRequests: { include: { purchaseRequest: { select: { id: true, requestNumber: true } } } },
+      },
+    });
+
+    if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
+    if (!quotation.heldAt) {
+      return res.status(400).json({ error: 'Only held quotations can be resubmitted' });
+    }
+    if (quotation.isSelected) {
+      return res.status(400).json({ error: 'Cannot resubmit a quotation that has already been approved' });
+    }
+
+    const { notes, items } = req.body || {};
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Optional item rewrite — mirrors PUT /:id behaviour for non-union quotations.
+      // Union quotation items keep their sourceAllocations untouched (PO cannot
+      // restructure allocations during a resubmit; that requires delete+recreate).
+      if (Array.isArray(items) && items.length > 0 && !quotation.isUnion) {
+        for (const item of items) {
+          if (!item.supplierName || !String(item.supplierName).trim()) {
+            throw new Error('Each item requires a supplier name');
+          }
+        }
+        await tx.quotationItem.deleteMany({ where: { quotationId: req.params.id } });
+        const totalAmount = items.reduce((sum, it) => sum + (it.quantity * it.unitPrice), 0);
+
+        const itemsWithSupplier = [];
+        for (const item of items) {
+          const supplierId = await resolveSupplierId(item.supplierName, item.supplierContact, item.supplierAddress, item.supplierId);
+          itemsWithSupplier.push({ ...item, supplierId });
+        }
+
+        const complianceIssues = await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
+        if (complianceIssues.length > 0) {
+          throw Object.assign(new Error('compliance'), { compliance: complianceIssues });
+        }
+
+        await tx.quotation.update({
+          where: { id: req.params.id },
+          data: {
+            notes: notes !== undefined ? notes : quotation.notes,
+            totalAmount,
+            holdNote: null,
+            heldAt: null,
+            items: {
+              create: itemsWithSupplier.map(it => ({
+                productId: it.productId || null,
+                productName: it.productName,
+                productUnit: it.productUnit || 'pcs',
+                quantity: it.quantity,
+                unitPrice: it.unitPrice,
+                totalPrice: it.quantity * it.unitPrice,
+                supplierId: it.supplierId,
+                supplierName: String(it.supplierName).trim(),
+                supplierContact: it.supplierContact || null,
+                supplierAddress: it.supplierAddress || null,
+              })),
+            },
+          },
+        });
+      } else {
+        // Notes-only / no-payload resubmit: just clear hold fields.
+        await tx.quotation.update({
+          where: { id: req.params.id },
+          data: {
+            notes: notes !== undefined ? notes : quotation.notes,
+            holdNote: null,
+            heldAt: null,
+          },
+        });
+      }
+
+      // Linked PRs: re-flip items back to QUOTATION_SUBMITTED.
+      const linkedPRIds = quotation.isUnion
+        ? quotation.sourceRequests.map(s => s.purchaseRequestId)
+        : (quotation.purchaseRequest ? [quotation.purchaseRequest.id] : []);
+      for (const prId of linkedPRIds) {
+        const prItems = await tx.purchaseRequestItem.findMany({
+          where: { requestId: prId },
+          select: { id: true },
+        });
+        await recomputePRItemQuotationStatus(tx, prItems.map(i => i.id));
+        await syncPRStatusAfterChange(tx, prId);
+      }
+
+      return tx.quotation.findUnique({
+        where: { id: req.params.id },
+        include: { items: true, createdBy: { select: { id: true, name: true } } },
+      });
+    });
+
+    // Notify every approver eligible to act on this quotation's tier — they
+    // need to know the held quote is back in the queue.
+    const tier = getTier(result.totalAmount);
+    const approvers = await getApproversForTier(tier);
+    for (const a of approvers) {
+      await prisma.notification.create({
+        data: {
+          type: 'QUOTATION_RESUBMITTED',
+          title: `Quotation ${quotation.quotationNumber} resubmitted — review`,
+          message: `Held quotation ${quotation.quotationNumber} was updated and resubmitted by ${req.user.name}. Tier ${tier} (${getTierLabel(tier)}). Please re-review.`,
+          targetUserId: a.id,
+          sentById: req.user.id,
+        },
+      });
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'RESUBMIT_QUOTATION',
+        entity: 'Quotation',
+        entityId: req.params.id,
+        details: {
+          quotationNumber: quotation.quotationNumber,
+          totalAmount: result.totalAmount,
+          itemsRewritten: Array.isArray(items) && items.length > 0,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(result);
+  } catch (error) {
+    if (error?.compliance) {
+      return res.status(400).json(complianceErrorPayload(error.compliance));
+    }
+    if (error?.message === 'Each item requires a supplier name') {
+      return res.status(400).json({ error: error.message });
+    }
+    console.error('Resubmit quotation error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -698,12 +1054,23 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
       return res.status(400).json({ error: 'Quotation has no resolvable source purchase requests' });
     }
 
+    // Quotations can be approved while the PR is mid-flight (some items already
+    // approved/ordered, others still awaiting). Reject only states where no work
+    // belongs (pending admin, rejected, etc.).
     for (const pr of sourcePRs) {
-      if (pr.status !== 'QUOTATION_SUBMITTED') {
+      if (!['QUOTATION_SUBMITTED', 'IN_PROGRESS', 'QUOTATION_APPROVED'].includes(pr.status)) {
         return res.status(400).json({
-          error: `PR ${pr.requestNumber} is not in QUOTATION_SUBMITTED state (current: ${pr.status})`,
+          error: `PR ${pr.requestNumber} is not ready for quotation approval (current: ${pr.status})`,
         });
       }
+    }
+
+    // Hold-fix gate: a held quotation must be resubmitted by the PO first
+    // (which clears holdNote/heldAt) before admin can approve it.
+    if (quotation.heldAt) {
+      return res.status(400).json({
+        error: 'Quotation is on hold. The Purchase Officer must resubmit it before approval.',
+      });
     }
 
     const tier = getTier(quotation.totalAmount);
@@ -713,6 +1080,14 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         tier,
         requiredApprovers: getTierLabel(tier),
       });
+    }
+
+    // Re-check supplier compliance at approval time — docs may have expired
+    // (FY rollover) or been removed since the quotation was submitted.
+    const approvalSupplierIds = quotation.items.map(i => i.supplierId).filter(Boolean);
+    const approvalIssues = await checkSuppliersCompliance(approvalSupplierIds);
+    if (approvalIssues.length > 0) {
+      return res.status(400).json(complianceErrorPayload(approvalIssues));
     }
 
     // PO display name: derived from the source PR number(s). For unions list every
@@ -862,11 +1237,17 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         });
       }
 
-      // Transition every source PR to QUOTATION_APPROVED
-      await tx.purchaseRequest.updateMany({
-        where: { id: { in: sourcePRs.map(p => p.id) } },
-        data: { status: 'QUOTATION_APPROVED' },
-      });
+      // Recompute per-item statuses (selected items → QUOTATION_APPROVED) and
+      // sync the parent PR.status. If a PR still has AWAITING items the PR
+      // stays at IN_PROGRESS instead of jumping straight to QUOTATION_APPROVED.
+      for (const pr of sourcePRs) {
+        const prItems = await tx.purchaseRequestItem.findMany({
+          where: { requestId: pr.id },
+          select: { id: true },
+        });
+        await recomputePRItemQuotationStatus(tx, prItems.map(i => i.id));
+        await syncPRStatusAfterChange(tx, pr.id);
+      }
 
       return orders;
     });

@@ -37,7 +37,7 @@ export default function Products() {
 
   const fetchProducts = () => {
     setLoading(true);
-    const params = { page, limit: 100, search: search || undefined, category: catFilter || undefined, includeUnitStock: 'true' };
+    const params = { page, limit: 100, search: search || undefined, category: catFilter || undefined, includeUnitStock: 'true', includeMir: 'true' };
     api.get('/products', { params })
       .then(({ data }) => {
         setProducts(data.products);
@@ -109,6 +109,34 @@ export default function Products() {
         );
       }
     },
+    {
+      // MIR numbers (Material Inward Register) — auto-generated at stores inward on the PO.
+      // We surface the most recent few so users can trace which inward batch brought this stock.
+      key: 'batches', label: 'MIR No.',
+      render: (v) => {
+        const list = Array.isArray(v) ? v : [];
+        const mirs = [];
+        const seen = new Set();
+        for (const b of list) {
+          const mir = b.sourceQcInspection?.purchaseOrder?.mirNo;
+          if (mir && !seen.has(mir)) {
+            seen.add(mir);
+            mirs.push({ mir, date: b.receivedDate });
+          }
+        }
+        if (mirs.length === 0) return <span className="text-xs text-gray-400">—</span>;
+        return (
+          <div className="flex flex-col gap-0.5">
+            {mirs.slice(0, 3).map(m => (
+              <span key={m.mir} className="text-xs font-mono text-navy-700" title={new Date(m.date).toLocaleDateString()}>
+                {m.mir}
+              </span>
+            ))}
+            {mirs.length > 3 && <span className="text-[10px] text-gray-500">+{mirs.length - 3} more</span>}
+          </div>
+        );
+      },
+    },
     { key: 'minStockLevel', label: 'Min Level', render: (v, row) => v > 0 ? `${v} ${row.unit}` : '—' },
   ];
 
@@ -159,7 +187,7 @@ export default function Products() {
                 {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Tooling', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
               </Select>
               <Select label="Unit" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
-                {['pcs', 'kg', 'litre', 'meter', 'box', 'set'].map(u => <option key={u} value={u}>{u}</option>)}
+                {['pcs', 'kg', 'litre', 'meter', 'Sq. mtr', 'box', 'set'].map(u => <option key={u} value={u}>{u}</option>)}
               </Select>
               <Input label="Min Stock Level" type="number" value={form.minStockLevel} onChange={(e) => setForm({ ...form, minStockLevel: e.target.value })} />
             </div>

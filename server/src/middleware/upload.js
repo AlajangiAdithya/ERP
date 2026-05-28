@@ -57,6 +57,30 @@ const invoiceUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
+// One-time Vendor Evaluation PDF tied to a Supplier (never expires).
+const vendorEvaluationUpload = multer({
+  storage: makeStorage('vendor-evaluations'),
+  fileFilter: pdfOnly,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+// Annual Supplier Assessment PDF tied to a Supplier (one per FY).
+const supplierAssessmentUpload = multer({
+  storage: makeStorage('supplier-assessments'),
+  fileFilter: pdfOnly,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
 const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
 
-module.exports = { prSpecsUpload, quotationUpload, qcDocsUpload, poDocumentUpload, invoiceUpload, publicUrlFor, UPLOAD_ROOT };
+module.exports = {
+  prSpecsUpload,
+  quotationUpload,
+  qcDocsUpload,
+  poDocumentUpload,
+  invoiceUpload,
+  vendorEvaluationUpload,
+  supplierAssessmentUpload,
+  publicUrlFor,
+  UPLOAD_ROOT,
+};

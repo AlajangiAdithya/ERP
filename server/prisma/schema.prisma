@@ -32,6 +32,7 @@ model User {
   quotationsCreated          Quotation[]                @relation("QuotationCreator")
   purchaseOrdersCreated      PurchaseOrder[]            @relation("POCreator")
   purchaseOrdersCreditPlaced PurchaseOrder[]            @relation("POCreditPlacer")
+  purchaseOrdersClosed       PurchaseOrder[]            @relation("POCloser")
   paymentRequestsCreated     PaymentRequest[]           @relation("PaymentCreator")
   paymentRequestsProcessed   PaymentRequest[]           @relation("PaymentProcessor")
   qcInspections              QCInspection[]             @relation("QCInspector")
@@ -294,6 +295,7 @@ model PurchaseRequestItem {
   adminApprovedQty      Float?
   purchasedQty          Float                         @default(0)
   itemStatus            ItemOrderStatus? // Set once ORDER_PLACED; mirrored from PO items
+  itemQuotationStatus   PRItemQuotationStatus @default(AWAITING_QUOTATION) // Per-item quote progress, independent of order/inward status
   // PRF form fields
   materialType          String? // Raw material / Consumable / Tooling / Others
   materialSpecification String? // Material specification data
@@ -324,24 +326,46 @@ enum PurchaseRequestStatus {
   IN_PROGRESS
 }
 
+// Per-PR-item quotation progress. Independent of `itemStatus` (which mirrors
+// downstream PO/inward state). Lets the UI render fine-grained badges like
+// "Quotation not sent yet" for items still missing supplier quotes while
+// other items on the same PR have already moved into POs.
+enum PRItemQuotationStatus {
+  AWAITING_QUOTATION
+  QUOTATION_SUBMITTED
+  QUOTATION_HELD
+  QUOTATION_APPROVED
+  CANCELLED
+}
+
 // ──── SUPPLIERS (normalised supplier directory) ────
 // Quotation/PO rows still snapshot supplierName/Contact/Address so historical
 // records survive supplier renames. The supplierId FK is for lookups + history.
 model Supplier {
-  id                 String              @id @default(uuid())
-  name               String              @unique
-  contact            String?
-  address            String?
-  gstNumber          String?
-  email              String?
-  isActive           Boolean             @default(true)
-  notes              String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  quotations         Quotation[]
-  quotationItems     QuotationItem[]
-  purchaseOrders     PurchaseOrder[]
-  purchaseOrderItems PurchaseOrderItem[]
+  id                       String              @id @default(uuid())
+  name                     String              @unique
+  contact                  String?
+  address                  String?
+  gstNumber                String?
+  email                    String?
+  isActive                 Boolean             @default(true)
+  notes                    String?
+  // Vendor Evaluation PDF — uploaded once when the supplier is first onboarded.
+  // Survives FY data resets; never re-required.
+  vendorEvaluationPdfUrl   String?
+  vendorEvaluationUploadedAt DateTime?
+  // Supplier Assessment PDF — valid only for the financial year stored in
+  // `assessmentFiscalYear`. After FY rollover, a new assessment must be uploaded
+  // before the supplier can be used on a new quotation.
+  supplierAssessmentPdfUrl String?
+  assessmentFiscalYear     String?
+  assessmentUploadedAt     DateTime?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  quotations               Quotation[]
+  quotationItems           QuotationItem[]
+  purchaseOrders           PurchaseOrder[]
+  purchaseOrderItems       PurchaseOrderItem[]
 }
 
 // ──── QUOTATIONS (PO collects from suppliers) ────
@@ -361,6 +385,8 @@ model Quotation {
   quotationPdfUrl   String? // Optional supplier-quote PDF uploaded by PO
   selectionNote     String? // Admin's note explaining why this quote was chosen
   isSelected        Boolean           @default(false)
+  holdNote          String? // Admin's reason for putting the quotation on hold (compliance docs missing, etc.)
+  heldAt            DateTime? // Timestamp when admin put this quotation on hold
   createdById       String
   createdBy         User              @relation("QuotationCreator", fields: [createdById], references: [id])
   createdAt         DateTime          @default(now())
@@ -436,6 +462,14 @@ model PurchaseOrder {
   creditPlacedById  String?
   creditPlacedBy    User?                 @relation("POCreditPlacer", fields: [creditPlacedById], references: [id])
   creditNote        String?
+  // Manual close — Purchase Officer clicks "Close PO" once everything is received & paid.
+  // Force-close is allowed with `forceClosed=true` when some qty is still pending or payment is short;
+  // in that case leftover PR items are cancelled.
+  closedAt          DateTime?
+  closedById        String?
+  closedBy          User?                 @relation("POCloser", fields: [closedById], references: [id])
+  closeReason       String?
+  forceClosed       Boolean               @default(false)
   createdById       String
   createdBy         User                  @relation("POCreator", fields: [createdById], references: [id])
   createdAt         DateTime              @default(now())
@@ -518,6 +552,7 @@ enum PurchaseOrderStatus {
   PARTIAL
   INWARD_DONE
   COMPLETED
+  CLOSED
 }
 
 // ──── PAYMENT REQUESTS (PO → Accounting) ────

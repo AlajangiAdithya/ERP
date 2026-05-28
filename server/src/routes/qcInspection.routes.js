@@ -3,10 +3,8 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const path = require('path');
-const fs = require('fs');
 const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, withDocRetry } = require('../utils/helpers');
-const { qcDocsUpload, invoiceUpload, publicUrlFor, UPLOAD_ROOT } = require('../middleware/upload');
+const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -16,23 +14,6 @@ function acceptQcDocs(req, res, next) {
     if (err) return res.status(400).json({ error: err.message || 'Document upload failed' });
     next();
   });
-}
-
-// Optional replacement invoice PDF when PO edits the IIR.
-function acceptInvoice(req, res, next) {
-  invoiceUpload.single('invoiceFile')(req, res, (err) => {
-    if (err) return res.status(400).json({ error: err.message || 'Invoice upload failed' });
-    next();
-  });
-}
-
-function unlinkPublicFile(publicUrl) {
-  if (!publicUrl || !publicUrl.startsWith('/uploads/')) return;
-  const relative = publicUrl.replace(/^\/uploads\//, '');
-  const target = path.join(UPLOAD_ROOT, relative);
-  const resolved = path.resolve(target);
-  if (!resolved.startsWith(path.resolve(UPLOAD_ROOT))) return;
-  fs.promises.unlink(resolved).catch(() => {});
 }
 
 // Full PR + item spec fields the QC team needs when filling the inspection
@@ -87,6 +68,19 @@ const INSPECTION_INCLUDE = {
       id: true, orderNumber: true, customName: true, supplierName: true,
       totalAmount: true, status: true, goodsArrivedAt: true, poDocumentUrl: true,
       isUnion: true,
+      // MIR is auto-generated on the PO at stores inward — surface it everywhere QC
+      // looks at the order (header, fill form, view).
+      mirNo: true, inwardedAt: true,
+      // Supplier compliance PDFs (Vendor Evaluation + current-FY Assessment) so QC
+      // can verify them alongside the PO terms & conditions.
+      supplier: {
+        select: {
+          id: true, name: true,
+          vendorEvaluationPdfUrl: true,
+          supplierAssessmentPdfUrl: true,
+          assessmentFiscalYear: true,
+        },
+      },
       items: true,
       // Sibling lots for this PO so QC can see prior lot history alongside this one.
       qcInspections: {
@@ -212,7 +206,7 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
       packingCondition, packingDamageNotes, batchNo,
       dateOfManufacturing, dateOfExpiry, tappedHolesCondition,
       qtyAsPerPR, qtyOrdered, qtyReceived, qtyAccepted, qtyRejected,
-      rejectionReason, remarks, mirNo,
+      rejectionReason, remarks,
       // Phase 4: PO-driven request fields
       docRequirement, docRequirementNote,
     } = req.body;
@@ -234,8 +228,14 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
     }
 
     let inspectionNumber;
+    let generatedReportNo;
     const inspection = await withDocRetry(() => prisma.$transaction(async (tx) => {
       inspectionNumber = await generateSequentialNumber(tx, 'QC');
+      // Auto-generate the Inspection Report number (RAPS/IR/FY/N) — QC no longer
+      // hand-keys this; it mirrors the way PR/PO/QC numbers are minted.
+      generatedReportNo = reportNo && String(reportNo).trim()
+        ? String(reportNo).trim()
+        : await generateSequentialNumber(tx, 'IR');
       const result = await tx.qCInspection.create({
         data: {
           inspectionNumber,
@@ -252,7 +252,7 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
           probableDateOfReturn: probableDateOfReturn ? new Date(probableDateOfReturn) : null,
           materialReceiptDate: materialReceiptDate ? new Date(materialReceiptDate) : null,
           // Page 2: Inward Inspection Report
-          reportNo: reportNo || null,
+          reportNo: generatedReportNo,
           reportDate: reportDate ? new Date(reportDate) : null,
           materialDescription: materialDescription || null,
           materialCategory: materialCategory || null,
@@ -272,7 +272,6 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
           qtyRejected: qtyRejected != null ? qtyRejected : null,
           rejectionReason: rejectionReason || null,
           remarks: remarks || null,
-          mirNo: mirNo || null,
           docRequirement: docRequirement || null,
           docRequirementNote: docRequirementNote || null,
         },
@@ -327,7 +326,7 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
       packingCondition, packingDamageNotes, batchNo,
       dateOfManufacturing, dateOfExpiry, tappedHolesCondition,
       qtyAsPerPR, qtyOrdered, qtyReceived, qtyAccepted, qtyRejected,
-      rejectionReason, remarks, mirNo,
+      rejectionReason, remarks,
       // Phase 4: QC can also mark ON_HOLD bouncing back to PO with pendingReason
       pendingReason,
     } = req.body;
@@ -399,8 +398,7 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
         inspectedById: req.user.id,
         inspectedAt: new Date(),
       };
-      // Update IIR report fields if provided
-      if (reportNo !== undefined) updateData.reportNo = reportNo || null;
+      // reportNo is auto-generated at creation — QC never overrides it now.
       if (reportDate !== undefined) updateData.reportDate = reportDate ? new Date(reportDate) : null;
       if (materialDescription !== undefined) updateData.materialDescription = materialDescription || null;
       if (materialCategory !== undefined) updateData.materialCategory = materialCategory || null;
@@ -438,7 +436,6 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
 
       if (rejectionReason !== undefined) updateData.rejectionReason = rejectionReason || null;
       if (remarks !== undefined) updateData.remarks = remarks || null;
-      if (mirNo !== undefined) updateData.mirNo = mirNo || null;
       if (result === 'ON_HOLD') {
         updateData.pendingReason = String(pendingReason).trim();
       } else {
@@ -553,12 +550,11 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
 // PUT /api/qc-inspections/:id/iir — Purchase Officer edits the page-1 IIR fields.
 // Allowed while QC has not yet submitted a result (PENDING or ON_HOLD). Lot items
 // (per-PO-item arrived quantities) are NOT editable here — that requires reversing
-// receivedQty on the PO, which is out of scope. Optional new invoice PDF replaces
-// the existing one.
+// receivedQty on the PO, which is out of scope. Invoice number, invoice date and
+// invoice PDF are locked to whatever the PO set at goods-arrival and cannot be
+// changed here.
 const iirEditSchema = z.object({
   batchNumber: z.string().trim().min(1, 'Batch number is required').max(64, 'Batch number too long'),
-  invoiceNo: z.string().min(1, 'Invoice no. is required'),
-  invoiceDate: z.string().min(1, 'Invoice date is required'),
   dcNo: z.string().optional().nullable(),
   gatePassNo: z.string().optional().nullable(),
   gatePassType: z.string().optional().nullable(),
@@ -575,13 +571,12 @@ const iirEditSchema = z.object({
   }).partial().optional(),
 });
 
-router.put('/:id/iir', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), acceptInvoice, async (req, res) => {
+router.put('/:id/iir', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), async (req, res) => {
   try {
     const body = { ...req.body };
     if (typeof body.documentTypes === 'string') {
       try { body.documentTypes = JSON.parse(body.documentTypes); }
       catch {
-        if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
         return res.status(400).json({ error: 'documentTypes must be valid JSON' });
       }
     }
@@ -600,12 +595,10 @@ router.put('/:id/iir', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), acc
       },
     });
     if (!inspection) {
-      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
       return res.status(404).json({ error: 'Inspection not found' });
     }
 
     if (!['PENDING', 'ON_HOLD'].includes(inspection.result)) {
-      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
       return res.status(400).json({
         error: `Cannot edit IIR — inspection result is already ${inspection.result}. The form is locked after QC submits.`,
       });
@@ -617,21 +610,15 @@ router.put('/:id/iir', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), acc
       (q) => q.id !== inspection.id && (q.batchNo || '').trim().toLowerCase() === newBatch.toLowerCase(),
     );
     if (duplicate) {
-      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
       return res.status(400).json({
         error: `Batch number "${newBatch}" is already used on Lot ${duplicate.lotNumber || '?'} of this PO.`,
       });
     }
 
-    const oldInvoiceUrl = inspection.invoiceFileUrl;
-    const newInvoiceUrl = req.file ? publicUrlFor('invoices', req.file.filename) : oldInvoiceUrl;
-
     const updated = await prisma.qCInspection.update({
       where: { id: inspection.id },
       data: {
         batchNo: newBatch,
-        invoiceNo: data.invoiceNo,
-        invoiceDate: new Date(data.invoiceDate),
         dcNo: data.dcNo || null,
         gatePassNo: data.gatePassNo || null,
         gatePassType: data.gatePassType || null,
@@ -639,15 +626,9 @@ router.put('/:id/iir', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), acc
         materialReceiptDate: new Date(data.materialReceiptDate),
         materialCategory: data.materialCategory || null,
         documentTypes: data.documentTypes || null,
-        invoiceFileUrl: newInvoiceUrl,
       },
       include: INSPECTION_INCLUDE,
     });
-
-    // Replace the old invoice file on disk only after the DB row points to the new one.
-    if (req.file && oldInvoiceUrl && oldInvoiceUrl !== newInvoiceUrl) {
-      unlinkPublicFile(oldInvoiceUrl);
-    }
 
     await prisma.auditLog.create({
       data: {
@@ -659,7 +640,6 @@ router.put('/:id/iir', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), acc
           inspectionNumber: inspection.inspectionNumber,
           orderNumber: inspection.purchaseOrder?.orderNumber,
           batchNoChanged: inspection.batchNo !== newBatch,
-          invoiceReplaced: !!req.file,
         },
         ipAddress: req.ip,
       },
@@ -667,7 +647,6 @@ router.put('/:id/iir', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), acc
 
     res.json(updated);
   } catch (error) {
-    if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
     if (error?.name === 'ZodError') {
       return res.status(400).json({ error: error.errors?.[0]?.message || 'Invalid input', details: error.errors });
     }

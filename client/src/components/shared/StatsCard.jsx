@@ -1,4 +1,4 @@
-export default function StatsCard({ title, value, icon: Icon, trend, color = 'navy', onClick }) {
+export default function StatsCard({ title, value, subtitle, icon: Icon, trend, color = 'navy', onClick }) {
   const iconWrap = {
     navy: 'bg-gradient-to-br from-navy-100 to-navy-50 text-navy-700 ring-1 ring-navy-200/60',
     red: 'bg-gradient-to-br from-red-100 to-red-50 text-brand-red ring-1 ring-red-200/60',
@@ -41,6 +41,9 @@ export default function StatsCard({ title, value, icon: Icon, trend, color = 'na
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-wider font-semibold text-gray-500 mb-1.5">{title}</p>
           <p className="text-[28px] leading-none font-bold text-navy-800">{value}</p>
+          {subtitle && (
+            <p className="text-[11px] text-gray-500 mt-1.5 font-medium">{subtitle}</p>
+          )}
           {trend && (
             <p className={`text-xs mt-2 font-medium ${trend > 0 ? 'text-green-600' : 'text-red-600'}`}>
               {trend > 0 ? '↑' : '↓'} {Math.abs(trend)}% from last month

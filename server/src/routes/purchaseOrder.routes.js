@@ -10,6 +10,7 @@ const {
   generateSequentialNumber, generateMirNumber, generateProductSku,
   normalizeMaterialType, paginate, applyDateFilter, isUniqueViolation,
 } = require('../utils/helpers');
+const { cancelLeftoverPRItems } = require('../utils/prClosure');
 
 // Wraps multer so we can return a clean 400 on malformed/oversize uploads.
 function acceptPoDocument(req, res, next) {
@@ -45,6 +46,7 @@ const router = express.Router();
 const ORDER_INCLUDE = {
   createdBy: { select: { id: true, name: true } },
   creditPlacedBy: { select: { id: true, name: true } },
+  closedBy: { select: { id: true, name: true } },
   quotation: {
     select: {
       id: true, quotationNumber: true, supplierName: true, supplierContact: true,
@@ -119,7 +121,7 @@ router.get('/', authenticate, async (req, res) => {
     applyDateFilter(where, { fromDate, toDate });
 
     // Role-based status visibility (intersected with the tab/status filter below)
-    const STORE_MANAGER_STATUSES = ['ORDERED', 'PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED'];
+    const STORE_MANAGER_STATUSES = ['ORDERED', 'PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED', 'CLOSED'];
     const QC_STATUSES = ['GOODS_ARRIVED', 'QC_PENDING'];
 
     if (req.user.role === 'QC') {
@@ -1369,6 +1371,177 @@ router.delete('/:id/po-document', authenticate, authorize('PURCHASE_OFFICER', 'A
     res.json(updated);
   } catch (error) {
     console.error('Delete PO document error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/purchase-orders/:id/close — Purchase Officer manually closes a PO.
+//
+// Two outcomes:
+//   1. Clean close: every item fully received AND fully paid → status COMPLETED.
+//   2. Force close (body.force=true): unreceived qty / unpaid balance is OK;
+//      leftover PR items get cancelled and the PO is marked CLOSED + forceClosed.
+//
+// If the PO is incomplete and `force` is not set, returns 409 with the pending
+// summary so the client can render a confirmation dialog ("X kg short, ₹Y unpaid
+// — close anyway?").
+const closeSchema = z.object({
+  force: z.boolean().optional(),
+  reason: z.string().trim().min(1).max(500).optional(),
+});
+
+router.post('/:id/close', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), async (req, res) => {
+  try {
+    const { force, reason } = closeSchema.parse(req.body || {});
+
+    const order = await prisma.purchaseOrder.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: {
+          include: { allocations: { select: { purchaseRequestItemId: true, allocatedQty: true, receivedQty: true } } },
+        },
+        paymentRequests: { select: { status: true, amount: true } },
+        purchaseRequest: { select: { id: true, managerId: true, requestNumber: true } },
+        sourceRequests: {
+          include: { purchaseRequest: { select: { id: true, managerId: true, requestNumber: true } } },
+        },
+      },
+    });
+    if (!order) return res.status(404).json({ error: 'Purchase order not found' });
+
+    if (['COMPLETED', 'CLOSED'].includes(order.status)) {
+      return res.status(400).json({ error: 'Purchase order is already closed' });
+    }
+
+    // Compute what's still pending.
+    const pendingItems = order.items
+      .filter(i => i.receivedQty < i.quantity)
+      .map(i => ({
+        purchaseOrderItemId: i.id,
+        productName: i.productName,
+        productUnit: i.productUnit,
+        ordered: i.quantity,
+        received: i.receivedQty,
+        shortQty: Number((i.quantity - i.receivedQty).toFixed(3)),
+      }));
+    const paymentRemaining = Number((order.totalAmount - order.totalPaid).toFixed(2));
+    const hasOpenPayment = order.paymentRequests.some(p => p.status === 'PENDING' || p.status === 'APPROVED');
+
+    const isComplete = pendingItems.length === 0 && paymentRemaining <= 0.01 && !hasOpenPayment;
+
+    if (!isComplete && !force) {
+      return res.status(409).json({
+        error: 'Purchase order is not complete',
+        pendingItems,
+        paymentRemaining: paymentRemaining > 0.01 ? paymentRemaining : 0,
+        openPaymentRequests: hasOpenPayment,
+      });
+    }
+
+    // Linked PR ids (for force-close cancellation + notifications).
+    const linkedPRs = order.isUnion
+      ? order.sourceRequests.map(s => s.purchaseRequest).filter(Boolean)
+      : (order.purchaseRequest ? [order.purchaseRequest] : []);
+
+    // PR-item ids whose ordered qty is still short on this PO. These get
+    // cancelled on force-close so the PR can close out without waiting forever.
+    const leftoverPRItemIds = [];
+    if (!isComplete && force) {
+      for (const poItem of order.items) {
+        if (poItem.receivedQty >= poItem.quantity) continue;
+        if (order.isUnion && poItem.allocations?.length) {
+          for (const a of poItem.allocations) {
+            if (a.receivedQty < a.allocatedQty) leftoverPRItemIds.push(a.purchaseRequestItemId);
+          }
+        } else if (poItem.purchaseRequestItemId) {
+          leftoverPRItemIds.push(poItem.purchaseRequestItemId);
+        }
+      }
+    }
+
+    const finalStatus = isComplete ? 'COMPLETED' : 'CLOSED';
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const po = await tx.purchaseOrder.update({
+        where: { id: order.id },
+        data: {
+          status: finalStatus,
+          closedAt: new Date(),
+          closedById: req.user.id,
+          closeReason: reason || (isComplete ? 'Clean close — fully received and paid' : 'Force closed with pending items/payment'),
+          forceClosed: !isComplete,
+        },
+        include: ORDER_INCLUDE,
+      });
+
+      if (!isComplete && leftoverPRItemIds.length > 0) {
+        await cancelLeftoverPRItems(tx, [...new Set(leftoverPRItemIds)], reason || 'PO force-closed');
+      }
+
+      return po;
+    });
+
+    // Notifications — managers (for each source PR), store manager team, and admins.
+    const closeKindLabel = isComplete ? 'closed (fully received & paid)' : 'force-closed';
+    for (const pr of linkedPRs) {
+      if (!pr.managerId) continue;
+      await prisma.notification.create({
+        data: {
+          type: isComplete ? 'PO_CLOSED' : 'PO_FORCE_CLOSED',
+          title: `Purchase order ${order.orderNumber} ${closeKindLabel}`,
+          message: isComplete
+            ? `PO "${order.customName}" (${order.orderNumber}) on your PR ${pr.requestNumber} has been closed cleanly.`
+            : `PO "${order.customName}" (${order.orderNumber}) on your PR ${pr.requestNumber} was force-closed. Any remaining qty on the PR has been cancelled.${reason ? ' Reason: ' + reason : ''}`,
+          targetUserId: pr.managerId,
+          sentById: req.user.id,
+        },
+      });
+    }
+    await prisma.notification.create({
+      data: {
+        type: isComplete ? 'PO_CLOSED' : 'PO_FORCE_CLOSED',
+        title: `PO ${order.orderNumber} ${closeKindLabel}`,
+        message: `${order.customName} (${order.orderNumber}) ${closeKindLabel} by ${req.user.name}. Supplier: ${order.supplierName}.`,
+        targetRole: 'STORE_MANAGER',
+        sentById: req.user.id,
+      },
+    });
+    if (!isComplete) {
+      await prisma.notification.create({
+        data: {
+          type: 'PO_FORCE_CLOSED',
+          title: `PO ${order.orderNumber} force-closed`,
+          message: `${order.customName} (${order.orderNumber}) was force-closed by ${req.user.name} with ${pendingItems.length} item(s) short and ₹${paymentRemaining.toLocaleString('en-IN')} unpaid.${reason ? ' Reason: ' + reason : ''}`,
+          targetRole: 'ADMIN',
+          sentById: req.user.id,
+        },
+      });
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: isComplete ? 'CLOSE_PO' : 'FORCE_CLOSE_PO',
+        entity: 'PurchaseOrder',
+        entityId: order.id,
+        details: {
+          orderNumber: order.orderNumber,
+          forceClosed: !isComplete,
+          pendingItems,
+          paymentRemaining,
+          cancelledPRItemIds: leftoverPRItemIds,
+          reason: reason || null,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid input', details: error.errors });
+    }
+    console.error('Close PO error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

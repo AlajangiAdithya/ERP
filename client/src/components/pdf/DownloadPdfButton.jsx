@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { pdf } from '@react-pdf/renderer';
-import { Download } from 'lucide-react';
+import { Eye } from 'lucide-react';
 
-export default function DownloadPdfButton({ document, fileName, label = 'Download PDF', className = '' }) {
+// Generates the PDF on demand and opens it in a new browser tab so the user
+// can read it in their built-in PDF viewer (or download from there if they
+// really want to). No forced file download — viewing is enough.
+export default function DownloadPdfButton({ document, fileName, label = 'View PDF', className = '' }) {
   const [busy, setBusy] = useState(false);
 
   const handleClick = async () => {
@@ -11,16 +14,11 @@ export default function DownloadPdfButton({ document, fileName, label = 'Downloa
     try {
       const blob = await pdf(document).toBlob();
       const url = URL.createObjectURL(blob);
-      const a = window.document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      window.document.body.appendChild(a);
-      a.click();
-      window.document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err) {
       console.error('PDF generation failed:', err);
-      alert(`Failed to generate PDF: ${err?.message || 'Unknown error'}`);
+      alert(`Failed to open PDF: ${err?.message || 'Unknown error'}`);
     } finally {
       setBusy(false);
     }
@@ -33,7 +31,7 @@ export default function DownloadPdfButton({ document, fileName, label = 'Downloa
       disabled={busy}
       className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-800 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-md transition-colors ${className}`}
     >
-      <Download size={14} /> {busy ? 'Preparing…' : label}
+      <Eye size={14} /> {busy ? 'Opening…' : label}
     </button>
   );
 }

@@ -63,7 +63,7 @@ export default function InwardEntry() {
               <DownloadPdfButton
                 document={<InwardPdf data={success.pdfData} />}
                 fileName={`MIV-${success.pdfData.mivNumber || new Date().toISOString().slice(0, 10)}.pdf`}
-                label="Download MIV PDF"
+                label="View MIV PDF"
               />
             )}
           </div>
@@ -341,7 +341,7 @@ function POInwardForm({ order, onCancel, onComplete }) {
             {invoiceUrl ? (
               <a href={invoiceUrl} target="_blank" rel="noreferrer"
                 className="font-bold text-navy-700 hover:underline inline-flex items-center gap-1">
-                <FileText size={12} /> Download
+                <FileText size={12} /> View
               </a>
             ) : (
               <div className="text-amber-700">—</div>
@@ -627,7 +627,7 @@ function NewProductForm({ onSuccess }) {
     setSaving(false);
   };
 
-  const unitOptions = ['kg', 'litre', 'pcs', 'meter', 'ton', 'box', 'drum', 'bag', 'roll', 'set'];
+  const unitOptions = ['kg', 'litre', 'pcs', 'meter', 'Sq. mtr', 'ton', 'box', 'drum', 'bag', 'roll', 'set'];
 
   return (
     <Card>

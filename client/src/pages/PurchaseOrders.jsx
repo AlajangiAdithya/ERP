@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Truck, CreditCard, CheckCircle, Eye, PackagePlus,
   ChevronRight, ChevronDown, Phone, Building2, FileText, Package, Layers, Clock,
-  Upload, Trash2, Handshake,
+  Upload, Trash2, Handshake, XCircle, AlertTriangle,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -32,6 +32,7 @@ const statusColor = (s) => ({
   PARTIAL: 'amber',
   INWARD_DONE: 'green',
   COMPLETED: 'green',
+  CLOSED: 'gray',
 }[s] || 'gray');
 
 const statusLabel = (s) => ({
@@ -49,6 +50,7 @@ const statusLabel = (s) => ({
   PARTIAL: 'Partially Received',
   INWARD_DONE: 'Inward Done',
   COMPLETED: 'Completed',
+  CLOSED: 'Closed',
 }[s] || s);
 
 const itemStatusColor = (s) => ({
@@ -415,22 +417,30 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
           </div>
           <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white">
             <div>
-              <label className="block text-xs font-bold mb-1">11. Invoice No. <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-bold mb-1">
+                11. Invoice No. {!isEdit && <span className="text-red-500">*</span>}
+                {isEdit && <span className="text-gray-400 font-normal"> (locked)</span>}
+              </label>
               <input
                 type="text"
                 value={iir.invoiceNo}
                 onChange={e => setIir({ ...iir, invoiceNo: e.target.value })}
                 placeholder="Invoice No."
-                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                disabled={isEdit}
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-300 outline-none disabled:bg-gray-100 disabled:text-gray-600"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold mb-1">11. Invoice Date <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-bold mb-1">
+                11. Invoice Date {!isEdit && <span className="text-red-500">*</span>}
+                {isEdit && <span className="text-gray-400 font-normal"> (locked)</span>}
+              </label>
               <input
                 type="date"
                 value={iir.invoiceDate}
                 onChange={e => setIir({ ...iir, invoiceDate: e.target.value })}
-                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                disabled={isEdit}
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-300 outline-none disabled:bg-gray-100 disabled:text-gray-600"
               />
             </div>
             <div>
@@ -623,15 +633,22 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
         {/* Invoice File */}
         <div className="bg-blue-50 border border-blue-200 rounded p-4 mb-4">
           <div className="text-xs font-bold text-blue-900 mb-2">
-            Supporting Invoice PDF {isEdit ? '(optional — replaces existing)' : <span className="text-red-500">*</span>}
+            Supporting Invoice PDF {isEdit ? <span className="text-gray-500 font-normal">(locked — uploaded at goods-arrival)</span> : <span className="text-red-500">*</span>}
           </div>
-          {isEdit && editingInspection?.invoiceFileUrl && (
-            <div className="mb-2 text-[11px] text-blue-800">
-              Current: <a href={editingInspection.invoiceFileUrl} target="_blank" rel="noreferrer" className="underline">view existing invoice</a>
-            </div>
+          {isEdit ? (
+            editingInspection?.invoiceFileUrl ? (
+              <div className="text-[11px] text-blue-800">
+                <a href={editingInspection.invoiceFileUrl} target="_blank" rel="noreferrer" className="underline">view invoice on file</a>
+              </div>
+            ) : (
+              <div className="text-[11px] text-gray-500 italic">No invoice on file.</div>
+            )
+          ) : (
+            <>
+              <input type="file" accept=".pdf" onChange={e => setInvoiceFile(e.target.files?.[0] || null)} className="text-xs" />
+              {invoiceFile && <div className="mt-1 text-[10px] text-green-700 font-bold">✓ {invoiceFile.name}</div>}
+            </>
           )}
-          <input type="file" accept=".pdf" onChange={e => setInvoiceFile(e.target.files?.[0] || null)} className="text-xs" />
-          {invoiceFile && <div className="mt-1 text-[10px] text-green-700 font-bold">✓ {invoiceFile.name}</div>}
         </div>
 
         <div className="text-[10px] text-gray-500 italic pb-2 text-center">
@@ -672,6 +689,11 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [editingInspection, setEditingInspection] = useState(null);
   const [lotItems, setLotItems] = useState([]);
   const [invoiceFile, setInvoiceFile] = useState(null);
+  // Close-PO confirmation: when the server returns 409 with the pending list
+  // we surface this dialog so the PO can review and choose to force-close.
+  const [closePending, setClosePending] = useState(null);
+  const [closeReason, setCloseReason] = useState('');
+  const [closing, setClosing] = useState(false);
   const [iir, setIir] = useState({
     batchNumber: '',
     invoiceNo: '',
@@ -914,8 +936,6 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
 
   const submitIir = async () => {
     if (!iir.batchNumber.trim()) return alert('Batch number is required — it is locked to this lot for inspection, inward, and the product list.');
-    if (!iir.invoiceNo.trim()) return alert('Invoice no. is required.');
-    if (!iir.invoiceDate) return alert('Invoice date is required.');
     if (!iir.materialReceiptDate) return alert('Material receipt date is required.');
     if (!iir.materialCategory) return alert('Please select the material category.');
     if (iir.gatePassType === 'Returnable' && !iir.probableDateOfReturn) {
@@ -923,6 +943,11 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     }
 
     const isEdit = iirMode === 'edit';
+
+    if (!isEdit) {
+      if (!iir.invoiceNo.trim()) return alert('Invoice no. is required.');
+      if (!iir.invoiceDate) return alert('Invoice date is required.');
+    }
 
     // Lot items + invoice file only apply when creating a fresh IIR.
     let arrivedItems = [];
@@ -948,8 +973,10 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     try {
       const fd = new FormData();
       fd.append('batchNumber', (iir.batchNumber || '').trim());
-      fd.append('invoiceNo', (iir.invoiceNo || '').trim());
-      fd.append('invoiceDate', iir.invoiceDate || '');
+      if (!isEdit) {
+        fd.append('invoiceNo', (iir.invoiceNo || '').trim());
+        fd.append('invoiceDate', iir.invoiceDate || '');
+      }
       if (iir.dcNo?.trim()) fd.append('dcNo', iir.dcNo.trim());
       if (iir.gatePassNo?.trim()) fd.append('gatePassNo', iir.gatePassNo.trim());
       if (iir.gatePassType) fd.append('gatePassType', iir.gatePassType);
@@ -957,8 +984,10 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
       fd.append('materialReceiptDate', iir.materialReceiptDate || '');
       fd.append('materialCategory', iir.materialCategory || '');
       fd.append('documentTypes', JSON.stringify(iir.documentTypes || {}));
-      if (!isEdit) fd.append('items', JSON.stringify(arrivedItems));
-      if (invoiceFile) fd.append('invoiceFile', invoiceFile);
+      if (!isEdit) {
+        fd.append('items', JSON.stringify(arrivedItems));
+        if (invoiceFile) fd.append('invoiceFile', invoiceFile);
+      }
 
       const url = isEdit
         ? `/qc-inspections/${editingInspection.id}/iir`
@@ -1017,6 +1046,42 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     setProcessing(false);
   };
 
+  // PO clicks "Close PO". First attempt — let the server decide if it's complete.
+  // If it returns 409 with the pending list, surface the confirm dialog so the
+  // PO can review and choose to force-close.
+  const attemptClose = async () => {
+    setClosing(true);
+    try {
+      await api.post(`/purchase-orders/${order.id}/close`, {});
+      onClose();
+      onUpdated();
+    } catch (err) {
+      if (err.response?.status === 409 && err.response.data) {
+        setClosePending(err.response.data);
+      } else {
+        alert(err.response?.data?.error || 'Failed to close PO');
+      }
+    }
+    setClosing(false);
+  };
+
+  const forceClose = async () => {
+    setClosing(true);
+    try {
+      await api.post(`/purchase-orders/${order.id}/close`, {
+        force: true,
+        reason: closeReason.trim() || undefined,
+      });
+      setClosePending(null);
+      setCloseReason('');
+      onClose();
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to force-close PO');
+    }
+    setClosing(false);
+  };
+
   return (
     <Modal isOpen={!!order} onClose={onClose} title={`Order: ${order.customName}`} size="xl">
       <div className="space-y-4">
@@ -1024,6 +1089,32 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
           <div className="text-xs uppercase tracking-wide text-navy-600 font-medium">Order Name (set by unit manager on the PR)</div>
           <div className="text-xl font-bold text-navy-700">{order.customName}</div>
         </div>
+
+        {/* Closed-PO banner — terminal state, surfaces who closed and why */}
+        {(order.status === 'CLOSED' || order.status === 'COMPLETED') && order.closedAt && (
+          <div className={`border-l-4 rounded-md p-3 flex items-start gap-2 ${
+            order.forceClosed
+              ? 'bg-red-50 border-red-500'
+              : 'bg-green-50 border-green-500'
+          }`}>
+            <XCircle size={18} className={`mt-0.5 shrink-0 ${order.forceClosed ? 'text-red-700' : 'text-green-700'}`} />
+            <div className="flex-1 text-sm">
+              <div className={`font-bold ${order.forceClosed ? 'text-red-900' : 'text-green-900'}`}>
+                {order.forceClosed ? 'PO Force-Closed' : 'PO Closed'}
+              </div>
+              <div className={order.forceClosed ? 'text-red-800 text-xs' : 'text-green-800 text-xs'}>
+                {order.closedBy?.name && <>Closed by <span className="font-semibold">{order.closedBy.name}</span> </>}
+                on {formatDateTime(order.closedAt)}.
+                {order.forceClosed && <> Leftover quantities were cancelled on the originating PR.</>}
+              </div>
+              {order.closeReason && (
+                <div className={`mt-1 italic ${order.forceClosed ? 'text-red-900' : 'text-green-900'} text-xs`}>
+                  Reason: {order.closeReason}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Awaiting Accounting banner — visible to everyone viewing the order */}
         {isPendingAccounting && (
@@ -1562,8 +1653,87 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
               <PackagePlus size={16} className="mr-1" /> {processing ? 'Processing...' : 'Record Inward Entry'}
             </Button>
           )}
+
+          {/* Close PO — PO can close once work is wrapped up. Server decides whether
+              the close is clean or whether it needs a force-confirm (handled below). */}
+          {isPO && !['COMPLETED', 'CLOSED', 'PENDING_ACCOUNTING'].includes(order.status) && (
+            <Button variant="secondary" onClick={attemptClose} disabled={closing || processing}>
+              <XCircle size={16} className="mr-1" /> {closing ? 'Closing…' : 'Close PO'}
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Force-close confirmation: server returned 409 with what is still pending. */}
+      {closePending && (
+        <Modal
+          isOpen
+          onClose={() => { setClosePending(null); setCloseReason(''); }}
+          title="Close PO with leftovers?"
+          size="md"
+        >
+          <div className="space-y-4">
+            <div className="flex items-start gap-2 bg-amber-50 border-l-4 border-amber-500 rounded-md p-3">
+              <AlertTriangle size={18} className="text-amber-700 mt-0.5 shrink-0" />
+              <div className="text-sm text-amber-900">
+                This order is not fully finished yet. Review what is still pending below.
+                If you close it anyway, the leftover quantities will be cancelled on the
+                originating Purchase Request(s) and no follow-up order will be created.
+              </div>
+            </div>
+
+            {Array.isArray(closePending.pendingItems) && closePending.pendingItems.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-gray-700 mb-1">Materials not fully received</div>
+                <div className="border rounded-md divide-y">
+                  {closePending.pendingItems.map((p, idx) => (
+                    <div key={idx} className="px-3 py-2 text-sm flex justify-between">
+                      <span className="text-gray-800">{p.productName || 'Item'}</span>
+                      <span className="text-gray-600">
+                        {Number(p.received || 0)} of {Number(p.ordered || 0)} {p.productUnit || ''} received
+                        {p.shortQty != null && <> · short {Number(p.shortQty)}</>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {Number(closePending.paymentRemaining || 0) > 0 && (
+              <div className="text-sm bg-red-50 border border-red-200 rounded-md px-3 py-2 text-red-800">
+                Payment remaining: <span className="font-semibold">{formatCurrency(closePending.paymentRemaining)}</span>
+              </div>
+            )}
+
+            {closePending.openPaymentRequests && (
+              <div className="text-sm bg-orange-50 border border-orange-200 rounded-md px-3 py-2 text-orange-800">
+                There are open payment request(s) still in progress for this PO.
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Reason (optional)</label>
+              <textarea
+                value={closeReason}
+                onChange={(e) => setCloseReason(e.target.value)}
+                rows={2}
+                maxLength={500}
+                placeholder="Why are you force-closing this PO?"
+                className="w-full px-3 py-2 border rounded-md text-sm"
+              />
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <Button variant="secondary" onClick={() => { setClosePending(null); setCloseReason(''); }} disabled={closing}>
+                Cancel
+              </Button>
+              <Button onClick={forceClose} disabled={closing}>
+                <XCircle size={16} className="mr-1" /> {closing ? 'Closing…' : 'Close anyway'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {showIirForm && (
         <Modal

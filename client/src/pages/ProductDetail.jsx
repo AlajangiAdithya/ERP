@@ -599,7 +599,7 @@ function ProcurementChainTab({ product, isStores }) {
                       <div className="mt-1">
                         <a href={insp.invoiceFileUrl} target="_blank" rel="noreferrer"
                           className="inline-flex items-center gap-1 text-navy-700 hover:underline font-medium">
-                          <FileText size={12} /> Download invoice PDF
+                          <FileText size={12} /> View invoice PDF
                         </a>
                       </div>
                     )}
