@@ -16,7 +16,7 @@ const ALL_ROLES = [
   'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS',
 ];
 
-const getNavItems = (role) => {
+const buildAllItems = (role) => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
     { to: '/products', icon: Package, label: 'Products', roles: ALL_ROLES },
@@ -47,7 +47,7 @@ const getNavItems = (role) => {
     { to: '/superadmin/audit', icon: ShieldCheck, label: 'Audit', roles: ['SUPERADMIN'] },
   ];
 
-  return items.filter(item => item.roles.includes(role));
+  return items;
 };
 
 export default function Sidebar() {
@@ -57,12 +57,12 @@ export default function Sidebar() {
 
   // In audit mode the SUPERADMIN-only entries (Real-time Corrections, Backups,
   // Audit) must not appear — that's the giveaway we're hiding. The session is
-  // still logged in as SUPERADMIN; we just present the sidebar as if it were
-  // a regular admin.
-  const navItems = getNavItems(user?.role).filter((item) => {
-    if (!audit) return true;
-    return !item.to.startsWith('/superadmin');
-  });
+  // still logged in as SUPERADMIN; we present every regular menu item so the
+  // auditor can poke at every page, and strip just the /superadmin/* hatches.
+  const allItems = buildAllItems(user?.role);
+  const navItems = audit
+    ? allItems.filter((item) => !item.to.startsWith('/superadmin'))
+    : allItems.filter((item) => item.roles.includes(user?.role));
 
   const sidebarContent = (
     <>
