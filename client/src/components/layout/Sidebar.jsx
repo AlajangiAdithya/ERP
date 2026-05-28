@@ -4,8 +4,8 @@ import {
   LayoutDashboard, Package, PackagePlus, UserCog,
   FileText, BarChart3, Settings, Menu, X,
   ClipboardList, CheckSquare, ScrollText, Bell, History, ShoppingCart,
-  FileSearch, Truck, CreditCard, ClipboardCheck, DoorOpen, FlaskConical, ArrowLeftRight,
-  Building2, ShieldCheck, Briefcase, Database, HardDrive, Activity
+  FileSearch, Truck, CreditCard, ClipboardCheck, ArrowLeftRight,
+  Building2, ShieldCheck, Database, HardDrive, Activity
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -30,10 +30,7 @@ const buildAllItems = (role) => {
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },
     { to: '/inward-entry', icon: PackagePlus, label: 'Inward Entry', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS'] },
     { to: '/stock-movements', icon: BarChart3, label: 'Stock Movements', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
-    { to: '/gate-pass', icon: DoorOpen, label: 'Gate Pass', roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY'] },
     { to: '/inventory-transfers', icon: ArrowLeftRight, label: 'Inventory Transfers', roles: ['MANAGER', 'LOGISTICS', 'SAFETY'] },
-    { to: '/ion', icon: FlaskConical, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND', 'DESIGNS', 'SAFETY'] },
-    { to: '/tenders', icon: Briefcase, label: 'Tenders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY'] },
     { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY', 'ADMIN'] },
     { to: '/unit-usage', icon: History, label: 'Unit Usage Logs', roles: ['ADMIN', 'SAFETY'] },
     { to: '/audit-logs', icon: FileText, label: 'Audit Logs', roles: ['ADMIN', 'SAFETY'] },
