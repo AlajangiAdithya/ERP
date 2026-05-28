@@ -8,7 +8,6 @@ import {
   Building2, ShieldCheck, Briefcase, Database, HardDrive
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { useAuditMode } from '../../pages/superadmin/auditOverlay';
 
 const ALL_ROLES = [
   'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
@@ -44,7 +43,6 @@ const buildAllItems = (role) => {
     // SUPERADMIN-only owner hatch — invisible to everyone else.
     { to: '/superadmin/corrections', icon: Database, label: 'Real-time Corrections', roles: ['SUPERADMIN'] },
     { to: '/superadmin/backups', icon: HardDrive, label: 'Backups', roles: ['SUPERADMIN'] },
-    { to: '/superadmin/audit', icon: ShieldCheck, label: 'Audit', roles: ['SUPERADMIN'] },
   ];
 
   return items;
@@ -53,16 +51,8 @@ const buildAllItems = (role) => {
 export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user } = useAuth();
-  const audit = useAuditMode();
 
-  // In audit mode the SUPERADMIN-only entries (Real-time Corrections, Backups,
-  // Audit) must not appear — that's the giveaway we're hiding. The session is
-  // still logged in as SUPERADMIN; we present every regular menu item so the
-  // auditor can poke at every page, and strip just the /superadmin/* hatches.
-  const allItems = buildAllItems(user?.role);
-  const navItems = audit
-    ? allItems.filter((item) => !item.to.startsWith('/superadmin'))
-    : allItems.filter((item) => item.roles.includes(user?.role));
+  const navItems = buildAllItems(user?.role).filter((item) => item.roles.includes(user?.role));
 
   const sidebarContent = (
     <>

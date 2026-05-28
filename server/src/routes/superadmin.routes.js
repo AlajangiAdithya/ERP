@@ -1,9 +1,14 @@
 // Hidden owner-only endpoints. All routes are 404 for anyone except SUPERADMIN.
 const express = require('express');
+const path = require('path');
+const { exec } = require('child_process');
+const { promisify } = require('util');
 const { authenticate } = require('../middleware/auth');
 const { superadminOnly } = require('../middleware/superadminOnly');
 const prisma = require('../config/db');
 const { listBackupTree, signBackupUrl, previewBackup } = require('../services/s3Browse');
+
+const execAsync = promisify(exec);
 
 const router = express.Router();
 
@@ -146,6 +151,37 @@ router.get('/backups/preview', async (req, res) => {
     console.error('superadmin/backups/preview error:', e);
     res.status(500).json({ error: e.message || 'Failed to preview' });
   }
+});
+
+// ────────────────────────────────────────────────────────────
+//  System info — disk / db / uploads usage
+// ────────────────────────────────────────────────────────────
+
+// GET /api/superadmin/system-info
+router.get('/system-info', async (req, res) => {
+  const out = { disk: null, dbBytes: null, uploadsBytes: null };
+
+  // Root filesystem usage in bytes (skip on non-POSIX dev boxes — Windows has no df)
+  try {
+    const { stdout } = await execAsync("df -B1 / | awk 'NR==2 {print $2, $3, $4}'");
+    const [total, used, available] = stdout.trim().split(/\s+/).map(Number);
+    if (total) out.disk = { total, used, available, percent: Math.round((used / total) * 100) };
+  } catch (_) { /* dev box, ignore */ }
+
+  // Postgres DB size for the connected database
+  try {
+    const rows = await prisma.$queryRawUnsafe('SELECT pg_database_size(current_database())::bigint AS size');
+    out.dbBytes = Number(rows?.[0]?.size) || 0;
+  } catch (_) { /* ignore */ }
+
+  // Uploads dir size
+  try {
+    const uploadsPath = path.resolve(__dirname, '../../uploads');
+    const { stdout } = await execAsync(`du -sb "${uploadsPath}" 2>/dev/null | cut -f1`);
+    out.uploadsBytes = parseInt(stdout.trim(), 10) || 0;
+  } catch (_) { /* ignore */ }
+
+  res.json(out);
 });
 
 // GET /api/superadmin/backups/signed-url?key=...

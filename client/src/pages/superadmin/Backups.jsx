@@ -3,7 +3,7 @@
 // metadata.json (or master snapshot) and grab a 5-minute presigned download URL.
 
 import { useEffect, useState } from 'react';
-import { HardDrive, Download, Eye, ChevronRight, ChevronDown, RefreshCw, X } from 'lucide-react';
+import { HardDrive, Download, Eye, ChevronRight, ChevronDown, RefreshCw, X, Database, FolderArchive } from 'lucide-react';
 import api from '../../api/axios';
 
 const TIER_LABELS = {
@@ -19,8 +19,8 @@ const TIER_ORDER = ['weekly', 'monthly', 'quarterly', 'half-yearly', 'yearly', '
 const fmtBytes = (n) => {
   if (!n) return '0 B';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(n) / Math.log(k));
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(sizes.length - 1, Math.floor(Math.log(n) / Math.log(k)));
   return `${(n / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 };
 
@@ -32,8 +32,16 @@ export default function Backups() {
   const [openTier, setOpenTier] = useState({});
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [sysInfo, setSysInfo] = useState(null);
 
-  useEffect(() => { fetchTree(); }, []);
+  useEffect(() => { fetchTree(); fetchSysInfo(); }, []);
+
+  async function fetchSysInfo() {
+    try {
+      const { data } = await api.get('/superadmin/system-info');
+      setSysInfo(data);
+    } catch (_) { /* ignore — card just won't render */ }
+  }
 
   async function fetchTree() {
     setLoading(true);
@@ -87,10 +95,55 @@ export default function Backups() {
             <p className="text-sm text-gray-500">Browse the S3 tier ladder. Download links expire in 5 minutes.</p>
           </div>
         </div>
-        <button onClick={fetchTree} className="px-3 py-2 text-sm border rounded hover:bg-gray-50 flex items-center gap-1.5">
+        <button onClick={() => { fetchTree(); fetchSysInfo(); }} className="px-3 py-2 text-sm border rounded hover:bg-gray-50 flex items-center gap-1.5">
           <RefreshCw size={14} /> Refresh
         </button>
       </div>
+
+      {sysInfo && (
+        <div className="mb-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {sysInfo.disk && (
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center gap-2 mb-2 text-gray-700">
+                <HardDrive size={16} className="text-purple-700" />
+                <span className="text-sm font-medium">Disk (root)</span>
+                <span className="ml-auto text-xs text-gray-500">
+                  {fmtBytes(sysInfo.disk.used)} / {fmtBytes(sysInfo.disk.total)}
+                </span>
+              </div>
+              <div className="h-2 rounded bg-gray-100 overflow-hidden">
+                <div
+                  className={`h-full ${sysInfo.disk.percent >= 85 ? 'bg-red-500' : sysInfo.disk.percent >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                  style={{ width: `${sysInfo.disk.percent}%` }}
+                />
+              </div>
+              <div className="mt-1.5 text-xs text-gray-500">
+                {sysInfo.disk.percent}% used · {fmtBytes(sysInfo.disk.available)} free
+              </div>
+            </div>
+          )}
+          {sysInfo.dbBytes != null && (
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center gap-2 mb-1 text-gray-700">
+                <Database size={16} className="text-purple-700" />
+                <span className="text-sm font-medium">Database</span>
+              </div>
+              <div className="text-2xl font-semibold text-gray-900">{fmtBytes(sysInfo.dbBytes)}</div>
+              <div className="text-xs text-gray-500 mt-1">Postgres data on disk</div>
+            </div>
+          )}
+          {sysInfo.uploadsBytes != null && (
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center gap-2 mb-1 text-gray-700">
+                <FolderArchive size={16} className="text-purple-700" />
+                <span className="text-sm font-medium">Uploads</span>
+              </div>
+              <div className="text-2xl font-semibold text-gray-900">{fmtBytes(sysInfo.uploadsBytes)}</div>
+              <div className="text-xs text-gray-500 mt-1">PDFs, photos, attachments</div>
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 p-3 rounded bg-red-50 border border-red-200 text-sm text-red-800 flex justify-between">

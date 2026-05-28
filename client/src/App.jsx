@@ -28,7 +28,6 @@ import Tenders from './pages/Tenders';
 import SafetyMonitor from './pages/SafetyMonitor';
 import RealtimeCorrections from './pages/superadmin/RealtimeCorrections';
 import Backups from './pages/superadmin/Backups';
-import AuditLauncher from './pages/superadmin/AuditLauncher';
 
 function PrivateRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
@@ -158,9 +157,6 @@ export default function App() {
               } />
               <Route path="/superadmin/backups" element={
                 <PrivateRoute allowedRoles={['SUPERADMIN']}><Backups /></PrivateRoute>
-              } />
-              <Route path="/superadmin/audit" element={
-                <PrivateRoute allowedRoles={['SUPERADMIN']}><AuditLauncher /></PrivateRoute>
               } />
 
               {/* All roles */}
