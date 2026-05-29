@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Check, Package, ClipboardList, Truck, Plus, FileInput, FileText } from 'lucide-react';
+import { Check, Package, ClipboardList, Truck, Plus, FileInput, FileText, Trash2, Send } from 'lucide-react';
 import api from '../api/axios';
+import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
-import Input, { Select } from '../components/ui/Input';
+import Input, { Select, Textarea } from '../components/ui/Input';
+import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import SearchBar from '../components/shared/SearchBar';
 import { formatDate, formatDateTime } from '../utils/formatters';
@@ -663,25 +665,26 @@ function NewProductForm({ onSuccess }) {
 }
 
 // ─── From Gate Pass (FIM) Mode ──────────────────────────────────────────
-// Lists pending INWARD gate passes (customer FIM) and accepts items into
-// Products. Created ProductBatches are linked back to the inward gate pass.
+// Records customer-supplied material (FIM) and accepts it into Products.
+// Created ProductBatches are tagged FIM and linked back to the originating
+// inward entry so we can trace each batch back to the customer.
 function FromGatePassMode({ onSuccess, refreshKey }) {
+  const { user } = useAuth();
+  const canRecord = ['STORE_MANAGER', 'LOGISTICS', 'ADMIN'].includes(user?.role);
   const [gatePasses, setGatePasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
+  const [showRecord, setShowRecord] = useState(false);
+  const [localRefresh, setLocalRefresh] = useState(0);
 
   const load = () => {
     setLoading(true);
     api.get('/gatepasses', { params: { direction: 'INWARD', status: 'PENDING_ACCEPTANCE', limit: 100 } })
-      .then(({ data }) => {
-        // Direct-to-unit FIM never enters the product list — it is collected by the destination unit's manager from the Gate Pass page.
-        const list = (data.gatePasses || []).filter(g => g.inwardKind !== 'DIRECT_TO_UNIT');
-        setGatePasses(list);
-      })
+      .then(({ data }) => setGatePasses(data.gatePasses || []))
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [refreshKey]);
+  useEffect(load, [refreshKey, localRefresh]);
 
   if (selected) {
     return (
@@ -695,12 +698,19 @@ function FromGatePassMode({ onSuccess, refreshKey }) {
 
   return (
     <div>
-      <h3 className="text-lg font-semibold text-gray-800 mb-3">Inward Gate Passes Awaiting Acceptance (FIM)</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-lg font-semibold text-gray-800">Inward Entries Awaiting Acceptance (FIM)</h3>
+        {canRecord && (
+          <Button onClick={() => setShowRecord(true)}>
+            <Plus size={14} /> Record Inward (FIM)
+          </Button>
+        )}
+      </div>
       {loading ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : gatePasses.length === 0 ? (
         <Card className="text-center text-gray-500 py-8">
-          No inward gate passes waiting for acceptance.
+          No inward entries waiting for acceptance.
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -716,7 +726,6 @@ function FromGatePassMode({ onSuccess, refreshKey }) {
                 <div className="text-xs text-gray-600 space-y-1">
                   <div><span className="text-gray-500">Customer:</span> {g.customerName || '—'}</div>
                   <div><span className="text-gray-500">Customer GP:</span> {g.customerGatePassNo || '—'}{g.customerGatePassDate ? ` (${formatDate(g.customerGatePassDate)})` : ''}</div>
-                  <div><span className="text-gray-500">Type:</span> {g.passType === 'NON_RETURNABLE' ? 'Non-Returnable' : 'Returnable'}</div>
                   <div><span className="text-gray-500">Items pending:</span> {pending.length} of {g.items?.length || 0}</div>
                 </div>
               </Card>
@@ -724,7 +733,207 @@ function FromGatePassMode({ onSuccess, refreshKey }) {
           })}
         </div>
       )}
+
+      {showRecord && (
+        <RecordInwardModal
+          onClose={() => setShowRecord(false)}
+          onCreated={() => { setShowRecord(false); setLocalRefresh(k => k + 1); }}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── Record Inward Modal ────────────────────────────────────────────────
+// Captures customer FIM details and posts an INWARD gate pass (inwardKind
+// STORES). Once submitted the entry lands in the list above for the store
+// manager to accept into the product list via AcceptInwardForm.
+const blankInwardItem = () => ({
+  description: '', quantity: 1, unit: 'pcs',
+  dispatchedTo: '', itemPurpose: '', probableReturnDate: '',
+  itemPassType: 'RETURNABLE', gatePassDetails: '', transportation: '',
+  contactPersonDetails: '',
+});
+
+function RecordInwardModal({ onClose, onCreated }) {
+  const [customerName, setCustomerName] = useState('');
+  const [customerGatePassNo, setCustomerGatePassNo] = useState('');
+  const [customerGatePassDate, setCustomerGatePassDate] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [items, setItems] = useState([blankInwardItem()]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const updateItem = (idx, k, v) => {
+    const copy = [...items];
+    copy[idx] = { ...copy[idx], [k]: v };
+    setItems(copy);
+  };
+  const addItem = () => setItems([...items, blankInwardItem()]);
+  const removeItem = (idx) => setItems(items.length === 1 ? items : items.filter((_, i) => i !== idx));
+
+  const submit = async () => {
+    setError('');
+    if (!customerName.trim()) return setError('Customer name is required');
+    if (!customerGatePassNo.trim()) return setError("Customer's gate pass number is required");
+    if (items.some(i => !i.description.trim())) return setError('Each item needs a name/description');
+    if (items.some(i => !i.quantity || Number(i.quantity) <= 0)) return setError('Each item needs a positive quantity');
+    if (items.some(i => i.itemPassType === 'RETURNABLE' && !i.probableReturnDate)) {
+      return setError('Returnable items need a probable date of return');
+    }
+
+    setSaving(true);
+    try {
+      await api.post('/gatepasses', {
+        direction: 'INWARD',
+        inwardKind: 'STORES',
+        remarks: remarks.trim() || undefined,
+        customerName: customerName.trim(),
+        customerGatePassNo: customerGatePassNo.trim(),
+        customerGatePassDate: customerGatePassDate || null,
+        items: items.map(i => ({
+          description: i.description.trim(),
+          quantity: Number(i.quantity),
+          unit: i.unit || 'pcs',
+          dispatchedTo: i.dispatchedTo?.trim() || null,
+          itemPurpose: i.itemPurpose?.trim() || null,
+          probableReturnDate: i.probableReturnDate || null,
+          itemPassType: i.itemPassType || null,
+          gatePassDetails: i.gatePassDetails?.trim() || null,
+          transportation: i.transportation?.trim() || null,
+          contactPersonDetails: i.contactPersonDetails?.trim() || null,
+        })),
+      });
+      onCreated();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to record inward entry');
+    }
+    setSaving(false);
+  };
+
+  const cellInput = "w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700";
+
+  return (
+    <Modal isOpen onClose={onClose} title="Record Inward Entry (FIM)" size="full">
+      <div className="space-y-6">
+        {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+
+        <p className="text-xs text-gray-500">
+          GP No. and Date are auto-generated. Capture the customer's own gate pass details below — these stay with the FIM product so it can always be traced back.
+          Once submitted, accept the items into the product list from the pending list. Unit managers raise an MIV to take their share.
+        </p>
+
+        <div className="space-y-3 p-3 bg-blue-50 border border-blue-200 rounded">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Input label="Customer name *" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. ABC Pvt. Ltd." />
+            <Input label="Customer's gate pass no. *" value={customerGatePassNo} onChange={e => setCustomerGatePassNo(e.target.value)} placeholder="As printed on customer's GP" />
+            <Input type="date" label="Customer's gate pass date" value={customerGatePassDate} onChange={e => setCustomerGatePassDate(e.target.value)} />
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-medium text-gray-800">Components</h4>
+            <Button variant="secondary" size="sm" onClick={addItem}><Plus size={14} /> Add row</Button>
+          </div>
+
+          <div className="border border-gray-200 rounded-md overflow-x-auto">
+            <table className="w-full text-sm" style={{ minWidth: 1100 }}>
+              <colgroup>
+                <col style={{ width: '36px' }} />
+                <col style={{ width: '180px' }} />
+                <col style={{ width: '80px' }} />
+                <col style={{ width: '80px' }} />
+                <col style={{ width: '150px' }} />
+                <col style={{ width: '150px' }} />
+                <col style={{ width: '150px' }} />
+                <col style={{ width: '140px' }} />
+                <col style={{ width: '120px' }} />
+                <col style={{ width: '160px' }} />
+                <col style={{ width: '40px' }} />
+              </colgroup>
+              <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
+                <tr className="text-left">
+                  <th className="px-3 py-2.5 text-center font-medium">#</th>
+                  <th className="px-3 py-2.5 font-medium">Name of component</th>
+                  <th className="px-3 py-2.5 text-center font-medium">Qty</th>
+                  <th className="px-3 py-2.5 text-center font-medium">UOM</th>
+                  <th className="px-3 py-2.5 font-medium">Dispatched to</th>
+                  <th className="px-3 py-2.5 font-medium">Purpose</th>
+                  <th className="px-3 py-2.5 font-medium">Probable return</th>
+                  <th className="px-3 py-2.5 font-medium">Pass type</th>
+                  <th className="px-3 py-2.5 font-medium">Transport</th>
+                  <th className="px-3 py-2.5 font-medium">Remarks / Contact</th>
+                  <th className="px-2 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it, idx) => (
+                  <tr key={idx} className="border-t border-gray-100 align-top">
+                    <td className="px-3 py-2 text-center text-gray-500">{idx + 1}</td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput}
+                        value={it.description} onChange={e => updateItem(idx, 'description', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input type="number" min="0" step="any" className={`${cellInput} text-right`}
+                        value={it.quantity} onChange={e => updateItem(idx, 'quantity', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={`${cellInput} text-center`}
+                        value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput}
+                        value={it.dispatchedTo} onChange={e => updateItem(idx, 'dispatchedTo', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput}
+                        value={it.itemPurpose} onChange={e => updateItem(idx, 'itemPurpose', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input type="date" className={cellInput}
+                        value={it.probableReturnDate} onChange={e => updateItem(idx, 'probableReturnDate', e.target.value)}
+                        disabled={it.itemPassType !== 'RETURNABLE'} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <select className={cellInput}
+                        value={it.itemPassType} onChange={e => updateItem(idx, 'itemPassType', e.target.value)}>
+                        <option value="RETURNABLE">Returnable</option>
+                        <option value="NON_RETURNABLE">Non-Returnable</option>
+                      </select>
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput}
+                        value={it.transportation} onChange={e => updateItem(idx, 'transportation', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput}
+                        value={it.contactPersonDetails} onChange={e => updateItem(idx, 'contactPersonDetails', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <button onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 disabled:opacity-30"
+                        disabled={items.length === 1} title="Remove row">
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <Textarea label="Remarks" value={remarks} onChange={e => setRemarks(e.target.value)} rows={2} />
+
+        <div className="flex justify-end gap-2 pt-3 border-t border-gray-200">
+          <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>
+            <Send size={14} /> {saving ? 'Submitting…' : 'Record Inward'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
