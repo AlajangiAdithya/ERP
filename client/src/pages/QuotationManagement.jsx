@@ -1779,7 +1779,17 @@ function OpenPoolsSection({ onUpdated }) {
 
   useEffect(() => { load(); }, []);
 
-  const getState = (id) => poolState[id] || { unitPrice: '', supplierName: '', supplierContact: '', supplierAddress: '', saving: false, complianceIssues: [] };
+  const getState = (id) => poolState[id] || {
+    unitPrice: '',
+    supplierName: '',
+    supplierContact: '',
+    supplierAddress: '',
+    notes: '',
+    quotationPdf: null,
+    saving: false,
+    complianceIssues: [],
+    complianceFY: '',
+  };
   const updateState = (id, patch) => setPoolState((p) => ({ ...p, [id]: { ...getState(id), ...patch } }));
 
   const dissolvePool = async (poolId) => {
@@ -1798,21 +1808,40 @@ function OpenPoolsSection({ onUpdated }) {
     const price = parseFloat(s.unitPrice);
     if (!(price >= 0)) return alert('Enter a valid unit price.');
     if (!s.supplierName.trim()) return alert('Supplier name is required.');
-    updateState(pool.id, { saving: true, complianceIssues: [] });
+    if (s.quotationPdf && s.quotationPdf.type !== 'application/pdf') {
+      return alert('Quotation attachment must be a PDF file');
+    }
+    updateState(pool.id, { saving: true, complianceIssues: [], complianceFY: '' });
     try {
-      await api.post(`/material-pools/${pool.id}/quotations`, {
+      const payload = {
         unitPrice: price,
         supplierName: s.supplierName.trim(),
         supplierContact: s.supplierContact.trim() || undefined,
         supplierAddress: s.supplierAddress.trim() || undefined,
+        notes: s.notes.trim() || undefined,
+      };
+      if (s.quotationPdf) {
+        const form = new FormData();
+        form.append('payload', JSON.stringify(payload));
+        form.append('quotationPdf', s.quotationPdf);
+        await api.post(`/material-pools/${pool.id}/quotations`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      } else {
+        await api.post(`/material-pools/${pool.id}/quotations`, payload);
+      }
+      updateState(pool.id, {
+        unitPrice: '', supplierName: '', supplierContact: '', supplierAddress: '',
+        notes: '', quotationPdf: null, saving: false, complianceIssues: [], complianceFY: '',
       });
-      updateState(pool.id, { unitPrice: '', supplierName: '', supplierContact: '', supplierAddress: '', saving: false, complianceIssues: [] });
       await load();
       onUpdated?.();
     } catch (err) {
       const issues = err.response?.data?.complianceIssues;
       if (Array.isArray(issues) && issues.length > 0) {
-        updateState(pool.id, { complianceIssues: issues, saving: false });
+        updateState(pool.id, {
+          complianceIssues: issues,
+          complianceFY: err.response?.data?.currentFinancialYear || '',
+          saving: false,
+        });
       } else {
         alert(err.response?.data?.error || 'Failed to add quote');
         updateState(pool.id, { saving: false });
@@ -1841,70 +1870,159 @@ function OpenPoolsSection({ onUpdated }) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {pools.map(pool => {
         const s = getState(pool.id);
         const totalQty = pool.items.reduce((sum, pi) => {
           const it = pi.purchaseRequestItem;
           return sum + (it.adminApprovedQty != null ? it.adminApprovedQty : it.requestedQty || 0);
         }, 0);
+        const lineTotal = totalQty * (parseFloat(s.unitPrice) || 0);
         return (
           <Card key={pool.id}>
-            <div className="flex items-start justify-between gap-3 mb-2">
-              <div>
-                <div className="font-semibold text-gray-800 flex items-center gap-2">
-                  <GitMerge size={16} className="text-purple-600" /> {pool.productName}
+            <div className="space-y-4">
+              {/* Header bar — mirrors the "For PR: …" bar in the single-PR modal */}
+              <div className="bg-gray-50 p-3 rounded-md text-sm flex flex-wrap gap-x-6 gap-y-1 items-center">
+                <div className="flex items-center gap-2">
+                  <GitMerge size={16} className="text-purple-600" />
+                  <span className="text-gray-500">Pool for:</span>
+                  <span className="font-medium">{pool.productName}</span>
                   <Badge color={pool.status === 'OPEN' ? 'gray' : 'purple'}>{pool.status}</Badge>
-                  <span className="text-xs text-gray-500">{pool.items.length} PR-items · total {totalQty} {pool.productUnit}</span>
                 </div>
-                <div className="text-xs text-gray-500 mt-1">Created by {pool.createdBy?.name || '—'} · {pool.items.length} sources</div>
+                <div className="text-xs text-gray-500">
+                  {pool.items.length} PR-items · total {totalQty} {pool.productUnit} · created by {pool.createdBy?.name || '—'}
+                </div>
+                {pool.status === 'OPEN' && (
+                  <div className="ml-auto">
+                    <Button size="sm" variant="ghost" onClick={() => dissolvePool(pool.id)}>
+                      Dissolve
+                    </Button>
+                  </div>
+                )}
               </div>
-              {pool.status === 'OPEN' && (
-                <Button size="sm" variant="ghost" onClick={() => dissolvePool(pool.id)}>
-                  Dissolve
-                </Button>
-              )}
-            </div>
-            <div className="mb-3 border rounded overflow-hidden">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 py-1 text-left font-medium text-gray-500">PR</th>
-                    <th className="px-3 py-1 text-left font-medium text-gray-500">Unit</th>
-                    <th className="px-3 py-1 text-left font-medium text-gray-500">Qty</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pool.items.map(pi => {
-                    const it = pi.purchaseRequestItem;
-                    const qty = it.adminApprovedQty != null ? it.adminApprovedQty : it.requestedQty;
-                    return (
-                      <tr key={pi.id} className="border-t">
-                        <td className="px-3 py-1 font-mono">{it.request?.requestNumber}</td>
-                        <td className="px-3 py-1">{it.request?.unit?.code || it.request?.unit?.name || '—'}</td>
-                        <td className="px-3 py-1">{qty} {pool.productUnit}</td>
+
+              {/* Members table */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Sourced from</h4>
+                <div className="border rounded-md overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-1.5 text-left font-medium text-gray-500">PR</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-gray-500">Unit</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-gray-500">Qty</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
-              <Input placeholder="Supplier name" value={s.supplierName} onChange={(e) => updateState(pool.id, { supplierName: e.target.value })} />
-              <Input placeholder="Supplier contact (opt)" value={s.supplierContact} onChange={(e) => updateState(pool.id, { supplierContact: e.target.value })} />
-              <Input placeholder={`Unit price / ${pool.productUnit}`} type="number" min={0} step="any" value={s.unitPrice} onChange={(e) => updateState(pool.id, { unitPrice: e.target.value })} />
-              <Button onClick={() => submitQuote(pool)} disabled={s.saving}>
-                <Plus size={14} className="mr-1" /> {s.saving ? 'Adding…' : 'Add Quote'}
-              </Button>
-            </div>
-            {s.complianceIssues.length > 0 && (
-              <div className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
-                <div className="font-medium">Supplier compliance issues:</div>
-                {s.complianceIssues.map((c, i) => (
-                  <div key={i}>{c.supplierName}: missing Vendor Evaluation PDF</div>
-                ))}
+                    </thead>
+                    <tbody>
+                      {pool.items.map(pi => {
+                        const it = pi.purchaseRequestItem;
+                        const qty = it.adminApprovedQty != null ? it.adminApprovedQty : it.requestedQty;
+                        return (
+                          <tr key={pi.id} className="border-t">
+                            <td className="px-3 py-1.5 font-mono">{it.request?.requestNumber}</td>
+                            <td className="px-3 py-1.5">{it.request?.unit?.code || it.request?.unit?.name || '—'}</td>
+                            <td className="px-3 py-1.5">{qty} {pool.productUnit}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            )}
+
+              {/* Compliance issue banner — same style as single-PR modal */}
+              {s.complianceIssues.length > 0 && (
+                <div className="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-900">
+                  <p className="font-semibold mb-1">Supplier compliance documents required{s.complianceFY ? ` for FY ${s.complianceFY}` : ''}</p>
+                  <ul className="list-disc pl-5 space-y-0.5 text-xs">
+                    {s.complianceIssues.map((iss) => (
+                      <li key={iss.supplierId}>
+                        <strong>{iss.supplierName}</strong> — missing{' '}
+                        {iss.missing.map((m, idx) => (
+                          <span key={m}>
+                            {idx > 0 ? ', ' : ''}
+                            {m === 'vendor-evaluation' ? 'Vendor Evaluation PDF' : `Supplier Assessment PDF (FY ${s.complianceFY})`}
+                          </span>
+                        ))}
+                      </li>
+                    ))}
+                  </ul>
+                  <a href="/suppliers" target="_blank" rel="noreferrer" className="inline-block mt-2 text-xs font-semibold text-red-900 underline hover:text-red-700">
+                    Open Suppliers page to upload PDFs →
+                  </a>
+                </div>
+              )}
+
+              {/* Supplier + pricing form */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Supplier & Pricing</h4>
+                <div className="border rounded-md p-3 bg-white space-y-3">
+                  <div className="grid grid-cols-12 gap-2">
+                    <div className="col-span-4">
+                      <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Supplier name *</label>
+                      <input value={s.supplierName} onChange={(e) => updateState(pool.id, { supplierName: e.target.value })}
+                        className="w-full px-2 py-1.5 border rounded text-sm" placeholder="Supplier name" />
+                    </div>
+                    <div className="col-span-3">
+                      <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Phone/Email</label>
+                      <input value={s.supplierContact} onChange={(e) => updateState(pool.id, { supplierContact: e.target.value })}
+                        className="w-full px-2 py-1.5 border rounded text-sm" placeholder="Optional" />
+                    </div>
+                    <div className="col-span-5">
+                      <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Address</label>
+                      <input value={s.supplierAddress} onChange={(e) => updateState(pool.id, { supplierAddress: e.target.value })}
+                        className="w-full px-2 py-1.5 border rounded text-sm" placeholder="Optional" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-12 gap-2 items-end">
+                    <div className="col-span-3">
+                      <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Total Qty</label>
+                      <div className="px-2 py-1.5 border rounded text-sm bg-gray-50 text-gray-700">
+                        {totalQty} {pool.productUnit}
+                      </div>
+                    </div>
+                    <div className="col-span-3">
+                      <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Unit Price (₹)</label>
+                      <input type="number" min={0} step="0.01" value={s.unitPrice}
+                        onChange={(e) => updateState(pool.id, { unitPrice: e.target.value })}
+                        className="w-full px-2 py-1.5 border rounded text-sm" />
+                    </div>
+                    <div className="col-span-3">
+                      <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Line Total</label>
+                      <div className="text-sm font-semibold text-navy-700">{formatCurrency(lineTotal)}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Input label="Notes" value={s.notes} onChange={(e) => updateState(pool.id, { notes: e.target.value })} placeholder="Optional notes" />
+
+              {/* Quotation PDF block — identical styling to the single-PR modal */}
+              <div className="border rounded-md p-3 bg-blue-50/40">
+                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                  <Paperclip size={14} /> Quotation PDF <span className="text-xs text-gray-500 font-normal">(optional, one per supplier quote, PDF only ≤10 MB)</span>
+                </label>
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  onChange={(e) => updateState(pool.id, { quotationPdf: e.target.files?.[0] || null })}
+                  className="text-sm"
+                />
+                {s.quotationPdf && (
+                  <div className="mt-1 text-xs text-gray-600 flex items-center gap-2">
+                    <span className="font-medium">{s.quotationPdf.name}</span>
+                    <span className="text-gray-400">({(s.quotationPdf.size / 1024).toFixed(1)} KB)</span>
+                    <button type="button" onClick={() => updateState(pool.id, { quotationPdf: null })} className="text-red-500 hover:text-red-700"><X size={12} /></button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 pt-1">
+                <Button onClick={() => submitQuote(pool)} disabled={s.saving}>
+                  <Plus size={14} className="mr-1" /> {s.saving ? 'Saving…' : 'Add Quotation'}
+                </Button>
+              </div>
+            </div>
           </Card>
         );
       })}

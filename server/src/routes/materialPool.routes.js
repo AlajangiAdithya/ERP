@@ -25,8 +25,22 @@ const { authorize } = require('../middleware/rbac');
 const { generateSequentialNumber, withDocRetry, getFinancialYear } = require('../utils/helpers');
 const { resolveSupplierId, checkSuppliersCompliance, complianceErrorPayload } = require('../utils/quotationHelpers');
 const { recomputePRItemQuotationStatus, syncPRStatusAfterChange } = require('../utils/prClosure');
+const { quotationUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
+
+// Mirrors acceptQuotationPdf in quotation.routes.js: handles multipart upload
+// of the supplier's quotation PDF and re-parses the JSON `payload` field.
+function acceptPoolQuotationPdf(req, res, next) {
+  quotationUpload.single('quotationPdf')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Quotation upload failed' });
+    if (req.body && typeof req.body.payload === 'string') {
+      try { req.body = JSON.parse(req.body.payload); }
+      catch { return res.status(400).json({ error: 'Invalid payload JSON' }); }
+    }
+    next();
+  });
+}
 
 const quoteFromPoolSchema = z.object({
   supplierName: z.string().min(1),
@@ -323,7 +337,7 @@ router.delete('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, r
 // requestedQty, or adminApprovedQty when set). Multiple competing quotes can
 // be created — each is a separate draft union until the PO sends them to
 // admin via the existing /api/quotations/union/submit flow.
-router.post('/:id/quotations', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
+router.post('/:id/quotations', authenticate, authorize('PURCHASE_OFFICER'), acceptPoolQuotationPdf, async (req, res) => {
   try {
     const data = quoteFromPoolSchema.parse(req.body);
     const pool = await prisma.materialPool.findUnique({
@@ -372,6 +386,8 @@ router.post('/:id/quotations', authenticate, authorize('PURCHASE_OFFICER'), asyn
       return res.status(400).json(complianceErrorPayload(hardIssues));
     }
 
+    const quotationPdfUrl = req.file ? publicUrlFor('quotations', req.file.filename) : null;
+
     let quotationNumber;
     const quotation = await withDocRetry(async () => {
       quotationNumber = await generateSequentialNumber(prisma, 'QT');
@@ -382,6 +398,7 @@ router.post('/:id/quotations', authenticate, authorize('PURCHASE_OFFICER'), asyn
           isUnion: true,
           totalAmount,
           notes: data.notes || null,
+          quotationPdfUrl,
           createdById: req.user.id,
           supplierId,
           items: {
