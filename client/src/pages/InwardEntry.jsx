@@ -752,7 +752,7 @@ const blankInwardItem = () => ({
   description: '', quantity: 1, unit: 'pcs',
   dispatchedTo: '', itemPurpose: '', probableReturnDate: '',
   itemPassType: 'RETURNABLE', gatePassDetails: '', transportation: '',
-  contactPersonDetails: '',
+  contactPersonDetails: '', remarks: '',
 });
 
 function RecordInwardModal({ onClose, onCreated }) {
@@ -761,6 +761,9 @@ function RecordInwardModal({ onClose, onCreated }) {
   const [customerGatePassDate, setCustomerGatePassDate] = useState('');
   const [customerGpDocType, setCustomerGpDocType] = useState('ORIGINAL');
   const [customerGpPdf, setCustomerGpPdf] = useState(null);
+  const [vehicleNo, setVehicleNo] = useState('');
+  const [driverName, setDriverName] = useState('');
+  const [gpRequisitionNo, setGpRequisitionNo] = useState('');
   const [remarks, setRemarks] = useState('');
   const [items, setItems] = useState([blankInwardItem()]);
   const [saving, setSaving] = useState(false);
@@ -797,6 +800,7 @@ function RecordInwardModal({ onClose, onCreated }) {
         gatePassDetails: i.gatePassDetails?.trim() || null,
         transportation: i.transportation?.trim() || null,
         contactPersonDetails: i.contactPersonDetails?.trim() || null,
+        remarks: i.remarks?.trim() || null,
       }));
 
       // Use multipart when a PDF is attached so the server can store the file alongside the GP record.
@@ -809,6 +813,9 @@ function RecordInwardModal({ onClose, onCreated }) {
         fd.append('customerGatePassNo', customerGatePassNo.trim());
         if (customerGatePassDate) fd.append('customerGatePassDate', customerGatePassDate);
         fd.append('customerGpDocType', customerGpDocType);
+        if (vehicleNo.trim()) fd.append('vehicleNo', vehicleNo.trim());
+        if (driverName.trim()) fd.append('driverName', driverName.trim());
+        if (gpRequisitionNo.trim()) fd.append('gpRequisitionNo', gpRequisitionNo.trim());
         fd.append('customerGpPdf', customerGpPdf);
         fd.append('items', JSON.stringify(itemsPayload));
         await api.post('/gatepasses', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
@@ -821,6 +828,9 @@ function RecordInwardModal({ onClose, onCreated }) {
           customerGatePassNo: customerGatePassNo.trim(),
           customerGatePassDate: customerGatePassDate || null,
           customerGpDocType,
+          vehicleNo: vehicleNo.trim() || null,
+          driverName: driverName.trim() || null,
+          gpRequisitionNo: gpRequisitionNo.trim() || null,
           items: itemsPayload,
         });
       }
@@ -834,20 +844,38 @@ function RecordInwardModal({ onClose, onCreated }) {
   const cellInput = "w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700";
 
   return (
-    <Modal isOpen onClose={onClose} title="Record Inward Entry (FIM)" size="full">
-      <div className="space-y-6">
+    <Modal isOpen onClose={onClose} title="FIM / Customer Property Register Entry" size="full">
+      <div className="space-y-5">
         {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
         <p className="text-xs text-gray-500">
-          GP No. and Date are auto-generated. Capture the customer's own gate pass details below — these stay with the FIM product so it can always be traced back.
-          Once submitted, accept the items into the product list from the pending list. Unit managers raise an MIV to take their share.
+          FIM No. (RAPS/FIM/&lt;FY&gt;/&lt;count&gt;) and Date are auto-generated on submit. Returned Date and Return-by Vehicle/Driver are filled later when the material is sent back.
         </p>
 
-        <div className="space-y-3 p-3 bg-blue-50 border border-blue-200 rounded">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            <Input label="Customer name *" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. ABC Pvt. Ltd." />
+        {/* Register header — applies to every row in this entry */}
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">GP type</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">FIM No.</label>
+              <div className="px-3 py-2 border border-dashed border-gray-300 rounded-md text-sm text-gray-500 bg-white">
+                Auto: RAPS/FIM/&lt;FY&gt;/&lt;next&gt;
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+              <div className="px-3 py-2 border border-dashed border-gray-300 rounded-md text-sm text-gray-500 bg-white">
+                {new Date().toLocaleDateString()}
+              </div>
+            </div>
+            <Input label="Customer *" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. ABC Pvt. Ltd." />
+            <Input label="Gate Pass Requisition No." value={gpRequisitionNo} onChange={e => setGpRequisitionNo(e.target.value)} placeholder="Internal reference (if any)" />
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Input label="Vehicle No." value={vehicleNo} onChange={e => setVehicleNo(e.target.value)} placeholder="e.g. AP 31 CD 1234" />
+            <Input label="Driver name / sign" value={driverName} onChange={e => setDriverName(e.target.value)} placeholder="Driver name" />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Invoice / DC / Gate Pass Type *</label>
               <select
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
                 value={customerGpDocType}
@@ -857,8 +885,13 @@ function RecordInwardModal({ onClose, onCreated }) {
                 <option value="DUPLICATE">Duplicate</option>
               </select>
             </div>
+            <Input type="date" label="Customer's GP date" value={customerGatePassDate} onChange={e => setCustomerGatePassDate(e.target.value)} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Input label="Invoice / DC / Gate Pass Details *" value={customerGatePassNo} onChange={e => setCustomerGatePassNo(e.target.value)} placeholder="Customer's GP / DC / Invoice number" />
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">GP PDF (optional)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Upload GP / DC / Invoice PDF (optional)</label>
               <input
                 type="file"
                 accept="application/pdf"
@@ -871,44 +904,40 @@ function RecordInwardModal({ onClose, onCreated }) {
                 </div>
               )}
             </div>
-            <Input label="Customer's gate pass no. *" value={customerGatePassNo} onChange={e => setCustomerGatePassNo(e.target.value)} placeholder="As printed on customer's GP" />
-            <Input type="date" label="Customer's gate pass date" value={customerGatePassDate} onChange={e => setCustomerGatePassDate(e.target.value)} />
           </div>
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-3">
-            <h4 className="font-medium text-gray-800">Components</h4>
+            <h4 className="font-medium text-gray-800">Items</h4>
             <Button variant="secondary" size="sm" onClick={addItem}><Plus size={14} /> Add row</Button>
           </div>
 
           <div className="border border-gray-200 rounded-md overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: 1100 }}>
+            <table className="w-full text-sm" style={{ minWidth: 1200 }}>
               <colgroup>
                 <col style={{ width: '36px' }} />
-                <col style={{ width: '180px' }} />
+                <col style={{ width: '220px' }} />
                 <col style={{ width: '80px' }} />
                 <col style={{ width: '80px' }} />
-                <col style={{ width: '150px' }} />
-                <col style={{ width: '150px' }} />
-                <col style={{ width: '150px' }} />
-                <col style={{ width: '140px' }} />
-                <col style={{ width: '120px' }} />
                 <col style={{ width: '160px' }} />
+                <col style={{ width: '140px' }} />
+                <col style={{ width: '170px' }} />
+                <col style={{ width: '130px' }} />
+                <col style={{ width: '180px' }} />
                 <col style={{ width: '40px' }} />
               </colgroup>
               <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
                 <tr className="text-left">
                   <th className="px-3 py-2.5 text-center font-medium">#</th>
-                  <th className="px-3 py-2.5 font-medium">Name of component</th>
-                  <th className="px-3 py-2.5 text-center font-medium">Qty</th>
+                  <th className="px-3 py-2.5 font-medium">Item Description</th>
+                  <th className="px-3 py-2.5 text-center font-medium">Quantity</th>
                   <th className="px-3 py-2.5 text-center font-medium">UOM</th>
-                  <th className="px-3 py-2.5 font-medium">Dispatched to</th>
                   <th className="px-3 py-2.5 font-medium">Purpose</th>
-                  <th className="px-3 py-2.5 font-medium">Probable return</th>
-                  <th className="px-3 py-2.5 font-medium">Pass type</th>
-                  <th className="px-3 py-2.5 font-medium">Transport</th>
-                  <th className="px-3 py-2.5 font-medium">Remarks / Contact</th>
+                  <th className="px-3 py-2.5 font-medium">Probable Return Date</th>
+                  <th className="px-3 py-2.5 font-medium">Issued to Dept / Person</th>
+                  <th className="px-3 py-2.5 font-medium">Pass Type</th>
+                  <th className="px-3 py-2.5 font-medium">Remarks</th>
                   <th className="px-2 py-2.5"></th>
                 </tr>
               </thead>
@@ -930,16 +959,17 @@ function RecordInwardModal({ onClose, onCreated }) {
                     </td>
                     <td className="px-2 py-2">
                       <input className={cellInput}
-                        value={it.dispatchedTo} onChange={e => updateItem(idx, 'dispatchedTo', e.target.value)} />
-                    </td>
-                    <td className="px-2 py-2">
-                      <input className={cellInput}
                         value={it.itemPurpose} onChange={e => updateItem(idx, 'itemPurpose', e.target.value)} />
                     </td>
                     <td className="px-2 py-2">
                       <input type="date" className={cellInput}
                         value={it.probableReturnDate} onChange={e => updateItem(idx, 'probableReturnDate', e.target.value)}
                         disabled={it.itemPassType !== 'RETURNABLE'} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput}
+                        placeholder="Dept / person"
+                        value={it.dispatchedTo} onChange={e => updateItem(idx, 'dispatchedTo', e.target.value)} />
                     </td>
                     <td className="px-2 py-2">
                       <select className={cellInput}
@@ -950,11 +980,7 @@ function RecordInwardModal({ onClose, onCreated }) {
                     </td>
                     <td className="px-2 py-2">
                       <input className={cellInput}
-                        value={it.transportation} onChange={e => updateItem(idx, 'transportation', e.target.value)} />
-                    </td>
-                    <td className="px-2 py-2">
-                      <input className={cellInput}
-                        value={it.contactPersonDetails} onChange={e => updateItem(idx, 'contactPersonDetails', e.target.value)} />
+                        value={it.remarks} onChange={e => updateItem(idx, 'remarks', e.target.value)} />
                     </td>
                     <td className="px-2 py-2 text-center">
                       <button onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 disabled:opacity-30"
@@ -967,9 +993,12 @@ function RecordInwardModal({ onClose, onCreated }) {
               </tbody>
             </table>
           </div>
+          <p className="text-xs text-gray-400 mt-1.5">
+            Returned Date and Return-by Vehicle / Driver columns appear in the FIM register once the material is sent back via Delivery Challan.
+          </p>
         </div>
 
-        <Textarea label="Remarks" value={remarks} onChange={e => setRemarks(e.target.value)} rows={2} />
+        <Textarea label="Entry-level remarks (optional)" value={remarks} onChange={e => setRemarks(e.target.value)} rows={2} />
 
         <div className="flex justify-end gap-2 pt-3 border-t border-gray-200">
           <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>

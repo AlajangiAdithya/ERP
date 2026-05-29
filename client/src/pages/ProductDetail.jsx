@@ -514,9 +514,13 @@ function FimTab({ product, user, onRefresh }) {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
               <div className="p-3 bg-gray-50 border border-gray-200 rounded">
-                <p className="text-xs uppercase tracking-wide text-gray-500 font-medium mb-1">Inward Gate Pass</p>
-                <p className="font-mono text-navy-700 font-medium">{gp?.passNumber || '—'}</p>
+                <p className="text-xs uppercase tracking-wide text-gray-500 font-medium mb-1">FIM No.</p>
+                <p className="font-mono text-navy-700 font-semibold text-base">{gp?.fimNumber || '—'}</p>
                 <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                  <div>
+                    <span className="text-gray-500">Inward Gate Pass:</span>{' '}
+                    <span className="font-mono">{gp?.passNumber || '—'}</span>
+                  </div>
                   <div><span className="text-gray-500">Customer:</span> {gp?.customerName || '—'}</div>
                   <div>
                     <span className="text-gray-500">Customer GP No.:</span>{' '}
@@ -540,6 +544,18 @@ function FimTab({ product, user, onRefresh }) {
                       >
                         <FileText size={12} /> View customer GP PDF
                       </a>
+                    </div>
+                  )}
+                  {gp?.gpRequisitionNo && (
+                    <div>
+                      <span className="text-gray-500">GP Requisition No.:</span>{' '}
+                      <span className="font-mono">{gp.gpRequisitionNo}</span>
+                    </div>
+                  )}
+                  {(gp?.vehicleNo || gp?.driverName) && (
+                    <div>
+                      <span className="text-gray-500">Vehicle / Driver:</span>{' '}
+                      {gp.vehicleNo || '—'}{gp.driverName ? ` · ${gp.driverName}` : ''}
                     </div>
                   )}
                   {item?.probableReturnDate && (

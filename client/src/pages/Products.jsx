@@ -409,110 +409,145 @@ function FimStatusView({ user, onOpenProduct }) {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm" style={{ minWidth: 1200 }}>
-            <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
+          <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-t text-xs font-semibold text-gray-700">
+            FIM / Customer Property Register
+          </div>
+          <table className="w-full text-xs border border-t-0 border-gray-200" style={{ minWidth: 1800 }}>
+            <thead className="bg-gray-100 text-gray-700 border-b border-gray-200">
               <tr className="text-left">
-                <th className="px-3 py-2.5 font-medium">Product</th>
-                <th className="px-3 py-2.5 font-medium">Customer</th>
-                <th className="px-3 py-2.5 font-medium">GP no.</th>
-                <th className="px-3 py-2.5 font-medium">Type</th>
-                <th className="px-3 py-2.5 font-medium">PDF</th>
-                <th className="px-3 py-2.5 text-right font-medium">Qty</th>
-                <th className="px-3 py-2.5 font-medium">Return date</th>
-                <th className="px-3 py-2.5 font-medium">Countdown</th>
-                <th className="px-3 py-2.5 font-medium">Assigned unit</th>
-                <th className="px-3 py-2.5 font-medium">Status</th>
-                <th className="px-3 py-2.5 font-medium">Actions</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">FIM No.</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Date</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Vehicle No / Driver Sign</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Invoice / DC / GP Type</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Invoice / DC / GP Details</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Item Description</th>
+                <th className="px-2 py-2 text-right font-semibold border-r border-gray-200">Quantity</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Customer</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Purpose</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Probable Return Date</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Issued to Dept / Person Sign</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">GP Requisition No.</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Returned Date</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Return by Vehicle / Driver Sign</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Remarks</th>
+                <th className="px-2 py-2 font-semibold border-r border-gray-200">Assigned Unit / Status</th>
+                <th className="px-2 py-2 font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody>
               {batches.map(b => {
-                const cd = returnCountdown(b.sourceInwardGatePassItem?.probableReturnDate);
+                const gp = b.sourceInwardGatePass || {};
+                const it = b.sourceInwardGatePassItem || {};
+                const cd = returnCountdown(it.probableReturnDate);
                 const acceptedByThisUnit = b.assignedToUnitId && (user?.role === 'ADMIN' || user?.unitId === b.assignedToUnitId);
                 const canAssign = isStores && !b.unitAcceptedAt;
                 const canAccept = isManager && b.assignedToUnitId && !b.unitAcceptedAt && acceptedByThisUnit;
                 return (
-                  <tr key={b.id} className="border-t border-gray-100 hover:bg-gray-50">
-                    <td className="px-3 py-2.5">
+                  <tr key={b.id} className="border-t border-gray-200 hover:bg-blue-50/30 align-top">
+                    <td className="px-2 py-2 border-r border-gray-200 font-mono text-[11px] font-semibold text-navy-700">
+                      {gp.fimNumber || <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-2 py-2 border-r border-gray-200">
+                      {gp.date ? new Date(gp.date).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="px-2 py-2 border-r border-gray-200">
+                      <div>{gp.vehicleNo || '—'}</div>
+                      <div className="text-[10px] text-gray-500">{gp.driverName || ''}</div>
+                    </td>
+                    <td className="px-2 py-2 border-r border-gray-200">
+                      {gp.customerGpDocType ? (
+                        <Badge color={gp.customerGpDocType === 'ORIGINAL' ? 'green' : 'yellow'}>
+                          {gp.customerGpDocType === 'ORIGINAL' ? 'Original' : 'Duplicate'}
+                        </Badge>
+                      ) : <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-2 py-2 border-r border-gray-200">
+                      <div className="font-mono text-[11px]">{gp.customerGatePassNo || '—'}</div>
+                      {gp.customerGatePassDate && (
+                        <div className="text-[10px] text-gray-500">{new Date(gp.customerGatePassDate).toLocaleDateString()}</div>
+                      )}
+                      {gp.customerGpPdfUrl && (
+                        <a
+                          href={gp.customerGpPdfUrl} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-navy-700 hover:underline text-[11px]"
+                        >
+                          <FileText size={11} /> PDF
+                        </a>
+                      )}
+                    </td>
+                    <td className="px-2 py-2 border-r border-gray-200">
                       <button
                         onClick={() => onOpenProduct(b.product.id)}
                         className="font-medium text-navy-700 hover:underline text-left"
                       >
                         {b.product.name}
                       </button>
-                      <div className="text-xs text-gray-500 font-mono">{b.product.sku}</div>
+                      <div className="text-[10px] text-gray-500 font-mono">{b.product.sku}</div>
                     </td>
-                    <td className="px-3 py-2.5">{b.sourceInwardGatePass?.customerName || '—'}</td>
-                    <td className="px-3 py-2.5 font-mono text-xs">
-                      {b.sourceInwardGatePass?.customerGatePassNo || '—'}
-                      <div className="text-[10px] text-gray-400">RAPS: {b.sourceInwardGatePass?.passNumber}</div>
+                    <td className="px-2 py-2 border-r border-gray-200 text-right">
+                      {b.quantity} {b.product.unit}
                     </td>
-                    <td className="px-3 py-2.5">
-                      {b.sourceInwardGatePass?.customerGpDocType ? (
-                        <Badge color={b.sourceInwardGatePass.customerGpDocType === 'ORIGINAL' ? 'green' : 'yellow'}>
-                          {b.sourceInwardGatePass.customerGpDocType === 'ORIGINAL' ? 'Original' : 'Duplicate'}
-                        </Badge>
-                      ) : <span className="text-xs text-gray-400">—</span>}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {b.sourceInwardGatePass?.customerGpPdfUrl ? (
-                        <a
-                          href={b.sourceInwardGatePass.customerGpPdfUrl}
-                          target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-navy-700 hover:underline text-xs"
-                        >
-                          <FileText size={14} /> View
-                        </a>
-                      ) : <span className="text-xs text-gray-400">—</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-right">{b.quantity} {b.product.unit}</td>
-                    <td className="px-3 py-2.5 text-xs">
-                      {b.sourceInwardGatePassItem?.probableReturnDate
-                        ? new Date(b.sourceInwardGatePassItem.probableReturnDate).toLocaleDateString()
+                    <td className="px-2 py-2 border-r border-gray-200">{gp.customerName || '—'}</td>
+                    <td className="px-2 py-2 border-r border-gray-200">{it.itemPurpose || '—'}</td>
+                    <td className="px-2 py-2 border-r border-gray-200">
+                      {it.probableReturnDate
+                        ? new Date(it.probableReturnDate).toLocaleDateString()
                         : <span className="text-gray-400">—</span>}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {cd ? (
-                        <span
-                          className={`inline-flex items-center text-xs font-semibold ${
+                      {cd && (
+                        <div
+                          className={`mt-0.5 inline-flex items-center text-[10px] font-semibold ${
                             cd.color === 'red' ? 'text-red-600' :
                             cd.color === 'orange' ? 'text-orange-600' : 'text-gray-500'
                           }`}
                         >
-                          {cd.urgent && <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1.5 animate-pulse" />}
+                          {cd.urgent && <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 mr-1 animate-pulse" />}
                           {cd.label}
-                        </span>
-                      ) : <span className="text-xs text-gray-400">—</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-xs">
-                      {b.assignedToUnit ? (
-                        <span className="font-medium text-navy-700">{b.assignedToUnit.name || b.assignedToUnit.code}</span>
-                      ) : <span className="text-gray-400">Unassigned</span>}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {b.unitAcceptedAt ? (
-                        <Badge color="green">
-                          <CheckCircle2 size={12} className="inline mr-1" />Accepted (final)
-                        </Badge>
-                      ) : b.assignedToUnitId ? (
-                        <Badge color="yellow">Awaiting unit accept</Badge>
-                      ) : (
-                        <Badge color="gray">In stores</Badge>
+                        </div>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap">
+                    <td className="px-2 py-2 border-r border-gray-200">{it.dispatchedTo || '—'}</td>
+                    <td className="px-2 py-2 border-r border-gray-200 font-mono text-[11px]">
+                      {gp.gpRequisitionNo || <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-2 py-2 border-r border-gray-200 text-gray-400">—</td>
+                    <td className="px-2 py-2 border-r border-gray-200 text-gray-400">—</td>
+                    <td className="px-2 py-2 border-r border-gray-200">
+                      {it.remarks || <span className="text-gray-400">—</span>}
+                      {b.unitAcceptedRemarks && (
+                        <div className="mt-1 text-[10px] text-green-700 italic">
+                          Unit: {b.unitAcceptedRemarks}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-2 py-2 border-r border-gray-200">
+                      <div>
+                        {b.assignedToUnit
+                          ? <span className="font-medium text-navy-700 text-[11px]">{b.assignedToUnit.name || b.assignedToUnit.code}</span>
+                          : <span className="text-gray-400 text-[11px]">Unassigned</span>}
+                      </div>
+                      <div className="mt-0.5">
+                        {b.unitAcceptedAt ? (
+                          <Badge color="green"><CheckCircle2 size={10} className="inline mr-0.5" />Accepted</Badge>
+                        ) : b.assignedToUnitId ? (
+                          <Badge color="yellow">Awaiting accept</Badge>
+                        ) : (
+                          <Badge color="gray">In stores</Badge>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 whitespace-nowrap">
                       {canAssign && (
                         <button
                           onClick={() => { setAssignTarget({ batchId: b.id, productName: b.product.name }); setAssigningUnitId(b.assignedToUnitId || ''); setActionError(''); }}
-                          className="text-xs px-2 py-1 rounded border border-navy-700 text-navy-700 hover:bg-navy-50"
+                          className="text-[11px] px-2 py-1 rounded border border-navy-700 text-navy-700 hover:bg-navy-50"
                         >
-                          {b.assignedToUnitId ? 'Reassign' : 'Assign to unit'}
+                          {b.assignedToUnitId ? 'Reassign' : 'Assign'}
                         </button>
                       )}
                       {canAccept && (
                         <button
                           onClick={() => { setAcceptTarget({ batchId: b.id, productName: b.product.name }); setAcceptRemark(''); setActionError(''); }}
-                          className="ml-2 text-xs px-2 py-1 rounded bg-navy-700 text-white hover:bg-navy-800"
+                          className="ml-1 text-[11px] px-2 py-1 rounded bg-navy-700 text-white hover:bg-navy-800"
                         >
                           Accept
                         </button>
