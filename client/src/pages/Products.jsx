@@ -86,13 +86,13 @@ export default function Products() {
         return list.map(us => `${us.unit?.name || us.unit?.code || 'Unit'}:${us.quantity}`).join(' | ');
       };
       const header = [
-        'Identification No.', 'SKU', 'Name', 'Category', 'UOM',
+        'Identification No.', 'Name', 'Category', 'UOM',
         'Current Stock', 'Min Stock Level',
         'Deficit (Min - Current)', 'Status', 'Owned By (Unit:Qty)',
         'Description',
       ];
       const rows = all.map(p => [
-        p.materialCode || '', p.sku, p.name, p.category || '', p.unit || '',
+        p.materialCode || p.sku || '', p.name, p.category || '', p.unit || '',
         p.currentStock ?? 0,
         p.minStockLevel ?? 0,
         Math.max(0, (p.minStockLevel || 0) - (p.currentStock || 0)),
@@ -186,7 +186,13 @@ export default function Products() {
   };
 
   const columns = [
-    { key: 'materialCode', label: 'Identification No.', render: (v) => v ? <span className="font-mono text-xs">{v}</span> : <span className="text-xs text-gray-400">—</span> },
+    {
+      key: 'materialCode', label: 'Identification No.',
+      render: (v, row) => {
+        const id = v || row.sku;
+        return id ? <span className="font-mono text-xs">{id}</span> : <span className="text-xs text-gray-400">—</span>;
+      },
+    },
     { key: 'name', label: 'Name' },
     { key: 'category', label: 'Category', render: (v) => v || '—' },
     {
@@ -304,13 +310,13 @@ export default function Products() {
           <form onSubmit={handleCreate} className="space-y-4">
             {formError && <p className="text-sm text-brand-red">{formError}</p>}
             <Input
-              label="Identification No."
+              label="Identification No. *"
               value={form.materialCode}
               onChange={(e) => setForm({ ...form, materialCode: e.target.value })}
               placeholder="e.g. 1000 (from Material Details register)"
+              required
             />
             <Input label="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            <p className="text-xs text-gray-500 -mt-2">SKU is auto-generated from material type (e.g. RAW-0001, CONS-0001).</p>
             <Input label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             <div className="grid grid-cols-3 gap-4">
               <Select label="Material Type *" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} required>

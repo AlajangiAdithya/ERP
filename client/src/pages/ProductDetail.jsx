@@ -1021,9 +1021,8 @@ export default function ProductDetail() {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-gray-500">Identification No.:</span>{' '}
-              <span className="font-mono font-medium">{product.materialCode || '—'}</span>
+              <span className="font-mono font-medium">{product.materialCode || product.sku || '—'}</span>
             </div>
-            <div><span className="text-gray-500">SKU:</span> <span className="font-medium">{product.sku}</span></div>
             <div><span className="text-gray-500">Category:</span> <span className="font-medium">{product.category || '—'}</span></div>
             <div><span className="text-gray-500">Unit:</span> <span className="font-medium">{product.unit}</span></div>
             <div>

@@ -13,11 +13,7 @@
 const path = require('path');
 const fs = require('fs');
 const prisma = require('../src/config/db');
-const {
-  generateProductSku,
-  normalizeMaterialType,
-  isUniqueViolation,
-} = require('../src/utils/helpers');
+const { normalizeMaterialType } = require('../src/utils/helpers');
 
 const DATA_PATH = path.join(__dirname, 'material-details.json');
 
@@ -77,6 +73,7 @@ async function run() {
           where: { id: existing.id },
           data: {
             name: row.name,
+            sku: materialCode,
             category,
             unit,
             minStockLevel,
@@ -85,27 +82,17 @@ async function run() {
         });
         updated++;
       } else {
-        // Retry on rare SKU collisions (concurrent runs only — single-thread is safe).
-        let sku = null;
-        for (let attempt = 0; attempt < 5; attempt++) {
-          try {
-            sku = await generateProductSku(prisma, category);
-            await prisma.product.create({
-              data: {
-                materialCode,
-                name: row.name,
-                sku,
-                category,
-                unit,
-                minStockLevel,
-                description,
-              },
-            });
-            break;
-          } catch (err) {
-            if (!isUniqueViolation(err) || attempt === 4) throw err;
-          }
-        }
+        await prisma.product.create({
+          data: {
+            materialCode,
+            name: row.name,
+            sku: materialCode,
+            category,
+            unit,
+            minStockLevel,
+            description,
+          },
+        });
         created++;
       }
     } catch (err) {

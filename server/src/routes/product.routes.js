@@ -5,8 +5,7 @@ const { authenticate } = require('../middleware/auth');
 const { authorizeMinRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
 const {
-  paginate, generateProductSku, normalizeMaterialType,
-  MATERIAL_TYPES, isUniqueViolation,
+  paginate, normalizeMaterialType, MATERIAL_TYPES,
 } = require('../utils/helpers');
 
 const router = express.Router();
@@ -54,11 +53,8 @@ async function annotateMirAndExpiry(products) {
 
 const productSchema = z.object({
   name: z.string().min(1),
-  // SKU is auto-generated from category (materialType). Accepted but ignored on create.
-  sku: z.string().optional(),
-  // Customer/legacy "identification number" from the Material Details register.
-  // Independent of SKU; unique when set.
-  materialCode: z.string().trim().min(1).optional(),
+  // Identification number from the Material Details register — also stored as SKU.
+  materialCode: z.string().trim().min(1),
   description: z.string().optional(),
   category: z.string().optional(),
   unit: z.string().optional(),
@@ -496,31 +492,21 @@ router.get('/:id', authenticate, async (req, res) => {
 // GET /api/products/material-types — fixed dropdown values for PR/inward forms.
 // MUST be declared before any `/:id`-style route — declared at top of file for safety.
 
-// POST /api/products — SKU auto-generated from category (materialType)
+// POST /api/products — sku is just the materialCode (identification number)
 router.post('/', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('CREATE', 'Product'), async (req, res) => {
   try {
     const data = productSchema.parse(req.body);
     const category = normalizeMaterialType(data.category);
-    let product = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        const sku = await generateProductSku(prisma, category);
-        product = await prisma.product.create({
-          data: { ...data, sku, category },
-        });
-        break;
-      } catch (err) {
-        // P2002 with materialCode means the operator typed an in-use id — surface it.
-        if (err?.code === 'P2002' && Array.isArray(err.meta?.target) && err.meta.target.includes('materialCode')) {
-          return res.status(409).json({ error: 'Identification number already in use' });
-        }
-        if (!isUniqueViolation(err) || attempt === 4) throw err;
-      }
-    }
+    const product = await prisma.product.create({
+      data: { ...data, sku: data.materialCode, category },
+    });
     res.status(201).json(product);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
+    }
+    if (error.code === 'P2002') {
+      return res.status(409).json({ error: 'Identification number already in use' });
     }
     console.error('Create product error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -532,6 +518,8 @@ router.post('/', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('CREA
 router.put('/:id', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('UPDATE', 'Product'), async (req, res) => {
   try {
     const data = productSchema.partial().parse(req.body);
+    // Keep sku mirrored to materialCode when the identification number changes.
+    if (data.materialCode) data.sku = data.materialCode;
     const product = await prisma.product.update({
       where: { id: req.params.id },
       data,
@@ -543,10 +531,7 @@ router.put('/:id', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('UP
     }
     if (error.code === 'P2025') return res.status(404).json({ error: 'Product not found' });
     if (error.code === 'P2002') {
-      if (Array.isArray(error.meta?.target) && error.meta.target.includes('materialCode')) {
-        return res.status(409).json({ error: 'Identification number already in use' });
-      }
-      return res.status(409).json({ error: 'SKU already exists' });
+      return res.status(409).json({ error: 'Identification number already in use' });
     }
     console.error('Update product error:', error);
     res.status(500).json({ error: 'Internal server error' });
