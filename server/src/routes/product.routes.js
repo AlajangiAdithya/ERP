@@ -136,6 +136,13 @@ router.get('/fim-status', authenticate, async (req, res) => {
           select: {
             id: true, description: true, probableReturnDate: true, itemPassType: true,
             itemPurpose: true, dispatchedTo: true, remarks: true,
+            outwardLinkedItems: {
+              select: {
+                id: true,
+                gatePass: { select: { id: true, passNumber: true, status: true, date: true, vehicleNo: true, driverName: true, actualReturnDate: true } },
+              },
+              orderBy: { id: 'desc' },
+            },
           },
         },
       },

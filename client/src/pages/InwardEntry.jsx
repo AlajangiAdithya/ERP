@@ -699,20 +699,29 @@ function FromGatePassMode({ onSuccess, refreshKey }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-semibold text-gray-800">Inward Entries Awaiting Acceptance (FIM)</h3>
+        <h3 className="text-lg font-semibold text-gray-800">Record Inward (FIM)</h3>
         {canRecord && (
           <Button onClick={() => setShowRecord(true)}>
             <Plus size={14} /> Record Inward (FIM)
           </Button>
         )}
       </div>
+      <p className="text-xs text-gray-500 mb-3">
+        Items recorded here are added to stock immediately — no separate acceptance step. They show up under
+        Products → FIM Status straight away.
+      </p>
       {loading ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : gatePasses.length === 0 ? (
         <Card className="text-center text-gray-500 py-8">
-          No inward entries waiting for acceptance.
+          No legacy inward entries awaiting acceptance. New ones are inwarded automatically on submission.
         </Card>
       ) : (
+        <div className="mb-3 text-xs text-amber-700">
+          The entries below were created before auto-acceptance was enabled and still need to be processed.
+        </div>
+      )}
+      {!loading && gatePasses.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {gatePasses.map(g => {
             const pending = (g.items || []).filter(i => (i.inwardedQty || 0) < (i.quantity || 0));

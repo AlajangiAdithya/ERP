@@ -238,7 +238,12 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
         : (siteName?.trim() || 'In-house');
     }
 
-    const initialStatus = isInward ? 'PENDING_ACCEPTANCE' : 'PENDING_STORE';
+    // INWARD STORES is now final on creation — items go straight into Products,
+    // so the gate pass is ACCEPTED immediately. DIRECT_TO_UNIT still awaits the
+    // destination unit marking it Collected.
+    const initialStatus = isInward
+      ? (inwardKind === 'STORES' ? 'ACCEPTED' : 'PENDING_ACCEPTANCE')
+      : 'PENDING_STORE';
 
     let passNumber;
     let fimNumber = null;
@@ -307,6 +312,91 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
       },
     });
 
+    // INWARD STORES auto-inward: every item gets its own auto-created Product
+    // (using the item description as the product name) and a FIM ProductBatch.
+    // No follow-up acceptance step needed — the inward is final at this point.
+    if (isInward && inwardKind === 'STORES') {
+      const owningUnitId = req.user.unitId || null;
+      try {
+        await prisma.$transaction(async (tx) => {
+          for (const src of gatePass.items) {
+            const qty = src.quantity || 0;
+            if (qty <= 0) continue;
+
+            const matType = normalizeMaterialType('Others');
+            let productId;
+            for (let attempt = 0; attempt < 5; attempt++) {
+              try {
+                const sku = await generateProductSku(tx, matType);
+                const product = await tx.product.create({
+                  data: {
+                    name: src.description.trim(),
+                    sku,
+                    category: matType,
+                    unit: src.unit || 'pcs',
+                    currentStock: 0,
+                    isActive: true,
+                  },
+                });
+                productId = product.id;
+                break;
+              } catch (err) {
+                if (!isUniqueViolation(err) || attempt === 4) throw err;
+              }
+            }
+
+            await tx.product.update({
+              where: { id: productId },
+              data: { currentStock: { increment: qty } },
+            });
+
+            const movement = await tx.stockMovement.create({
+              data: {
+                productId,
+                type: 'IN',
+                quantity: qty,
+                referenceType: 'InwardGatePass',
+                referenceId: gatePass.id,
+                notes: `FIM from ${gatePass.customerName || 'customer'} (Customer GP ${gatePass.customerGatePassNo || '—'})`,
+                performedBy: req.user.id,
+                unitId: owningUnitId,
+              },
+            });
+
+            await tx.productBatch.create({
+              data: {
+                productId,
+                quantity: qty,
+                remaining: qty,
+                referenceType: 'InwardGatePass',
+                referenceId: movement.id,
+                notes: `FIM ${gatePass.passNumber} · ${src.description}`,
+                createdById: req.user.id,
+                isFim: true,
+                sourceInwardGatePassId: gatePass.id,
+                sourceInwardGatePassItemId: src.id,
+              },
+            });
+
+            if (owningUnitId) {
+              await tx.productUnitStock.upsert({
+                where: { productId_unitId: { productId, unitId: owningUnitId } },
+                update: { quantity: { increment: qty } },
+                create: { productId, unitId: owningUnitId, quantity: qty },
+              });
+            }
+
+            await tx.gatePassItem.update({
+              where: { id: src.id },
+              data: { inwardedQty: qty },
+            });
+          }
+        });
+      } catch (err) {
+        console.error('Auto-inward on creation failed:', err);
+      }
+    }
+
     if (isInward) {
       if (inwardKind === 'DIRECT_TO_UNIT') {
         // Notify any manager of the destination unit so they see it on their Gate Pass tab.
@@ -327,7 +417,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
         await notify({
           type: 'GATE_PASS_INWARD',
           title: `Inward Gate Pass: ${gatePass.passNumber}`,
-          message: `${req.user.name} recorded inward gate pass ${gatePass.passNumber} from ${gatePass.customerName} (Customer GP ${gatePass.customerGatePassNo}). Awaiting acceptance into stores.`,
+          message: `${req.user.name} recorded inward FIM gate pass ${gatePass.passNumber} from ${gatePass.customerName} (Customer GP ${gatePass.customerGatePassNo}). Items added to stock.`,
           targetRole: 'STORE_MANAGER',
           sentById: req.user.id,
         });
@@ -950,6 +1040,150 @@ router.put('/fim-batches/:id/unit-accept', authenticate, authorize('MANAGER', 'A
     res.json(updated);
   } catch (error) {
     console.error('FIM unit-accept error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/gatepasses/fim-batches/:id/remarks
+// Unit manager (of the assigned unit) or Admin can edit unit remarks any time —
+// even after acceptance. Acceptance itself stays final; only the remark text changes.
+router.put('/fim-batches/:id/remarks', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const { remark } = req.body || {};
+    const text = (remark == null ? '' : String(remark)).trim();
+
+    const batch = await prisma.productBatch.findUnique({ where: { id: req.params.id } });
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+    if (!batch.isFim) return res.status(400).json({ error: 'Only FIM batches have unit remarks' });
+
+    // Only the assigned-unit manager (or Stores/Admin) can edit.
+    if (req.user.role === 'MANAGER' && req.user.unitId !== batch.assignedToUnitId) {
+      return res.status(403).json({ error: 'Only a manager of the assigned unit can edit this remark' });
+    }
+
+    const updated = await prisma.productBatch.update({
+      where: { id: batch.id },
+      data: { unitAcceptedRemarks: text || null },
+      include: BATCH_FIM_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'FIM_REMARK_EDIT',
+        entity: 'ProductBatch',
+        entityId: updated.id,
+        details: { productId: updated.productId, length: text.length },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('FIM remark edit error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/gatepasses/fim-batches/:id/send-out
+// Creates an OUTWARD gate pass to return a RETURNABLE FIM batch to the customer,
+// pre-filled with the FIM's customer / item data and linked back via
+// sourceInwardGatePassItemId so the cycle closes. Body: { vehicleNo?, driverName?, remarks? }.
+router.post('/fim-batches/:id/send-out', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const { vehicleNo, driverName, remarks } = req.body || {};
+
+    const batch = await prisma.productBatch.findUnique({
+      where: { id: req.params.id },
+      include: {
+        product: { select: { id: true, name: true, sku: true, unit: true } },
+        sourceInwardGatePass: true,
+        sourceInwardGatePassItem: true,
+      },
+    });
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+    if (!batch.isFim) return res.status(400).json({ error: 'Only FIM batches can be sent back to customer' });
+    if (!batch.sourceInwardGatePass || !batch.sourceInwardGatePassItem) {
+      return res.status(400).json({ error: 'FIM batch is missing its source gate pass link' });
+    }
+    if (batch.sourceInwardGatePassItem.itemPassType !== 'RETURNABLE') {
+      return res.status(400).json({ error: 'Only RETURNABLE FIM can be sent back to customer' });
+    }
+
+    // Only the manager of the assigned unit (or Stores/Admin) can initiate the send-out.
+    if (req.user.role === 'MANAGER' && req.user.unitId !== batch.assignedToUnitId) {
+      return res.status(403).json({ error: 'Only the assigned unit manager can send this FIM back' });
+    }
+
+    const inward = batch.sourceInwardGatePass;
+    const item = batch.sourceInwardGatePassItem;
+
+    let outwardPassNumber;
+    const outwardGp = await withDocRetry(async () => {
+      outwardPassNumber = await generateSequentialNumber(prisma, 'GP');
+      return prisma.gatePass.create({
+        data: {
+          passNumber: outwardPassNumber,
+          passType: 'RETURNABLE',
+          direction: 'OUTWARD',
+          partyName: inward.customerName,
+          customerName: inward.customerName,
+          customerGatePassNo: inward.customerGatePassNo,
+          customerGatePassDate: inward.customerGatePassDate,
+          vehicleNo: vehicleNo?.trim() || null,
+          driverName: driverName?.trim() || null,
+          remarks: (remarks?.trim()
+            || `Return of FIM ${inward.fimNumber || inward.passNumber} to ${inward.customerName}`),
+          status: 'PENDING_STORE',
+          createdById: req.user.id,
+          siteInchargeById: req.user.id,
+          siteInchargeAt: new Date(),
+          items: {
+            create: [{
+              description: batch.product.name,
+              quantity: batch.quantity,
+              unit: batch.product.unit || 'pcs',
+              dispatchedTo: inward.customerName,
+              itemPurpose: `Return of FIM ${inward.fimNumber || inward.passNumber}`,
+              itemPassType: 'DELIVERY_CHALLAN',
+              gatePassDetails: inward.fimNumber || inward.passNumber,
+              sourceInwardGatePassItemId: item.id,
+              remarks: remarks?.trim() || null,
+            }],
+          },
+        },
+        include: GATEPASS_INCLUDE,
+      });
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'FIM_SEND_OUT',
+        entity: 'GatePass',
+        entityId: outwardGp.id,
+        details: {
+          outwardPassNumber: outwardGp.passNumber,
+          inwardPassNumber: inward.passNumber,
+          fimNumber: inward.fimNumber,
+          productId: batch.productId,
+          quantity: batch.quantity,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    await notify({
+      type: 'GATE_PASS_REQUEST',
+      title: `FIM return: ${outwardGp.passNumber}`,
+      message: `${req.user.name} initiated return of FIM ${inward.fimNumber || inward.passNumber} (${batch.product.name}) to ${inward.customerName}. Awaiting Store Incharge.`,
+      targetRole: 'STORE_MANAGER',
+      sentById: req.user.id,
+    });
+
+    res.status(201).json(outwardGp);
+  } catch (error) {
+    console.error('FIM send-out error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
