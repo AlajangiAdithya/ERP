@@ -127,6 +127,192 @@ router.delete('/table/:name/row/:id', async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────
+//  Uploads inventory — aggregated view of every file URL stored
+//  across the schema. Lets SUPERADMIN audit and prune attachments
+//  (PR specs, quotation/PO PDFs, supplier docs, QC invoices, …)
+//  from one place. "Delete" nulls the DB field; the file blob on
+//  disk is intentionally left alone.
+// ────────────────────────────────────────────────────────────
+
+// Schema of every file-bearing field. Drives both the aggregate listing and
+// the delete handler (only fields listed here are deletable).
+const FILE_FIELDS = {
+  PurchaseRequest: [{ field: 'materialSpecsPdfUrl', label: 'Material Specs PDF' }],
+  Supplier: [
+    { field: 'vendorEvaluationPdfUrl', label: 'Vendor Evaluation PDF', uploadedAtField: 'vendorEvaluationUploadedAt' },
+    { field: 'supplierAssessmentPdfUrl', label: 'Supplier Assessment PDF', uploadedAtField: 'assessmentUploadedAt' },
+  ],
+  Quotation: [{ field: 'quotationPdfUrl', label: 'Quotation PDF' }],
+  PurchaseOrder: [{ field: 'poDocumentUrl', label: 'Signed PO PDF' }],
+  QCInspection: [{ field: 'invoiceFileUrl', label: 'Lot Invoice PDF' }],
+};
+
+// GET /api/superadmin/uploads — every file URL across the schema, newest first.
+router.get('/uploads', async (req, res) => {
+  try {
+    const uploads = [];
+
+    // 1. PurchaseRequest.materialSpecsPdfUrl
+    const prs = await prisma.purchaseRequest.findMany({
+      where: { materialSpecsPdfUrl: { not: null } },
+      select: {
+        id: true, requestNumber: true, materialSpecsPdfUrl: true,
+        createdAt: true, manager: { select: { name: true } },
+      },
+    });
+    prs.forEach((p) => uploads.push({
+      table: 'PurchaseRequest', recordId: p.id, field: 'materialSpecsPdfUrl',
+      label: 'Material Specs PDF', recordLabel: p.requestNumber,
+      url: p.materialSpecsPdfUrl, uploadedAt: p.createdAt,
+      uploadedBy: p.manager?.name || null,
+    }));
+
+    // 2. Supplier docs
+    const suppliers = await prisma.supplier.findMany({
+      where: {
+        OR: [
+          { vendorEvaluationPdfUrl: { not: null } },
+          { supplierAssessmentPdfUrl: { not: null } },
+        ],
+      },
+      select: {
+        id: true, name: true,
+        vendorEvaluationPdfUrl: true, vendorEvaluationUploadedAt: true,
+        supplierAssessmentPdfUrl: true, assessmentUploadedAt: true, assessmentFiscalYear: true,
+      },
+    });
+    suppliers.forEach((s) => {
+      if (s.vendorEvaluationPdfUrl) uploads.push({
+        table: 'Supplier', recordId: s.id, field: 'vendorEvaluationPdfUrl',
+        label: 'Vendor Evaluation PDF', recordLabel: s.name,
+        url: s.vendorEvaluationPdfUrl, uploadedAt: s.vendorEvaluationUploadedAt, uploadedBy: null,
+      });
+      if (s.supplierAssessmentPdfUrl) uploads.push({
+        table: 'Supplier', recordId: s.id, field: 'supplierAssessmentPdfUrl',
+        label: `Supplier Assessment PDF${s.assessmentFiscalYear ? ` (FY ${s.assessmentFiscalYear})` : ''}`,
+        recordLabel: s.name,
+        url: s.supplierAssessmentPdfUrl, uploadedAt: s.assessmentUploadedAt, uploadedBy: null,
+      });
+    });
+
+    // 3. Quotation.quotationPdfUrl
+    const quots = await prisma.quotation.findMany({
+      where: { quotationPdfUrl: { not: null } },
+      select: {
+        id: true, quotationNumber: true, quotationPdfUrl: true,
+        createdAt: true, createdBy: { select: { name: true } },
+      },
+    });
+    quots.forEach((q) => uploads.push({
+      table: 'Quotation', recordId: q.id, field: 'quotationPdfUrl',
+      label: 'Quotation PDF', recordLabel: q.quotationNumber,
+      url: q.quotationPdfUrl, uploadedAt: q.createdAt,
+      uploadedBy: q.createdBy?.name || null,
+    }));
+
+    // 4. PurchaseOrder.poDocumentUrl
+    const pos = await prisma.purchaseOrder.findMany({
+      where: { poDocumentUrl: { not: null } },
+      select: {
+        id: true, orderNumber: true, poDocumentUrl: true,
+        updatedAt: true, createdBy: { select: { name: true } },
+      },
+    });
+    pos.forEach((o) => uploads.push({
+      table: 'PurchaseOrder', recordId: o.id, field: 'poDocumentUrl',
+      label: 'Signed PO PDF', recordLabel: o.orderNumber,
+      url: o.poDocumentUrl, uploadedAt: o.updatedAt,
+      uploadedBy: o.createdBy?.name || null,
+    }));
+
+    // 5. QCInspection.invoiceFileUrl
+    const qcInv = await prisma.qCInspection.findMany({
+      where: { invoiceFileUrl: { not: null } },
+      select: { id: true, inspectionNumber: true, invoiceFileUrl: true, createdAt: true },
+    });
+    qcInv.forEach((q) => uploads.push({
+      table: 'QCInspection', recordId: q.id, field: 'invoiceFileUrl',
+      label: 'Lot Invoice PDF', recordLabel: q.inspectionNumber,
+      url: q.invoiceFileUrl, uploadedAt: q.createdAt, uploadedBy: null,
+    }));
+
+    // 6. QCInspection.uploadedDocs — JSON array of {filename, url, uploadedById, uploadedAt}
+    const qcDocs = await prisma.qCInspection.findMany({
+      where: { uploadedDocs: { not: null } },
+      select: { id: true, inspectionNumber: true, uploadedDocs: true },
+    });
+    // Resolve uploader names in a single round-trip
+    const uploaderIds = new Set();
+    qcDocs.forEach((q) => {
+      if (Array.isArray(q.uploadedDocs)) {
+        q.uploadedDocs.forEach((d) => { if (d?.uploadedById) uploaderIds.add(d.uploadedById); });
+      }
+    });
+    const users = uploaderIds.size
+      ? await prisma.user.findMany({ where: { id: { in: [...uploaderIds] } }, select: { id: true, name: true } })
+      : [];
+    const userById = Object.fromEntries(users.map((u) => [u.id, u.name]));
+    qcDocs.forEach((q) => {
+      if (!Array.isArray(q.uploadedDocs)) return;
+      q.uploadedDocs.forEach((d, idx) => {
+        if (!d?.url) return;
+        uploads.push({
+          table: 'QCInspection', recordId: q.id, field: `uploadedDocs[${idx}]`,
+          label: `QC Doc: ${d.filename || 'file'}`, recordLabel: q.inspectionNumber,
+          url: d.url, uploadedAt: d.uploadedAt || null,
+          uploadedBy: userById[d.uploadedById] || null,
+        });
+      });
+    });
+
+    uploads.sort((a, b) => {
+      const ta = a.uploadedAt ? new Date(a.uploadedAt).getTime() : 0;
+      const tb = b.uploadedAt ? new Date(b.uploadedAt).getTime() : 0;
+      return tb - ta;
+    });
+
+    res.json({ uploads, total: uploads.length });
+  } catch (e) {
+    console.error('superadmin/uploads error:', e);
+    res.status(500).json({ error: e.message || 'Failed to list uploads' });
+  }
+});
+
+// DELETE /api/superadmin/uploads — clear the DB reference for one upload.
+// Body: { table, recordId, field }. For QCInspection.uploadedDocs the field is
+// "uploadedDocs[N]" — we splice the N-th entry from the JSON array.
+router.delete('/uploads', async (req, res) => {
+  const { table, recordId, field } = req.body || {};
+  if (!table || !recordId || !field) return res.status(400).json({ error: 'table, recordId, field required' });
+
+  try {
+    // QC uploadedDocs array item
+    const arrMatch = /^uploadedDocs\[(\d+)\]$/.exec(field);
+    if (arrMatch) {
+      if (table !== 'QCInspection') return res.status(400).json({ error: 'uploadedDocs only on QCInspection' });
+      const idx = parseInt(arrMatch[1], 10);
+      const row = await prisma.qCInspection.findUnique({ where: { id: recordId }, select: { uploadedDocs: true } });
+      if (!row) return res.status(404).json({ error: 'Inspection not found' });
+      const docs = Array.isArray(row.uploadedDocs) ? [...row.uploadedDocs] : [];
+      if (idx < 0 || idx >= docs.length) return res.status(400).json({ error: 'Index out of range' });
+      docs.splice(idx, 1);
+      await prisma.qCInspection.update({ where: { id: recordId }, data: { uploadedDocs: docs } });
+      return res.json({ ok: true });
+    }
+
+    const allowed = FILE_FIELDS[table]?.some((f) => f.field === field);
+    if (!allowed) return res.status(400).json({ error: 'Field not in deletable allowlist' });
+
+    const key = modelKey(table);
+    await prisma[key].update({ where: { id: recordId }, data: { [field]: null } });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('superadmin/uploads delete error:', e);
+    res.status(400).json({ error: e.message || 'Failed to delete upload' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
 //  Backups browser
 // ────────────────────────────────────────────────────────────
 
