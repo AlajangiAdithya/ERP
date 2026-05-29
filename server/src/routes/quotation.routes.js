@@ -132,6 +132,41 @@ function complianceErrorPayload(issues) {
   };
 }
 
+// GET /api/quotations/pool-candidates — PR line items still waiting on a quotation,
+// across every open PR. Used by the "Pool by Material" view so the Purchase Officer
+// can manually pick lines from different PRs and pool them into one union quotation.
+router.get('/pool-candidates', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
+  try {
+    const items = await prisma.purchaseRequestItem.findMany({
+      where: {
+        itemQuotationStatus: 'AWAITING_QUOTATION',
+        request: { status: { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED'] } },
+      },
+      include: {
+        request: {
+          select: {
+            id: true,
+            requestNumber: true,
+            status: true,
+            createdAt: true,
+            manager: { select: { id: true, name: true } },
+            unit: { select: { id: true, name: true, code: true } },
+          },
+        },
+      },
+      orderBy: [
+        { productName: 'asc' },
+        { request: { createdAt: 'asc' } },
+      ],
+    });
+
+    res.json({ items });
+  } catch (error) {
+    console.error('Get pool candidates error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/quotations?purchaseRequestId=X — list quotations for a PR (includes unions touching that PR)
 router.get('/', authenticate, async (req, res) => {
   try {

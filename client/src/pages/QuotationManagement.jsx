@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Send, CheckCircle, Trash2, Eye, FileText, X, Layers, Paperclip, RefreshCw, AlertCircle, PauseCircle } from 'lucide-react';
+import { Plus, Send, CheckCircle, Trash2, Eye, FileText, X, Layers, Paperclip, RefreshCw, AlertCircle, PauseCircle, GitMerge } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -1740,6 +1740,305 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover, isPO }) 
   );
 }
 
+// ─── Pool by Material (per-product card with manual line picking) ───
+// One card per product (grouped by name+unit). Inside each card the PO ticks
+// the lines from different PRs they want to pool, enters supplier + price,
+// and submits — each card produces its own union quotation covering only the
+// ticked lines. Lines from products they don't touch stay in the normal
+// single-PR quotation flow.
+function PoolByMaterialSection({ onUpdated }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  // Per-product UI state, keyed by `${productName}::${productUnit}` (lower-cased).
+  // { checked: Set<itemId>, unitPrice, supplierName, supplierContact, supplierAddress, quotationPdf, saving, complianceIssues }
+  const [groupState, setGroupState] = useState({});
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/quotations/pool-candidates');
+      setItems(data.items || []);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  // Group line items by product name + unit (case-insensitive).
+  const groups = useMemo(() => {
+    const map = new Map();
+    for (const it of items) {
+      const key = `${(it.productName || '').toLowerCase().trim()}::${(it.productUnit || 'pcs').toLowerCase().trim()}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          productName: it.productName,
+          productUnit: it.productUnit || 'pcs',
+          rows: [],
+          prIds: new Set(),
+        });
+      }
+      const g = map.get(key);
+      g.rows.push(it);
+      g.prIds.add(it.request.id);
+    }
+    return [...map.values()].sort((a, b) => a.productName.localeCompare(b.productName));
+  }, [items]);
+
+  const getState = (key) => groupState[key] || {
+    checked: new Set(),
+    unitPrice: '',
+    supplierName: '',
+    supplierContact: '',
+    supplierAddress: '',
+    quotationPdf: null,
+    saving: false,
+    complianceIssues: [],
+  };
+
+  const updateState = (key, patch) => {
+    setGroupState((prev) => ({ ...prev, [key]: { ...getState(key), ...patch } }));
+  };
+
+  const toggleRow = (key, itemId) => {
+    const s = getState(key);
+    const next = new Set(s.checked);
+    if (next.has(itemId)) next.delete(itemId); else next.add(itemId);
+    updateState(key, { checked: next });
+  };
+
+  const submitGroup = async (group) => {
+    const s = getState(group.key);
+    const checkedRows = group.rows.filter(r => s.checked.has(r.id));
+    const distinctPRs = new Set(checkedRows.map(r => r.request.id));
+
+    if (checkedRows.length < 2) return alert('Pool at least 2 lines.');
+    if (distinctPRs.size < 2) return alert('Pool must span at least 2 different PRs.');
+    const price = parseFloat(s.unitPrice);
+    if (!(price >= 0)) return alert('Enter a valid unit price.');
+    if (!s.supplierName.trim()) return alert('Supplier name is required.');
+    if (s.quotationPdf && s.quotationPdf.type !== 'application/pdf') return alert('Attachment must be PDF.');
+
+    const totalQty = checkedRows.reduce((sum, r) => sum + (r.adminApprovedQty ?? r.requestedQty ?? 0), 0);
+
+    updateState(group.key, { saving: true, complianceIssues: [] });
+    try {
+      const payload = {
+        purchaseRequestIds: [...distinctPRs],
+        items: [{
+          productName: group.productName.trim(),
+          productUnit: group.productUnit,
+          quantity: totalQty,
+          unitPrice: price,
+          supplierName: s.supplierName.trim(),
+          supplierContact: s.supplierContact.trim() || undefined,
+          supplierAddress: s.supplierAddress.trim() || undefined,
+          sources: checkedRows.map(r => ({
+            purchaseRequestItemId: r.id,
+            allocatedQty: r.adminApprovedQty ?? r.requestedQty ?? 0,
+          })),
+        }],
+      };
+      if (s.quotationPdf) {
+        const form = new FormData();
+        form.append('payload', JSON.stringify(payload));
+        form.append('quotationPdf', s.quotationPdf);
+        await api.post('/quotations/union', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      } else {
+        await api.post('/quotations/union', payload);
+      }
+      alert(`Pooled ${checkedRows.length} lines across ${distinctPRs.size} PRs into one union quotation for "${group.productName}".`);
+      updateState(group.key, {
+        checked: new Set(), unitPrice: '', supplierName: '', supplierContact: '', supplierAddress: '',
+        quotationPdf: null, saving: false, complianceIssues: [],
+      });
+      await load();
+      onUpdated?.();
+    } catch (err) {
+      const issues = err.response?.data?.complianceIssues;
+      if (Array.isArray(issues) && issues.length > 0) {
+        updateState(group.key, { complianceIssues: issues, saving: false });
+      } else {
+        alert(err.response?.data?.error || 'Failed to pool & quote');
+        updateState(group.key, { saving: false });
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <Card>
+        <div className="flex justify-center py-8">
+          <div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Card>
+    );
+  }
+
+  // Only show product groups that span ≥2 distinct PRs — pooling needs at
+  // least 2 different PRs to make sense; single-PR lines belong in the normal
+  // "Add Quote" flow.
+  const poolable = groups.filter(g => g.prIds.size >= 2);
+
+  if (poolable.length === 0) {
+    return (
+      <Card>
+        <p className="text-center text-gray-400 py-6">
+          No materials are currently requested by 2 or more PRs. Use the normal "Add Quote" flow above for single-PR items.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {poolable.map(group => {
+        const s = getState(group.key);
+        const checkedRows = group.rows.filter(r => s.checked.has(r.id));
+        const distinctPRs = new Set(checkedRows.map(r => r.request.id));
+        const canSubmit = checkedRows.length >= 2 && distinctPRs.size >= 2 && parseFloat(s.unitPrice) >= 0 && s.supplierName.trim();
+        const totalQty = checkedRows.reduce((sum, r) => sum + (r.adminApprovedQty ?? r.requestedQty ?? 0), 0);
+        const lineTotal = totalQty * (parseFloat(s.unitPrice) || 0);
+        return (
+          <Card key={group.key}>
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <GitMerge size={16} className="text-purple-600" />
+              <span className="font-semibold text-gray-800">{group.productName}</span>
+              <span className="text-xs text-gray-500">({group.productUnit})</span>
+              <Badge color="purple">{group.rows.length} lines · {group.prIds.size} PRs</Badge>
+              {checkedRows.length >= 2 && distinctPRs.size >= 2 && (
+                <Badge color="green">
+                  Selected: {checkedRows.length} lines · {distinctPRs.size} PRs · Total {totalQty} {group.productUnit}
+                </Badge>
+              )}
+              <span className="ml-auto text-sm">
+                Line total: <span className="font-semibold text-navy-700">{formatCurrency(lineTotal)}</span>
+              </span>
+            </div>
+
+            {s.complianceIssues.length > 0 && (
+              <div className="bg-red-50 border border-red-300 rounded p-3 text-xs text-red-900 mb-3">
+                <p className="font-semibold mb-1">Supplier compliance documents required</p>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  {s.complianceIssues.map((iss) => (
+                    <li key={iss.supplierId}><strong>{iss.supplierName}</strong> — missing Vendor Evaluation PDF</li>
+                  ))}
+                </ul>
+                <a href="/suppliers" target="_blank" rel="noreferrer" className="inline-block mt-2 font-semibold underline">
+                  Open Suppliers page →
+                </a>
+              </div>
+            )}
+
+            <div className="overflow-x-auto border rounded-md mb-3">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50">
+                  <tr className="border-b">
+                    <th className="px-2 py-1.5 w-8"></th>
+                    <th className="px-2 py-1.5 text-left text-gray-600">PR</th>
+                    <th className="px-2 py-1.5 text-left text-gray-600">Unit</th>
+                    <th className="px-2 py-1.5 text-left text-gray-600">Manager</th>
+                    <th className="px-2 py-1.5 text-left text-gray-600">Required Qty</th>
+                    <th className="px-2 py-1.5 text-left text-gray-600">Required By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.rows.map(r => {
+                    const qty = r.adminApprovedQty ?? r.requestedQty ?? 0;
+                    return (
+                      <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
+                        <td className="px-2 py-1.5">
+                          <input
+                            type="checkbox"
+                            checked={s.checked.has(r.id)}
+                            onChange={() => toggleRow(group.key, r.id)}
+                            className="rounded"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 font-medium text-navy-700">{r.request.requestNumber}</td>
+                        <td className="px-2 py-1.5"><Badge color="blue">{r.request.unit?.code || r.request.unit?.name || '—'}</Badge></td>
+                        <td className="px-2 py-1.5 text-gray-600">{r.request.manager?.name || '—'}</td>
+                        <td className="px-2 py-1.5">{qty} {r.productUnit}</td>
+                        <td className="px-2 py-1.5 text-gray-500">
+                          {r.requiredByDate ? new Date(r.requiredByDate).toLocaleDateString('en-IN') : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3">
+              <div>
+                <label className="text-[11px] uppercase text-gray-500">Unit Price (₹) *</label>
+                <input
+                  type="number"
+                  value={s.unitPrice}
+                  onChange={(e) => updateState(group.key, { unitPrice: e.target.value })}
+                  className="w-full px-2 py-1 border rounded text-sm"
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] uppercase text-gray-500">Supplier *</label>
+                <input
+                  value={s.supplierName}
+                  onChange={(e) => updateState(group.key, { supplierName: e.target.value })}
+                  className="w-full px-2 py-1 border rounded text-sm"
+                  placeholder="Supplier name"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] uppercase text-gray-500">Contact</label>
+                <input
+                  value={s.supplierContact}
+                  onChange={(e) => updateState(group.key, { supplierContact: e.target.value })}
+                  className="w-full px-2 py-1 border rounded text-sm"
+                  placeholder="Phone / email"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] uppercase text-gray-500">Address</label>
+                <input
+                  value={s.supplierAddress}
+                  onChange={(e) => updateState(group.key, { supplierAddress: e.target.value })}
+                  className="w-full px-2 py-1 border rounded text-sm"
+                  placeholder="Address"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs text-gray-600 flex items-center gap-2 cursor-pointer">
+                <Paperclip size={12} />
+                <span>{s.quotationPdf ? s.quotationPdf.name : 'Attach quotation PDF (optional)'}</span>
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  onChange={(e) => updateState(group.key, { quotationPdf: e.target.files?.[0] || null })}
+                />
+              </label>
+              <Button
+                size="sm"
+                disabled={!canSubmit || s.saving}
+                onClick={() => submitGroup(group)}
+                title={!canSubmit ? 'Tick ≥2 lines from ≥2 PRs and enter supplier + price' : ''}
+              >
+                <GitMerge size={14} className="mr-1" /> {s.saving ? 'Pooling…' : `Pool & Quote (${checkedRows.length})`}
+              </Button>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Main Page ───
 export default function QuotationManagement() {
   const { user } = useAuth();
@@ -1961,6 +2260,19 @@ export default function QuotationManagement() {
               </div>
             )}
           </Card>
+        </div>
+      )}
+
+      {/* PO: Pool by Material — for each product spanning ≥2 PRs, pick lines + quote once */}
+      {isPO && (
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
+            <GitMerge size={18} className="text-purple-600" /> Pool by Material
+          </h2>
+          <p className="text-xs text-gray-500 mb-3">
+            When the same material is requested by multiple PRs, tick the lines you want bundled and quote them in one go. Untouched materials still go through the normal "Add Quote" flow above.
+          </p>
+          <PoolByMaterialSection onUpdated={fetchData} />
         </div>
       )}
 
