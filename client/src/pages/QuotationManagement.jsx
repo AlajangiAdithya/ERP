@@ -2083,20 +2083,18 @@ export default function QuotationManagement() {
     try {
       // Get PRs in relevant statuses
       const { data } = await api.get('/purchase-requests', { params: { limit: 100 } });
-      // A PR belongs in the "needs PO attention" list when EITHER:
-      //   (a) some item is still AWAITING_QUOTATION — pool/quote work pending,
-      //   (b) the PR has unsubmitted quotations sitting on it (PO added quotes
-      //       but hasn't clicked Submit-to-Admin yet) — PR.status is still
-      //       APPROVED/IN_PROGRESS, no AWAITING items, but the PO must finish
-      //       the job. Without this branch the PR vanishes after a single quote
-      //       and the PO loses the entry point to submit.
-      const hasAwaiting = (pr) => (pr.items || []).some(i => i.itemQuotationStatus === 'AWAITING_QUOTATION');
-      const hasUnsubmittedQuotes = (pr) =>
-        ['APPROVED', 'IN_PROGRESS'].includes(pr.status) &&
-        ((pr.quotations || []).length > 0 || (pr.quotationSources || []).length > 0);
+      // A PR belongs in the PO's "Add Quotations" list as long as it has any
+      // item still open for quoting — AWAITING, SUBMITTED, or HELD. Items that
+      // are already approved (on a PO) or cancelled are dead. This keeps the
+      // PR visible for competing quotes even after the first batch has gone
+      // to admin: admin can still ask for another supplier, or the PO can add
+      // one before admin picks the winner.
+      const isOpenForQuote = (s) =>
+        s === 'AWAITING_QUOTATION' || s === 'QUOTATION_SUBMITTED' || s === 'QUOTATION_HELD';
+      const hasOpenItems = (pr) => (pr.items || []).some(i => isOpenForQuote(i.itemQuotationStatus));
       const approved = data.requests.filter(r =>
         ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED'].includes(r.status) &&
-        (hasAwaiting(r) || hasUnsubmittedQuotes(r))
+        hasOpenItems(r)
       );
       const submitted = data.requests.filter(r => r.status === 'QUOTATION_SUBMITTED');
       setApprovedPRs(approved);
