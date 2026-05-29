@@ -759,6 +759,8 @@ function RecordInwardModal({ onClose, onCreated }) {
   const [customerName, setCustomerName] = useState('');
   const [customerGatePassNo, setCustomerGatePassNo] = useState('');
   const [customerGatePassDate, setCustomerGatePassDate] = useState('');
+  const [customerGpDocType, setCustomerGpDocType] = useState('ORIGINAL');
+  const [customerGpPdf, setCustomerGpPdf] = useState(null);
   const [remarks, setRemarks] = useState('');
   const [items, setItems] = useState([blankInwardItem()]);
   const [saving, setSaving] = useState(false);
@@ -784,26 +786,44 @@ function RecordInwardModal({ onClose, onCreated }) {
 
     setSaving(true);
     try {
-      await api.post('/gatepasses', {
-        direction: 'INWARD',
-        inwardKind: 'STORES',
-        remarks: remarks.trim() || undefined,
-        customerName: customerName.trim(),
-        customerGatePassNo: customerGatePassNo.trim(),
-        customerGatePassDate: customerGatePassDate || null,
-        items: items.map(i => ({
-          description: i.description.trim(),
-          quantity: Number(i.quantity),
-          unit: i.unit || 'pcs',
-          dispatchedTo: i.dispatchedTo?.trim() || null,
-          itemPurpose: i.itemPurpose?.trim() || null,
-          probableReturnDate: i.probableReturnDate || null,
-          itemPassType: i.itemPassType || null,
-          gatePassDetails: i.gatePassDetails?.trim() || null,
-          transportation: i.transportation?.trim() || null,
-          contactPersonDetails: i.contactPersonDetails?.trim() || null,
-        })),
-      });
+      const itemsPayload = items.map(i => ({
+        description: i.description.trim(),
+        quantity: Number(i.quantity),
+        unit: i.unit || 'pcs',
+        dispatchedTo: i.dispatchedTo?.trim() || null,
+        itemPurpose: i.itemPurpose?.trim() || null,
+        probableReturnDate: i.probableReturnDate || null,
+        itemPassType: i.itemPassType || null,
+        gatePassDetails: i.gatePassDetails?.trim() || null,
+        transportation: i.transportation?.trim() || null,
+        contactPersonDetails: i.contactPersonDetails?.trim() || null,
+      }));
+
+      // Use multipart when a PDF is attached so the server can store the file alongside the GP record.
+      if (customerGpPdf) {
+        const fd = new FormData();
+        fd.append('direction', 'INWARD');
+        fd.append('inwardKind', 'STORES');
+        if (remarks.trim()) fd.append('remarks', remarks.trim());
+        fd.append('customerName', customerName.trim());
+        fd.append('customerGatePassNo', customerGatePassNo.trim());
+        if (customerGatePassDate) fd.append('customerGatePassDate', customerGatePassDate);
+        fd.append('customerGpDocType', customerGpDocType);
+        fd.append('customerGpPdf', customerGpPdf);
+        fd.append('items', JSON.stringify(itemsPayload));
+        await api.post('/gatepasses', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      } else {
+        await api.post('/gatepasses', {
+          direction: 'INWARD',
+          inwardKind: 'STORES',
+          remarks: remarks.trim() || undefined,
+          customerName: customerName.trim(),
+          customerGatePassNo: customerGatePassNo.trim(),
+          customerGatePassDate: customerGatePassDate || null,
+          customerGpDocType,
+          items: itemsPayload,
+        });
+      }
       onCreated();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to record inward entry');
@@ -824,8 +844,33 @@ function RecordInwardModal({ onClose, onCreated }) {
         </p>
 
         <div className="space-y-3 p-3 bg-blue-50 border border-blue-200 rounded">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
             <Input label="Customer name *" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. ABC Pvt. Ltd." />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">GP type</label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
+                value={customerGpDocType}
+                onChange={e => setCustomerGpDocType(e.target.value)}
+              >
+                <option value="ORIGINAL">Original</option>
+                <option value="DUPLICATE">Duplicate</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">GP PDF (optional)</label>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={e => setCustomerGpPdf(e.target.files?.[0] || null)}
+                className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800"
+              />
+              {customerGpPdf && (
+                <div className="mt-1 text-xs text-gray-500 truncate" title={customerGpPdf.name}>
+                  {customerGpPdf.name}
+                </div>
+              )}
+            </div>
             <Input label="Customer's gate pass no. *" value={customerGatePassNo} onChange={e => setCustomerGatePassNo(e.target.value)} placeholder="As printed on customer's GP" />
             <Input type="date" label="Customer's gate pass date" value={customerGatePassDate} onChange={e => setCustomerGatePassDate(e.target.value)} />
           </div>

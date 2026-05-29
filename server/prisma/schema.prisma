@@ -43,6 +43,8 @@ model User {
   gatePassesAccountsApproved GatePass[]                 @relation("GatePassAccountsApprover")
   gatePassesFinalApproved    GatePass[]                 @relation("GatePassFinalApprover")
   gatePassesCollected        GatePass[]                 @relation("GatePassCollector")
+  fimBatchesAssigned         ProductBatch[]             @relation("FimAssignedBy")
+  fimBatchesAccepted         ProductBatch[]             @relation("FimAcceptedBy")
   ionsCreated                InterOfficeNote[]          @relation("IONCreator")
   ionsAssigned               InterOfficeNote[]          @relation("IONAssignee")
   transferRequestsCreated    InventoryTransferRequest[] @relation("TransferRequester")
@@ -98,6 +100,7 @@ model Unit {
   productStocks    ProductUnitStock[]
   tenders          Tender[]
   inwardGatePasses GatePass[]                 @relation("GatePassDestinationUnit")
+  fimBatchesAssigned ProductBatch[]           @relation("FimAssignedToUnit")
 }
 
 // ──── AUDIT LOG ────
@@ -177,6 +180,18 @@ model ProductBatch {
   sourceInwardGatePass       GatePass?     @relation("FimSourceGatePass", fields: [sourceInwardGatePassId], references: [id])
   sourceInwardGatePassItemId String?
   sourceInwardGatePassItem   GatePassItem? @relation("FimSourceItem", fields: [sourceInwardGatePassItemId], references: [id])
+
+  // FIM unit-assignment + one-shot acceptance (no MIV needed for FIM).
+  // Stores assigns a FIM batch to a unit; the unit manager clicks Accept + remark; final.
+  assignedToUnitId    String?
+  assignedToUnit      Unit?     @relation("FimAssignedToUnit", fields: [assignedToUnitId], references: [id])
+  assignedAt          DateTime?
+  assignedById        String?
+  assignedBy          User?     @relation("FimAssignedBy", fields: [assignedById], references: [id])
+  unitAcceptedAt      DateTime?
+  unitAcceptedById    String?
+  unitAcceptedBy      User?     @relation("FimAcceptedBy", fields: [unitAcceptedById], references: [id])
+  unitAcceptedRemarks String?
 
   // PO-flow lot linkage: which QC inspection (lot) this batch came from.
   // Lets the product list show PR → PO → Lot N (invoice) → Batch chain.
@@ -696,6 +711,10 @@ model GatePass {
   customerGatePassNo   String? // customer's gate pass number (their format, not RAPS)
   customerGatePassDate DateTime?
   customerContact      String? // Deprecated — no longer collected; kept for legacy rows.
+  // INWARD-only: document type of the customer's gate pass (ORIGINAL or DUPLICATE)
+  // and an uploaded PDF of the customer's GP document.
+  customerGpDocType    CustomerGpDocType?
+  customerGpPdfUrl     String?
   // INWARD only: how the material is being inwarded.
   // STORES = goes through the From-Gatepass acceptance into the product list (existing flow).
   // DIRECT_TO_UNIT = sent straight to a unit; that unit's manager marks it Collected on the gatepass itself.
@@ -789,6 +808,11 @@ enum GatePassDirection {
 enum InwardKind {
   STORES
   DIRECT_TO_UNIT
+}
+
+enum CustomerGpDocType {
+  ORIGINAL
+  DUPLICATE
 }
 
 enum GatePassStatus {

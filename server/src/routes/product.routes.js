@@ -100,6 +100,51 @@ router.get('/material-types', authenticate, (_req, res) => {
   res.json(MATERIAL_TYPES);
 });
 
+// GET /api/products/fim-status
+// Lists every FIM batch (customer-owned material inwarded via INWARD gate pass)
+// with its source GP, return date, unit assignment and unit-acceptance state.
+// Used to power the "FIM Status" tab on the Products page.
+router.get('/fim-status', authenticate, async (req, res) => {
+  try {
+    const { unitId, search } = req.query;
+    const where = { isFim: true };
+    if (unitId) where.assignedToUnitId = unitId;
+    if (search) {
+      where.OR = [
+        { product: { name: { contains: search, mode: 'insensitive' } } },
+        { sourceInwardGatePass: { customerName: { contains: search, mode: 'insensitive' } } },
+        { sourceInwardGatePass: { passNumber: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+    const batches = await prisma.productBatch.findMany({
+      where,
+      orderBy: { receivedDate: 'desc' },
+      include: {
+        product: { select: { id: true, name: true, sku: true, unit: true, category: true } },
+        assignedToUnit: { select: { id: true, name: true, code: true } },
+        assignedBy: { select: { id: true, name: true } },
+        unitAcceptedBy: { select: { id: true, name: true } },
+        sourceInwardGatePass: {
+          select: {
+            id: true, passNumber: true, customerName: true,
+            customerGatePassNo: true, customerGatePassDate: true,
+            customerGpDocType: true, customerGpPdfUrl: true, date: true,
+          },
+        },
+        sourceInwardGatePassItem: {
+          select: {
+            id: true, description: true, probableReturnDate: true, itemPassType: true,
+          },
+        },
+      },
+    });
+    res.json(batches);
+  } catch (error) {
+    console.error('FIM status list error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/products/categories
 router.get('/categories', authenticate, async (req, res) => {
   try {
@@ -284,10 +329,14 @@ router.get('/:id', authenticate, async (req, res) => {
       where: { productId: req.params.id, isFim: true },
       orderBy: { receivedDate: 'desc' },
       include: {
+        assignedToUnit: { select: { id: true, name: true, code: true } },
+        assignedBy: { select: { id: true, name: true } },
+        unitAcceptedBy: { select: { id: true, name: true } },
         sourceInwardGatePass: {
           select: {
             id: true, passNumber: true, customerName: true,
             customerGatePassNo: true, customerGatePassDate: true, customerContact: true,
+            customerGpDocType: true, customerGpPdfUrl: true,
             date: true, passType: true,
           },
         },

@@ -2,12 +2,31 @@ const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
+const { fimGpUpload, publicUrlFor } = require('../middleware/upload');
 const {
   generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation,
   withDocRetry, generateProductSku, normalizeMaterialType,
 } = require('../utils/helpers');
 
 const router = express.Router();
+
+// Accept an optional customer-GP PDF upload alongside the inward gate-pass create.
+// Field name from the client: `customerGpPdf`. multipart bodies arrive with
+// `items` as a JSON string — the handler parses it.
+function acceptFimGpPdf(req, res, next) {
+  const contentType = req.headers['content-type'] || '';
+  if (!contentType.startsWith('multipart/form-data')) return next();
+  fimGpUpload.single('customerGpPdf')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Customer GP PDF upload failed' });
+    if (typeof req.body.items === 'string') {
+      try { req.body.items = JSON.parse(req.body.items); }
+      catch { return res.status(400).json({ error: 'Malformed items payload' }); }
+    }
+    next();
+  });
+}
+
+const GP_DOC_TYPES = ['ORIGINAL', 'DUPLICATE'];
 
 const USER_SELECT = { select: { id: true, name: true, role: true } };
 const UNIT_SELECT = { select: { id: true, name: true, code: true } };
@@ -28,7 +47,12 @@ const GATEPASS_INCLUDE = {
         include: { gatePass: { select: { id: true, passNumber: true, direction: true, date: true } } },
       },
       fimBatches: {
-        include: { product: { select: { id: true, name: true, sku: true, unit: true } } },
+        include: {
+          product: { select: { id: true, name: true, sku: true, unit: true } },
+          assignedToUnit: UNIT_SELECT,
+          assignedBy: USER_SELECT,
+          unitAcceptedBy: USER_SELECT,
+        },
       },
     },
   },
@@ -119,13 +143,17 @@ router.get('/:id', authenticate, async (req, res) => {
 // OUTWARD: Manager raises (RAMS/GPR/01) → Store → Accounts → Approved.
 // INWARD: Stores / Manager records customer-supplied FIM. Status starts at
 // PENDING_ACCEPTANCE; items get inwarded into Products via the From-Gatepass flow.
-router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS', 'ADMIN'), async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS', 'ADMIN'), acceptFimGpPdf, async (req, res) => {
   try {
     const {
       siteName, remarks, items, direction: rawDirection,
       customerName, customerGatePassNo, customerGatePassDate,
       inwardKind: rawInwardKind, destinationUnitId,
+      customerGpDocType: rawDocType,
     } = req.body;
+
+    const customerGpDocType = GP_DOC_TYPES.includes(rawDocType) ? rawDocType : null;
+    const customerGpPdfUrl = req.file ? publicUrlFor('fim-gp', req.file.filename) : null;
 
     const direction = DIRECTIONS.includes(rawDirection) ? rawDirection : 'OUTWARD';
     const isInward = direction === 'INWARD';
@@ -225,6 +253,8 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
           customerGatePassDate: isInward ? toDate(customerGatePassDate) : null,
           // customerContact is no longer collected — leave NULL on new rows.
           customerContact: null,
+          customerGpDocType: isInward ? customerGpDocType : null,
+          customerGpPdfUrl: isInward ? customerGpPdfUrl : null,
           inwardKind: isInward ? inwardKind : null,
           destinationUnitId: isInward && inwardKind === 'DIRECT_TO_UNIT' ? destinationUnitId : null,
           remarks: remarks?.trim() || null,
@@ -775,6 +805,138 @@ router.put('/:id/close', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asyn
     res.json(updated);
   } catch (error) {
     console.error('Close gate pass error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ──── FIM Batch Assignment + One-shot Unit Acceptance ────
+// These live on the FIM batch (ProductBatch with isFim=true) created by accept-inward.
+// Workflow: Stores assigns a FIM batch to a unit → the unit's manager clicks Accept
+// with a remark. Acceptance is final; no MIV required.
+
+const BATCH_FIM_INCLUDE = {
+  product: { select: { id: true, name: true, sku: true, unit: true } },
+  assignedToUnit: UNIT_SELECT,
+  assignedBy: USER_SELECT,
+  unitAcceptedBy: USER_SELECT,
+  sourceInwardGatePass: {
+    select: {
+      id: true, passNumber: true, customerName: true, customerGatePassNo: true,
+      customerGatePassDate: true, customerGpDocType: true, customerGpPdfUrl: true,
+    },
+  },
+  sourceInwardGatePassItem: {
+    select: {
+      id: true, description: true, probableReturnDate: true, itemPassType: true,
+    },
+  },
+};
+
+// PUT /api/gatepasses/fim-batches/:id/assign — Stores assigns a FIM batch to a unit.
+// Cannot be changed once the unit has accepted.
+router.put('/fim-batches/:id/assign', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const { unitId } = req.body || {};
+    if (!unitId) return res.status(400).json({ error: 'unitId is required' });
+
+    const batch = await prisma.productBatch.findUnique({ where: { id: req.params.id } });
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+    if (!batch.isFim) return res.status(400).json({ error: 'Only FIM batches can be assigned to a unit this way' });
+    if (batch.unitAcceptedAt) return res.status(400).json({ error: 'Batch already accepted by the unit — cannot reassign' });
+
+    const unit = await prisma.unit.findUnique({ where: { id: unitId } });
+    if (!unit) return res.status(400).json({ error: 'Unit not found' });
+
+    const updated = await prisma.productBatch.update({
+      where: { id: batch.id },
+      data: {
+        assignedToUnitId: unitId,
+        assignedAt: new Date(),
+        assignedById: req.user.id,
+      },
+      include: BATCH_FIM_INCLUDE,
+    });
+
+    // Notify unit managers so they see the pending FIM acceptance on their dashboard.
+    const unitManagers = await prisma.user.findMany({
+      where: { role: 'MANAGER', unitId, isActive: true },
+      select: { id: true },
+    });
+    for (const u of unitManagers) {
+      await notify({
+        type: 'GATE_PASS_INWARD',
+        title: `FIM assigned to your unit`,
+        message: `${req.user.name} assigned FIM ${updated.product.name} (qty ${updated.quantity}) to your unit. Accept it with a remark.`,
+        targetUserId: u.id,
+        sentById: req.user.id,
+      });
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'FIM_ASSIGN',
+        entity: 'ProductBatch',
+        entityId: updated.id,
+        details: { productId: updated.productId, unitId, quantity: updated.quantity },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('FIM assign error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/gatepasses/fim-batches/:id/unit-accept — Unit Manager finalises acceptance with a remark.
+// One-shot: once set, cannot be undone or re-accepted.
+router.put('/fim-batches/:id/unit-accept', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const { remark } = req.body || {};
+    if (!remark || !String(remark).trim()) {
+      return res.status(400).json({ error: 'A remark is required to accept FIM' });
+    }
+
+    const batch = await prisma.productBatch.findUnique({
+      where: { id: req.params.id },
+      include: { product: { select: { id: true, name: true } } },
+    });
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+    if (!batch.isFim) return res.status(400).json({ error: 'Only FIM batches use unit acceptance' });
+    if (!batch.assignedToUnitId) return res.status(400).json({ error: 'Batch has not been assigned to any unit yet' });
+    if (batch.unitAcceptedAt) return res.status(400).json({ error: 'Batch is already accepted — acceptance is final' });
+
+    // Only a manager of the assigned unit (or Admin) can accept.
+    if (req.user.role !== 'ADMIN' && req.user.unitId !== batch.assignedToUnitId) {
+      return res.status(403).json({ error: 'Only a manager of the assigned unit can accept this FIM' });
+    }
+
+    const updated = await prisma.productBatch.update({
+      where: { id: batch.id },
+      data: {
+        unitAcceptedAt: new Date(),
+        unitAcceptedById: req.user.id,
+        unitAcceptedRemarks: String(remark).trim(),
+      },
+      include: BATCH_FIM_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'FIM_UNIT_ACCEPT',
+        entity: 'ProductBatch',
+        entityId: updated.id,
+        details: { productId: updated.productId, unitId: batch.assignedToUnitId },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('FIM unit-accept error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

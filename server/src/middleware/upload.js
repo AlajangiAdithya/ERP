@@ -71,6 +71,14 @@ const supplierAssessmentUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
+// Customer's INWARD gate-pass PDF (FIM document — original or duplicate copy
+// the customer hands over with the material).
+const fimGpUpload = multer({
+  storage: makeStorage('fim-gp'),
+  fileFilter: pdfOnly,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
 const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
 
 module.exports = {
@@ -81,6 +89,7 @@ module.exports = {
   invoiceUpload,
   vendorEvaluationUpload,
   supplierAssessmentUpload,
+  fimGpUpload,
   publicUrlFor,
   UPLOAD_ROOT,
 };

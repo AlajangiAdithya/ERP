@@ -404,7 +404,67 @@ function SupplierHistoryTab({ product, onRequote }) {
 //   - any outward delivery challans that returned/delivered this FIM back
 // This is the visible end of the inward↔outward mapping for customer-property
 // material.
-function FimTab({ product }) {
+// Compute days-until-return for FIM probable-return display. Returns null if no date.
+function fimReturnCountdown(returnDate) {
+  if (!returnDate) return null;
+  const target = new Date(returnDate);
+  const today = new Date();
+  target.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((target - today) / (1000 * 60 * 60 * 24));
+  if (diff < 0) return { label: `OVERDUE by ${-diff} day${-diff === 1 ? '' : 's'}`, urgent: true };
+  if (diff === 0) return { label: 'Due today', urgent: true };
+  if (diff <= 3) return { label: `${diff} day${diff === 1 ? '' : 's'} left`, urgent: true };
+  if (diff <= 7) return { label: `${diff} days left`, urgent: false, warn: true };
+  return { label: `${diff} days left`, urgent: false };
+}
+
+function FimTab({ product, user, onRefresh }) {
+  const [units, setUnits] = useState([]);
+  const [assignTarget, setAssignTarget] = useState(null); // batch
+  const [acceptTarget, setAcceptTarget] = useState(null); // batch
+  const [assigningUnitId, setAssigningUnitId] = useState('');
+  const [acceptRemark, setAcceptRemark] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [actionBusy, setActionBusy] = useState(false);
+
+  const isStores = user?.role === 'STORE_MANAGER' || user?.role === 'ADMIN';
+  const isManager = user?.role === 'MANAGER' || user?.role === 'ADMIN';
+
+  useEffect(() => {
+    api.get('/units').then(({ data }) => setUnits(Array.isArray(data) ? data : (data.units || []))).catch(() => setUnits([]));
+  }, []);
+
+  const submitAssign = async () => {
+    setActionError('');
+    if (!assigningUnitId) return setActionError('Choose a unit');
+    setActionBusy(true);
+    try {
+      await api.put(`/gatepasses/fim-batches/${assignTarget.id}/assign`, { unitId: assigningUnitId });
+      setAssignTarget(null);
+      setAssigningUnitId('');
+      await onRefresh();
+    } catch (err) {
+      setActionError(err.response?.data?.error || 'Failed to assign batch');
+    }
+    setActionBusy(false);
+  };
+
+  const submitAccept = async () => {
+    setActionError('');
+    if (!acceptRemark.trim()) return setActionError('A remark is required');
+    setActionBusy(true);
+    try {
+      await api.put(`/gatepasses/fim-batches/${acceptTarget.id}/unit-accept`, { remark: acceptRemark.trim() });
+      setAcceptTarget(null);
+      setAcceptRemark('');
+      await onRefresh();
+    } catch (err) {
+      setActionError(err.response?.data?.error || 'Failed to accept batch');
+    }
+    setActionBusy(false);
+  };
+
   const batches = product.fimBatches || [];
   if (batches.length === 0) {
     return <p className="text-sm text-gray-400 py-6 text-center">No FIM batches on record for this product.</p>;
@@ -414,14 +474,19 @@ function FimTab({ product }) {
     <div className="space-y-4">
       <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
         These batches are <strong>customer property (FIM)</strong>. They were inwarded against the
-        customer's own gate pass, so the original GP number is preserved here. Delivery Challans
-        that sent the material (or finished goods derived from it) back are shown beside each batch.
+        customer's own gate pass — the original GP number, document type and uploaded PDF are kept here.
+        Stores can assign each batch to a unit; the unit manager then accepts it with a remark (final).
       </div>
 
       {batches.map(b => {
         const gp = b.sourceInwardGatePass;
         const item = b.sourceInwardGatePassItem;
         const outwards = item?.outwardLinkedItems || [];
+        const cd = fimReturnCountdown(item?.probableReturnDate);
+        const canAssign = isStores && !b.unitAcceptedAt;
+        const canAccept = isManager && b.assignedToUnitId && !b.unitAcceptedAt
+          && (user?.role === 'ADMIN' || user?.unitId === b.assignedToUnitId);
+
         return (
           <div key={b.id} className="border border-gray-200 rounded p-4 bg-white">
             <div className="flex items-start justify-between mb-3">
@@ -433,9 +498,18 @@ function FimTab({ product }) {
                   Received {formatDate(b.receivedDate)} · {b.quantity} {product.unit} ({b.remaining} remaining)
                 </p>
               </div>
-              <Badge color={gp?.passType === 'NON_RETURNABLE' ? 'orange' : 'blue'}>
-                {gp?.passType === 'NON_RETURNABLE' ? 'Non-Returnable FIM' : 'Returnable FIM'}
-              </Badge>
+              <div className="flex flex-col items-end gap-1">
+                <Badge color={gp?.passType === 'NON_RETURNABLE' ? 'orange' : 'blue'}>
+                  {gp?.passType === 'NON_RETURNABLE' ? 'Non-Returnable FIM' : 'Returnable FIM'}
+                </Badge>
+                {b.unitAcceptedAt ? (
+                  <Badge color="green">Accepted at unit (final)</Badge>
+                ) : b.assignedToUnitId ? (
+                  <Badge color="yellow">Awaiting unit accept</Badge>
+                ) : (
+                  <Badge color="gray">In stores</Badge>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
@@ -444,20 +518,102 @@ function FimTab({ product }) {
                 <p className="font-mono text-navy-700 font-medium">{gp?.passNumber || '—'}</p>
                 <div className="text-xs text-gray-600 mt-1 space-y-0.5">
                   <div><span className="text-gray-500">Customer:</span> {gp?.customerName || '—'}</div>
-                  <div><span className="text-gray-500">Customer GP No.:</span> <span className="font-mono">{gp?.customerGatePassNo || '—'}</span></div>
+                  <div>
+                    <span className="text-gray-500">Customer GP No.:</span>{' '}
+                    <span className="font-mono">{gp?.customerGatePassNo || '—'}</span>
+                    {gp?.customerGpDocType && (
+                      <span className="ml-2">
+                        <Badge color={gp.customerGpDocType === 'ORIGINAL' ? 'green' : 'yellow'}>
+                          {gp.customerGpDocType === 'ORIGINAL' ? 'Original' : 'Duplicate'}
+                        </Badge>
+                      </span>
+                    )}
+                  </div>
                   {gp?.customerGatePassDate && (
                     <div><span className="text-gray-500">Customer GP date:</span> {formatDate(gp.customerGatePassDate)}</div>
                   )}
-                  {gp?.customerContact && (
-                    <div><span className="text-gray-500">Contact:</span> {gp.customerContact}</div>
+                  {gp?.customerGpPdfUrl && (
+                    <div>
+                      <a
+                        href={gp.customerGpPdfUrl} target="_blank" rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-navy-700 hover:underline"
+                      >
+                        <FileText size={12} /> View customer GP PDF
+                      </a>
+                    </div>
                   )}
                   {item?.probableReturnDate && (
-                    <div><span className="text-gray-500">Probable return:</span> {formatDate(item.probableReturnDate)}</div>
+                    <div className="pt-1">
+                      <span className="text-gray-500">Probable return:</span> {formatDate(item.probableReturnDate)}
+                      {cd && (
+                        <span
+                          className={`ml-2 inline-flex items-center font-semibold ${
+                            cd.urgent ? 'text-red-600' : cd.warn ? 'text-orange-600' : 'text-gray-500'
+                          }`}
+                        >
+                          {cd.urgent && <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1 animate-pulse" />}
+                          {cd.label}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
 
               <div className="p-3 bg-gray-50 border border-gray-200 rounded">
+                <p className="text-xs uppercase tracking-wide text-gray-500 font-medium mb-1">Unit assignment & acceptance</p>
+                <div className="text-xs text-gray-600 space-y-0.5">
+                  <div>
+                    <span className="text-gray-500">Assigned to:</span>{' '}
+                    {b.assignedToUnit ? (
+                      <span className="font-medium text-navy-700">{b.assignedToUnit.name || b.assignedToUnit.code}</span>
+                    ) : <span className="text-gray-400">Unassigned</span>}
+                    {b.assignedAt && (
+                      <span className="text-gray-400"> · {formatDateTime(b.assignedAt)}</span>
+                    )}
+                    {b.assignedBy && (
+                      <span className="text-gray-400"> by {b.assignedBy.name}</span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Accepted:</span>{' '}
+                    {b.unitAcceptedAt ? (
+                      <>
+                        <span className="text-green-700 font-medium">Yes — final</span>
+                        <span className="text-gray-400"> · {formatDateTime(b.unitAcceptedAt)}</span>
+                        {b.unitAcceptedBy && <span className="text-gray-400"> by {b.unitAcceptedBy.name}</span>}
+                      </>
+                    ) : <span className="text-gray-400">Pending</span>}
+                  </div>
+                  {b.unitAcceptedRemarks && (
+                    <div className="mt-1 p-2 bg-white border border-gray-200 rounded">
+                      <span className="text-gray-500 text-[10px] uppercase tracking-wide">Unit remark:</span>
+                      <div className="text-gray-800">{b.unitAcceptedRemarks}</div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-2 mt-2">
+                  {canAssign && (
+                    <button
+                      onClick={() => { setAssignTarget(b); setAssigningUnitId(b.assignedToUnitId || ''); setActionError(''); }}
+                      className="text-xs px-2 py-1 rounded border border-navy-700 text-navy-700 hover:bg-navy-50"
+                    >
+                      {b.assignedToUnitId ? 'Reassign' : 'Assign to unit'}
+                    </button>
+                  )}
+                  {canAccept && (
+                    <button
+                      onClick={() => { setAcceptTarget(b); setAcceptRemark(''); setActionError(''); }}
+                      className="text-xs px-2 py-1 rounded bg-navy-700 text-white hover:bg-navy-800"
+                    >
+                      Accept (final)
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded md:col-span-2">
                 <p className="text-xs uppercase tracking-wide text-gray-500 font-medium mb-1 inline-flex items-center gap-1">
                   <ArrowUpFromLine size={11} /> Returned via Delivery Challan
                 </p>
@@ -483,6 +639,57 @@ function FimTab({ product }) {
           </div>
         );
       })}
+
+      {assignTarget && (
+        <Modal isOpen onClose={() => setAssignTarget(null)} title="Assign FIM to unit">
+          <div className="space-y-4">
+            {actionError && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{actionError}</div>}
+            <div className="text-sm text-gray-700">
+              Batch <span className="font-mono">{assignTarget.batchNo || assignTarget.id.slice(0, 8)}</span> · {assignTarget.quantity} {product.unit}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Destination unit *</label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
+                value={assigningUnitId}
+                onChange={(e) => setAssigningUnitId(e.target.value)}
+              >
+                <option value="">Select a unit…</option>
+                {units.map(u => <option key={u.id} value={u.id}>{u.name || u.code}</option>)}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
+              <Button variant="secondary" onClick={() => setAssignTarget(null)} disabled={actionBusy}>Cancel</Button>
+              <Button onClick={submitAssign} disabled={actionBusy}>{actionBusy ? 'Saving…' : 'Assign'}</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {acceptTarget && (
+        <Modal isOpen onClose={() => setAcceptTarget(null)} title="Accept FIM at unit">
+          <div className="space-y-4">
+            {actionError && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{actionError}</div>}
+            <div className="text-sm text-gray-700">
+              Accepting batch <span className="font-mono">{acceptTarget.batchNo || acceptTarget.id.slice(0, 8)}</span>. Once accepted, the record is <strong>final</strong> — no re-accept possible.
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Remark *</label>
+              <textarea
+                rows={3}
+                value={acceptRemark}
+                onChange={(e) => setAcceptRemark(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
+                placeholder="e.g. Received in good condition, stored in Bay 2"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
+              <Button variant="secondary" onClick={() => setAcceptTarget(null)} disabled={actionBusy}>Cancel</Button>
+              <Button onClick={submitAccept} disabled={actionBusy}>{actionBusy ? 'Saving…' : 'Accept (final)'}</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -744,15 +951,19 @@ export default function ProductDetail() {
   const [requoteSource, setRequoteSource] = useState(null);
   const [requoteOpen, setRequoteOpen] = useState(false);
 
-  useEffect(() => {
-    Promise.all([
+  const loadProduct = () => {
+    return Promise.all([
       api.get(`/products/${id}`),
       api.get(`/inventory/batches?productId=${id}`),
     ])
       .then(([productRes, batchesRes]) => {
         setProduct(productRes.data);
         setBatches(batchesRes.data?.batches || []);
-      })
+      });
+  };
+
+  useEffect(() => {
+    loadProduct()
       .catch(() => navigate('/products'))
       .finally(() => setLoading(false));
   }, [id]);
@@ -1026,7 +1237,7 @@ export default function ProductDetail() {
           <SupplierHistoryTab product={product} onRequote={openRequote} />
         )}
 
-        {activeTab === 'fim' && <FimTab product={product} />}
+        {activeTab === 'fim' && <FimTab product={product} user={user} onRefresh={loadProduct} />}
       </Card>
 
       <QuickRequoteModal
