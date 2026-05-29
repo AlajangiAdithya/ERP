@@ -5,7 +5,11 @@ export default function Table({ columns, data, onRowClick, emptyMessage = 'No da
         <thead>
           <tr className="border-b border-gray-200">
             {columns.map((col) => (
-              <th key={col.key} className="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider text-xs">
+              <th
+                key={col.key}
+                className="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider text-xs"
+                style={col.width ? { width: col.width } : undefined}
+              >
                 {col.label}
               </th>
             ))}
@@ -28,7 +32,11 @@ export default function Table({ columns, data, onRowClick, emptyMessage = 'No da
                 onClick={() => onRowClick?.(row)}
               >
                 {columns.map((col) => (
-                  <td key={col.key} className="px-4 py-3 text-gray-700">
+                  <td
+                    key={col.key}
+                    className="px-4 py-3 text-gray-700"
+                    style={col.width ? { width: col.width } : undefined}
+                  >
                     {col.render ? col.render(row[col.key], row) : row[col.key]}
                   </td>
                 ))}

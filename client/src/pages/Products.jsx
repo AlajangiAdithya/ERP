@@ -86,7 +86,7 @@ export default function Products() {
         return list.map(us => `${us.unit?.name || us.unit?.code || 'Unit'}:${us.quantity}`).join(' | ');
       };
       const header = [
-        'Identification No.', 'Name', 'Category', 'UOM',
+        'ID No.', 'Name', 'Category', 'UOM',
         'Current Stock', 'Min Stock Level',
         'Deficit (Min - Current)', 'Status', 'Owned By (Unit:Qty)',
         'Description',
@@ -187,10 +187,10 @@ export default function Products() {
 
   const columns = [
     {
-      key: 'materialCode', label: 'Identification No.',
+      key: 'materialCode', label: 'ID No.', width: 80,
       render: (v, row) => {
         const id = v || row.sku;
-        return id ? <span className="font-mono text-xs">{id}</span> : <span className="text-xs text-gray-400">—</span>;
+        return id ? <span className="text-sm font-semibold text-navy-700">{id}</span> : <span className="text-xs text-gray-400">—</span>;
       },
     },
     { key: 'name', label: 'Name' },
@@ -310,10 +310,10 @@ export default function Products() {
           <form onSubmit={handleCreate} className="space-y-4">
             {formError && <p className="text-sm text-brand-red">{formError}</p>}
             <Input
-              label="Identification No. *"
+              label="ID No. *"
               value={form.materialCode}
               onChange={(e) => setForm({ ...form, materialCode: e.target.value })}
-              placeholder="e.g. 1000 (from Material Details register)"
+              placeholder="e.g. 1000"
               required
             />
             <Input label="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
@@ -428,7 +428,7 @@ function FimStatusView({ user, onOpenProduct }) {
       await api.put(`/gatepasses/fim-batches/${readyTarget.id}/mark-ready`, { note: readyNote.trim() || undefined });
       setReadyTarget(null);
       setReadyNote('');
-      setFlash('Marked ready — Stores can now send it out.');
+      setFlash('Marked Ready to Collect — Stores has been notified.');
       setTimeout(() => setFlash(''), 6000);
       fetchBatches();
     } catch (err) {
@@ -741,7 +741,7 @@ function FimStatusView({ user, onOpenProduct }) {
                         )}
                         {isReady && !alreadySentOut && (
                           <div className="mt-1">
-                            <Badge color="amber"><PackageCheck size={10} className="inline mr-0.5" />Ready to send out</Badge>
+                            <Badge color="amber"><PackageCheck size={10} className="inline mr-0.5" />Ready to Collect</Badge>
                           </div>
                         )}
                         {alreadySentOut && (
@@ -803,6 +803,22 @@ function FimStatusView({ user, onOpenProduct }) {
                               className="text-[11px] px-2 py-1 rounded bg-navy-700 text-white hover:bg-navy-800"
                             >
                               Accept
+                            </button>
+                          )}
+                          {canMarkReady && (
+                            <button
+                              onClick={() => { setReadyTarget(b); setReadyNote(''); setActionError(''); }}
+                              className="text-[11px] px-2 py-1 rounded bg-amber-500 text-white hover:bg-amber-600 inline-flex items-center gap-1 justify-center"
+                            >
+                              <PackageCheck size={11} /> Ready to Collect
+                            </button>
+                          )}
+                          {canWithdrawReady && (
+                            <button
+                              onClick={() => withdrawReady(b)}
+                              className="text-[11px] px-2 py-1 rounded border border-amber-500 text-amber-700 hover:bg-amber-50 inline-flex items-center gap-1 justify-center"
+                            >
+                              <RotateCcw size={11} /> Withdraw
                             </button>
                           )}
                           {canSendOut && (
@@ -966,6 +982,36 @@ function FimStatusView({ user, onOpenProduct }) {
               <Button variant="secondary" onClick={() => setSendOutTarget(null)} disabled={actionBusy}>Cancel</Button>
               <Button onClick={submitSendOut} disabled={actionBusy}>
                 <Send size={14} /> {actionBusy ? 'Creating…' : 'Create Return Gate Pass'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {readyTarget && (
+        <Modal isOpen onClose={() => setReadyTarget(null)} title="Mark FIM ready to collect">
+          <div className="space-y-4">
+            {actionError && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{actionError}</div>}
+            <div className="text-sm text-gray-700">
+              Marking <strong>{readyTarget.product?.name}</strong> ready for Stores to collect from your unit. Stores will be notified immediately.
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Note for Stores (optional)</label>
+              <textarea
+                rows={3}
+                value={readyNote}
+                onChange={(e) => setReadyNote(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
+                placeholder="e.g. Work complete, packed in original crate, available after 4 PM"
+              />
+            </div>
+            <p className="text-[11px] text-gray-500">
+              You can withdraw this flag any time before Stores creates the return gate pass.
+            </p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
+              <Button variant="secondary" onClick={() => setReadyTarget(null)} disabled={actionBusy}>Cancel</Button>
+              <Button onClick={submitMarkReady} disabled={actionBusy}>
+                <PackageCheck size={14} /> {actionBusy ? 'Saving…' : 'Mark Ready to Collect'}
               </Button>
             </div>
           </div>

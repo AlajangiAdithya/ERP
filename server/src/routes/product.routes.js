@@ -66,13 +66,28 @@ router.get('/', authenticate, async (req, res) => {
   try {
     const { search, category, page, limit, includeUnitStock, includeMir } = req.query;
 
-    const where = { isActive: true };
+    // RAPS products list excludes FIM-only items — those belong on the FIM Status tab.
+    // A product is "FIM-only" when every batch it has is isFim=true. Products with no
+    // batches yet (newly created, never inwarded) stay visible so Stores can manage them.
+    const where = {
+      isActive: true,
+      AND: [
+        {
+          OR: [
+            { batches: { none: {} } },
+            { batches: { some: { isFim: false } } },
+          ],
+        },
+      ],
+    };
     if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { sku: { contains: search, mode: 'insensitive' } },
-        { materialCode: { contains: search, mode: 'insensitive' } },
-      ];
+      where.AND.push({
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { sku: { contains: search, mode: 'insensitive' } },
+          { materialCode: { contains: search, mode: 'insensitive' } },
+        ],
+      });
     }
     if (category) where.category = category;
 

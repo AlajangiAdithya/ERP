@@ -1132,11 +1132,12 @@ router.put('/fim-batches/:id/mark-ready', authenticate, authorize('MANAGER', 'AD
       },
     });
 
-    // Notify Stores that this FIM is ready to ship back.
+    // Notify Stores that this FIM is ready to be collected from the unit.
+    const unitLabel = updated.assignedToUnit?.name || updated.assignedToUnit?.code || 'the unit';
     await notify({
       type: 'GATE_PASS_REQUEST',
-      title: `FIM ready to send out: ${updated.product.name}`,
-      message: `${req.user.name} marked FIM ${updated.product.name} (qty ${updated.quantity}) ready to send back. Stores can now create the return gate pass.`,
+      title: `FIM ready to collect: ${updated.product.name}`,
+      message: `${req.user.name} marked FIM ${updated.product.name} (qty ${updated.quantity}) ready to collect from ${unitLabel}. Stores can now create the return gate pass.`,
       targetRole: 'STORE_MANAGER',
       sentById: req.user.id,
     });
