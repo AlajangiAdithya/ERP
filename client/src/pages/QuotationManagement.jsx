@@ -41,24 +41,29 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
       setNotes('');
       setQuotationPdf(null);
       setCommon({ supplierName: '', supplierContact: '', supplierAddress: '' });
-      const prItems = purchaseRequest.items?.map(i => ({
-        productId: i.productId || null,
-        productName: i.productName,
-        productUnit: i.productUnit || 'pcs',
-        quantity: i.adminApprovedQty || i.requestedQty,
-        unitPrice: 0,
-        supplierMode: 'existing', // 'existing' | 'new'
-        supplierId: null,
-        supplierName: '',
-        supplierContact: '',
-        supplierAddress: '',
-        // PR specs flow through to PO — read-only for quotation/PO creators.
-        materialType: i.materialType || '',
-        materialSpecification: i.materialSpecification || '',
-        drawingNo: i.drawingNo || '',
-        qapNo: i.qapNo || '',
-        itemRemarks: i.itemRemarks || '',
-      })) || [{ productId: null, productName: '', productUnit: 'pcs', quantity: 1, unitPrice: 0, supplierMode: 'new', supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '' }];
+      // Only quote items that are still AWAITING — items already pooled into a
+      // union or covered by another quotation are skipped to avoid duplicate
+      // quotes from the same PR.
+      const prItems = purchaseRequest.items
+        ?.filter(i => !i.itemQuotationStatus || i.itemQuotationStatus === 'AWAITING_QUOTATION')
+        .map(i => ({
+          productId: i.productId || null,
+          productName: i.productName,
+          productUnit: i.productUnit || 'pcs',
+          quantity: i.adminApprovedQty || i.requestedQty,
+          unitPrice: 0,
+          supplierMode: 'existing', // 'existing' | 'new'
+          supplierId: null,
+          supplierName: '',
+          supplierContact: '',
+          supplierAddress: '',
+          // PR specs flow through to PO — read-only for quotation/PO creators.
+          materialType: i.materialType || '',
+          materialSpecification: i.materialSpecification || '',
+          drawingNo: i.drawingNo || '',
+          qapNo: i.qapNo || '',
+          itemRemarks: i.itemRemarks || '',
+        })) || [{ productId: null, productName: '', productUnit: 'pcs', quantity: 1, unitPrice: 0, supplierMode: 'new', supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '' }];
       setItems(prItems);
 
       // For each PR item with a productId, fetch supplier history (purchased + quoted).
@@ -2061,7 +2066,14 @@ export default function QuotationManagement() {
     try {
       // Get PRs in relevant statuses
       const { data } = await api.get('/purchase-requests', { params: { limit: 100 } });
-      const approved = data.requests.filter(r => r.status === 'APPROVED');
+      // A PR with any AWAITING item still needs PO attention — surface it in
+      // the "Add Quotations" list regardless of overall PR.status (it may have
+      // been bumped to IN_PROGRESS / QUOTATION_SUBMITTED by a sibling line that
+      // already got pooled or quoted).
+      const hasAwaiting = (pr) => (pr.items || []).some(i => i.itemQuotationStatus === 'AWAITING_QUOTATION');
+      const approved = data.requests.filter(r =>
+        ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED'].includes(r.status) && hasAwaiting(r)
+      );
       const submitted = data.requests.filter(r => r.status === 'QUOTATION_SUBMITTED');
       setApprovedPRs(approved);
       setSubmittedPRs(submitted);

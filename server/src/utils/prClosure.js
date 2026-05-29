@@ -128,19 +128,23 @@ async function syncPRStatusAfterChange(tx, prId) {
   const everyApproved = live.every(i => i.itemQuotationStatus === 'QUOTATION_APPROVED');
   const anyHeld = live.some(i => i.itemQuotationStatus === 'QUOTATION_HELD');
   const anySubmitted = live.some(i => i.itemQuotationStatus === 'QUOTATION_SUBMITTED');
+  const anyApproved = live.some(i => i.itemQuotationStatus === 'QUOTATION_APPROVED');
   const anyAwaiting = live.some(i => i.itemQuotationStatus === 'AWAITING_QUOTATION');
 
   // Compute target status without ever downgrading a PR past where it already is.
+  // AWAITING takes priority over SUBMITTED/HELD because the PR still needs PO
+  // attention — if a sibling item just got pooled into a union, the PR must
+  // stay visible in the "needs quotes" list so the PO can quote the rest.
   let target = pr.status;
   if (everyApproved) {
     target = 'QUOTATION_APPROVED';
+  } else if (anyAwaiting) {
+    // Partially covered: some items already in flight (submitted/held/approved),
+    // others still waiting. IN_PROGRESS keeps the PR on the PO's radar.
+    const anyInFlight = anySubmitted || anyHeld || anyApproved;
+    target = anyInFlight ? 'IN_PROGRESS' : 'APPROVED';
   } else if (anyHeld || anySubmitted) {
     target = 'QUOTATION_SUBMITTED';
-  } else if (anyAwaiting) {
-    // Some items still need quotations but others may already be approved/ordered.
-    // Use IN_PROGRESS to signal "partially covered, work in flight".
-    const anyApproved = live.some(i => i.itemQuotationStatus === 'QUOTATION_APPROVED');
-    target = anyApproved ? 'IN_PROGRESS' : 'APPROVED';
   }
 
   if (target !== pr.status) {
