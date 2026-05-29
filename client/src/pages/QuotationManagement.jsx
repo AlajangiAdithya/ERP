@@ -44,8 +44,10 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
       // Show items still open for quoting (AWAITING / SUBMITTED / HELD). Items
       // already covered by a competing quote can still receive another one —
       // only APPROVED (already on a PO) and CANCELLED items are hidden.
+      // Items already pooled belong to the pool's union quote, not the per-PR form.
       const prItems = purchaseRequest.items
-        ?.filter(i => !i.itemQuotationStatus || ['AWAITING_QUOTATION', 'QUOTATION_SUBMITTED', 'QUOTATION_HELD'].includes(i.itemQuotationStatus))
+        ?.filter(i => !i.materialPoolMembership)
+        .filter(i => !i.itemQuotationStatus || ['AWAITING_QUOTATION', 'QUOTATION_SUBMITTED', 'QUOTATION_HELD'].includes(i.itemQuotationStatus))
         .map(i => ({
           productId: i.productId || null,
           productName: i.productName,

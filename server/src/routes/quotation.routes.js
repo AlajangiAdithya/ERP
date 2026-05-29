@@ -82,6 +82,8 @@ router.get('/pool-candidates', authenticate, authorize('PURCHASE_OFFICER'), asyn
       where: {
         itemQuotationStatus: { in: ['AWAITING_QUOTATION', 'QUOTATION_SUBMITTED', 'QUOTATION_HELD'] },
         request: { status: { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED'] } },
+        // Items already in a material pool are quoted via the pool, not here.
+        materialPoolMembership: null,
       },
       include: {
         request: {
@@ -410,6 +412,22 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotati
     const prItemOwner = new Map();
     for (const pr of prs) {
       for (const it of pr.items) prItemOwner.set(it.id, pr.id);
+    }
+
+    // Reject any source referencing a PR item that is already in a material pool —
+    // pooled items are quoted via POST /api/material-pools/:id/quotations.
+    const allSourceIds = data.items.flatMap(it => it.sources.map(s => s.purchaseRequestItemId));
+    if (allSourceIds.length > 0) {
+      const pooled = await prisma.materialPoolItem.findMany({
+        where: { purchaseRequestItemId: { in: allSourceIds } },
+        select: { purchaseRequestItemId: true },
+      });
+      if (pooled.length > 0) {
+        return res.status(400).json({
+          error: 'One or more referenced PR items are already in a material pool. Quote them through the pool instead.',
+          pooledItemIds: pooled.map(p => p.purchaseRequestItemId),
+        });
+      }
     }
 
     // Validate every item's source allocations
