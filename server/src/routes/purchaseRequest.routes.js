@@ -190,31 +190,79 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
       'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'INWARD_DONE',
     ];
 
-    const [prCount, poCount, prSamples, poSamples] = await Promise.all([
+    const [
+      prCount, prTotal,
+      poCount, poTotal,
+      qcPendingCount,
+      poAmountAgg,
+      prSamples, poSamples,
+    ] = await Promise.all([
       prisma.purchaseRequest.count({ where: { status: { in: prInProgressStatuses } } }),
+      prisma.purchaseRequest.count(),
       prisma.purchaseOrder.count({ where: { status: { in: poInProgressStatuses } } }),
+      prisma.purchaseOrder.count(),
+      prisma.purchaseOrder.count({ where: { status: 'QC_PENDING' } }),
+      prisma.purchaseOrder.aggregate({
+        _sum: { totalAmount: true },
+        where: { status: { in: poInProgressStatuses } },
+      }),
       prisma.purchaseRequest.findMany({
         where: { status: { in: prInProgressStatuses } },
         select: {
           id: true, requestNumber: true, status: true, createdAt: true,
-          manager: { select: { name: true } },
+          notes: true,
+          manager: { select: { name: true, role: true } },
           unit: { select: { name: true, code: true } },
+          items: { select: { requiredByDate: true, materialRequiredFor: true } },
         },
         orderBy: { createdAt: 'desc' },
-        take: 10,
+        take: 15,
       }),
       prisma.purchaseOrder.findMany({
         where: { status: { in: poInProgressStatuses } },
         select: {
           id: true, orderNumber: true, customName: true, supplierName: true,
           status: true, totalAmount: true, createdAt: true,
+          purchaseRequest: {
+            select: {
+              requestNumber: true,
+              manager: { select: { name: true } },
+              unit: { select: { name: true, code: true } },
+            },
+          },
+          sourceRequests: {
+            select: {
+              purchaseRequest: {
+                select: { requestNumber: true, unit: { select: { name: true, code: true } } },
+              },
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
-        take: 10,
+        take: 15,
       }),
     ]);
 
-    res.json({ prCount, poCount, prSamples, poSamples });
+    // Compute earliest required-by date per PR (across items) so the UI can show urgency
+    const prSamplesEnriched = prSamples.map(pr => {
+      const dates = (pr.items || []).map(i => i.requiredByDate).filter(Boolean).map(d => new Date(d));
+      const earliest = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : null;
+      const requiredFor = (pr.items || []).map(i => i.materialRequiredFor).filter(Boolean)[0] || null;
+      // Strip items array from the response — only the derived fields are needed by the UI
+      const { items, ...rest } = pr; // eslint-disable-line no-unused-vars
+      return { ...rest, earliestRequiredBy: earliest, requiredFor };
+    });
+
+    const totalAmountInProgress = poAmountAgg?._sum?.totalAmount || 0;
+
+    res.json({
+      prCount, prTotal,
+      poCount, poTotal,
+      qcPendingCount,
+      totalAmountInProgress,
+      prSamples: prSamplesEnriched,
+      poSamples,
+    });
   } catch (error) {
     console.error('In-progress summary error:', error);
     res.status(500).json({ error: 'Internal server error' });

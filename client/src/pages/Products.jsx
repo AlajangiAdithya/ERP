@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Package } from 'lucide-react';
+import { Plus, Package, Download } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -28,6 +28,77 @@ export default function Products() {
   const [formError, setFormError] = useState('');
 
   const canEdit = user?.role === 'ADMIN' || user?.role === 'STORE_MANAGER';
+  const [downloading, setDownloading] = useState(false);
+
+  // Fetch every product (paginating internally) and emit a CSV stock statement.
+  // CSV is opened natively by Excel — no extra dependency needed.
+  const downloadStockStatement = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const all = [];
+      let p = 1;
+      const PAGE = 500;
+      // Loop pages until the server returns fewer rows than the page size
+      while (true) {
+        const { data } = await api.get('/products', {
+          params: { page: p, limit: PAGE, search: search || undefined, category: catFilter || undefined, includeUnitStock: 'true' },
+        });
+        const batch = data.products || [];
+        all.push(...batch);
+        if (batch.length < PAGE || all.length >= (data.total || 0)) break;
+        p += 1;
+      }
+
+      const esc = (v) => {
+        if (v == null) return '';
+        const s = String(v);
+        return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const statusOf = (row) => {
+        if (Number(row.currentStock) === 0) return 'Out of Stock';
+        if (row.minStockLevel > 0 && row.currentStock <= row.minStockLevel) return 'Low Stock';
+        return 'Available';
+      };
+      const ownedBy = (row) => {
+        const list = Array.isArray(row.unitStocks) ? row.unitStocks.filter(u => u.quantity > 0) : [];
+        return list.map(us => `${us.unit?.name || us.unit?.code || 'Unit'}:${us.quantity}`).join(' | ');
+      };
+      const header = [
+        'SKU', 'Name', 'Category', 'UOM',
+        'Current Stock', 'Min Stock Level', 'Max Stock Level',
+        'Deficit (Min - Current)', 'Status', 'Owned By (Unit:Qty)',
+        'Description',
+      ];
+      const rows = all.map(p => [
+        p.sku, p.name, p.category || '', p.unit || '',
+        p.currentStock ?? 0,
+        p.minStockLevel ?? 0,
+        p.maxStockLevel ?? '',
+        Math.max(0, (p.minStockLevel || 0) - (p.currentStock || 0)),
+        statusOf(p),
+        ownedBy(p),
+        p.description || '',
+      ]);
+      const csv = [header, ...rows].map(r => r.map(esc).join(',')).join('\r\n');
+      // BOM so Excel auto-detects UTF-8 (important for ₹ and accented characters)
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.download = `stock-statement-${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      console.error('Stock statement download failed:', err);
+      alert(err?.response?.data?.error || 'Failed to download stock statement');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const [form, setForm] = useState({
     name: '', description: '', category: 'Raw Material', unit: 'pcs',
@@ -144,11 +215,16 @@ export default function Products() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Products</h1>
-        {canEdit && (
-          <Button onClick={() => setShowModal(true)}>
-            <Plus size={16} /> Add Product
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={downloadStockStatement} disabled={downloading}>
+            <Download size={16} /> {downloading ? 'Preparing…' : 'Download Stock Statement'}
           </Button>
-        )}
+          {canEdit && (
+            <Button onClick={() => setShowModal(true)}>
+              <Plus size={16} /> Add Product
+            </Button>
+          )}
+        </div>
       </div>
 
       <Card>

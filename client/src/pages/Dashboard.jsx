@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText } from 'lucide-react';
+import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -49,18 +49,39 @@ function InProgressButton() {
           <p className="text-center text-gray-400 py-6">Could not load in-progress items.</p>
         ) : (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
                 <div className="flex items-center gap-2 text-blue-700">
-                  <FileText size={16} /> <span className="text-xs uppercase font-semibold">Purchase Requests</span>
+                  <FileText size={16} /> <span className="text-xs uppercase font-semibold">PR Pending</span>
                 </div>
-                <div className="text-2xl font-bold text-blue-700 mt-1">{summary.prCount || 0}</div>
+                <div className="text-2xl font-bold text-blue-700 mt-1">
+                  {summary.prCount || 0}<span className="text-sm text-blue-400 font-medium">/{summary.prTotal || 0}</span>
+                </div>
               </div>
               <div className="p-3 rounded-lg bg-green-50 border border-green-200">
                 <div className="flex items-center gap-2 text-green-700">
-                  <ShoppingCart size={16} /> <span className="text-xs uppercase font-semibold">Purchase Orders</span>
+                  <ShoppingCart size={16} /> <span className="text-xs uppercase font-semibold">PO Pending</span>
                 </div>
-                <div className="text-2xl font-bold text-green-700 mt-1">{summary.poCount || 0}</div>
+                <div className="text-2xl font-bold text-green-700 mt-1">
+                  {summary.poCount || 0}<span className="text-sm text-green-400 font-medium">/{summary.poTotal || 0}</span>
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                <div className="flex items-center gap-2 text-amber-700">
+                  <ClipboardCheck size={16} /> <span className="text-xs uppercase font-semibold">QC Pending</span>
+                </div>
+                <div className="text-2xl font-bold text-amber-700 mt-1">
+                  {summary.qcPendingCount || 0}<span className="text-sm text-amber-400 font-medium">/{summary.poTotal || 0}</span>
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-purple-50 border border-purple-200">
+                <div className="flex items-center gap-2 text-purple-700">
+                  <IndianRupee size={16} /> <span className="text-xs uppercase font-semibold">Total Value</span>
+                </div>
+                <div className="text-xl font-bold text-purple-700 mt-1">
+                  ₹{Number(summary.totalAmountInProgress || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </div>
+                <div className="text-[10px] text-purple-500 mt-0.5">across all units</div>
               </div>
             </div>
 
@@ -74,24 +95,39 @@ function InProgressButton() {
               {(summary.prSamples || []).length === 0 ? (
                 <p className="text-xs text-gray-400 px-1">No active PRs.</p>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full text-xs">
                   <thead>
-                    <tr className="border-b text-xs text-gray-500">
-                      <th className="px-3 py-1.5 text-left font-medium">PR #</th>
-                      <th className="px-3 py-1.5 text-left font-medium">Manager</th>
-                      <th className="px-3 py-1.5 text-left font-medium">Unit</th>
-                      <th className="px-3 py-1.5 text-left font-medium">Status</th>
+                    <tr className="border-b text-[10px] text-gray-500 uppercase tracking-wide">
+                      <th className="px-2 py-1.5 text-left font-medium">PR #</th>
+                      <th className="px-2 py-1.5 text-left font-medium">From (Unit)</th>
+                      <th className="px-2 py-1.5 text-left font-medium">Raised By</th>
+                      <th className="px-2 py-1.5 text-left font-medium">Required By</th>
+                      <th className="px-2 py-1.5 text-left font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.prSamples.map(pr => (
-                      <tr key={pr.id} className="border-b border-gray-50">
-                        <td className="px-3 py-1.5 font-medium text-navy-700">{pr.requestNumber}</td>
-                        <td className="px-3 py-1.5 text-gray-600">{pr.manager?.name || '—'}</td>
-                        <td className="px-3 py-1.5"><Badge color="blue">{pr.unit?.code || pr.unit?.name || '—'}</Badge></td>
-                        <td className="px-3 py-1.5"><Badge color="yellow">{pr.status}</Badge></td>
-                      </tr>
-                    ))}
+                    {summary.prSamples.map(pr => {
+                      const reqBy = pr.earliestRequiredBy ? new Date(pr.earliestRequiredBy) : null;
+                      const overdue = reqBy && reqBy < new Date();
+                      return (
+                        <tr key={pr.id} className="border-b border-gray-50">
+                          <td className="px-2 py-1.5 font-medium text-navy-700">{pr.requestNumber}</td>
+                          <td className="px-2 py-1.5">
+                            <Badge color="blue">{pr.unit?.code || pr.unit?.name || '—'}</Badge>
+                          </td>
+                          <td className="px-2 py-1.5 text-gray-600">
+                            {pr.manager?.name || '—'}
+                            {pr.manager?.role && (
+                              <span className="text-[10px] text-gray-400 ml-1">({pr.manager.role})</span>
+                            )}
+                          </td>
+                          <td className={`px-2 py-1.5 ${overdue ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
+                            {reqBy ? reqBy.toLocaleDateString('en-IN') : '—'}
+                          </td>
+                          <td className="px-2 py-1.5"><Badge color="yellow">{pr.status}</Badge></td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -110,24 +146,34 @@ function InProgressButton() {
               {(summary.poSamples || []).length === 0 ? (
                 <p className="text-xs text-gray-400 px-1">No active POs.</p>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full text-xs">
                   <thead>
-                    <tr className="border-b text-xs text-gray-500">
-                      <th className="px-3 py-1.5 text-left font-medium">PO #</th>
-                      <th className="px-3 py-1.5 text-left font-medium">Supplier</th>
-                      <th className="px-3 py-1.5 text-left font-medium">Amount</th>
-                      <th className="px-3 py-1.5 text-left font-medium">Status</th>
+                    <tr className="border-b text-[10px] text-gray-500 uppercase tracking-wide">
+                      <th className="px-2 py-1.5 text-left font-medium">PO #</th>
+                      <th className="px-2 py-1.5 text-left font-medium">Unit(s)</th>
+                      <th className="px-2 py-1.5 text-left font-medium">Supplier</th>
+                      <th className="px-2 py-1.5 text-left font-medium">Amount</th>
+                      <th className="px-2 py-1.5 text-left font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.poSamples.map(po => (
-                      <tr key={po.id} className="border-b border-gray-50">
-                        <td className="px-3 py-1.5 font-medium text-navy-700">{po.orderNumber}</td>
-                        <td className="px-3 py-1.5 text-gray-600">{po.supplierName || '—'}</td>
-                        <td className="px-3 py-1.5 text-gray-700">{po.totalAmount != null ? `₹${Number(po.totalAmount).toLocaleString('en-IN')}` : '—'}</td>
-                        <td className="px-3 py-1.5"><Badge color="navy">{po.status}</Badge></td>
-                      </tr>
-                    ))}
+                    {summary.poSamples.map(po => {
+                      const directUnit = po.purchaseRequest?.unit;
+                      const unionUnits = (po.sourceRequests || [])
+                        .map(s => s.purchaseRequest?.unit?.code || s.purchaseRequest?.unit?.name)
+                        .filter(Boolean);
+                      const unitLabel = directUnit?.code || directUnit?.name
+                        || (unionUnits.length ? unionUnits.join(', ') : '—');
+                      return (
+                        <tr key={po.id} className="border-b border-gray-50">
+                          <td className="px-2 py-1.5 font-medium text-navy-700">{po.orderNumber}</td>
+                          <td className="px-2 py-1.5"><Badge color="blue">{unitLabel}</Badge></td>
+                          <td className="px-2 py-1.5 text-gray-600">{po.supplierName || '—'}</td>
+                          <td className="px-2 py-1.5 text-gray-700">{po.totalAmount != null ? `₹${Number(po.totalAmount).toLocaleString('en-IN')}` : '—'}</td>
+                          <td className="px-2 py-1.5"><Badge color={po.status === 'QC_PENDING' ? 'amber' : 'navy'}>{po.status}</Badge></td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -477,17 +523,17 @@ function ManagerDashboard() {
           onClick={() => navigate('/my-requests')}
         />
         <StatsCard
-          title="Purchase Requests"
+          title="PR Pending (My Unit)"
           value={`${unitStats.pr.active} / ${unitStats.pr.total}`}
-          subtitle="Active / Total (unit)"
+          subtitle="Pending / Total"
           icon={ShoppingCart}
           color="blue"
           onClick={() => navigate('/purchase-requests')}
         />
         <StatsCard
-          title="Purchase Orders"
+          title="PO Pending (My Unit)"
           value={`${unitStats.po.active} / ${unitStats.po.total}`}
-          subtitle="Active / Total (unit)"
+          subtitle="Pending / Total"
           icon={TrendingUp}
           color="green"
           onClick={() => navigate('/purchase-orders')}
