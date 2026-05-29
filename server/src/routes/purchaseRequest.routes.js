@@ -453,7 +453,7 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // POST /api/purchase-requests — Requester creates.
-router.post('/', authenticate, authorize('MANAGER', 'LAB', 'PLANNING', 'SAFETY'), async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'LAB', 'PLANNING', 'SAFETY', 'STORE_MANAGER'), async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
 
@@ -860,7 +860,7 @@ router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), 
 });
 
 // PUT /api/purchase-requests/:id/cancel — Requester cancels own pending request
-router.put('/:id/cancel', authenticate, authorize('MANAGER', 'LAB', 'PLANNING', 'SAFETY'), async (req, res) => {
+router.put('/:id/cancel', authenticate, authorize('MANAGER', 'LAB', 'PLANNING', 'SAFETY', 'STORE_MANAGER'), async (req, res) => {
   try {
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: req.params.id },

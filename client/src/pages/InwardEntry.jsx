@@ -72,7 +72,7 @@ export default function InwardEntry() {
 
       <div className="flex gap-2 border-b border-gray-200">
         {tabBtn('po', 'From Purchase Order', Truck)}
-        {tabBtn('direct', 'Direct Entry', ClipboardList)}
+        {tabBtn('direct', 'Direct Entry / Cash Purchase', ClipboardList)}
         {tabBtn('gatepass', 'From Gate Pass (FIM)', FileInput)}
       </div>
 

@@ -73,7 +73,7 @@ const quotationStatusLabel = (s) => ({
 }[s] || s);
 
 // ─── Manager: Create New Request (paper-table format) ───
-function CreateRequestModal({ isOpen, onClose, onCreated }) {
+function CreateRequestModal({ isOpen, onClose, onCreated, prefillItems = null, prefillNotes = '' }) {
   const { user } = useAuth();
   const emptyItem = {
     productName: '', productUnit: 'kg', requestedQty: '',
@@ -88,10 +88,14 @@ function CreateRequestModal({ isOpen, onClose, onCreated }) {
 
   useEffect(() => {
     if (isOpen) {
-      setItems([{ ...emptyItem }]);
-      setNotes('');
+      if (prefillItems && prefillItems.length > 0) {
+        setItems(prefillItems.map(p => ({ ...emptyItem, ...p })));
+      } else {
+        setItems([{ ...emptyItem }]);
+      }
+      setNotes(prefillNotes || '');
     }
-  }, [isOpen]);
+  }, [isOpen, prefillItems, prefillNotes]);
 
   // "Fabric" materials get a 2-month default required-by date (overridable).
   const fabricDefaultDate = () => {
@@ -746,12 +750,17 @@ function ProcurementJourney({ request }) {
     { key: 'QUOTATION_APPROVED', label: 'Quotation Approved', detail: poDetail },
     { key: 'ORDER_PLACED', label: 'Order Placed', detail: null },
     { key: 'GOODS_ARRIVED', label: 'Goods Arrived', detail: null },
+    { key: 'QC_PENDING', label: 'QC Pending', detail: null },
     { key: 'QC_PASSED', label: 'QC Passed', detail: null },
     { key: 'INWARD_DONE', label: 'Inward Complete', detail: null },
     { key: 'COMPLETED', label: 'Closed', detail: null },
   ];
 
-  const currentIndex = statusOrder.findIndex((s) => s.key === request.status);
+  let currentIndex = statusOrder.findIndex((s) => s.key === request.status);
+  // PRs don't have a QC_PENDING status — the linked PO does. Reflect it here so the stage lights up.
+  if (request.status === 'GOODS_ARRIVED' && activePO?.status === 'QC_PENDING') {
+    currentIndex = statusOrder.findIndex((s) => s.key === 'QC_PENDING');
+  }
   const effectiveIndex = request.status === 'REJECTED' ? -1 : currentIndex;
 
   return (
@@ -1011,6 +1020,9 @@ export default function PurchaseRequests() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [createPrefill, setCreatePrefill] = useState({ items: null, notes: '' });
+  const [lowStock, setLowStock] = useState([]);
+  const [selectedLowStock, setSelectedLowStock] = useState(() => new Set());
   const [selectedForReview, setSelectedForReview] = useState(null);
   const [selectedForPurchase, setSelectedForPurchase] = useState(null);
   const [selectedForDetail, setSelectedForDetail] = useState(null);
@@ -1018,7 +1030,8 @@ export default function PurchaseRequests() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const isManager = ['MANAGER', 'LAB', 'PLANNING'].includes(user?.role);
+  const isManager = ['MANAGER', 'LAB', 'PLANNING', 'STORE_MANAGER'].includes(user?.role);
+  const isStoreManager = user?.role === 'STORE_MANAGER';
   const isAdmin = user?.role === 'ADMIN';
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isAccounting = ['ACCOUNTING', 'FINANCE'].includes(user?.role);
@@ -1035,6 +1048,42 @@ export default function PurchaseRequests() {
   };
 
   useEffect(() => { fetchRequests(); }, [tab, fromDate, toDate]);
+
+  // Low-stock products — only fetched for STORE_MANAGER to surface the "Raise PR for low stock" quick action.
+  const fetchLowStock = () => {
+    if (!isStoreManager) return;
+    api.get('/alerts/low-stock')
+      .then(({ data }) => setLowStock(Array.isArray(data) ? data : (data?.products || [])))
+      .catch(() => setLowStock([]));
+  };
+  useEffect(() => { fetchLowStock(); }, [isStoreManager]);
+
+  const toggleLowStock = (id) => {
+    setSelectedLowStock(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const raisePrForLowStock = () => {
+    const picked = lowStock.filter(p => selectedLowStock.has(p.id));
+    const source = picked.length > 0 ? picked : lowStock;
+    if (source.length === 0) return;
+    const items = source.map(p => {
+      const deficit = Math.max(1, Math.ceil((p.minStockLevel || 0) - (p.currentStock || 0)));
+      return {
+        productName: p.name,
+        productUnit: p.unit || 'pcs',
+        requestedQty: String(deficit),
+        materialType: p.category || '',
+        purpose: 'Stock replenishment — below minimum level',
+        itemRemarks: `Current ${p.currentStock} ${p.unit || ''} / min ${p.minStockLevel} ${p.unit || ''}`,
+      };
+    });
+    setCreatePrefill({ items, notes: 'Auto-generated from low-stock alert' });
+    setShowCreate(true);
+  };
 
   const handleRowClick = (r) => {
     if (isAdmin) {
@@ -1077,12 +1126,76 @@ export default function PurchaseRequests() {
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
           </Button>
           {isManager && (
-            <Button onClick={() => setShowCreate(true)}>
+            <Button onClick={() => { setCreatePrefill({ items: null, notes: '' }); setShowCreate(true); }}>
               <Plus size={16} /> New Purchase Request
             </Button>
           )}
         </div>
       </div>
+
+      {isStoreManager && lowStock.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                <Layers size={14} className="text-red-600" />
+                Low Stock — Replenishment Needed
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {lowStock.length} product{lowStock.length !== 1 ? 's' : ''} at or below minimum level. Raise a PR to replenish.
+              </p>
+            </div>
+            <Button size="sm" onClick={raisePrForLowStock}>
+              <Plus size={14} className="mr-1" />
+              {selectedLowStock.size > 0 ? `Raise PR (${selectedLowStock.size})` : 'Raise PR for All'}
+            </Button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b text-gray-500">
+                  <th className="px-2 py-1.5 text-left w-8">
+                    <input
+                      type="checkbox"
+                      checked={selectedLowStock.size === lowStock.length && lowStock.length > 0}
+                      onChange={(e) => setSelectedLowStock(e.target.checked ? new Set(lowStock.map(p => p.id)) : new Set())}
+                    />
+                  </th>
+                  <th className="px-2 py-1.5 text-left">Product</th>
+                  <th className="px-2 py-1.5 text-left">SKU</th>
+                  <th className="px-2 py-1.5 text-right">Current</th>
+                  <th className="px-2 py-1.5 text-right">Min</th>
+                  <th className="px-2 py-1.5 text-right">Deficit</th>
+                  <th className="px-2 py-1.5 text-left">Severity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lowStock.map(p => (
+                  <tr key={p.id} className="border-b border-gray-50 hover:bg-red-50/30">
+                    <td className="px-2 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedLowStock.has(p.id)}
+                        onChange={() => toggleLowStock(p.id)}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5 font-medium text-gray-800">{p.name}</td>
+                    <td className="px-2 py-1.5 text-gray-500">{p.sku}</td>
+                    <td className="px-2 py-1.5 text-right text-gray-700">{p.currentStock} {p.unit}</td>
+                    <td className="px-2 py-1.5 text-right text-gray-500">{p.minStockLevel} {p.unit}</td>
+                    <td className="px-2 py-1.5 text-right text-red-700 font-medium">
+                      {Math.max(0, (p.minStockLevel || 0) - (p.currentStock || 0)).toFixed(2)} {p.unit}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Badge color={p.severity === 'Critical' ? 'red' : 'yellow'}>{p.severity || 'Low'}</Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       <div className="flex flex-wrap items-end gap-4">
         {/* Tabs */}
@@ -1184,7 +1297,13 @@ export default function PurchaseRequests() {
       </Card>
 
       {/* Modals */}
-      <CreateRequestModal isOpen={showCreate} onClose={() => setShowCreate(false)} onCreated={fetchRequests} />
+      <CreateRequestModal
+        isOpen={showCreate}
+        onClose={() => { setShowCreate(false); setCreatePrefill({ items: null, notes: '' }); }}
+        onCreated={() => { fetchRequests(); fetchLowStock(); setSelectedLowStock(new Set()); }}
+        prefillItems={createPrefill.items}
+        prefillNotes={createPrefill.notes}
+      />
       <AdminReviewModal request={selectedForReview} onClose={() => setSelectedForReview(null)} onUpdated={fetchRequests} />
       <RecordPurchaseModal request={selectedForPurchase} onClose={() => setSelectedForPurchase(null)} onUpdated={fetchRequests} />
       <DetailModal request={selectedForDetail} onClose={() => setSelectedForDetail(null)} />

@@ -19,7 +19,7 @@ const buildAllItems = (role) => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
     { to: '/products', icon: Package, label: 'Products', roles: ALL_ROLES },
-    { to: '/purchase-requests', icon: ShoppingCart, label: role === 'PURCHASE_OFFICER' ? 'Purchase Assignments' : 'Purchase Requests', roles: ['ADMIN', 'MANAGER', 'ACCOUNTING', 'FINANCE', 'QC', 'LAB', 'PURCHASE_OFFICER', 'PLANNING', 'SAFETY'] },
+    { to: '/purchase-requests', icon: ShoppingCart, label: role === 'PURCHASE_OFFICER' ? 'Purchase Assignments' : 'Purchase Requests', roles: ['ADMIN', 'MANAGER', 'ACCOUNTING', 'FINANCE', 'QC', 'LAB', 'PURCHASE_OFFICER', 'PLANNING', 'SAFETY', 'STORE_MANAGER'] },
     { to: '/quotations', icon: FileSearch, label: 'Quotations', roles: ['PURCHASE_OFFICER', 'ADMIN', 'SUPPLY_CHAIN', 'SAFETY'] },
     { to: '/suppliers', icon: Building2, label: 'Suppliers', roles: ['PURCHASE_OFFICER', 'ADMIN', 'SAFETY'] },
     { to: '/purchase-orders', icon: Truck, label: 'Purchase Orders', roles: ['PURCHASE_OFFICER', 'ADMIN', 'ACCOUNTING', 'FINANCE', 'STORE_MANAGER', 'QC', 'MANAGER', 'LAB', 'PLANNING', 'SUPPLY_CHAIN', 'SAFETY'] },
