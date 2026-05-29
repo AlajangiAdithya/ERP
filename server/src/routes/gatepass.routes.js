@@ -922,6 +922,7 @@ const BATCH_FIM_INCLUDE = {
   assignedToUnit: UNIT_SELECT,
   assignedBy: USER_SELECT,
   unitAcceptedBy: USER_SELECT,
+  readyToSendOutBy: USER_SELECT,
   sourceInwardGatePass: {
     select: {
       id: true, passNumber: true, customerName: true, customerGatePassNo: true,
@@ -1085,11 +1086,122 @@ router.put('/fim-batches/:id/remarks', authenticate, authorize('MANAGER', 'STORE
   }
 });
 
+// PUT /api/gatepasses/fim-batches/:id/mark-ready
+// Assigned unit manager (or Admin) marks a RETURNABLE FIM batch ready to send back.
+// Stores can only create the outward gate pass once this flag is set.
+router.put('/fim-batches/:id/mark-ready', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const { note } = req.body || {};
+
+    const batch = await prisma.productBatch.findUnique({
+      where: { id: req.params.id },
+      include: { sourceInwardGatePassItem: true, product: { select: { id: true, name: true } } },
+    });
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+    if (!batch.isFim) return res.status(400).json({ error: 'Only FIM batches can be marked ready' });
+    if (!batch.assignedToUnitId) return res.status(400).json({ error: 'Batch must be assigned to a unit first' });
+    if (!batch.unitAcceptedAt) return res.status(400).json({ error: 'Batch must be accepted by the unit before marking ready' });
+    if (batch.sourceInwardGatePassItem?.itemPassType !== 'RETURNABLE') {
+      return res.status(400).json({ error: 'Only RETURNABLE FIM can be sent back to customer' });
+    }
+    if (req.user.role !== 'ADMIN' && req.user.unitId !== batch.assignedToUnitId) {
+      return res.status(403).json({ error: 'Only the assigned unit manager can mark this ready' });
+    }
+    if (batch.readyToSendOutAt) {
+      return res.status(400).json({ error: 'Batch is already marked ready to send out' });
+    }
+
+    const updated = await prisma.productBatch.update({
+      where: { id: batch.id },
+      data: {
+        readyToSendOutAt: new Date(),
+        readyToSendOutById: req.user.id,
+        readyToSendOutNote: note ? String(note).trim() : null,
+      },
+      include: BATCH_FIM_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'FIM_MARK_READY_SEND_OUT',
+        entity: 'ProductBatch',
+        entityId: updated.id,
+        details: { productId: updated.productId, unitId: batch.assignedToUnitId },
+        ipAddress: req.ip,
+      },
+    });
+
+    // Notify Stores that this FIM is ready to ship back.
+    await notify({
+      type: 'GATE_PASS_REQUEST',
+      title: `FIM ready to send out: ${updated.product.name}`,
+      message: `${req.user.name} marked FIM ${updated.product.name} (qty ${updated.quantity}) ready to send back. Stores can now create the return gate pass.`,
+      targetRole: 'STORE_MANAGER',
+      sentById: req.user.id,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('FIM mark-ready error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/gatepasses/fim-batches/:id/unmark-ready
+// Assigned unit manager (or Admin) can withdraw the ready flag before Stores ships it.
+router.put('/fim-batches/:id/unmark-ready', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const batch = await prisma.productBatch.findUnique({
+      where: { id: req.params.id },
+      include: { sourceInwardGatePassItem: { include: { outwardLinkedItems: { select: { id: true } } } } },
+    });
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+    if (!batch.isFim) return res.status(400).json({ error: 'Only FIM batches use this flag' });
+    if (req.user.role !== 'ADMIN' && req.user.unitId !== batch.assignedToUnitId) {
+      return res.status(403).json({ error: 'Only the assigned unit manager can withdraw the ready flag' });
+    }
+    if (!batch.readyToSendOutAt) {
+      return res.status(400).json({ error: 'Batch is not marked ready' });
+    }
+    if ((batch.sourceInwardGatePassItem?.outwardLinkedItems || []).length > 0) {
+      return res.status(400).json({ error: 'Cannot withdraw — Stores has already created the return gate pass' });
+    }
+
+    const updated = await prisma.productBatch.update({
+      where: { id: batch.id },
+      data: {
+        readyToSendOutAt: null,
+        readyToSendOutById: null,
+        readyToSendOutNote: null,
+      },
+      include: BATCH_FIM_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'FIM_UNMARK_READY_SEND_OUT',
+        entity: 'ProductBatch',
+        entityId: updated.id,
+        details: { productId: updated.productId },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('FIM unmark-ready error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // POST /api/gatepasses/fim-batches/:id/send-out
-// Creates an OUTWARD gate pass to return a RETURNABLE FIM batch to the customer,
-// pre-filled with the FIM's customer / item data and linked back via
-// sourceInwardGatePassItemId so the cycle closes. Body: { vehicleNo?, driverName?, remarks? }.
-router.post('/fim-batches/:id/send-out', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), async (req, res) => {
+// Stores creates an OUTWARD gate pass to return a RETURNABLE FIM batch to the
+// customer. Blocked until the assigned unit manager has marked the batch ready.
+// Pre-fills customer / item data and links back via sourceInwardGatePassItemId
+// so the cycle closes. Body: { vehicleNo?, driverName?, remarks? }.
+router.post('/fim-batches/:id/send-out', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
     const { vehicleNo, driverName, remarks } = req.body || {};
 
@@ -1109,10 +1221,8 @@ router.post('/fim-batches/:id/send-out', authenticate, authorize('MANAGER', 'STO
     if (batch.sourceInwardGatePassItem.itemPassType !== 'RETURNABLE') {
       return res.status(400).json({ error: 'Only RETURNABLE FIM can be sent back to customer' });
     }
-
-    // Only the manager of the assigned unit (or Stores/Admin) can initiate the send-out.
-    if (req.user.role === 'MANAGER' && req.user.unitId !== batch.assignedToUnitId) {
-      return res.status(403).json({ error: 'Only the assigned unit manager can send this FIM back' });
+    if (!batch.readyToSendOutAt) {
+      return res.status(400).json({ error: 'Unit manager must mark this FIM ready before Stores can send it out' });
     }
 
     const inward = batch.sourceInwardGatePass;

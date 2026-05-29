@@ -11,10 +11,54 @@ const {
 
 const router = express.Router();
 
+// Walks every batch of the given products and tacks on:
+//   - mirCount:       distinct PurchaseOrder.mirNo values (one per material-inward event)
+//   - earliestExpiry: soonest dateOfExpiry across batches that still have stock
+// The included `batches: take 5` array on the product is recent-first and doesn't
+// guarantee either of these, so we do one extra grouped query per list page.
+async function annotateMirAndExpiry(products) {
+  if (!products.length) return;
+  const ids = products.map((p) => p.id);
+  const rows = await prisma.productBatch.findMany({
+    where: { productId: { in: ids }, sourceQcInspectionId: { not: null } },
+    select: {
+      productId: true,
+      remaining: true,
+      sourceQcInspection: {
+        select: {
+          dateOfExpiry: true,
+          purchaseOrder: { select: { mirNo: true } },
+        },
+      },
+    },
+  });
+  const perProduct = new Map();
+  for (const r of rows) {
+    let agg = perProduct.get(r.productId);
+    if (!agg) { agg = { mirs: new Set(), earliestExpiry: null }; perProduct.set(r.productId, agg); }
+    const mir = r.sourceQcInspection?.purchaseOrder?.mirNo;
+    if (mir) agg.mirs.add(mir);
+    const exp = r.sourceQcInspection?.dateOfExpiry;
+    if (exp && (r.remaining ?? 0) > 0) {
+      if (!agg.earliestExpiry || new Date(exp) < new Date(agg.earliestExpiry)) {
+        agg.earliestExpiry = exp;
+      }
+    }
+  }
+  for (const p of products) {
+    const agg = perProduct.get(p.id);
+    p.mirCount = agg ? agg.mirs.size : 0;
+    p.earliestExpiry = agg ? agg.earliestExpiry : null;
+  }
+}
+
 const productSchema = z.object({
   name: z.string().min(1),
   // SKU is auto-generated from category (materialType). Accepted but ignored on create.
   sku: z.string().optional(),
+  // Customer/legacy "identification number" from the Material Details register.
+  // Independent of SKU; unique when set.
+  materialCode: z.string().trim().min(1).optional(),
   description: z.string().optional(),
   category: z.string().optional(),
   unit: z.string().optional(),
@@ -31,6 +75,7 @@ router.get('/', authenticate, async (req, res) => {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
         { sku: { contains: search, mode: 'insensitive' } },
+        { materialCode: { contains: search, mode: 'insensitive' } },
       ];
     }
     if (category) where.category = category;
@@ -40,7 +85,8 @@ router.get('/', authenticate, async (req, res) => {
 
     // Listing the MIRs each product has come in under requires walking the
     // ProductBatch → QCInspection → PurchaseOrder.mirNo chain. We surface
-    // the most recent few so the products table stays light.
+    // the most recent few so the products table stays light. dateOfExpiry
+    // on the inspection feeds the "Expiry Date" column.
     const batchInclude = wantMir
       ? {
           batches: {
@@ -51,7 +97,7 @@ router.get('/', authenticate, async (req, res) => {
               id: true, batchNo: true, receivedDate: true, quantity: true, remaining: true,
               sourceQcInspection: {
                 select: {
-                  id: true, inspectionNumber: true,
+                  id: true, inspectionNumber: true, dateOfExpiry: true,
                   purchaseOrder: { select: { id: true, orderNumber: true, mirNo: true, inwardedAt: true } },
                 },
               },
@@ -72,6 +118,7 @@ router.get('/', authenticate, async (req, res) => {
         orderBy: { name: 'asc' },
         include: Object.keys(include).length ? include : undefined,
       });
+      if (wantMir) await annotateMirAndExpiry(products);
       return res.json({ products, total: products.length, page: 1, totalPages: 1 });
     }
 
@@ -87,6 +134,8 @@ router.get('/', authenticate, async (req, res) => {
       }),
       prisma.product.count({ where }),
     ]);
+
+    if (wantMir) await annotateMirAndExpiry(products);
 
     res.json({ products, total, page: Math.ceil(skip / take) + 1, totalPages: Math.ceil(total / take) });
   } catch (error) {
@@ -124,6 +173,7 @@ router.get('/fim-status', authenticate, async (req, res) => {
         assignedToUnit: { select: { id: true, name: true, code: true } },
         assignedBy: { select: { id: true, name: true } },
         unitAcceptedBy: { select: { id: true, name: true } },
+        readyToSendOutBy: { select: { id: true, name: true } },
         sourceInwardGatePass: {
           select: {
             id: true, passNumber: true, fimNumber: true, gpRequisitionNo: true,
@@ -417,7 +467,26 @@ router.get('/:id', authenticate, async (req, res) => {
       },
     });
 
-    res.json({ ...product, fimBatches, poBatches });
+    // MIR level for this product = distinct MIR numbers across every PO-flow batch
+    // (i.e. one increment per material-inward event). Sourced from the same chain
+    // surfaced on the page; computing here keeps the UI honest for >5 batches.
+    const mirSet = new Set();
+    for (const b of poBatches) {
+      const mir = b.sourceQcInspection?.purchaseOrder?.mirNo;
+      if (mir) mirSet.add(mir);
+    }
+    const mirCount = mirSet.size;
+
+    // Earliest expiry across batches with remaining stock — drives the warning badge.
+    let earliestExpiry = null;
+    for (const b of poBatches) {
+      const exp = b.sourceQcInspection?.dateOfExpiry;
+      if (exp && (b.remaining ?? 0) > 0) {
+        if (!earliestExpiry || new Date(exp) < new Date(earliestExpiry)) earliestExpiry = exp;
+      }
+    }
+
+    res.json({ ...product, fimBatches, poBatches, mirCount, earliestExpiry });
   } catch (error) {
     console.error('Get product error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -441,6 +510,10 @@ router.post('/', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('CREA
         });
         break;
       } catch (err) {
+        // P2002 with materialCode means the operator typed an in-use id — surface it.
+        if (err?.code === 'P2002' && Array.isArray(err.meta?.target) && err.meta.target.includes('materialCode')) {
+          return res.status(409).json({ error: 'Identification number already in use' });
+        }
         if (!isUniqueViolation(err) || attempt === 4) throw err;
       }
     }
@@ -469,7 +542,12 @@ router.put('/:id', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('UP
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
     }
     if (error.code === 'P2025') return res.status(404).json({ error: 'Product not found' });
-    if (error.code === 'P2002') return res.status(409).json({ error: 'SKU already exists' });
+    if (error.code === 'P2002') {
+      if (Array.isArray(error.meta?.target) && error.meta.target.includes('materialCode')) {
+        return res.status(409).json({ error: 'Identification number already in use' });
+      }
+      return res.status(409).json({ error: 'SKU already exists' });
+    }
     console.error('Update product error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }

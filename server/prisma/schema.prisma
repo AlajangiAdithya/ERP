@@ -45,6 +45,7 @@ model User {
   gatePassesCollected        GatePass[]                 @relation("GatePassCollector")
   fimBatchesAssigned         ProductBatch[]             @relation("FimAssignedBy")
   fimBatchesAccepted         ProductBatch[]             @relation("FimAcceptedBy")
+  fimBatchesReadyToSendOut   ProductBatch[]             @relation("FimReadyToSendOutBy")
   ionsCreated                InterOfficeNote[]          @relation("IONCreator")
   ionsAssigned               InterOfficeNote[]          @relation("IONAssignee")
   transferRequestsCreated    InventoryTransferRequest[] @relation("TransferRequester")
@@ -121,6 +122,9 @@ model Product {
   id                   String                     @id @default(uuid())
   name                 String
   sku                  String                     @unique
+  // Customer/legacy identification number from the Material Details register
+  // (e.g. 1000, 1001, 1501…). Independent of the auto-generated SKU.
+  materialCode         String?                    @unique
   description          String?
   category             String?
   unit                 String                     @default("pcs")
@@ -192,6 +196,14 @@ model ProductBatch {
   unitAcceptedById    String?
   unitAcceptedBy      User?     @relation("FimAcceptedBy", fields: [unitAcceptedById], references: [id])
   unitAcceptedRemarks String?
+
+  // Two-step return: unit manager marks the FIM ready to send back to the customer,
+  // then Stores actually creates the outward gate pass. Stores cannot send out
+  // until readyToSendOutAt is set.
+  readyToSendOutAt    DateTime?
+  readyToSendOutById  String?
+  readyToSendOutBy    User?     @relation("FimReadyToSendOutBy", fields: [readyToSendOutById], references: [id])
+  readyToSendOutNote  String?
 
   // PO-flow lot linkage: which QC inspection (lot) this batch came from.
   // Lets the product list show PR → PO → Lot N (invoice) → Batch chain.

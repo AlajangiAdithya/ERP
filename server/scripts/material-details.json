@@ -1,0 +1,2092 @@
+[
+  {
+    "materialCode": "1000",
+    "name": "Rayon based carbon fabric",
+    "unit": "M",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "1001",
+    "name": "Pan based fabric (Hi Strength) 3K 8HS",
+    "unit": "M",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 50,
+    "remarks": null,
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "1002",
+    "name": "Carbon roving T700 12K",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1003",
+    "name": "High Silica fabric",
+    "unit": "M",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "1004",
+    "name": "E glass fabric (V9)",
+    "unit": "M",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1005",
+    "name": "E glass fabric (10 mill)",
+    "unit": "M",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1006",
+    "name": "E glass fabric (13 mill)",
+    "unit": "M",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1007",
+    "name": "E glass fabric (Style 181)",
+    "unit": "M",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1008",
+    "name": "E glass fabric (Style 7781)",
+    "unit": "M",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1009",
+    "name": "E glass MAT",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1010",
+    "name": "E glass Roving 1200 Tex",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1011",
+    "name": "E glass 1 inch tape Fixon make",
+    "unit": "Box",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1501",
+    "name": "Phenolioc Resin",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "1502",
+    "name": "Araldite Ly 556",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "1503",
+    "name": "Aradur/Hardener Hy951",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 1,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "1504",
+    "name": "Epofine 1555 Resin",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1505",
+    "name": "Finehard 5200 Hardener",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1506",
+    "name": "Finehard 5200 Hardener",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 1,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1507",
+    "name": "Aradur/Hardener Hy5052",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 1,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1508",
+    "name": "Fine hard 5200 Hardener",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "1509",
+    "name": "Hardener 972",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 1,
+    "remarks": null,
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "1510",
+    "name": "Lapox A16 Resin",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1511",
+    "name": "Lapox K5 Hardener",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1512",
+    "name": "Anabond 931 (PC 10) combines of Part A",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1513",
+    "name": "Anabond 931 (PC 10) combines of Part B",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1514",
+    "name": "Anabond 931 (PC 10) combines of Part C",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1515",
+    "name": "K300 Part A (Subond K300-61)",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 3,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1516",
+    "name": "K300 Part B (Subond K300-61)",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 1.2,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1517",
+    "name": "K300 Part C (Titanium dioxide)  (Subond K300-61)",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 0.9,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1518",
+    "name": "AW106 Araldite",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "1519",
+    "name": "HV 953 U Hardener",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "1520",
+    "name": "AV 138  Araldite",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1521",
+    "name": "HV 998 Hardener",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1522",
+    "name": "Zinc oxide powder",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3001",
+    "name": "BONDTITE SUPERSTRENGTH - PART-A (RESIN)",
+    "unit": "Kg",
+    "type": "Consumable",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3002",
+    "name": "BONDTITE SUPERSTRENGTH - PART-B (HARDNER)",
+    "unit": "Kg",
+    "type": "Consumable",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3003",
+    "name": "Clay powder",
+    "unit": "Bags",
+    "type": "Consumable",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3004",
+    "name": "POP",
+    "unit": "Kgs",
+    "type": "Consumable",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3005",
+    "name": "Suprasec 5005",
+    "unit": "Kgs",
+    "type": "Consumable",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3006",
+    "name": "Daltorium",
+    "unit": "Kgs",
+    "type": "Consumable",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2001",
+    "name": "NBR Perbunan NI 3445 -F",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2002",
+    "name": "Ultrasil VN3",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2003",
+    "name": "Diamond Sulphur DS 90",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2004",
+    "name": "Zinc oxide",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2005",
+    "name": "Stearic acid",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2006",
+    "name": "Capolyte CP 70 / DRT-70",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2007",
+    "name": "Dioctyl Phthalate (DOP)",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2008",
+    "name": "Di-ethylene glycol (DEG)",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2009",
+    "name": "Tetramethyl Thiuram Disulphide (TMTD)",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2010",
+    "name": "Benzothiazyl Di-Sulphide (MBTS)",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2011",
+    "name": "EPDM 4038",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2012",
+    "name": "Rhenogran-P91-40",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2013",
+    "name": "Poly Ethylene glycol (PEG-400)",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2014",
+    "name": "IOPL Rubber oil",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2015",
+    "name": "Antimony trioxide (SB2O3)",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2016",
+    "name": "Hyplon Rubber",
+    "unit": "Kgs",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3007",
+    "name": "Release film (Non-Porous)",
+    "unit": "Sq. mtr",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "3008",
+    "name": "Release film (Porous)",
+    "unit": "Sq. mtr",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "3009",
+    "name": "Vaccum film - VACFILM 800G, \n50 micron , 900mm wide x 300m long LFT",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 3,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "3010",
+    "name": "Vaccum film - VFS-800G-50-600-300-LFT",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 3,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "3011",
+    "name": "Vaccum film - VACF 800G 50µm x 1500mm x 260m LAY FLAT TUBE",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 3,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "3012",
+    "name": "Vaccum film - VACF 450V 50µm x 1500mm x 300m LAY FLAT TUBE",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 3,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "3013",
+    "name": "STT CLEAR (POLY ROLLS)51µmX32mmx91m",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3014",
+    "name": "STT CLEAR (POLY ROLLS)51µmX63mmx91m",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3015",
+    "name": "Breather fabric",
+    "unit": "Sq. mtr",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "3016",
+    "name": "Anabond Putty",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "3017",
+    "name": "OSAKA Putty",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 30,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "3018",
+    "name": "Thermocouple (J type)",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 1,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "3019",
+    "name": "Vacuum pipe 3M x 3/4th BSP (SS Suction pipe)",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3020",
+    "name": "Vacuum pipe 5M x 3/4th BSP (SS Suction pipe)",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "1",
+    "name": "Vacuum pipe Adaptors",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "2",
+    "name": "Vacuum pipe Brass nippels",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3021",
+    "name": "MAK Hydrol AW68 (HYDROLIC OIL) Vacuum oil",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 210,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": "Basic material for most of projects"
+  },
+  {
+    "materialCode": "2501",
+    "name": "Chemlok 205",
+    "unit": "L",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "2502",
+    "name": "Chemlok 238 NW",
+    "unit": "L",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "2503",
+    "name": "Chemlok 6150",
+    "unit": "L",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "2504",
+    "name": "Chemlok 607",
+    "unit": "L",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2505",
+    "name": "Chemlok 220",
+    "unit": "L",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2506",
+    "name": "DDR (Desamadur)",
+    "unit": "L",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 1,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "2601",
+    "name": "Loctite 270",
+    "unit": "ml",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 2,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2602",
+    "name": "Loctite 242",
+    "unit": "ml",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 2,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "2603",
+    "name": "Silicon grease Anabond 662",
+    "unit": "Kg",
+    "type": "Raw material",
+    "prRequired": "Yes",
+    "minStock": 1,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3022",
+    "name": "Trichloro Ethylene ( TCE)",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 400,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3023",
+    "name": "Ethylene Di chloride (EDC)",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 200,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3024",
+    "name": "Toulene",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 170,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3025",
+    "name": "Acetone",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 300,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3026",
+    "name": "Trichloro Ethylene ( TCE) - LR grade",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3027",
+    "name": "Ethylene Di chloride (EDC) - LR grade",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3028",
+    "name": "Toulene - LR grade",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3029",
+    "name": "Acetone  - LR grade",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3030",
+    "name": "Ethyl Alcohol",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3031",
+    "name": "Nitric acid",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3032",
+    "name": "Polythene film 200 GSM - Yellow",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 3,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3033",
+    "name": "Polythene film 200 GSM - Black",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 3,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3034",
+    "name": "Polythene film 300 GSM",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3035",
+    "name": "Wrap roll",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3036",
+    "name": "Bubble film",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3037",
+    "name": "Emery paper - 0 grit",
+    "unit": "Sheets",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3038",
+    "name": "Emery paper - 50 grit",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3039",
+    "name": "Emery paper - 60 grit",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3040",
+    "name": "Emery paper - 100 grit",
+    "unit": "Rolls",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3041",
+    "name": "Emery paper - 220 grit",
+    "unit": "Sheets",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3042",
+    "name": "Emery paper - 400 grit",
+    "unit": "Sheets",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3043",
+    "name": "Moph wheels - 50 Dia x 6 mm spindle - 60 grit",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3044",
+    "name": "Moph wheels - 10 Dia",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3045",
+    "name": "Moph wheel - 20 Dia",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3046",
+    "name": "Flap wheels - 100 Dia - 60 grit",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3047",
+    "name": "Flap wheels - 150 Dia - 60 grit",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3048",
+    "name": "Flap wheels - 100 Dia - 80 grit",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3049",
+    "name": "Flap wheels - 150 Dia - 80 grit",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3050",
+    "name": "Flap discs 80Grit (Bosch)  4\"",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3051",
+    "name": "Cutting wheels (Bosch) - 4\"",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3052",
+    "name": "Marble Cutting wheels  4\"",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3053",
+    "name": "Grinding wheels - 4''",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3054",
+    "name": "Polishing disc -  4\"",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3055",
+    "name": "Paint brushes - 1 inch",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3056",
+    "name": "Paint brushes - 2 inch",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 20,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3057",
+    "name": "Paint brushes - 3 inch",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 20,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3058",
+    "name": "Paint brushes - 4 inch",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 20,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3059",
+    "name": "Hand gloves Surgical - Large",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3060",
+    "name": "Hand gloves surgical - Large powderless",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 20,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3061",
+    "name": "Cotton gloves - Large",
+    "unit": "PA",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 20,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3062",
+    "name": "Head caps - Large",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3063",
+    "name": "Nose masks  - Surgical type",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3064",
+    "name": "Nose masks - Cloth type",
+    "unit": "Pack",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 20,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3065",
+    "name": "Safety goggles (White)",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 30,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3066",
+    "name": "Safety goggles (Black)",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3067",
+    "name": "Snap blades Size 10",
+    "unit": "Box",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3068",
+    "name": "Snap blades Size 10 K10",
+    "unit": "Box",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 20,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3069",
+    "name": "Snap cutter Handles",
+    "unit": "Packs",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3070",
+    "name": "Makku blades 4 inch",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3071",
+    "name": "Makku blades 6 inch",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3072",
+    "name": "Makku blades 2 inch",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3073",
+    "name": "Squeezers 4 inch",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3074",
+    "name": "Squeezers 6 inch",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3075",
+    "name": "Rubber lining wheels 1 inch",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3076",
+    "name": "Rubber lining wheels V shape wheels",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3077",
+    "name": "Hacksaw blades",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3078",
+    "name": "Welding rods  8 guage",
+    "unit": "Packs",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3079",
+    "name": "Welding rods 10 guage",
+    "unit": "Packs",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3080",
+    "name": "Grease XG 279",
+    "unit": "Kgs",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3081",
+    "name": "Fevicol SR 998",
+    "unit": "L",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3082",
+    "name": "Fevicol White gum",
+    "unit": "Kg",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3083",
+    "name": "Devo stick",
+    "unit": "Kg",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3501",
+    "name": "A4 Paper Bundles 75GSM",
+    "unit": "Bundles",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 20,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3502",
+    "name": "A3 Paper Bundles",
+    "unit": "Bundles",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3503",
+    "name": "100 Pages Log Books",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 25,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3504",
+    "name": "200 Pages Log Books",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 25,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3505",
+    "name": "Box Files",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 25,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3506",
+    "name": "Flat Files",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3507",
+    "name": "A4 Green Cloth Covers",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3508",
+    "name": "A5 Green Cloth Covers",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3509",
+    "name": "Envelop Postal Green Cloth covers 11x5",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3510",
+    "name": "Envelop Postal Brown covers 9x4",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3511",
+    "name": "Envelop Postal Brown covers 10x4",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3512",
+    "name": "Envelop Postal Brown covers 11x5",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3513",
+    "name": "Pen (Blue)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3514",
+    "name": "Pen (Black)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3515",
+    "name": "Markers",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3516",
+    "name": "White Pencils",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3517",
+    "name": "Graphite Pencils",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3518",
+    "name": "Whitener (Correction Pen)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 20,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3519",
+    "name": "Erasers",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3520",
+    "name": "Sharpners",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3521",
+    "name": "Fevisticks",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 20,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3522",
+    "name": "FeviKwik",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3523",
+    "name": "Paper Tape 1\"",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 30,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3524",
+    "name": "Paper Tape 2\"",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 30,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3525",
+    "name": "Packing Tape \"1 (Brown)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3526",
+    "name": "Packing Tape \"2  (Brown)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3527",
+    "name": "Packing Tape \"3 (Brown)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 50,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3528",
+    "name": "Cello Tape  1\"    (White)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 30,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3529",
+    "name": "Cello Tape  2\"    (White)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 30,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3530",
+    "name": "Cello Tape  3\"   (White)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 30,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3531",
+    "name": "Wrapping Paper Rolls",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 30,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3532",
+    "name": "Kangaro Staplers (Small)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3533",
+    "name": "Kangaro Staplers (Big)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3534",
+    "name": "Kangaro Stapler Pins (Big)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3535",
+    "name": "Kangaro Stapler Pins (Small)",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3536",
+    "name": "Clay putty",
+    "unit": "No's",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 5,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3537",
+    "name": "Chalk pieces",
+    "unit": "Box",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 10,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3538",
+    "name": "Band Aid Tape (Tape winding)",
+    "unit": "Rolls",
+    "type": "Stationery",
+    "prRequired": "No",
+    "minStock": 2,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3",
+    "name": "Drilling machine",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": 1,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "4",
+    "name": "Hand grinding machine",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": 1,
+    "remarks": "Irrespective of PR min. stock to be maintained",
+    "usage": null
+  },
+  {
+    "materialCode": "3084",
+    "name": "LED bulbs",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3085",
+    "name": "Electrical insulation tape",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3086",
+    "name": "2 Pin plugs",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3087",
+    "name": "3 Pin plugs 6 Amps",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3088",
+    "name": "3 Pin plugs 16 Amps",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3089",
+    "name": "6 Amps Socket",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "3090",
+    "name": "16 Amps socket",
+    "unit": "No's",
+    "type": "Consumable",
+    "prRequired": "No",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "5",
+    "name": "Sling belts 2 Tons",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "6",
+    "name": "Sling belts 4 Tons",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "7",
+    "name": "Sling belts 6 tons",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "8",
+    "name": "Sling belts 8 tons",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "9",
+    "name": "I bolts M6",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "10",
+    "name": "I bolts M8",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "11",
+    "name": "I bolts M10",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "12",
+    "name": "I bolts M12",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "13",
+    "name": "I bolts M14",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "14",
+    "name": "I bolts M20",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "15",
+    "name": "Torque wrench 1 - 15 N-m",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "16",
+    "name": "Torque wrench 10 - 65 N-m",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "17",
+    "name": "Torque wrench 30 - 100 N-m",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "18",
+    "name": "Torque wrench 100 - 200 N-m",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "19",
+    "name": "Force Kit (medium)",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "20",
+    "name": "Force Kit (Large)",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "21",
+    "name": "Spring Magnet",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  },
+  {
+    "materialCode": "22",
+    "name": "Steel rule",
+    "unit": "No's",
+    "type": "Capital",
+    "prRequired": "Yes",
+    "minStock": null,
+    "remarks": null,
+    "usage": null
+  }
+]

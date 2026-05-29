@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Plus, Package, Download, FileText, CheckCircle2,
   Pencil, Send, Building2, Calendar, Truck, User as UserIcon,
-  ArrowRightLeft, AlertTriangle, Hash,
+  ArrowRightLeft, AlertTriangle, Hash, PackageCheck, RotateCcw,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -86,13 +86,13 @@ export default function Products() {
         return list.map(us => `${us.unit?.name || us.unit?.code || 'Unit'}:${us.quantity}`).join(' | ');
       };
       const header = [
-        'SKU', 'Name', 'Category', 'UOM',
+        'Identification No.', 'SKU', 'Name', 'Category', 'UOM',
         'Current Stock', 'Min Stock Level',
         'Deficit (Min - Current)', 'Status', 'Owned By (Unit:Qty)',
         'Description',
       ];
       const rows = all.map(p => [
-        p.sku, p.name, p.category || '', p.unit || '',
+        p.materialCode || '', p.sku, p.name, p.category || '', p.unit || '',
         p.currentStock ?? 0,
         p.minStockLevel ?? 0,
         Math.max(0, (p.minStockLevel || 0) - (p.currentStock || 0)),
@@ -121,7 +121,7 @@ export default function Products() {
   };
 
   const [form, setForm] = useState({
-    name: '', description: '', category: 'Raw Material', unit: 'pcs',
+    materialCode: '', name: '', description: '', category: 'Raw Material', unit: 'pcs',
     minStockLevel: 0,
   });
   const [materialTypes, setMaterialTypes] = useState([]);
@@ -151,11 +151,12 @@ export default function Products() {
     try {
       const data = {
         ...form,
+        materialCode: form.materialCode.trim() || undefined,
         minStockLevel: parseFloat(form.minStockLevel) || 0,
       };
       await api.post('/products', data);
       setShowModal(false);
-      setForm({ name: '', description: '', category: 'Raw Material', unit: 'pcs', minStockLevel: 0 });
+      setForm({ materialCode: '', name: '', description: '', category: 'Raw Material', unit: 'pcs', minStockLevel: 0 });
       fetchProducts();
     } catch (err) {
       setFormError(err.response?.data?.error || 'Failed to create product');
@@ -164,8 +165,28 @@ export default function Products() {
     }
   };
 
+  // Expiry-status colour for the table's Expiry Date column. earliestExpiry comes
+  // from the server (computed across all batches with remaining > 0).
+  const renderExpiry = (iso) => {
+    if (!iso) return <span className="text-xs text-gray-400">—</span>;
+    const d = new Date(iso);
+    const days = Math.ceil((d - new Date()) / (1000 * 60 * 60 * 24));
+    const label = d.toLocaleDateString();
+    if (days < 0) return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-white bg-red-600 rounded px-2 py-0.5 animate-pulse">
+        ⚠ Expired {label}
+      </span>
+    );
+    if (days <= 30) return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-900 bg-amber-100 border border-amber-300 rounded px-2 py-0.5">
+        {label} ({days}d)
+      </span>
+    );
+    return <span className="text-xs text-gray-700">{label}</span>;
+  };
+
   const columns = [
-    { key: 'sku', label: 'SKU' },
+    { key: 'materialCode', label: 'Identification No.', render: (v) => v ? <span className="font-mono text-xs">{v}</span> : <span className="text-xs text-gray-400">—</span> },
     { key: 'name', label: 'Name' },
     { key: 'category', label: 'Category', render: (v) => v || '—' },
     {
@@ -201,32 +222,10 @@ export default function Products() {
       }
     },
     {
-      // MIR numbers (Material Inward Register) — auto-generated at stores inward on the PO.
-      // We surface the most recent few so users can trace which inward batch brought this stock.
-      key: 'batches', label: 'MIR No.',
-      render: (v) => {
-        const list = Array.isArray(v) ? v : [];
-        const mirs = [];
-        const seen = new Set();
-        for (const b of list) {
-          const mir = b.sourceQcInspection?.purchaseOrder?.mirNo;
-          if (mir && !seen.has(mir)) {
-            seen.add(mir);
-            mirs.push({ mir, date: b.receivedDate });
-          }
-        }
-        if (mirs.length === 0) return <span className="text-xs text-gray-400">—</span>;
-        return (
-          <div className="flex flex-col gap-0.5">
-            {mirs.slice(0, 3).map(m => (
-              <span key={m.mir} className="text-xs font-mono text-navy-700" title={new Date(m.date).toLocaleDateString()}>
-                {m.mir}
-              </span>
-            ))}
-            {mirs.length > 3 && <span className="text-[10px] text-gray-500">+{mirs.length - 3} more</span>}
-          </div>
-        );
-      },
+      // Earliest dateOfExpiry across batches with remaining stock. QC fills this
+      // on the inspection report; we surface the soonest so stores notice
+      // expiring lots before issuing them.
+      key: 'earliestExpiry', label: 'Expiry Date', render: (v) => renderExpiry(v),
     },
     { key: 'minStockLevel', label: 'Min Level', render: (v, row) => v > 0 ? `${v} ${row.unit}` : '—' },
   ];
@@ -304,6 +303,12 @@ export default function Products() {
         <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Product" size="lg">
           <form onSubmit={handleCreate} className="space-y-4">
             {formError && <p className="text-sm text-brand-red">{formError}</p>}
+            <Input
+              label="Identification No."
+              value={form.materialCode}
+              onChange={(e) => setForm({ ...form, materialCode: e.target.value })}
+              placeholder="e.g. 1000 (from Material Details register)"
+            />
             <Input label="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             <p className="text-xs text-gray-500 -mt-2">SKU is auto-generated from material type (e.g. RAW-0001, CONS-0001).</p>
             <Input label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
@@ -339,10 +344,12 @@ function FimStatusView({ user, onOpenProduct }) {
   const [assignTarget, setAssignTarget] = useState(null); // { batchId, productName }
   const [acceptTarget, setAcceptTarget] = useState(null); // { batchId, productName }
   const [editRemarkTarget, setEditRemarkTarget] = useState(null); // { batchId, productName, existing }
-  const [sendOutTarget, setSendOutTarget] = useState(null); // batch
+  const [readyTarget, setReadyTarget] = useState(null); // batch (unit manager marks ready)
+  const [sendOutTarget, setSendOutTarget] = useState(null); // batch (stores ships)
   const [assigningUnitId, setAssigningUnitId] = useState('');
   const [acceptRemark, setAcceptRemark] = useState('');
   const [editRemarkText, setEditRemarkText] = useState('');
+  const [readyNote, setReadyNote] = useState('');
   const [sendOutForm, setSendOutForm] = useState({ vehicleNo: '', driverName: '', remarks: '' });
   const [actionError, setActionError] = useState('');
   const [actionBusy, setActionBusy] = useState(false);
@@ -406,6 +413,32 @@ function FimStatusView({ user, onOpenProduct }) {
       setActionError(err.response?.data?.error || 'Failed to save remark');
     }
     setActionBusy(false);
+  };
+
+  const submitMarkReady = async () => {
+    setActionError('');
+    setActionBusy(true);
+    try {
+      await api.put(`/gatepasses/fim-batches/${readyTarget.id}/mark-ready`, { note: readyNote.trim() || undefined });
+      setReadyTarget(null);
+      setReadyNote('');
+      setFlash('Marked ready — Stores can now send it out.');
+      setTimeout(() => setFlash(''), 6000);
+      fetchBatches();
+    } catch (err) {
+      setActionError(err.response?.data?.error || 'Failed to mark ready');
+    }
+    setActionBusy(false);
+  };
+
+  const withdrawReady = async (batch) => {
+    if (!window.confirm(`Withdraw the "ready to send out" flag on ${batch.product.name}?`)) return;
+    try {
+      await api.put(`/gatepasses/fim-batches/${batch.id}/unmark-ready`);
+      fetchBatches();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to withdraw ready flag');
+    }
   };
 
   const submitSendOut = async () => {
@@ -540,10 +573,23 @@ function FimStatusView({ user, onOpenProduct }) {
                   const outwardLinks = Array.isArray(it.outwardLinkedItems) ? it.outwardLinkedItems : [];
                   const lastOutward = outwardLinks[0]?.gatePass;
                   const alreadySentOut = outwardLinks.length > 0;
+                  const isReady = !!b.readyToSendOutAt;
+                  // Unit manager (or admin) marks the FIM ready first.
+                  const canMarkReady = isReturnable
+                    && b.unitAcceptedAt
+                    && !isReady
+                    && !alreadySentOut
+                    && (user?.role === 'ADMIN' || (user?.role === 'MANAGER' && user?.unitId === b.assignedToUnitId));
+                  // Unit manager (or admin) can withdraw the flag until Stores ships.
+                  const canWithdrawReady = isReady
+                    && !alreadySentOut
+                    && (user?.role === 'ADMIN' || (user?.role === 'MANAGER' && user?.unitId === b.assignedToUnitId));
+                  // Stores can only send out after the unit marks ready.
                   const canSendOut = isReturnable
                     && b.unitAcceptedAt
+                    && isReady
                     && !alreadySentOut
-                    && (isStores || (user?.role === 'MANAGER' && user?.unitId === b.assignedToUnitId));
+                    && isStores;
 
                   return (
                     <tr
@@ -686,6 +732,11 @@ function FimStatusView({ user, onOpenProduct }) {
                           <Badge color="yellow">Awaiting</Badge>
                         ) : (
                           <Badge color="gray">In stores</Badge>
+                        )}
+                        {isReady && !alreadySentOut && (
+                          <div className="mt-1">
+                            <Badge color="amber"><PackageCheck size={10} className="inline mr-0.5" />Ready to send out</Badge>
+                          </div>
                         )}
                         {alreadySentOut && (
                           <div className="mt-1">

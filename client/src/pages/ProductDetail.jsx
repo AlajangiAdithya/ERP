@@ -1019,9 +1019,26 @@ export default function ProductDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
           <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-gray-500">Identification No.:</span>{' '}
+              <span className="font-mono font-medium">{product.materialCode || '—'}</span>
+            </div>
             <div><span className="text-gray-500">SKU:</span> <span className="font-medium">{product.sku}</span></div>
             <div><span className="text-gray-500">Category:</span> <span className="font-medium">{product.category || '—'}</span></div>
             <div><span className="text-gray-500">Unit:</span> <span className="font-medium">{product.unit}</span></div>
+            <div>
+              <span className="text-gray-500">MIR Level:</span>{' '}
+              <span className="font-medium">{product.mirCount ?? 0}</span>
+              <span className="text-xs text-gray-500 ml-1">inward entr{(product.mirCount ?? 0) === 1 ? 'y' : 'ies'}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Earliest Expiry:</span>{' '}
+              {product.earliestExpiry ? (
+                <ExpiryBadge dateOfExpiry={product.earliestExpiry} />
+              ) : (
+                <span className="text-gray-400">—</span>
+              )}
+            </div>
             {product.description && (
               <div className="col-span-2"><span className="text-gray-500">Description:</span> <span>{product.description}</span></div>
             )}
