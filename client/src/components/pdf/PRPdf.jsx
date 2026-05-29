@@ -75,7 +75,7 @@ export default function PRPdf({ request }) {
 
   const HeaderBlock = () => (
     <>
-      <CompanyHeader docType="PURCHASE REQUISITION FORM" docNumber={request?.requestNumber} />
+      <CompanyHeader />
       <View style={styles.header}>
         <Text style={styles.title}>PURCHASE REQUISITION FORM</Text>
         <Text style={styles.subtitle}>Form No: RAPS/PRF  Rev. 02  Date: 31/08/2024</Text>
@@ -95,10 +95,8 @@ export default function PRPdf({ request }) {
           <View style={[styles.cell, { width: '35%' }]}><Text>{request?.manager?.name || '—'}</Text></View>
         </View>
         <View style={styles.row}>
-          <View style={[styles.cellLabel, { width: '15%' }]}><Text>PR No.</Text></View>
-          <View style={[styles.cell, { width: '35%' }]}><Text>{request?.requestNumber || '—'}</Text></View>
           <View style={[styles.cellLabel, { width: '15%' }]}><Text>Status</Text></View>
-          <View style={[styles.cell, { width: '35%' }]}><Text>{request?.status || '—'}</Text></View>
+          <View style={[styles.cell, { width: '85%' }]}><Text>{request?.status || '—'}</Text></View>
         </View>
       </View>
     </>
@@ -139,12 +137,6 @@ export default function PRPdf({ request }) {
                   { label: 'Store cleared', value: request?.storeManager?.name ? `${request.storeManager.name} • ${formatDateTime(request.clearedAt)}` : null },
                   { label: 'Current status', value: request?.status || null },
                 ]} />
-
-                <View style={styles.sigRow}>
-                  <View style={styles.sigBox}><Text>Indenter</Text></View>
-                  <View style={styles.sigBox}><Text>Admin Approval</Text></View>
-                  <View style={styles.sigBox}><Text>Purchase Officer</Text></View>
-                </View>
               </>
             )}
 

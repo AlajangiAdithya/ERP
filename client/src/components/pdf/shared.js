@@ -43,7 +43,7 @@ export const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#d8d8d8',
   },
-  brandLogo: { width: 180, height: 60, objectFit: 'contain' },
+  brandLogo: { width: 110, height: 36, objectFit: 'contain' },
   brandTitleBlock: { flex: 1 },
   brandName: { fontSize: 14, fontFamily: 'Helvetica-Bold', color: '#0a2540' },
   brandTagline: { fontSize: 7, color: '#666' },
@@ -119,10 +119,10 @@ export const styles = StyleSheet.create({
 export const CompanyHeader = ({ docType, docNumber }) => (
   React.createElement(View, { style: styles.brandRow },
     React.createElement(Image, { src: LOGO_URL, style: styles.brandLogo }),
-    React.createElement(View, { style: styles.brandDocBlock },
-      React.createElement(Text, { style: styles.docType }, docType || ''),
+    docType ? React.createElement(View, { style: styles.brandDocBlock },
+      React.createElement(Text, { style: styles.docType }, docType),
       docNumber ? React.createElement(Text, { style: styles.subtitle }, `No. ${docNumber}`) : null,
-    )
+    ) : null,
   )
 );
 
