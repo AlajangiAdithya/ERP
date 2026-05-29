@@ -123,7 +123,6 @@ model Product {
   unit                 String                     @default("pcs")
   currentStock         Float                      @default(0)
   minStockLevel        Float                      @default(0)
-  maxStockLevel        Float?
   isActive             Boolean                    @default(true)
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt

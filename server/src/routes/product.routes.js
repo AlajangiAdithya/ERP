@@ -19,7 +19,6 @@ const productSchema = z.object({
   category: z.string().optional(),
   unit: z.string().optional(),
   minStockLevel: z.number().min(0).optional(),
-  maxStockLevel: z.number().min(0).optional().nullable(),
 });
 
 // GET /api/products

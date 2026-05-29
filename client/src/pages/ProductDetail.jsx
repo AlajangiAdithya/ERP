@@ -827,9 +827,6 @@ export default function ProductDetail() {
                 <p className="text-xs text-gray-400 mt-1">Min level: {product.minStockLevel} {product.unit}</p>
               </>
             )}
-            {product.maxStockLevel && (
-              <p className="text-xs text-gray-400">Max level: {product.maxStockLevel} {product.unit}</p>
-            )}
           </div>
 
           {Array.isArray(product.unitStocks) && product.unitStocks.filter(u => u.quantity > 0).length > 0 && (

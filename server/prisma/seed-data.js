@@ -46,38 +46,38 @@ async function main() {
   // ═══════════════════════════════════════════
   const productData = [
     // Chemicals
-    { name: 'Sodium Hydroxide (Caustic Soda)', sku: 'RAPS-CHEM-001', category: 'Chemicals', unit: 'kg', currentStock: 520, minStockLevel: 100, maxStockLevel: 1000 },
-    { name: 'Hydrochloric Acid (35%)', sku: 'RAPS-CHEM-002', category: 'Chemicals', unit: 'litre', currentStock: 180, minStockLevel: 50, maxStockLevel: 500 },
-    { name: 'Sulphuric Acid (98%)', sku: 'RAPS-CHEM-003', category: 'Chemicals', unit: 'litre', currentStock: 75, minStockLevel: 100, maxStockLevel: 400 },
-    { name: 'Phosphoric Acid', sku: 'RAPS-CHEM-004', category: 'Chemicals', unit: 'litre', currentStock: 60, minStockLevel: 30, maxStockLevel: 200 },
-    { name: 'Zinc Oxide Industrial Grade', sku: 'RAPS-CHEM-005', category: 'Chemicals', unit: 'kg', currentStock: 250, minStockLevel: 50, maxStockLevel: 500 },
+    { name: 'Sodium Hydroxide (Caustic Soda)', sku: 'RAPS-CHEM-001', category: 'Chemicals', unit: 'kg', currentStock: 520, minStockLevel: 100 },
+    { name: 'Hydrochloric Acid (35%)', sku: 'RAPS-CHEM-002', category: 'Chemicals', unit: 'litre', currentStock: 180, minStockLevel: 50 },
+    { name: 'Sulphuric Acid (98%)', sku: 'RAPS-CHEM-003', category: 'Chemicals', unit: 'litre', currentStock: 75, minStockLevel: 100 },
+    { name: 'Phosphoric Acid', sku: 'RAPS-CHEM-004', category: 'Chemicals', unit: 'litre', currentStock: 60, minStockLevel: 30 },
+    { name: 'Zinc Oxide Industrial Grade', sku: 'RAPS-CHEM-005', category: 'Chemicals', unit: 'kg', currentStock: 250, minStockLevel: 50 },
     // Polymers
-    { name: 'Polyethylene Granules (HDPE)', sku: 'RAPS-POLY-001', category: 'Polymers', unit: 'kg', currentStock: 800, minStockLevel: 200, maxStockLevel: 2000 },
-    { name: 'Polypropylene Resin', sku: 'RAPS-POLY-002', category: 'Polymers', unit: 'kg', currentStock: 340, minStockLevel: 100, maxStockLevel: 1000 },
-    { name: 'PVC Compound', sku: 'RAPS-POLY-003', category: 'Polymers', unit: 'kg', currentStock: 450, minStockLevel: 100, maxStockLevel: 800 },
+    { name: 'Polyethylene Granules (HDPE)', sku: 'RAPS-POLY-001', category: 'Polymers', unit: 'kg', currentStock: 800, minStockLevel: 200 },
+    { name: 'Polypropylene Resin', sku: 'RAPS-POLY-002', category: 'Polymers', unit: 'kg', currentStock: 340, minStockLevel: 100 },
+    { name: 'PVC Compound', sku: 'RAPS-POLY-003', category: 'Polymers', unit: 'kg', currentStock: 450, minStockLevel: 100 },
     // Steel
-    { name: 'Mild Steel Plates (6mm)', sku: 'RAPS-STL-001', category: 'Steel', unit: 'pcs', currentStock: 42, minStockLevel: 10, maxStockLevel: 100 },
-    { name: 'SS 304 Round Bar', sku: 'RAPS-STL-002', category: 'Steel', unit: 'meter', currentStock: 28, minStockLevel: 15, maxStockLevel: 80 },
-    { name: 'Galvanized Iron Sheets', sku: 'RAPS-STL-003', category: 'Steel', unit: 'pcs', currentStock: 65, minStockLevel: 20, maxStockLevel: 150 },
-    { name: 'MS Angle (50x50x5)', sku: 'RAPS-STL-004', category: 'Steel', unit: 'meter', currentStock: 90, minStockLevel: 25, maxStockLevel: 200 },
+    { name: 'Mild Steel Plates (6mm)', sku: 'RAPS-STL-001', category: 'Steel', unit: 'pcs', currentStock: 42, minStockLevel: 10 },
+    { name: 'SS 304 Round Bar', sku: 'RAPS-STL-002', category: 'Steel', unit: 'meter', currentStock: 28, minStockLevel: 15 },
+    { name: 'Galvanized Iron Sheets', sku: 'RAPS-STL-003', category: 'Steel', unit: 'pcs', currentStock: 65, minStockLevel: 20 },
+    { name: 'MS Angle (50x50x5)', sku: 'RAPS-STL-004', category: 'Steel', unit: 'meter', currentStock: 90, minStockLevel: 25 },
     // Pigments
-    { name: 'Titanium Dioxide Pigment', sku: 'RAPS-PIG-001', category: 'Pigments', unit: 'kg', currentStock: 140, minStockLevel: 30, maxStockLevel: 300 },
-    { name: 'Carbon Black N330', sku: 'RAPS-PIG-002', category: 'Pigments', unit: 'kg', currentStock: 110, minStockLevel: 40, maxStockLevel: 250 },
-    { name: 'Iron Oxide Red', sku: 'RAPS-PIG-003', category: 'Pigments', unit: 'kg', currentStock: 85, minStockLevel: 20, maxStockLevel: 200 },
+    { name: 'Titanium Dioxide Pigment', sku: 'RAPS-PIG-001', category: 'Pigments', unit: 'kg', currentStock: 140, minStockLevel: 30 },
+    { name: 'Carbon Black N330', sku: 'RAPS-PIG-002', category: 'Pigments', unit: 'kg', currentStock: 110, minStockLevel: 40 },
+    { name: 'Iron Oxide Red', sku: 'RAPS-PIG-003', category: 'Pigments', unit: 'kg', currentStock: 85, minStockLevel: 20 },
     // Consumables
-    { name: 'Welding Electrodes (3.15mm)', sku: 'RAPS-CON-001', category: 'Consumables', unit: 'box', currentStock: 35, minStockLevel: 10, maxStockLevel: 80 },
-    { name: 'Grinding Discs (125mm)', sku: 'RAPS-CON-002', category: 'Consumables', unit: 'pcs', currentStock: 120, minStockLevel: 30, maxStockLevel: 300 },
-    { name: 'Safety Gloves (Nitrile)', sku: 'RAPS-CON-003', category: 'Consumables', unit: 'box', currentStock: 22, minStockLevel: 15, maxStockLevel: 60 },
-    { name: 'Cutting Wheels (355mm)', sku: 'RAPS-CON-004', category: 'Consumables', unit: 'pcs', currentStock: 50, minStockLevel: 15, maxStockLevel: 100 },
+    { name: 'Welding Electrodes (3.15mm)', sku: 'RAPS-CON-001', category: 'Consumables', unit: 'box', currentStock: 35, minStockLevel: 10 },
+    { name: 'Grinding Discs (125mm)', sku: 'RAPS-CON-002', category: 'Consumables', unit: 'pcs', currentStock: 120, minStockLevel: 30 },
+    { name: 'Safety Gloves (Nitrile)', sku: 'RAPS-CON-003', category: 'Consumables', unit: 'box', currentStock: 22, minStockLevel: 15 },
+    { name: 'Cutting Wheels (355mm)', sku: 'RAPS-CON-004', category: 'Consumables', unit: 'pcs', currentStock: 50, minStockLevel: 15 },
     // Lubricants
-    { name: 'Hydraulic Oil (ISO 68)', sku: 'RAPS-LUB-001', category: 'Lubricants', unit: 'litre', currentStock: 200, minStockLevel: 50, maxStockLevel: 500 },
-    { name: 'Gear Oil (EP 220)', sku: 'RAPS-LUB-002', category: 'Lubricants', unit: 'litre', currentStock: 80, minStockLevel: 30, maxStockLevel: 200 },
+    { name: 'Hydraulic Oil (ISO 68)', sku: 'RAPS-LUB-001', category: 'Lubricants', unit: 'litre', currentStock: 200, minStockLevel: 50 },
+    { name: 'Gear Oil (EP 220)', sku: 'RAPS-LUB-002', category: 'Lubricants', unit: 'litre', currentStock: 80, minStockLevel: 30 },
     // Electrical
-    { name: 'Copper Wire (2.5 sq mm)', sku: 'RAPS-ELE-001', category: 'Electrical', unit: 'meter', currentStock: 500, minStockLevel: 100, maxStockLevel: 1000 },
-    { name: 'Cable Ties (300mm)', sku: 'RAPS-ELE-002', category: 'Electrical', unit: 'box', currentStock: 40, minStockLevel: 10, maxStockLevel: 80 },
+    { name: 'Copper Wire (2.5 sq mm)', sku: 'RAPS-ELE-001', category: 'Electrical', unit: 'meter', currentStock: 500, minStockLevel: 100 },
+    { name: 'Cable Ties (300mm)', sku: 'RAPS-ELE-002', category: 'Electrical', unit: 'box', currentStock: 40, minStockLevel: 10 },
     // Packaging
-    { name: 'HDPE Drums (200L)', sku: 'RAPS-PKG-001', category: 'Packaging', unit: 'pcs', currentStock: 18, minStockLevel: 10, maxStockLevel: 50 },
-    { name: 'Corrugated Boxes (Large)', sku: 'RAPS-PKG-002', category: 'Packaging', unit: 'pcs', currentStock: 150, minStockLevel: 50, maxStockLevel: 400 },
+    { name: 'HDPE Drums (200L)', sku: 'RAPS-PKG-001', category: 'Packaging', unit: 'pcs', currentStock: 18, minStockLevel: 10 },
+    { name: 'Corrugated Boxes (Large)', sku: 'RAPS-PKG-002', category: 'Packaging', unit: 'pcs', currentStock: 150, minStockLevel: 50 },
   ];
 
   const products = [];

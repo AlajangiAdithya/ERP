@@ -66,7 +66,7 @@ export default function Products() {
       };
       const header = [
         'SKU', 'Name', 'Category', 'UOM',
-        'Current Stock', 'Min Stock Level', 'Max Stock Level',
+        'Current Stock', 'Min Stock Level',
         'Deficit (Min - Current)', 'Status', 'Owned By (Unit:Qty)',
         'Description',
       ];
@@ -74,7 +74,6 @@ export default function Products() {
         p.sku, p.name, p.category || '', p.unit || '',
         p.currentStock ?? 0,
         p.minStockLevel ?? 0,
-        p.maxStockLevel ?? '',
         Math.max(0, (p.minStockLevel || 0) - (p.currentStock || 0)),
         statusOf(p),
         ownedBy(p),
