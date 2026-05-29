@@ -46,6 +46,7 @@ const DOC_NUMBER_MAP = {
   PO:  { model: 'purchaseOrder',            field: 'orderNumber' },
   MIV: { model: 'productRequest',           field: 'requestNumber' },
   GP:  { model: 'gatePass',                 field: 'passNumber' },
+  FIM: { model: 'gatePass',                 field: 'fimNumber' },
   ION: { model: 'interOfficeNote',          field: 'ionNumber' },
   QT:  { model: 'quotation',                field: 'quotationNumber' },
   QC:  { model: 'qCInspection',             field: 'inspectionNumber' },

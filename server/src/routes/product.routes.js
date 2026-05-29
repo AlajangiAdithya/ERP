@@ -126,14 +126,16 @@ router.get('/fim-status', authenticate, async (req, res) => {
         unitAcceptedBy: { select: { id: true, name: true } },
         sourceInwardGatePass: {
           select: {
-            id: true, passNumber: true, customerName: true,
-            customerGatePassNo: true, customerGatePassDate: true,
+            id: true, passNumber: true, fimNumber: true, gpRequisitionNo: true,
+            customerName: true, customerGatePassNo: true, customerGatePassDate: true,
             customerGpDocType: true, customerGpPdfUrl: true, date: true,
+            vehicleNo: true, driverName: true,
           },
         },
         sourceInwardGatePassItem: {
           select: {
             id: true, description: true, probableReturnDate: true, itemPassType: true,
+            itemPurpose: true, dispatchedTo: true, remarks: true,
           },
         },
       },
@@ -334,9 +336,10 @@ router.get('/:id', authenticate, async (req, res) => {
         unitAcceptedBy: { select: { id: true, name: true } },
         sourceInwardGatePass: {
           select: {
-            id: true, passNumber: true, customerName: true,
-            customerGatePassNo: true, customerGatePassDate: true, customerContact: true,
-            customerGpDocType: true, customerGpPdfUrl: true,
+            id: true, passNumber: true, fimNumber: true, gpRequisitionNo: true,
+            customerName: true, customerGatePassNo: true, customerGatePassDate: true,
+            customerContact: true, customerGpDocType: true, customerGpPdfUrl: true,
+            vehicleNo: true, driverName: true,
             date: true, passType: true,
           },
         },

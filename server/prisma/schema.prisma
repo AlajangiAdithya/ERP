@@ -700,6 +700,13 @@ enum QCResult {
 model GatePass {
   id                   String            @id @default(uuid())
   passNumber           String            @unique // Doc/Request No
+  // FIM/Customer Property Register number (INWARD STORES only).
+  // Format: RAPS/FIM/<FY>/<N>. Distinct from passNumber (RAPS/GP/...) so the
+  // FIM register can list entries by their own running count.
+  fimNumber            String?           @unique
+  // INWARD-only: cross-reference to an internal gate-pass requisition number
+  // (the requisitioner's reference for this FIM intake).
+  gpRequisitionNo      String?
   passType             GatePassType? // Dominant / legacy type (per-item overrides)
   direction            GatePassDirection @default(OUTWARD) // INWARD = customer → us, OUTWARD = us → customer/site
   date                 DateTime          @default(now())

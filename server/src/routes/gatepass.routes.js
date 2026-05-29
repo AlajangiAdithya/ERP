@@ -150,6 +150,8 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
       customerName, customerGatePassNo, customerGatePassDate,
       inwardKind: rawInwardKind, destinationUnitId,
       customerGpDocType: rawDocType,
+      vehicleNo: rawVehicleNo, driverName: rawDriverName,
+      gpRequisitionNo: rawGpRequisitionNo,
     } = req.body;
 
     const customerGpDocType = GP_DOC_TYPES.includes(rawDocType) ? rawDocType : null;
@@ -239,11 +241,18 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
     const initialStatus = isInward ? 'PENDING_ACCEPTANCE' : 'PENDING_STORE';
 
     let passNumber;
+    let fimNumber = null;
     const gatePass = await withDocRetry(async () => {
       passNumber = await generateSequentialNumber(prisma, 'GP');
+      // FIM/Customer Property Register number — only for INWARD STORES intake.
+      if (isInward && inwardKind === 'STORES') {
+        fimNumber = await generateSequentialNumber(prisma, 'FIM');
+      }
       return prisma.gatePass.create({
         data: {
           passNumber,
+          fimNumber: isInward && inwardKind === 'STORES' ? fimNumber : null,
+          gpRequisitionNo: isInward ? (rawGpRequisitionNo?.trim() || null) : null,
           passType: primaryType,
           direction,
           siteName: siteName?.trim() || null,
@@ -255,6 +264,9 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
           customerContact: null,
           customerGpDocType: isInward ? customerGpDocType : null,
           customerGpPdfUrl: isInward ? customerGpPdfUrl : null,
+          // Vehicle / driver — register column "VEHICLE NO / DRIVER SIGN".
+          vehicleNo: isInward ? (rawVehicleNo?.trim() || null) : null,
+          driverName: isInward ? (rawDriverName?.trim() || null) : null,
           inwardKind: isInward ? inwardKind : null,
           destinationUnitId: isInward && inwardKind === 'DIRECT_TO_UNIT' ? destinationUnitId : null,
           remarks: remarks?.trim() || null,
@@ -274,6 +286,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
               gatePassDetails: it.gatePassDetails?.trim() || null,
               transportation: it.transportation?.trim() || null,
               contactPersonDetails: it.contactPersonDetails?.trim() || null,
+              remarks: it.remarks?.trim() || null,
               sourceInwardGatePassItemId: !isInward && it.sourceInwardGatePassItemId
                 ? it.sourceInwardGatePassItemId : null,
             })),

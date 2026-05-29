@@ -9,10 +9,15 @@ CREATE TYPE "CustomerGpDocType" AS ENUM (
   'DUPLICATE'
 );
 
--- 2. GatePass: capture customer's GP document type + uploaded PDF
+-- 2. GatePass: capture customer's GP document type + uploaded PDF,
+--    plus the FIM/Customer Property Register number and a GP requisition no.
 ALTER TABLE "GatePass"
   ADD COLUMN "customerGpDocType" "CustomerGpDocType",
-  ADD COLUMN "customerGpPdfUrl" TEXT;
+  ADD COLUMN "customerGpPdfUrl"  TEXT,
+  ADD COLUMN "fimNumber"         TEXT,
+  ADD COLUMN "gpRequisitionNo"   TEXT;
+
+CREATE UNIQUE INDEX "GatePass_fimNumber_key" ON "GatePass"("fimNumber");
 
 -- 3. ProductBatch: FIM assignment + one-shot unit acceptance
 ALTER TABLE "ProductBatch"
