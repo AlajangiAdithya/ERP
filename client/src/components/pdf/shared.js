@@ -116,11 +116,12 @@ export const styles = StyleSheet.create({
   sigBox: { width: '30%', borderTopWidth: 1, borderTopColor: '#444', paddingTop: 4, fontSize: 8, textAlign: 'center' },
 });
 
-export const CompanyHeader = ({ docType, docNumber }) => (
+export const CompanyHeader = ({ docType, docNumber, docSubtitle }) => (
   React.createElement(View, { style: styles.brandRow },
     React.createElement(Image, { src: LOGO_URL, style: styles.brandLogo }),
     docType ? React.createElement(View, { style: styles.brandDocBlock },
       React.createElement(Text, { style: styles.docType }, docType),
+      docSubtitle ? React.createElement(Text, { style: styles.subtitle }, docSubtitle) : null,
       docNumber ? React.createElement(Text, { style: styles.subtitle }, `No. ${docNumber}`) : null,
     ) : null,
   )

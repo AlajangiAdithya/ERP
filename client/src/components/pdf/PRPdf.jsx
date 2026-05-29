@@ -75,11 +75,10 @@ export default function PRPdf({ request }) {
 
   const HeaderBlock = () => (
     <>
-      <CompanyHeader />
-      <View style={styles.header}>
-        <Text style={styles.title}>PURCHASE REQUISITION FORM</Text>
-        <Text style={styles.subtitle}>Form No: RAPS/PRF  Rev. 02  Date: 31/08/2024</Text>
-      </View>
+      <CompanyHeader
+        docType="PURCHASE REQUISITION FORM"
+        docSubtitle="Form No: RAPS/PRF  Rev. 02  Date: 31/08/2024"
+      />
 
       <View style={styles.table}>
         <View style={styles.row}>
@@ -91,12 +90,8 @@ export default function PRPdf({ request }) {
         <View style={styles.row}>
           <View style={[styles.cellLabel, { width: '15%' }]}><Text>Unit</Text></View>
           <View style={[styles.cell, { width: '35%' }]}><Text>{request?.unit?.name || request?.unit?.code || '—'}</Text></View>
-          <View style={[styles.cellLabel, { width: '15%' }]}><Text>Indenter</Text></View>
-          <View style={[styles.cell, { width: '35%' }]}><Text>{request?.manager?.name || '—'}</Text></View>
-        </View>
-        <View style={styles.row}>
           <View style={[styles.cellLabel, { width: '15%' }]}><Text>Status</Text></View>
-          <View style={[styles.cell, { width: '85%' }]}><Text>{request?.status || '—'}</Text></View>
+          <View style={[styles.cell, { width: '35%' }]}><Text>{request?.status || '—'}</Text></View>
         </View>
       </View>
     </>
@@ -139,10 +134,6 @@ export default function PRPdf({ request }) {
                 ]} />
               </>
             )}
-
-            <Text style={styles.footer} fixed>
-              Generated {formatDateTime(new Date())}  RAPS ERP  PR {request?.requestNumber}  Page {pageIndex + 1} of {pages.length}
-            </Text>
           </Page>
         );
       })}
