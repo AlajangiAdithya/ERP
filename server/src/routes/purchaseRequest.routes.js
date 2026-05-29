@@ -80,7 +80,7 @@ router.get('/', authenticate, async (req, res) => {
           },
           quotations: {
             select: {
-              id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true,
+              id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true, submittedToAdminAt: true, heldAt: true,
               sourceRequests: {
                 include: {
                   purchaseRequest: {
@@ -106,7 +106,7 @@ router.get('/', authenticate, async (req, res) => {
             include: {
               quotation: {
                 select: {
-                  id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true,
+                  id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true, submittedToAdminAt: true, heldAt: true,
                   sourceRequests: {
                     include: {
                       purchaseRequest: {
@@ -392,7 +392,7 @@ router.get('/:id', authenticate, async (req, res) => {
         },
         quotations: {
           select: {
-            id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true,
+            id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true, submittedToAdminAt: true, heldAt: true,
             sourceRequests: {
               include: {
                 purchaseRequest: {
@@ -436,7 +436,7 @@ router.get('/:id', authenticate, async (req, res) => {
           include: {
             quotation: {
               select: {
-                id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true,
+                id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true, submittedToAdminAt: true, heldAt: true,
                 sourceRequests: {
                   include: {
                     purchaseRequest: {

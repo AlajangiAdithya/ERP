@@ -226,6 +226,11 @@ router.get('/', authenticate, async (req, res) => {
         { sourceRequests: { some: { purchaseRequestId } } },
       ];
     }
+    // PO sees their drafts + submitted; admin only sees what's been sent over.
+    // Other roles (manager etc.) see only submitted, same as admin.
+    if (req.user.role !== 'PURCHASE_OFFICER') {
+      where.submittedToAdminAt = { not: null };
+    }
 
     const [quotations, total] = await Promise.all([
       prisma.quotation.findMany({
@@ -316,6 +321,10 @@ router.get('/:id', authenticate, async (req, res) => {
     });
 
     if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
+    // Non-PO roles can only fetch quotations that have been submitted to admin.
+    if (req.user.role !== 'PURCHASE_OFFICER' && !quotation.submittedToAdminAt) {
+      return res.status(404).json({ error: 'Quotation not found' });
+    }
     res.json(quotation);
   } catch (error) {
     console.error('Get quotation error:', error);
@@ -769,14 +778,25 @@ router.post('/submit/:purchaseRequestId', authenticate, authorize('PURCHASE_OFFI
       return res.status(400).json({ error: 'At least one quotation is required before submission' });
     }
 
+    // Only submit quotes that haven't been sent before — re-clicking Submit
+    // shouldn't bump the timestamp on already-submitted batches.
+    const toSubmitIds = quotations.filter(q => !q.submittedToAdminAt).map(q => q.id);
+    if (toSubmitIds.length === 0) {
+      return res.status(400).json({ error: 'All quotations on this PR have already been sent to admin' });
+    }
+
     const maxTotal = Math.max(...quotations.map(q => q.totalAmount));
     const minTotal = Math.min(...quotations.map(q => q.totalAmount));
     const maxTier = getTier(maxTotal);
 
-    // Recompute per-item statuses and let syncPRStatusAfterChange pick the right
-    // PR.status. With partial coverage the PR can stay at QUOTATION_APPROVED/IN_PROGRESS
-    // (some items already on POs) — we never downgrade.
+    // Flip the gate + recompute. With partial coverage the PR can stay at
+    // QUOTATION_APPROVED / IN_PROGRESS (some items already on POs) — we never
+    // downgrade.
     await prisma.$transaction(async (tx) => {
+      await tx.quotation.updateMany({
+        where: { id: { in: toSubmitIds } },
+        data: { submittedToAdminAt: new Date(), submittedToAdminById: req.user.id },
+      });
       const prItems = await tx.purchaseRequestItem.findMany({
         where: { requestId: purchaseRequestId },
         select: { id: true },
@@ -865,7 +885,16 @@ router.post('/union/submit', authenticate, authorize('PURCHASE_OFFICER'), async 
       }
     }
 
+    const toSubmitIds = unions.filter(u => !u.submittedToAdminAt).map(u => u.id);
+    if (toSubmitIds.length === 0) {
+      return res.status(400).json({ error: 'All union quotations in this set have already been sent to admin' });
+    }
+
     await prisma.$transaction(async (tx) => {
+      await tx.quotation.updateMany({
+        where: { id: { in: toSubmitIds } },
+        data: { submittedToAdminAt: new Date(), submittedToAdminById: req.user.id },
+      });
       for (const prId of uniquePrIds) {
         const prItems = await tx.purchaseRequestItem.findMany({
           where: { requestId: prId },
@@ -1207,6 +1236,16 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
           error: `PR ${pr.requestNumber} is not ready for quotation approval (current: ${pr.status})`,
         });
       }
+    }
+
+    // Submission gate: admin can't approve a quotation the PO hasn't explicitly
+    // sent over. This is the matching half of the "Send to Admin" button —
+    // until the PO clicks it, the quote is a draft and invisible/unactionable
+    // to admin.
+    if (!quotation.submittedToAdminAt) {
+      return res.status(400).json({
+        error: 'Quotation has not been sent to admin yet. The Purchase Officer must submit it first.',
+      });
     }
 
     // Hold-fix gate: a held quotation must be resubmitted by the PO first

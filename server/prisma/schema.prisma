@@ -30,6 +30,7 @@ model User {
   // New relations for procurement workflow
   targetedNotifications      Notification[]             @relation("TargetUser")
   quotationsCreated          Quotation[]                @relation("QuotationCreator")
+  quotationsSubmittedToAdmin Quotation[]                @relation("QuotationSubmitter")
   purchaseOrdersCreated      PurchaseOrder[]            @relation("POCreator")
   purchaseOrdersCreditPlaced PurchaseOrder[]            @relation("POCreditPlacer")
   purchaseOrdersClosed       PurchaseOrder[]            @relation("POCloser")
@@ -87,21 +88,21 @@ enum Role {
 
 // ──── UNITS ────
 model Unit {
-  id               String                     @id @default(uuid())
-  name             String                     @unique
-  code             String                     @unique
-  isActive         Boolean                    @default(true)
-  createdAt        DateTime                   @default(now())
-  updatedAt        DateTime                   @updatedAt
-  users            User[]
-  productRequests  ProductRequest[]
-  purchaseRequests PurchaseRequest[]
-  transfersFrom    InventoryTransferRequest[] @relation("TransferFromUnit")
-  transfersTo      InventoryTransferRequest[] @relation("TransferToUnit")
-  productStocks    ProductUnitStock[]
-  tenders          Tender[]
-  inwardGatePasses GatePass[]                 @relation("GatePassDestinationUnit")
-  fimBatchesAssigned ProductBatch[]           @relation("FimAssignedToUnit")
+  id                 String                     @id @default(uuid())
+  name               String                     @unique
+  code               String                     @unique
+  isActive           Boolean                    @default(true)
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  users              User[]
+  productRequests    ProductRequest[]
+  purchaseRequests   PurchaseRequest[]
+  transfersFrom      InventoryTransferRequest[] @relation("TransferFromUnit")
+  transfersTo        InventoryTransferRequest[] @relation("TransferToUnit")
+  productStocks      ProductUnitStock[]
+  tenders            Tender[]
+  inwardGatePasses   GatePass[]                 @relation("GatePassDestinationUnit")
+  fimBatchesAssigned ProductBatch[]             @relation("FimAssignedToUnit")
 }
 
 // ──── AUDIT LOG ────
@@ -200,10 +201,10 @@ model ProductBatch {
   // Two-step return: unit manager marks the FIM ready to send back to the customer,
   // then Stores actually creates the outward gate pass. Stores cannot send out
   // until readyToSendOutAt is set.
-  readyToSendOutAt    DateTime?
-  readyToSendOutById  String?
-  readyToSendOutBy    User?     @relation("FimReadyToSendOutBy", fields: [readyToSendOutById], references: [id])
-  readyToSendOutNote  String?
+  readyToSendOutAt   DateTime?
+  readyToSendOutById String?
+  readyToSendOutBy   User?     @relation("FimReadyToSendOutBy", fields: [readyToSendOutById], references: [id])
+  readyToSendOutNote String?
 
   // PO-flow lot linkage: which QC inspection (lot) this batch came from.
   // Lets the product list show PR → PO → Lot N (invoice) → Batch chain.
@@ -324,7 +325,7 @@ model PurchaseRequestItem {
   adminApprovedQty      Float?
   purchasedQty          Float                         @default(0)
   itemStatus            ItemOrderStatus? // Set once ORDER_PLACED; mirrored from PO items
-  itemQuotationStatus   PRItemQuotationStatus @default(AWAITING_QUOTATION) // Per-item quote progress, independent of order/inward status
+  itemQuotationStatus   PRItemQuotationStatus         @default(AWAITING_QUOTATION) // Per-item quote progress, independent of order/inward status
   // PRF form fields
   materialType          String? // Raw material / Consumable / Tooling / Others
   materialSpecification String? // Material specification data
@@ -371,58 +372,63 @@ enum PRItemQuotationStatus {
 // Quotation/PO rows still snapshot supplierName/Contact/Address so historical
 // records survive supplier renames. The supplierId FK is for lookups + history.
 model Supplier {
-  id                       String              @id @default(uuid())
-  name                     String              @unique
-  contact                  String?
-  address                  String?
-  gstNumber                String?
-  email                    String?
-  isActive                 Boolean             @default(true)
-  notes                    String?
+  id                         String              @id @default(uuid())
+  name                       String              @unique
+  contact                    String?
+  address                    String?
+  gstNumber                  String?
+  email                      String?
+  isActive                   Boolean             @default(true)
+  notes                      String?
   // Vendor Evaluation PDF — uploaded once when the supplier is first onboarded.
   // Survives FY data resets; never re-required.
-  vendorEvaluationPdfUrl   String?
+  vendorEvaluationPdfUrl     String?
   vendorEvaluationUploadedAt DateTime?
   // Supplier Assessment PDF — valid only for the financial year stored in
   // `assessmentFiscalYear`. After FY rollover, a new assessment must be uploaded
   // before the supplier can be used on a new quotation.
-  supplierAssessmentPdfUrl String?
-  assessmentFiscalYear     String?
-  assessmentUploadedAt     DateTime?
-  createdAt                DateTime            @default(now())
-  updatedAt                DateTime            @updatedAt
-  quotations               Quotation[]
-  quotationItems           QuotationItem[]
-  purchaseOrders           PurchaseOrder[]
-  purchaseOrderItems       PurchaseOrderItem[]
+  supplierAssessmentPdfUrl   String?
+  assessmentFiscalYear       String?
+  assessmentUploadedAt       DateTime?
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+  quotations                 Quotation[]
+  quotationItems             QuotationItem[]
+  purchaseOrders             PurchaseOrder[]
+  purchaseOrderItems         PurchaseOrderItem[]
 }
 
 // ──── QUOTATIONS (PO collects from suppliers) ────
 model Quotation {
-  id                String            @id @default(uuid())
-  quotationNumber   String            @unique
-  purchaseRequestId String?
-  purchaseRequest   PurchaseRequest?  @relation(fields: [purchaseRequestId], references: [id])
-  isUnion           Boolean           @default(false)
-  supplierId        String?
-  supplier          Supplier?         @relation(fields: [supplierId], references: [id])
-  supplierName      String?
-  supplierContact   String?
-  supplierAddress   String?
-  totalAmount       Float
-  notes             String?
-  quotationPdfUrl   String? // Optional supplier-quote PDF uploaded by PO
-  selectionNote     String? // Admin's note explaining why this quote was chosen
-  isSelected        Boolean           @default(false)
-  holdNote          String? // Admin's reason for putting the quotation on hold (compliance docs missing, etc.)
-  heldAt            DateTime? // Timestamp when admin put this quotation on hold
-  createdById       String
-  createdBy         User              @relation("QuotationCreator", fields: [createdById], references: [id])
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  items             QuotationItem[]
-  purchaseOrders    PurchaseOrder[]
-  sourceRequests    QuotationSource[]
+  id                   String            @id @default(uuid())
+  quotationNumber      String            @unique
+  purchaseRequestId    String?
+  purchaseRequest      PurchaseRequest?  @relation(fields: [purchaseRequestId], references: [id])
+  isUnion              Boolean           @default(false)
+  supplierId           String?
+  supplier             Supplier?         @relation(fields: [supplierId], references: [id])
+  supplierName         String?
+  supplierContact      String?
+  supplierAddress      String?
+  totalAmount          Float
+  notes                String?
+  quotationPdfUrl      String? // Optional supplier-quote PDF uploaded by PO
+  selectionNote        String? // Admin's note explaining why this quote was chosen
+  isSelected           Boolean           @default(false)
+  holdNote             String? // Admin's reason for putting the quotation on hold (compliance docs missing, etc.)
+  heldAt               DateTime? // Timestamp when admin put this quotation on hold
+  // PO must explicitly send the batch to admin before admin can see/approve it.
+  // Null = still in PO draft; non-null = visible to admin for review.
+  submittedToAdminAt   DateTime?
+  submittedToAdminById String?
+  submittedToAdmin     User?             @relation("QuotationSubmitter", fields: [submittedToAdminById], references: [id])
+  createdById          String
+  createdBy            User              @relation("QuotationCreator", fields: [createdById], references: [id])
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  items                QuotationItem[]
+  purchaseOrders       PurchaseOrder[]
+  sourceRequests       QuotationSource[]
 }
 
 // Junction: links a union Quotation to its source PurchaseRequests
@@ -619,20 +625,20 @@ enum PaymentRequestStatus {
 // ──── QC INSPECTIONS ────
 // Form No: RAPS/IIR Rev 01, Dt: 01/09/2024 (Inward Inspection Request + Report)
 model QCInspection {
-  id                   String        @id @default(uuid())
-  inspectionNumber     String        @unique // ION No.
+  id                   String             @id @default(uuid())
+  inspectionNumber     String             @unique // ION No.
   purchaseOrderId      String
-  purchaseOrder        PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
-  result               QCResult      @default(PENDING)
+  purchaseOrder        PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
+  result               QCResult           @default(PENDING)
   parameters           Json? // Flexible inspection parameters
   notes                String?
   requestCreatedById   String? // Who created the inspection request (Purchase/Stores)
-  requestCreatedBy     User?         @relation("QCInspectionRequestor", fields: [requestCreatedById], references: [id])
+  requestCreatedBy     User?              @relation("QCInspectionRequestor", fields: [requestCreatedById], references: [id])
   inspectedById        String? // Who filled the inspection report (QC)
-  inspectedBy          User?         @relation("QCInspector", fields: [inspectedById], references: [id])
+  inspectedBy          User?              @relation("QCInspector", fields: [inspectedById], references: [id])
   inspectedAt          DateTime?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
   // ── Page 1: Inward Inspection Request fields ──
   invoiceNo            String? // 11. Invoice no. & date
   invoiceDate          DateTime?
@@ -652,7 +658,7 @@ model QCInspection {
   docRequirementNote   String? // Free text note alongside docRequirement
   uploadedDocs         Json? // Array of {filename, url, uploadedById, uploadedAt} from PO
   pendingReason        String? // Reason QC marked Pending; bounces back to PO
-  iteration            Int           @default(1) // Increment each re-review cycle
+  iteration            Int                @default(1) // Increment each re-review cycle
   inspectionLocation   String? // Dimensional Inspection at Supplier Place / at RAPS Inward
   reportReferenceNo    String? // Report reference no.
   packingCondition     String? // Sealed / Broken
@@ -680,7 +686,7 @@ model QCInspection {
   // Per-item arrived qty rows for this lot
   items                QCInspectionItem[]
   // Batches inwarded against this lot (FIFO traceability)
-  batches              ProductBatch[]    @relation("BatchSourceInspection")
+  batches              ProductBatch[]     @relation("BatchSourceInspection")
 }
 
 // Per-item arrived qty for a specific lot (QCInspection).
@@ -710,18 +716,18 @@ enum QCResult {
 // Workflow: Unit Manager (Site Incharge) → Store Incharge → Accounts → Final Approval
 // Approved passes can later be marked RETURNED (returnable items) or CLOSED.
 model GatePass {
-  id                   String            @id @default(uuid())
-  passNumber           String            @unique // Doc/Request No
+  id                   String             @id @default(uuid())
+  passNumber           String             @unique // Doc/Request No
   // FIM/Customer Property Register number (INWARD STORES only).
   // Format: RAPS/FIM/<FY>/<N>. Distinct from passNumber (RAPS/GP/...) so the
   // FIM register can list entries by their own running count.
-  fimNumber            String?           @unique
+  fimNumber            String?            @unique
   // INWARD-only: cross-reference to an internal gate-pass requisition number
   // (the requisitioner's reference for this FIM intake).
   gpRequisitionNo      String?
   passType             GatePassType? // Dominant / legacy type (per-item overrides)
-  direction            GatePassDirection @default(OUTWARD) // INWARD = customer → us, OUTWARD = us → customer/site
-  date                 DateTime          @default(now())
+  direction            GatePassDirection  @default(OUTWARD) // INWARD = customer → us, OUTWARD = us → customer/site
+  date                 DateTime           @default(now())
   siteName             String? // Site (header)
   partyName            String? // Auto-derived from items.dispatchedTo (legacy column)
   partyContact         String?
@@ -739,16 +745,16 @@ model GatePass {
   // DIRECT_TO_UNIT = sent straight to a unit; that unit's manager marks it Collected on the gatepass itself.
   inwardKind           InwardKind?
   destinationUnitId    String?
-  destinationUnit      Unit?     @relation("GatePassDestinationUnit", fields: [destinationUnitId], references: [id])
+  destinationUnit      Unit?              @relation("GatePassDestinationUnit", fields: [destinationUnitId], references: [id])
   collectedAt          DateTime?
   collectedById        String?
-  collectedBy          User?     @relation("GatePassCollector", fields: [collectedById], references: [id])
+  collectedBy          User?              @relation("GatePassCollector", fields: [collectedById], references: [id])
   vehicleNo            String? // Filled by Store Incharge when arranging the vehicle
   driverName           String? // Filled by Store Incharge when arranging the vehicle
   invoiceNo            String?
   dcNo                 String?
   purpose              String? // Legacy (now per-item)
-  status               GatePassStatus    @default(PENDING_STORE)
+  status               GatePassStatus     @default(PENDING_STORE)
   expectedReturnDate   DateTime? // Legacy (now per-item)
   actualReturnDate     DateTime?
   returnedBy           String?

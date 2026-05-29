@@ -2255,9 +2255,28 @@ export default function QuotationManagement() {
                         <td className="px-3 py-2 text-gray-600">{pr.items?.length}</td>
                         <td className="px-3 py-2">
                           <div className="flex flex-wrap gap-1">
-                            <Badge color={(pr.quotations?.length || 0) > 0 ? 'green' : 'gray'}>
-                              {pr.quotations?.length || 0} single
-                            </Badge>
+                            {(() => {
+                              const singles = pr.quotations || [];
+                              const draftCount = singles.filter(q => !q.submittedToAdminAt).length;
+                              const sentCount = singles.length - draftCount;
+                              return (
+                                <>
+                                  {draftCount > 0 && (
+                                    <Badge color="amber" title="Not yet sent to admin">
+                                      {draftCount} draft
+                                    </Badge>
+                                  )}
+                                  {sentCount > 0 && (
+                                    <Badge color="green" title="Already sent to admin">
+                                      {sentCount} sent
+                                    </Badge>
+                                  )}
+                                  {singles.length === 0 && (
+                                    <Badge color="gray">0 single</Badge>
+                                  )}
+                                </>
+                              );
+                            })()}
                             {(unionCounts[pr.id] || 0) > 0 && (
                               <Badge color="purple">
                                 <Layers size={10} className="inline mr-0.5" /> {unionCounts[pr.id]} union
@@ -2271,20 +2290,24 @@ export default function QuotationManagement() {
                             <Button size="sm" onClick={() => setShowAddQuotation(pr)}>
                               <Plus size={14} className="mr-1" /> Add Quote
                             </Button>
-                            {(pr.quotations?.length || 0) > 0 && (
-                              <Button size="sm" variant="primary" onClick={async () => {
-                                if (!confirm(`Submit ${pr.quotations.length} single-PR quotation(s) to admin for approval?`)) return;
-                                try {
-                                  await api.post(`/quotations/submit/${pr.id}`);
-                                  alert('Quotations submitted to admin for approval.');
-                                  fetchData();
-                                } catch (err) {
-                                  alert(err.response?.data?.error || 'Failed to submit');
-                                }
-                              }}>
-                                <Send size={14} className="mr-1" /> Submit to Admin
-                              </Button>
-                            )}
+                            {(() => {
+                              const draftSingles = (pr.quotations || []).filter(q => !q.submittedToAdminAt);
+                              if (draftSingles.length === 0) return null;
+                              return (
+                                <Button size="sm" variant="primary" onClick={async () => {
+                                  if (!confirm(`Send ${draftSingles.length} draft quotation(s) to admin for approval?`)) return;
+                                  try {
+                                    await api.post(`/quotations/submit/${pr.id}`);
+                                    alert('Quotations sent to admin for approval.');
+                                    fetchData();
+                                  } catch (err) {
+                                    alert(err.response?.data?.error || 'Failed to submit');
+                                  }
+                                }}>
+                                  <Send size={14} className="mr-1" /> Send {draftSingles.length} to Admin
+                                </Button>
+                              );
+                            })()}
                           </div>
                         </td>
                       </tr>

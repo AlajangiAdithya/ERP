@@ -115,6 +115,20 @@ async function syncPRStatusAfterChange(tx, prId) {
   });
   if (!pr) return;
 
+  // A PR only graduates past APPROVED when the PO has explicitly sent a quote
+  // to admin. While quotes exist purely as PO drafts, the PR must stay at
+  // APPROVED so it doesn't surface in admin's review queue yet.
+  const hasSubmittedQuote = await tx.quotation.findFirst({
+    where: {
+      submittedToAdminAt: { not: null },
+      OR: [
+        { purchaseRequestId: prId },
+        { sourceRequests: { some: { purchaseRequestId: prId } } },
+      ],
+    },
+    select: { id: true },
+  });
+
   // PRs that are still pending admin / rejected don't get auto-advanced.
   // PRs that have already moved past quotation review (ORDER_PLACED onwards)
   // must not be downgraded back to IN_PROGRESS / QUOTATION_SUBMITTED — the
@@ -147,11 +161,16 @@ async function syncPRStatusAfterChange(tx, prId) {
     target = 'QUOTATION_APPROVED';
   } else if (anyAwaiting) {
     // Partially covered: some items already in flight (submitted/held/approved),
-    // others still waiting. IN_PROGRESS keeps the PR on the PO's radar.
+    // others still waiting. IN_PROGRESS keeps the PR on the PO's radar — but
+    // only if at least one quote has been sent to admin; otherwise the PR is
+    // still in PO drafting territory.
     const anyInFlight = anySubmitted || anyHeld || anyApproved;
-    target = anyInFlight ? 'IN_PROGRESS' : 'APPROVED';
+    target = (anyInFlight && hasSubmittedQuote) ? 'IN_PROGRESS' : 'APPROVED';
   } else if (anyHeld || anySubmitted) {
-    target = 'QUOTATION_SUBMITTED';
+    // Every item has a quote — but if none of them have been sent to admin yet
+    // we stay at APPROVED so admin doesn't see anything until the PO clicks
+    // "Send to Admin".
+    target = hasSubmittedQuote ? 'QUOTATION_SUBMITTED' : 'APPROVED';
   }
 
   if (target !== pr.status) {
