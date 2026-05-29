@@ -41,11 +41,11 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
       setNotes('');
       setQuotationPdf(null);
       setCommon({ supplierName: '', supplierContact: '', supplierAddress: '' });
-      // Only quote items that are still AWAITING — items already pooled into a
-      // union or covered by another quotation are skipped to avoid duplicate
-      // quotes from the same PR.
+      // Show items still open for quoting (AWAITING / SUBMITTED / HELD). Items
+      // already covered by a competing quote can still receive another one —
+      // only APPROVED (already on a PO) and CANCELLED items are hidden.
       const prItems = purchaseRequest.items
-        ?.filter(i => !i.itemQuotationStatus || i.itemQuotationStatus === 'AWAITING_QUOTATION')
+        ?.filter(i => !i.itemQuotationStatus || ['AWAITING_QUOTATION', 'QUOTATION_SUBMITTED', 'QUOTATION_HELD'].includes(i.itemQuotationStatus))
         .map(i => ({
           productId: i.productId || null,
           productName: i.productName,
@@ -1947,11 +1947,13 @@ function PoolByMaterialSection({ onUpdated }) {
                     <th className="px-2 py-1.5 text-left text-gray-600">Manager</th>
                     <th className="px-2 py-1.5 text-left text-gray-600">Required Qty</th>
                     <th className="px-2 py-1.5 text-left text-gray-600">Required By</th>
+                    <th className="px-2 py-1.5 text-left text-gray-600">Existing Quotes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {group.rows.map(r => {
                     const qty = r.adminApprovedQty ?? r.requestedQty ?? 0;
+                    const existing = r.existingQuoteCount || 0;
                     return (
                       <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
                         <td className="px-2 py-1.5">
@@ -1968,6 +1970,11 @@ function PoolByMaterialSection({ onUpdated }) {
                         <td className="px-2 py-1.5">{qty} {r.productUnit}</td>
                         <td className="px-2 py-1.5 text-gray-500">
                           {r.requiredByDate ? new Date(r.requiredByDate).toLocaleDateString('en-IN') : '—'}
+                        </td>
+                        <td className="px-2 py-1.5">
+                          {existing > 0
+                            ? <Badge color="purple">{existing} quote{existing > 1 ? 's' : ''}</Badge>
+                            : <span className="text-gray-400">—</span>}
                         </td>
                       </tr>
                     );
@@ -2282,7 +2289,7 @@ export default function QuotationManagement() {
             <GitMerge size={18} className="text-purple-600" /> Pool by Material
           </h2>
           <p className="text-xs text-gray-500 mb-3">
-            When the same material is requested by multiple PRs, tick the lines you want bundled and quote them in one go. Untouched materials still go through the normal "Add Quote" flow above.
+            When the same material is requested by multiple PRs, tick the lines you want bundled and quote them in one go. Untouched materials still go through the normal "Add Quote" flow above. To collect competing quotes, submit again with a different supplier — each submission becomes one competing union quotation that admin can pick between.
           </p>
           <PoolByMaterialSection onUpdated={fetchData} />
         </div>

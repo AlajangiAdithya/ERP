@@ -132,14 +132,18 @@ function complianceErrorPayload(issues) {
   };
 }
 
-// GET /api/quotations/pool-candidates — PR line items still waiting on a quotation,
+// GET /api/quotations/pool-candidates — PR line items still open for quoting,
 // across every open PR. Used by the "Pool by Material" view so the Purchase Officer
 // can manually pick lines from different PRs and pool them into one union quotation.
+//
+// Items already covered by a quotation (SUBMITTED/HELD) are still included so the
+// PO can add competing quotes from other suppliers — only QUOTATION_APPROVED
+// (already on a PO) and CANCELLED items are excluded.
 router.get('/pool-candidates', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const items = await prisma.purchaseRequestItem.findMany({
       where: {
-        itemQuotationStatus: 'AWAITING_QUOTATION',
+        itemQuotationStatus: { in: ['AWAITING_QUOTATION', 'QUOTATION_SUBMITTED', 'QUOTATION_HELD'] },
         request: { status: { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED'] } },
       },
       include: {
@@ -160,7 +164,49 @@ router.get('/pool-candidates', authenticate, authorize('PURCHASE_OFFICER'), asyn
       ],
     });
 
-    res.json({ items });
+    // Tally how many union quotations already cover each PR-item so the UI can
+    // show a "N quotes already" hint per row.
+    const itemIds = items.map(i => i.id);
+    const existingQuoteCounts = new Map(itemIds.map(id => [id, 0]));
+    if (itemIds.length > 0) {
+      // Union quotations: walk sourceAllocations on QuotationItem
+      const unionItems = await prisma.quotationItem.findMany({
+        where: {
+          quotation: { isUnion: true, isSelected: false },
+        },
+        select: { quotationId: true, sourceAllocations: true },
+      });
+      for (const qi of unionItems) {
+        if (!Array.isArray(qi.sourceAllocations)) continue;
+        for (const src of qi.sourceAllocations) {
+          if (existingQuoteCounts.has(src.purchaseRequestItemId)) {
+            existingQuoteCounts.set(src.purchaseRequestItemId, existingQuoteCounts.get(src.purchaseRequestItemId) + 1);
+          }
+        }
+      }
+      // Single-PR quotations: match by productName within the same PR
+      const prIdsTouched = [...new Set(items.map(i => i.request.id))];
+      const singleItems = await prisma.quotationItem.findMany({
+        where: {
+          quotation: { isUnion: false, isSelected: false, purchaseRequestId: { in: prIdsTouched } },
+        },
+        select: { quotation: { select: { purchaseRequestId: true } }, productName: true },
+      });
+      const singleByPr = new Map();
+      for (const qi of singleItems) {
+        const k = `${qi.quotation.purchaseRequestId}::${(qi.productName || '').toLowerCase().trim()}`;
+        singleByPr.set(k, (singleByPr.get(k) || 0) + 1);
+      }
+      for (const it of items) {
+        const k = `${it.request.id}::${(it.productName || '').toLowerCase().trim()}`;
+        const n = singleByPr.get(k) || 0;
+        existingQuoteCounts.set(it.id, (existingQuoteCounts.get(it.id) || 0) + n);
+      }
+    }
+
+    res.json({
+      items: items.map(i => ({ ...i, existingQuoteCount: existingQuoteCounts.get(i.id) || 0 })),
+    });
   } catch (error) {
     console.error('Get pool candidates error:', error);
     res.status(500).json({ error: 'Internal server error' });
