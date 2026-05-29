@@ -7,6 +7,12 @@ const { generateSequentialNumber, paginate, isUniqueViolation, withDocRetry, get
 const { canApprove, getTier, getTierLabel, getApproversForTier } = require('../utils/approvalTiers');
 const { quotationUpload, publicUrlFor } = require('../middleware/upload');
 const { recomputePRItemQuotationStatus, syncPRStatusAfterChange } = require('../utils/prClosure');
+const {
+  QTY_TOLERANCE,
+  resolveSupplierId,
+  checkSuppliersCompliance,
+  complianceErrorPayload,
+} = require('../utils/quotationHelpers');
 
 const router = express.Router();
 
@@ -60,77 +66,8 @@ const unionCreateSchema = z.object({
   })).min(1),
 });
 
-// Given a free-text supplier name (+ optional supplierId from client), return a
-// canonical supplier id by upserting on case-insensitive name. Used to attach
-// supplierId to every Quotation/QuotationItem so the supplier history stays accurate.
-async function resolveSupplierId(name, contact, address, hintId) {
-  const trimmed = (name || '').trim();
-  if (!trimmed) return null;
-  if (hintId) {
-    const ok = await prisma.supplier.findUnique({ where: { id: hintId } });
-    if (ok) return ok.id;
-  }
-  const existing = await prisma.supplier.findFirst({
-    where: { name: { equals: trimmed, mode: 'insensitive' } },
-  });
-  if (existing) return existing.id;
-  const created = await prisma.supplier.create({
-    data: { name: trimmed, contact: (contact || '').trim() || null, address: (address || '').trim() || null },
-  });
-  return created.id;
-}
-
-// Tolerance for float-sum vs total comparison (kg/litre/pcs all use Float)
-const QTY_TOLERANCE = 0.001;
-
-// Verify every supplier referenced by a quotation has the required compliance
-// documents on file. Returns a list of issues (empty when all good).
-//
-// Hard blocker: the one-time Vendor Evaluation PDF must be on file.
-// Soft warning: the Supplier Assessment PDF is stamped per FY and expires at
-//   the start of the next FY. An expired assessment surfaces in the response
-//   so the UI can warn the PO, but does NOT prevent submission — purchase work
-//   continues while procurement gets the new assessment uploaded.
-async function checkSuppliersCompliance(supplierIds) {
-  const ids = [...new Set(supplierIds.filter(Boolean))];
-  if (ids.length === 0) return { hardIssues: [], softWarnings: [] };
-  const currentFY = getFinancialYear();
-  const suppliers = await prisma.supplier.findMany({
-    where: { id: { in: ids } },
-    select: {
-      id: true,
-      name: true,
-      vendorEvaluationPdfUrl: true,
-      supplierAssessmentPdfUrl: true,
-      assessmentFiscalYear: true,
-    },
-  });
-  const hardIssues = [];
-  const softWarnings = [];
-  for (const s of suppliers) {
-    if (!s.vendorEvaluationPdfUrl) {
-      hardIssues.push({ supplierId: s.id, supplierName: s.name, missing: ['vendor-evaluation'] });
-    }
-    if (!s.supplierAssessmentPdfUrl || s.assessmentFiscalYear !== currentFY) {
-      softWarnings.push({
-        supplierId: s.id,
-        supplierName: s.name,
-        expiredFY: s.assessmentFiscalYear || null,
-      });
-    }
-  }
-  return { hardIssues, softWarnings };
-}
-
-function complianceErrorPayload(issues) {
-  const currentFY = getFinancialYear();
-  const lines = issues.map(i => `${i.supplierName}: Vendor Evaluation PDF`);
-  return {
-    error: `Cannot submit quotation — the following supplier(s) need a Vendor Evaluation PDF uploaded first:\n${lines.join('\n')}`,
-    complianceIssues: issues,
-    currentFinancialYear: currentFY,
-  };
-}
+// Supplier resolution + compliance helpers moved to utils/quotationHelpers.js
+// so the material-pool quote endpoint can share them.
 
 // GET /api/quotations/pool-candidates — PR line items still open for quoting,
 // across every open PR. Used by the "Pool by Material" view so the Purchase Officer
@@ -1504,6 +1441,32 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         });
         await recomputePRItemQuotationStatus(tx, prItems.map(i => i.id));
         await syncPRStatusAfterChange(tx, pr.id);
+      }
+
+      // If the approved quotation was tied to a MaterialPool (i.e. any of its
+      // sourceAllocations point at items in a pool), flip that pool to
+      // APPROVED so the PO knows the bundle is locked in. The PR-items
+      // continue downstream via the union PO's allocation chain.
+      if (quotation.isUnion) {
+        const approvedPrItemIds = [];
+        for (const qi of quotation.items) {
+          if (Array.isArray(qi.sourceAllocations)) {
+            for (const src of qi.sourceAllocations) approvedPrItemIds.push(src.purchaseRequestItemId);
+          }
+        }
+        if (approvedPrItemIds.length > 0) {
+          const poolMembers = await tx.materialPoolItem.findMany({
+            where: { purchaseRequestItemId: { in: approvedPrItemIds } },
+            select: { poolId: true },
+          });
+          const poolIds = [...new Set(poolMembers.map(m => m.poolId))];
+          if (poolIds.length > 0) {
+            await tx.materialPool.updateMany({
+              where: { id: { in: poolIds } },
+              data: { status: 'APPROVED' },
+            });
+          }
+        }
       }
 
       return orders;

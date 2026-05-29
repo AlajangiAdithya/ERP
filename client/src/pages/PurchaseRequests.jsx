@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw, GitMerge, Unlink } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
@@ -799,7 +799,26 @@ function ProcurementJourney({ request }) {
 }
 
 // ─── Detail View Modal (for Managers viewing progress) ───
-function DetailModal({ request, onClose }) {
+// `isPO` + `onReload` are required for the Pool Material flow: the PO can pool
+// a PR-item with same-material items from other PRs (or undo) directly from
+// this modal. After the action, parent refetches so badges + states stay in sync.
+function DetailModal({ request, onClose, isPO = false, onReload }) {
+  const [poolPickerItem, setPoolPickerItem] = useState(null);
+  const [unpoolingId, setUnpoolingId] = useState(null);
+
+  const unpool = async (poolId, poolItemId) => {
+    if (!confirm('Remove this item from the pool? Other partners stay pooled; the pool dissolves if fewer than 2 items remain.')) return;
+    setUnpoolingId(poolItemId);
+    try {
+      await api.delete(`/material-pools/${poolId}/items/${poolItemId}`);
+      onReload?.();
+      onClose?.();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to unpool');
+    }
+    setUnpoolingId(null);
+  };
+
   if (!request) return null;
 
   const unionPOs = (request.purchaseOrderSources || [])
@@ -915,6 +934,13 @@ function DetailModal({ request, onClose }) {
             <tbody>
               {request.items?.map(item => {
                 const unionRef = unionPOByItem.get(item.id);
+                const poolMembership = item.materialPoolMembership;
+                const pool = poolMembership?.pool;
+                const partnerItems = (pool?.items || []).filter(pi => pi.purchaseRequestItemId !== item.id);
+                const canPool = isPO
+                  && item.itemQuotationStatus === 'AWAITING_QUOTATION'
+                  && !poolMembership
+                  && ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED'].includes(request.status);
                 return (
                   <tr key={item.id} className="border-b border-gray-50 align-top">
                     <td className="px-3 py-2 font-medium text-gray-700">
@@ -928,7 +954,42 @@ function DetailModal({ request, onClose }) {
                             <Layers size={10} className="inline mr-0.5" /> Union {unionRef.po.orderNumber}
                           </Badge>
                         )}
+                        {pool && !unionRef && (
+                          <Badge color="purple" title={`Pooled with ${partnerItems.length} other PR-item(s)`}>
+                            <GitMerge size={10} className="inline mr-0.5" /> Pool · {pool.status}
+                          </Badge>
+                        )}
+                        {canPool && (
+                          <Button size="sm" variant="secondary" onClick={() => setPoolPickerItem(item)} title="Pool this material with another PR">
+                            <GitMerge size={12} className="mr-0.5" /> Pool
+                          </Button>
+                        )}
+                        {isPO && pool && pool.status === 'OPEN' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={unpoolingId === poolMembership.id}
+                            onClick={() => unpool(pool.id, poolMembership.id)}
+                            title="Remove from pool"
+                          >
+                            <Unlink size={12} className="mr-0.5" /> {unpoolingId === poolMembership.id ? 'Removing…' : 'Unpool'}
+                          </Button>
+                        )}
                       </div>
+                      {pool && partnerItems.length > 0 && !unionRef && (
+                        <div className="mt-1 text-xs text-purple-900 bg-purple-50 border border-purple-200 rounded px-2 py-1">
+                          <span className="font-medium">Pooled with:</span>{' '}
+                          {partnerItems.map((pi, i) => (
+                            <span key={pi.id}>
+                              {i > 0 && ', '}
+                              <span className="font-mono">{pi.purchaseRequestItem?.request?.requestNumber}</span>
+                              {pi.purchaseRequestItem?.request?.unit?.code && (
+                                <span className="text-purple-700"> ({pi.purchaseRequestItem.request.unit.code})</span>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {unionRef && (
                         <div className="mt-1 text-xs text-purple-900 bg-purple-50 border border-purple-200 rounded px-2 py-1 space-y-0.5">
                           <div>
@@ -1008,6 +1069,112 @@ function DetailModal({ request, onClose }) {
             fileName={`PR-${request.requestNumber}.pdf`}
             label="View PR PDF"
           />
+        </div>
+      </div>
+
+      {poolPickerItem && (
+        <PoolPickerModal
+          anchorItem={poolPickerItem}
+          onClose={() => setPoolPickerItem(null)}
+          onPooled={() => {
+            setPoolPickerItem(null);
+            onReload?.();
+            onClose?.();
+          }}
+        />
+      )}
+    </Modal>
+  );
+}
+
+// ─── Pool Picker Modal ───
+// Lists other PR-items matching the anchor item's productName + productUnit
+// that are still poolable (un-pooled, awaiting quote). Picking ≥1 partner +
+// confirming creates a MaterialPool with all selected items.
+function PoolPickerModal({ anchorItem, onClose, onPooled }) {
+  const [loading, setLoading] = useState(true);
+  const [candidates, setCandidates] = useState([]);
+  const [selected, setSelected] = useState(new Set());
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.get(`/material-pools/candidates`, { params: { purchaseRequestItemId: anchorItem.id } })
+      .then(r => { if (!cancelled) setCandidates(r.data.candidates || []); })
+      .catch(err => alert(err.response?.data?.error || 'Failed to load candidates'))
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [anchorItem.id]);
+
+  const toggle = (id) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelected(next);
+  };
+
+  const submit = async () => {
+    if (selected.size === 0) return;
+    setSubmitting(true);
+    try {
+      await api.post('/material-pools', {
+        purchaseRequestItemIds: [anchorItem.id, ...selected],
+      });
+      onPooled();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to create pool');
+    }
+    setSubmitting(false);
+  };
+
+  return (
+    <Modal isOpen={true} onClose={onClose} title={`Pool "${anchorItem.productName}" with other PRs`} size="lg">
+      <div className="space-y-3">
+        <p className="text-sm text-gray-600">
+          Pick one or more PR-items that share the same material. They'll be bundled into a single pool so you can collect competing supplier quotes covering all of them at once.
+        </p>
+        {loading ? (
+          <div className="flex justify-center py-6">
+            <div className="w-6 h-6 border-2 border-navy-700 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : candidates.length === 0 ? (
+          <p className="text-sm text-gray-500 py-4 text-center">No other PRs currently have this material awaiting a quote.</p>
+        ) : (
+          <div className="border rounded">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 w-10"></th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">PR</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requester</th>
+                </tr>
+              </thead>
+              <tbody>
+                {candidates.map(c => {
+                  const qty = c.adminApprovedQty != null ? c.adminApprovedQty : c.requestedQty;
+                  return (
+                    <tr key={c.id} className="border-t hover:bg-purple-50/40">
+                      <td className="px-3 py-2">
+                        <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} />
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs">{c.request.requestNumber}</td>
+                      <td className="px-3 py-2">{c.request.unit?.code || c.request.unit?.name || '—'}</td>
+                      <td className="px-3 py-2">{qty} {c.productUnit}</td>
+                      <td className="px-3 py-2 text-gray-600">{c.request.manager?.name || '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={selected.size === 0 || submitting}>
+            <GitMerge size={14} className="mr-1" /> {submitting ? 'Pooling…' : `Create Pool (${selected.size + 1} items)`}
+          </Button>
         </div>
       </div>
     </Modal>
@@ -1306,7 +1473,12 @@ export default function PurchaseRequests() {
       />
       <AdminReviewModal request={selectedForReview} onClose={() => setSelectedForReview(null)} onUpdated={fetchRequests} />
       <RecordPurchaseModal request={selectedForPurchase} onClose={() => setSelectedForPurchase(null)} onUpdated={fetchRequests} />
-      <DetailModal request={selectedForDetail} onClose={() => setSelectedForDetail(null)} />
+      <DetailModal
+        request={selectedForDetail}
+        onClose={() => setSelectedForDetail(null)}
+        isPO={isPO}
+        onReload={fetchRequests}
+      />
     </div>
   );
 }

@@ -1751,6 +1751,165 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover, isPO }) 
   );
 }
 
+// ─── Open Pools section (lists MaterialPool records the PO can quote against) ───
+// Each pool was created from the PR detail page by bundling same-material lines
+// across PRs. Multiple competing quotes can be added to one pool — each one
+// becomes a separate draft union quotation. The pool dissolves automatically
+// once admin approves one of the quotes (PR-items follow the union PO from
+// there via the existing FIFO allocation chain).
+function OpenPoolsSection({ onUpdated }) {
+  const [pools, setPools] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [poolState, setPoolState] = useState({});
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/material-pools', { params: { status: 'OPEN' } });
+      // Also pull QUOTED pools so the PO can attach more competing quotes.
+      const { data: quoted } = await api.get('/material-pools', { params: { status: 'QUOTED' } });
+      setPools([...(data.pools || []), ...(quoted.pools || [])]);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const getState = (id) => poolState[id] || { unitPrice: '', supplierName: '', supplierContact: '', supplierAddress: '', saving: false, complianceIssues: [] };
+  const updateState = (id, patch) => setPoolState((p) => ({ ...p, [id]: { ...getState(id), ...patch } }));
+
+  const dissolvePool = async (poolId) => {
+    if (!confirm('Dissolve this pool? Member PR-items return to the normal single-quote flow.')) return;
+    try {
+      await api.delete(`/material-pools/${poolId}`);
+      await load();
+      onUpdated?.();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to dissolve pool');
+    }
+  };
+
+  const submitQuote = async (pool) => {
+    const s = getState(pool.id);
+    const price = parseFloat(s.unitPrice);
+    if (!(price >= 0)) return alert('Enter a valid unit price.');
+    if (!s.supplierName.trim()) return alert('Supplier name is required.');
+    updateState(pool.id, { saving: true, complianceIssues: [] });
+    try {
+      await api.post(`/material-pools/${pool.id}/quotations`, {
+        unitPrice: price,
+        supplierName: s.supplierName.trim(),
+        supplierContact: s.supplierContact.trim() || undefined,
+        supplierAddress: s.supplierAddress.trim() || undefined,
+      });
+      updateState(pool.id, { unitPrice: '', supplierName: '', supplierContact: '', supplierAddress: '', saving: false, complianceIssues: [] });
+      await load();
+      onUpdated?.();
+    } catch (err) {
+      const issues = err.response?.data?.complianceIssues;
+      if (Array.isArray(issues) && issues.length > 0) {
+        updateState(pool.id, { complianceIssues: issues, saving: false });
+      } else {
+        alert(err.response?.data?.error || 'Failed to add quote');
+        updateState(pool.id, { saving: false });
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <Card>
+        <div className="flex justify-center py-8">
+          <div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Card>
+    );
+  }
+
+  if (pools.length === 0) {
+    return (
+      <Card>
+        <p className="text-center text-gray-400 py-6">
+          No active material pools. Pool same-material lines from two PRs by opening a PR and clicking <strong>Pool</strong> on a material row.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {pools.map(pool => {
+        const s = getState(pool.id);
+        const totalQty = pool.items.reduce((sum, pi) => {
+          const it = pi.purchaseRequestItem;
+          return sum + (it.adminApprovedQty != null ? it.adminApprovedQty : it.requestedQty || 0);
+        }, 0);
+        return (
+          <Card key={pool.id}>
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div>
+                <div className="font-semibold text-gray-800 flex items-center gap-2">
+                  <GitMerge size={16} className="text-purple-600" /> {pool.productName}
+                  <Badge color={pool.status === 'OPEN' ? 'gray' : 'purple'}>{pool.status}</Badge>
+                  <span className="text-xs text-gray-500">{pool.items.length} PR-items · total {totalQty} {pool.productUnit}</span>
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Created by {pool.createdBy?.name || '—'} · {pool.items.length} sources</div>
+              </div>
+              {pool.status === 'OPEN' && (
+                <Button size="sm" variant="ghost" onClick={() => dissolvePool(pool.id)}>
+                  Dissolve
+                </Button>
+              )}
+            </div>
+            <div className="mb-3 border rounded overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-1 text-left font-medium text-gray-500">PR</th>
+                    <th className="px-3 py-1 text-left font-medium text-gray-500">Unit</th>
+                    <th className="px-3 py-1 text-left font-medium text-gray-500">Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pool.items.map(pi => {
+                    const it = pi.purchaseRequestItem;
+                    const qty = it.adminApprovedQty != null ? it.adminApprovedQty : it.requestedQty;
+                    return (
+                      <tr key={pi.id} className="border-t">
+                        <td className="px-3 py-1 font-mono">{it.request?.requestNumber}</td>
+                        <td className="px-3 py-1">{it.request?.unit?.code || it.request?.unit?.name || '—'}</td>
+                        <td className="px-3 py-1">{qty} {pool.productUnit}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+              <Input placeholder="Supplier name" value={s.supplierName} onChange={(e) => updateState(pool.id, { supplierName: e.target.value })} />
+              <Input placeholder="Supplier contact (opt)" value={s.supplierContact} onChange={(e) => updateState(pool.id, { supplierContact: e.target.value })} />
+              <Input placeholder={`Unit price / ${pool.productUnit}`} type="number" min={0} step="any" value={s.unitPrice} onChange={(e) => updateState(pool.id, { unitPrice: e.target.value })} />
+              <Button onClick={() => submitQuote(pool)} disabled={s.saving}>
+                <Plus size={14} className="mr-1" /> {s.saving ? 'Adding…' : 'Add Quote'}
+              </Button>
+            </div>
+            {s.complianceIssues.length > 0 && (
+              <div className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                <div className="font-medium">Supplier compliance issues:</div>
+                {s.complianceIssues.map((c, i) => (
+                  <div key={i}>{c.supplierName}: missing Vendor Evaluation PDF</div>
+                ))}
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Pool by Material (per-product card with manual line picking) ───
 // One card per product (grouped by name+unit). Inside each card the PO ticks
 // the lines from different PRs they want to pool, enters supplier + price,
@@ -2457,17 +2616,33 @@ export default function QuotationManagement() {
         </div>
       )}
 
-      {/* PO: Pool by Material — for each product spanning ≥2 PRs, pick lines + quote once */}
+      {/* PO: Material Pools — PR-items the PO has bundled together from the PR
+          detail page. Each pool can collect multiple competing supplier
+          quotations; once admin approves one, the pool's PR-items move into a
+          single union PO with FIFO inward allocation. */}
       {isPO && (
         <div>
           <h2 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-            <GitMerge size={18} className="text-purple-600" /> Pool by Material
+            <GitMerge size={18} className="text-purple-600" /> Material Pools
           </h2>
           <p className="text-xs text-gray-500 mb-3">
-            When the same material is requested by multiple PRs, tick the lines you want bundled and quote them in one go. Untouched materials still go through the normal "Add Quote" flow above. To collect competing quotes, submit again with a different supplier — each submission becomes one competing union quotation that admin can pick between.
+            Pools are built from the <strong>PR detail page</strong> — open a PR, click <em>Pool</em> on any material to bundle it with the same material from another PR. Add competing quotes here; each becomes a separate draft union quotation you can send to admin.
           </p>
-          <PoolByMaterialSection onUpdated={fetchData} />
+          <OpenPoolsSection onUpdated={fetchData} />
         </div>
+      )}
+
+      {/* PO: Legacy Pool-by-Material — keep around for ad-hoc pooling without
+          touching PR detail. Lines that aren't already in a pool show up here. */}
+      {isPO && (
+        <details className="rounded border border-gray-200 bg-gray-50">
+          <summary className="cursor-pointer text-sm text-gray-700 px-3 py-2 select-none">
+            Quick pool-by-material (legacy) — pool + quote in one step
+          </summary>
+          <div className="p-3">
+            <PoolByMaterialSection onUpdated={fetchData} />
+          </div>
+        </details>
       )}
 
       {/* PO: Draft Union Quotations — built but not yet sent to admin.

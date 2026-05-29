@@ -53,6 +53,7 @@ model User {
   transferRequestsApproved   InventoryTransferRequest[] @relation("TransferApprover")
   tendersCreated             Tender[]                   @relation("TenderCreator")
   tendersAssigned            Tender[]                   @relation("TenderAssignee")
+  materialPoolsCreated       MaterialPool[]             @relation("MaterialPoolCreator")
 }
 
 model Session {
@@ -142,6 +143,7 @@ model Product {
   quotationItems       QuotationItem[]
   purchaseOrderItems   PurchaseOrderItem[]
   unitStocks           ProductUnitStock[]
+  materialPools        MaterialPool[]
 }
 
 // ──── PER-UNIT INVENTORY (Phase 6) ────
@@ -340,6 +342,7 @@ model PurchaseRequestItem {
   requiredByDate        DateTime? // Required by date
   itemRemarks           String? // Other details/Remarks
   poItemAllocations     PurchaseOrderItemAllocation[]
+  materialPoolMembership MaterialPoolItem?
 }
 
 enum PurchaseRequestStatus {
@@ -396,6 +399,48 @@ model Supplier {
   quotationItems             QuotationItem[]
   purchaseOrders             PurchaseOrder[]
   purchaseOrderItems         PurchaseOrderItem[]
+}
+
+// ──── MATERIAL POOLS (PO bundles same-material lines across PRs before quoting) ────
+// A pool groups ≥2 PurchaseRequestItems that share a material so the PO can
+// collect competing quotes covering all of them at once. Pool membership is
+// orthogonal to itemQuotationStatus — a pooled item stays AWAITING_QUOTATION
+// until a union quotation tied to the pool gets submitted. When that quote is
+// approved, the pool flips to APPROVED and the underlying PR-items follow the
+// union PO's allocation chain (PurchaseOrderItemAllocation) for FIFO inward.
+model MaterialPool {
+  id          String             @id @default(uuid())
+  productId   String?
+  product     Product?           @relation(fields: [productId], references: [id])
+  productName String
+  productUnit String             @default("pcs")
+  status      MaterialPoolStatus @default(OPEN)
+  createdById String
+  createdBy   User               @relation("MaterialPoolCreator", fields: [createdById], references: [id])
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  items       MaterialPoolItem[]
+
+  @@index([status])
+  @@index([productId])
+}
+
+model MaterialPoolItem {
+  id                    String              @id @default(uuid())
+  poolId                String
+  pool                  MaterialPool        @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  purchaseRequestItemId String              @unique
+  purchaseRequestItem   PurchaseRequestItem @relation(fields: [purchaseRequestItemId], references: [id], onDelete: Cascade)
+  pooledAt              DateTime            @default(now())
+
+  @@index([poolId])
+}
+
+enum MaterialPoolStatus {
+  OPEN      // accepting union quotations
+  QUOTED    // ≥1 union quotation submitted to admin
+  APPROVED  // one union quotation approved → PO live
+  CANCELLED // pool dissolved
 }
 
 // ──── QUOTATIONS (PO collects from suppliers) ────

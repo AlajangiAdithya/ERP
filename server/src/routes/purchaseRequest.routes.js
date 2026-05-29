@@ -76,6 +76,24 @@ router.get('/', authenticate, async (req, res) => {
           items: {
             include: {
               product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
+              materialPoolMembership: {
+                include: {
+                  pool: {
+                    include: {
+                      items: {
+                        include: {
+                          purchaseRequestItem: {
+                            select: {
+                              id: true,
+                              request: { select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } } },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
             },
           },
           quotations: {
@@ -394,6 +412,26 @@ router.get('/:id', authenticate, async (req, res) => {
         items: {
           include: {
             product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
+            // Pool membership lets the PR detail UI show "Pooled with PR-N · X items"
+            // badges and the Unpool button on each item row.
+            materialPoolMembership: {
+              include: {
+                pool: {
+                  include: {
+                    items: {
+                      include: {
+                        purchaseRequestItem: {
+                          select: {
+                            id: true,
+                            request: { select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } } } },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
         quotations: {
