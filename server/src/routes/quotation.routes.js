@@ -678,7 +678,12 @@ router.delete('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, r
   try {
     const quotation = await prisma.quotation.findUnique({
       where: { id: req.params.id },
-      include: { purchaseRequest: true, sourceRequests: true },
+      include: {
+        purchaseRequest: true,
+        sourceRequests: true,
+        // Need item.sourceAllocations to find which PR items this union touched.
+        items: { select: { productName: true, sourceAllocations: true } },
+      },
     });
 
     if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
@@ -686,7 +691,41 @@ router.delete('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, r
       return res.status(400).json({ error: 'Cannot delete a selected quotation' });
     }
 
-    await prisma.quotation.delete({ where: { id: req.params.id } });
+    // Figure out which PRs (and which item ids for union quotations) are
+    // touched, so we can re-derive item statuses AFTER the delete and avoid
+    // leaving items stuck at QUOTATION_SUBMITTED with no quotation behind them.
+    const linkedPRIds = quotation.isUnion
+      ? quotation.sourceRequests.map(s => s.purchaseRequestId)
+      : (quotation.purchaseRequest ? [quotation.purchaseRequest.id] : []);
+    const unionTouchedItemIds = quotation.isUnion
+      ? [...new Set(
+          quotation.items.flatMap(qi =>
+            Array.isArray(qi.sourceAllocations) ? qi.sourceAllocations.map(s => s.purchaseRequestItemId) : []
+          )
+        )]
+      : [];
+
+    await prisma.$transaction(async (tx) => {
+      await tx.quotation.delete({ where: { id: req.params.id } });
+
+      // For unions: just recompute the items the deleted quotation touched.
+      // For single-PR: recompute every item on the parent PR (cheaper than
+      // walking quotation items + matching by productName).
+      if (quotation.isUnion) {
+        await recomputePRItemQuotationStatus(tx, unionTouchedItemIds);
+      } else {
+        for (const prId of linkedPRIds) {
+          const prItems = await tx.purchaseRequestItem.findMany({
+            where: { requestId: prId },
+            select: { id: true },
+          });
+          await recomputePRItemQuotationStatus(tx, prItems.map(i => i.id));
+        }
+      }
+      for (const prId of linkedPRIds) {
+        await syncPRStatusAfterChange(tx, prId);
+      }
+    });
 
     await prisma.auditLog.create({
       data: {
@@ -984,7 +1023,7 @@ router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), acceptQ
     }
 
     const { notes, items, clearPdf } = req.body || {};
-    const newPdfUrl = req.file ? publicUrlFor(req.file) : null;
+    const newPdfUrl = req.file ? publicUrlFor('quotations', req.file.filename) : null;
     // Decide what to do with the PDF: new upload replaces, clearPdf wipes,
     // otherwise keep the existing one.
     let nextPdfUrl = quotation.quotationPdfUrl;
@@ -1255,6 +1294,78 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         where: { id: req.params.id },
         data: { isSelected: true, selectionNote },
       });
+
+      // Clean up the now-stale competing quotations. Any UNSELECTED quotation
+      // (single or union) that covers an item this approval just locked in
+      // can never be approved — its items will move to QUOTATION_APPROVED and
+      // the PO it would produce would conflict. Delete them so the PO queue
+      // doesn't show ghost competing rows and the audit trail stays clean.
+      //
+      // Approved item ids: for unions, walk this quotation's sourceAllocations;
+      // for single-PR, map by productName against the parent PR.
+      const approvedItemIds = new Set();
+      if (quotation.isUnion) {
+        for (const qi of quotation.items) {
+          if (Array.isArray(qi.sourceAllocations)) {
+            for (const src of qi.sourceAllocations) approvedItemIds.add(src.purchaseRequestItemId);
+          }
+        }
+      } else {
+        const prItems = quotation.purchaseRequest?.items || [];
+        for (const qi of quotation.items) {
+          const match = prItems.find(p => p.productName === qi.productName)
+            || prItems.find(p => p.productName.toLowerCase() === qi.productName.toLowerCase());
+          if (match) approvedItemIds.add(match.id);
+        }
+      }
+
+      if (approvedItemIds.size > 0) {
+        // Pull every unselected quotation linked to these PRs (single or union)
+        // and check whether its coverage overlaps the just-approved item set.
+        const competing = await tx.quotation.findMany({
+          where: {
+            id: { not: req.params.id },
+            isSelected: false,
+            OR: [
+              { purchaseRequestId: { in: sourcePrIds } },
+              { sourceRequests: { some: { purchaseRequestId: { in: sourcePrIds } } } },
+            ],
+          },
+          select: {
+            id: true,
+            isUnion: true,
+            purchaseRequestId: true,
+            items: { select: { productName: true, sourceAllocations: true } },
+          },
+        });
+
+        // For productName-based overlap (single-PR quotations), we need the PR
+        // items list for each touched PR to translate productName → itemId.
+        const prItemsByPR = new Map();
+        for (const pr of sourcePRs) prItemsByPR.set(pr.id, pr.items);
+
+        const toDelete = [];
+        for (const q of competing) {
+          let overlaps = false;
+          if (q.isUnion) {
+            overlaps = q.items.some(qi =>
+              Array.isArray(qi.sourceAllocations) &&
+              qi.sourceAllocations.some(s => approvedItemIds.has(s.purchaseRequestItemId))
+            );
+          } else if (q.purchaseRequestId) {
+            const prItems = prItemsByPR.get(q.purchaseRequestId) || [];
+            overlaps = q.items.some(qi => {
+              const match = prItems.find(p => p.productName === qi.productName)
+                || prItems.find(p => p.productName.toLowerCase() === (qi.productName || '').toLowerCase());
+              return match && approvedItemIds.has(match.id);
+            });
+          }
+          if (overlaps) toDelete.push(q.id);
+        }
+        if (toDelete.length > 0) {
+          await tx.quotation.deleteMany({ where: { id: { in: toDelete } } });
+        }
+      }
 
       const orders = [];
       for (const g of groups.values()) {

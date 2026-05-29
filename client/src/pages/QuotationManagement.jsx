@@ -531,12 +531,18 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
     setNotes('');
     setQuotationPdf(null);
 
-    // Group PR items by normalised product name + unit. Each group becomes one union line.
+    // Group PR items by product. Prefer productId when present so items that
+    // happen to share a typed name don't get merged with a real catalog product
+    // (e.g. free-typed "Steel rod" vs. product#abc "Steel Rod 12mm"). Fall back
+    // to name-lowercased when there's no productId on either side.
     // We also collect per-source material specs so PO/quotation creators can see what each PR asked for.
     const groups = new Map();
     for (const pr of purchaseRequests) {
       for (const item of (pr.items || [])) {
-        const key = `${(item.productName || '').toLowerCase().trim()}::${(item.productUnit || 'pcs').toLowerCase().trim()}`;
+        const productKey = item.productId
+          ? `pid:${item.productId}`
+          : `name:${(item.productName || '').toLowerCase().trim()}`;
+        const key = `${productKey}::${(item.productUnit || 'pcs').toLowerCase().trim()}`;
         const allocatedQty = item.adminApprovedQty ?? item.requestedQty ?? 0;
         if (!groups.has(key)) {
           groups.set(key, {
@@ -1771,11 +1777,15 @@ function PoolByMaterialSection({ onUpdated }) {
 
   useEffect(() => { load(); }, []);
 
-  // Group line items by product name + unit (case-insensitive).
+  // Group line items by product. Use productId when present so a real catalog
+  // product and a free-typed line that happens to share a name aren't merged.
   const groups = useMemo(() => {
     const map = new Map();
     for (const it of items) {
-      const key = `${(it.productName || '').toLowerCase().trim()}::${(it.productUnit || 'pcs').toLowerCase().trim()}`;
+      const productKey = it.productId
+        ? `pid:${it.productId}`
+        : `name:${(it.productName || '').toLowerCase().trim()}`;
+      const key = `${productKey}::${(it.productUnit || 'pcs').toLowerCase().trim()}`;
       if (!map.has(key)) {
         map.set(key, {
           key,
@@ -2073,13 +2083,20 @@ export default function QuotationManagement() {
     try {
       // Get PRs in relevant statuses
       const { data } = await api.get('/purchase-requests', { params: { limit: 100 } });
-      // A PR with any AWAITING item still needs PO attention — surface it in
-      // the "Add Quotations" list regardless of overall PR.status (it may have
-      // been bumped to IN_PROGRESS / QUOTATION_SUBMITTED by a sibling line that
-      // already got pooled or quoted).
+      // A PR belongs in the "needs PO attention" list when EITHER:
+      //   (a) some item is still AWAITING_QUOTATION — pool/quote work pending,
+      //   (b) the PR has unsubmitted quotations sitting on it (PO added quotes
+      //       but hasn't clicked Submit-to-Admin yet) — PR.status is still
+      //       APPROVED/IN_PROGRESS, no AWAITING items, but the PO must finish
+      //       the job. Without this branch the PR vanishes after a single quote
+      //       and the PO loses the entry point to submit.
       const hasAwaiting = (pr) => (pr.items || []).some(i => i.itemQuotationStatus === 'AWAITING_QUOTATION');
+      const hasUnsubmittedQuotes = (pr) =>
+        ['APPROVED', 'IN_PROGRESS'].includes(pr.status) &&
+        ((pr.quotations || []).length > 0 || (pr.quotationSources || []).length > 0);
       const approved = data.requests.filter(r =>
-        ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED'].includes(r.status) && hasAwaiting(r)
+        ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED'].includes(r.status) &&
+        (hasAwaiting(r) || hasUnsubmittedQuotes(r))
       );
       const submitted = data.requests.filter(r => r.status === 'QUOTATION_SUBMITTED');
       setApprovedPRs(approved);

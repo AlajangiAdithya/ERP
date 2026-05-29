@@ -116,7 +116,14 @@ async function syncPRStatusAfterChange(tx, prId) {
   if (!pr) return;
 
   // PRs that are still pending admin / rejected don't get auto-advanced.
-  if (['PENDING_ADMIN', 'REJECTED'].includes(pr.status)) return;
+  // PRs that have already moved past quotation review (ORDER_PLACED onwards)
+  // must not be downgraded back to IN_PROGRESS / QUOTATION_SUBMITTED — the
+  // computed `target` below only knows the quotation-stage statuses and would
+  // otherwise wipe progress recorded by PO placement, goods receipt, QC, etc.
+  if ([
+    'PENDING_ADMIN', 'REJECTED',
+    'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED',
+  ].includes(pr.status)) return;
 
   const live = pr.items.filter(i => i.itemQuotationStatus !== 'CANCELLED');
   if (live.length === 0) {
@@ -154,8 +161,24 @@ async function syncPRStatusAfterChange(tx, prId) {
 
 // Mark a set of PR items as cancelled (used by PO force-close). Then re-sync
 // the parent PRs so they close if nothing live remains.
+//
+// Also deletes any unselected pending quotations that referenced the
+// cancelled items: a union quotation whose allocations include a now-cancelled
+// item is structurally invalid (its sourceAllocations point at dead rows), and
+// a single-PR quotation on a fully-cancelled PR is dead weight. Selected
+// (already approved) quotations are left alone — they're the audit trail for
+// POs that may still be in flight.
 async function cancelLeftoverPRItems(tx, prItemIds, reason) {
   if (!prItemIds || prItemIds.length === 0) return;
+
+  // Capture metadata BEFORE flipping the items so we can find quotations
+  // covering them (productName + requestId match for singles).
+  const itemsBefore = await tx.purchaseRequestItem.findMany({
+    where: { id: { in: prItemIds } },
+    select: { id: true, requestId: true, productName: true },
+  });
+  const cancelledIdSet = new Set(itemsBefore.map(i => i.id));
+  const prIds = [...new Set(itemsBefore.map(i => i.requestId))];
 
   await tx.purchaseRequestItem.updateMany({
     where: { id: { in: prItemIds } },
@@ -165,11 +188,47 @@ async function cancelLeftoverPRItems(tx, prItemIds, reason) {
     },
   });
 
-  const items = await tx.purchaseRequestItem.findMany({
-    where: { id: { in: prItemIds } },
-    select: { requestId: true },
+  // 1) Unselected union quotations whose sourceAllocations touch a cancelled
+  // item — delete entirely (PO can re-pool from surviving lines if needed).
+  const unionQuotes = await tx.quotation.findMany({
+    where: {
+      isUnion: true,
+      isSelected: false,
+      sourceRequests: { some: { purchaseRequestId: { in: prIds } } },
+    },
+    select: { id: true, items: { select: { sourceAllocations: true } } },
   });
-  const prIds = [...new Set(items.map(i => i.requestId))];
+  const unionsToDelete = [];
+  for (const q of unionQuotes) {
+    const touchesCancelled = q.items.some(qi =>
+      Array.isArray(qi.sourceAllocations) &&
+      qi.sourceAllocations.some(s => cancelledIdSet.has(s.purchaseRequestItemId))
+    );
+    if (touchesCancelled) unionsToDelete.push(q.id);
+  }
+  if (unionsToDelete.length > 0) {
+    await tx.quotation.deleteMany({ where: { id: { in: unionsToDelete } } });
+  }
+
+  // 2) Unselected single-PR quotations on PRs that now have no live items
+  // (productName match isn't reliable enough to prune item-by-item, so we
+  // only clear singles when the whole PR went dark).
+  const liveCounts = await tx.purchaseRequestItem.groupBy({
+    by: ['requestId'],
+    where: { requestId: { in: prIds }, itemQuotationStatus: { not: 'CANCELLED' } },
+    _count: { _all: true },
+  });
+  const deadPRIds = prIds.filter(id => !liveCounts.some(c => c.requestId === id && c._count._all > 0));
+  if (deadPRIds.length > 0) {
+    await tx.quotation.deleteMany({
+      where: {
+        isUnion: false,
+        isSelected: false,
+        purchaseRequestId: { in: deadPRIds },
+      },
+    });
+  }
+
   for (const prId of prIds) {
     await syncPRStatusAfterChange(tx, prId);
   }
