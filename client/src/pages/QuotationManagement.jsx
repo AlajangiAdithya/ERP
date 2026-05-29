@@ -2074,9 +2074,24 @@ export default function QuotationManagement() {
   const [selectedPRIds, setSelectedPRIds] = useState(new Set());
   const [showUnionModal, setShowUnionModal] = useState(false);
   const [submittingUnions, setSubmittingUnions] = useState(false);
+  // Quotation loaded on demand when the PO clicks "Fix & Resubmit" from the
+  // top banner — ResubmitQuotationModal needs the full quotation (items),
+  // and the PR list endpoint only returns header fields.
+  const [resubmitTarget, setResubmitTarget] = useState(null);
+  // Which draft union is currently being sent to admin (per-union spinner).
+  const [sendingUnionId, setSendingUnionId] = useState(null);
 
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isApprover = user?.role === 'ADMIN';
+
+  const openResubmit = async (quotationId) => {
+    try {
+      const { data } = await api.get(`/quotations/${quotationId}`);
+      setResubmitTarget(data);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to load quotation');
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -2135,14 +2150,23 @@ export default function QuotationManagement() {
   );
 
   // Group competing union quotations by their source-PR signature so admin sees
-  // one row per "union batch" instead of one row per source PR.
+  // one row per "union batch" instead of one row per source PR. We scan both
+  // approvedPRs and submittedPRs because a held union can sit on a PR whose
+  // status got demoted to IN_PROGRESS (sibling items still awaiting), and we
+  // still want admin to see it.
   const unionGroups = useMemo(() => {
     const groups = new Map();
     const seen = new Set();
-    for (const pr of submittedPRs) {
+    const pool = new Map();
+    for (const pr of [...approvedPRs, ...submittedPRs]) {
+      if (!pool.has(pr.id)) pool.set(pr.id, pr);
+    }
+    for (const pr of pool.values()) {
       for (const src of (pr.quotationSources || [])) {
         const q = src.quotation;
         if (!q || q.isSelected || seen.has(q.id)) continue;
+        // Only show sent-to-admin (or held) unions; drafts have their own PO section.
+        if (!q.submittedToAdminAt) continue;
         seen.add(q.id);
         const prSet = (q.sourceRequests || []).map(s => s.purchaseRequest).filter(Boolean);
         const sig = prSet.map(p => p.id).sort().join('|');
@@ -2151,13 +2175,96 @@ export default function QuotationManagement() {
       }
     }
     return [...groups.values()];
-  }, [submittedPRs]);
+  }, [approvedPRs, submittedPRs]);
 
-  // PRs with single-PR quotations only — unions are surfaced separately above.
-  const submittedPRsWithSingles = useMemo(
-    () => submittedPRs.filter(pr => (pr.quotations || []).length > 0),
-    [submittedPRs],
-  );
+  // PRs with single-PR quotations admin can act on (sent, not selected). Scans
+  // both lists so held-on-IN_PROGRESS PRs still surface.
+  const submittedPRsWithSingles = useMemo(() => {
+    const pool = new Map();
+    for (const pr of [...approvedPRs, ...submittedPRs]) {
+      if (pool.has(pr.id)) continue;
+      const live = (pr.quotations || []).some(q => q.submittedToAdminAt && !q.isSelected);
+      if (live) pool.set(pr.id, pr);
+    }
+    return [...pool.values()];
+  }, [approvedPRs, submittedPRs]);
+
+  // Every quotation (single + union) currently on HOLD, deduped by id and
+  // annotated with the PRs it touches. Drives the top-of-page "Action Required"
+  // banner so the PO sees admin's hold notes without digging into modals.
+  const heldQuotations = useMemo(() => {
+    const seen = new Map();
+    for (const pr of [...approvedPRs, ...submittedPRs]) {
+      for (const q of (pr.quotations || [])) {
+        if (q.heldAt && !q.isSelected && !seen.has(q.id)) {
+          const prSet = q.isUnion
+            ? (q.sourceRequests || []).map(s => s.purchaseRequest).filter(Boolean)
+            : [{ id: pr.id, requestNumber: pr.requestNumber, unit: pr.unit }];
+          seen.set(q.id, { ...q, prSet });
+        }
+      }
+      for (const src of (pr.quotationSources || [])) {
+        const q = src.quotation;
+        if (!q || q.isSelected || !q.heldAt || seen.has(q.id)) continue;
+        const prSet = (q.sourceRequests || []).map(s => s.purchaseRequest).filter(Boolean);
+        seen.set(q.id, { ...q, prSet });
+      }
+    }
+    return [...seen.values()];
+  }, [approvedPRs, submittedPRs]);
+
+  // Draft union quotations grouped by the PR-set they cover. The "Send to
+  // Admin" endpoint always batches every unsent union covering a PR set
+  // together (competing quotes go to admin side-by-side), so the UI matches
+  // that semantics — one row per PR-set, with all the competing draft unions
+  // listed inside.
+  const draftUnionGroups = useMemo(() => {
+    const groups = new Map();
+    const seenQ = new Set();
+    const pool = new Map();
+    for (const pr of [...approvedPRs, ...submittedPRs]) {
+      if (!pool.has(pr.id)) pool.set(pr.id, pr);
+    }
+    for (const pr of pool.values()) {
+      for (const src of (pr.quotationSources || [])) {
+        const q = src.quotation;
+        if (!q || q.isSelected || q.heldAt || q.submittedToAdminAt) continue;
+        if (seenQ.has(q.id)) continue;
+        seenQ.add(q.id);
+        const prSet = (q.sourceRequests || []).map(s => s.purchaseRequest).filter(Boolean);
+        const sig = prSet.map(p => p.id).sort().join('|');
+        if (!groups.has(sig)) groups.set(sig, { sig, prSet, unions: [] });
+        groups.get(sig).unions.push(q);
+      }
+    }
+    return [...groups.values()];
+  }, [approvedPRs, submittedPRs]);
+
+  // Quick lookup: how many quotes covering this PR are on hold right now.
+  const heldCountForPR = (pr) => {
+    const singles = (pr.quotations || []).filter(q => q.heldAt && !q.isSelected).length;
+    const unions = (pr.quotationSources || []).filter(s => s.quotation?.heldAt && !s.quotation.isSelected).length;
+    return singles + unions;
+  };
+
+  // Submits every draft union covering the given PR set. The backend's
+  // /quotations/union/submit endpoint batches by PR set, not by quotation id,
+  // so passing the PR ids is enough — all competing drafts get sent together.
+  const sendUnionGroup = async (group) => {
+    const prIds = (group.prSet || []).map(p => p.id);
+    if (prIds.length < 2) {
+      alert('This union does not have at least 2 source PRs — please re-create it.');
+      return;
+    }
+    setSendingUnionId(group.sig);
+    try {
+      await api.post('/quotations/union/submit', { purchaseRequestIds: prIds });
+      await fetchData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to send union quotation to admin');
+    }
+    setSendingUnionId(null);
+  };
 
   const [reviewUnionGroup, setReviewUnionGroup] = useState(null);
 
@@ -2170,50 +2277,70 @@ export default function QuotationManagement() {
         </Button>
       </div>
 
+      {/* PO: Action Required — held quotations (single + union) admin sent back. */}
+      {isPO && heldQuotations.length > 0 && (
+        <div className="border-2 border-amber-400 bg-amber-50 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <PauseCircle size={20} className="text-amber-700" />
+            <h2 className="text-lg font-semibold text-amber-900">
+              Action Required — {heldQuotations.length} quotation{heldQuotations.length > 1 ? 's' : ''} on hold
+            </h2>
+          </div>
+          <p className="text-xs text-amber-800 mb-3">
+            Admin sent these back to you. Read the reason, fix the issue (usually a supplier document), and resubmit.
+          </p>
+          <div className="space-y-2">
+            {heldQuotations.map(q => (
+              <div key={q.id} className="bg-white border border-amber-300 rounded-md p-3">
+                <div className="flex justify-between items-start gap-3 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-gray-900">{q.quotationNumber}</span>
+                      {q.isUnion && <Badge color="purple"><Layers size={10} className="inline mr-0.5" /> UNION</Badge>}
+                      <span className="text-sm text-gray-600">{q.supplierName || '—'}</span>
+                      <span className="text-sm font-semibold text-navy-700">{formatCurrency(q.totalAmount)}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {(q.prSet || []).map(pr => (
+                        <Badge key={pr.id} color="navy">
+                          {pr.requestNumber}{pr.unit ? ` · ${pr.unit.code || pr.unit.name}` : ''}
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-900">
+                      <span className="font-semibold">Admin's reason: </span>
+                      {q.holdNote || '(no reason given)'}
+                    </div>
+                  </div>
+                  <Button size="sm" onClick={() => openResubmit(q.id)}>
+                    <RefreshCw size={14} className="mr-1" /> Fix & Resubmit
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* PO: Approved PRs needing quotations */}
       {isPO && (
         <div>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-gray-800">Approved PRs — Add Quotations</h2>
-            <div className="flex gap-2">
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={selectedPRIds.size < 2}
-                onClick={() => setShowUnionModal(true)}
-                title={selectedPRIds.size < 2 ? 'Tick ≥2 PRs to create a Union Quotation' : ''}
-              >
-                <Layers size={14} className="mr-1" /> Create Union Quotation ({selectedPRIds.size})
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={selectedPRIds.size < 2 || submittingUnions || selectedPRs.every(pr => (unionCounts[pr.id] || 0) === 0)}
-                onClick={async () => {
-                  const ids = [...selectedPRIds];
-                  if (!confirm(`Submit all union quotations covering ${ids.length} selected PRs to admin?`)) return;
-                  setSubmittingUnions(true);
-                  try {
-                    const { data } = await api.post('/quotations/union/submit', { purchaseRequestIds: ids });
-                    alert(`${data.unionCount} union quotation(s) submitted to admin.`);
-                    setSelectedPRIds(new Set());
-                    fetchData();
-                  } catch (err) {
-                    alert(err.response?.data?.error || 'Failed to submit union quotations');
-                  }
-                  setSubmittingUnions(false);
-                }}
-                title={
-                  selectedPRIds.size < 2
-                    ? 'Tick the PR set the union(s) cover'
-                    : selectedPRs.every(pr => (unionCounts[pr.id] || 0) === 0)
-                      ? 'No union quotations exist for these PRs yet'
-                      : ''
-                }
-              >
-                <Send size={14} className="mr-1" /> {submittingUnions ? 'Submitting...' : 'Submit Unions to Admin'}
-              </Button>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">Approved PRs — Add Quotations</h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Add as many supplier quotes per PR as you need, then click <strong>Send to Admin</strong>. Admin only sees a PR's quotes after you send them.
+              </p>
             </div>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={selectedPRIds.size < 2}
+              onClick={() => setShowUnionModal(true)}
+              title={selectedPRIds.size < 2 ? 'Tick ≥2 PRs to bundle them into one Union Quotation' : ''}
+            >
+              <Layers size={14} className="mr-1" /> Bundle {selectedPRIds.size > 1 ? selectedPRIds.size : ''} PRs (Union)
+            </Button>
           </div>
           <Card>
             {loading ? (
@@ -2257,8 +2384,13 @@ export default function QuotationManagement() {
                           <div className="flex flex-wrap gap-1">
                             {(() => {
                               const singles = pr.quotations || [];
-                              const draftCount = singles.filter(q => !q.submittedToAdminAt).length;
-                              const sentCount = singles.length - draftCount;
+                              const heldSingles = singles.filter(q => q.heldAt && !q.isSelected).length;
+                              // Drafts = not held, not selected, not yet sent.
+                              const draftCount = singles.filter(q => !q.submittedToAdminAt && !q.heldAt && !q.isSelected).length;
+                              // Sent + still awaiting admin = submitted, not held, not selected.
+                              const sentCount = singles.filter(q => q.submittedToAdminAt && !q.heldAt && !q.isSelected).length;
+                              const heldUnions = (pr.quotationSources || []).filter(s => s.quotation?.heldAt && !s.quotation.isSelected).length;
+                              const totalHeld = heldSingles + heldUnions;
                               return (
                                 <>
                                   {draftCount > 0 && (
@@ -2267,12 +2399,17 @@ export default function QuotationManagement() {
                                     </Badge>
                                   )}
                                   {sentCount > 0 && (
-                                    <Badge color="green" title="Already sent to admin">
+                                    <Badge color="green" title="Sent to admin — awaiting review">
                                       {sentCount} sent
                                     </Badge>
                                   )}
-                                  {singles.length === 0 && (
-                                    <Badge color="gray">0 single</Badge>
+                                  {totalHeld > 0 && (
+                                    <Badge color="red" title="Admin sent these back — action required">
+                                      <PauseCircle size={10} className="inline mr-0.5" /> {totalHeld} on hold
+                                    </Badge>
+                                  )}
+                                  {singles.length === 0 && (unionCounts[pr.id] || 0) === 0 && (
+                                    <Badge color="gray">No quotes yet</Badge>
                                   )}
                                 </>
                               );
@@ -2333,8 +2470,83 @@ export default function QuotationManagement() {
         </div>
       )}
 
-      {/* Approver: Union quotations awaiting approval — grouped by PR-set */}
-      {(isApprover || isPO) && (
+      {/* PO: Draft Union Quotations — built but not yet sent to admin.
+          Grouped by PR-set because the submit endpoint always batches every
+          unsent union covering the same PR set together. */}
+      {isPO && draftUnionGroups.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
+            <Layers size={18} className="text-purple-600" /> Draft Union Quotations ({draftUnionGroups.length})
+          </h2>
+          <p className="text-xs text-gray-500 mb-3">
+            Union quotations you've built but haven't sent yet. Each row groups every draft union covering the same PR set — clicking <strong>Send to Admin</strong> sends them all together so admin can pick between competing suppliers.
+          </p>
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Covered PRs</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Competing Drafts</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Total</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {draftUnionGroups.map(g => {
+                    const sending = sendingUnionId === g.sig;
+                    return (
+                      <tr key={g.sig} className="border-b border-gray-50 hover:bg-purple-50/30 align-top">
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-1">
+                            {g.prSet.map(pr => (
+                              <Badge key={pr.id} color="navy">
+                                {pr.requestNumber}{pr.unit ? ` · ${pr.unit.code || pr.unit.name}` : ''}
+                              </Badge>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="space-y-1">
+                            {g.unions.map(q => (
+                              <div key={q.id} className="text-xs">
+                                <span className="font-medium text-purple-700">{q.quotationNumber}</span>
+                                <span className="text-gray-500"> · {q.supplierName || 'no supplier'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="space-y-1">
+                            {g.unions.map(q => (
+                              <div key={q.id} className="text-xs font-semibold text-navy-700">
+                                {formatCurrency(q.totalAmount)}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            disabled={sending}
+                            onClick={() => sendUnionGroup(g)}
+                          >
+                            <Send size={14} className="mr-1" /> {sending ? 'Sending…' : `Send ${g.unions.length} to Admin`}
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Approver only: Union quotations awaiting approval — grouped by PR-set */}
+      {isApprover && (
         <div>
           <h2 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <Layers size={18} className="text-purple-600" /> Union Quotations Awaiting Approval
@@ -2386,7 +2598,7 @@ export default function QuotationManagement() {
                           </td>
                           <td className="px-3 py-2">
                             <Button size="sm" onClick={() => setReviewUnionGroup(g)}>
-                              <Eye size={14} className="mr-1" /> {isApprover ? 'Review & Approve' : 'View'}
+                              <Eye size={14} className="mr-1" /> Review & Approve
                             </Button>
                           </td>
                         </tr>
@@ -2400,11 +2612,11 @@ export default function QuotationManagement() {
         </div>
       )}
 
-      {/* Approver: Single-PR quotations for review */}
-      {(isApprover || isPO) && (
+      {/* Approver only: Single-PR quotations for review */}
+      {isApprover && (
         <div>
           <h2 className="text-lg font-semibold text-gray-800 mb-3">
-            {isApprover ? 'Single-PR Quotations Awaiting Your Approval' : 'Single-PR — Awaiting Approval'}
+            Single-PR Quotations Awaiting Your Approval
           </h2>
           <Card>
             {loading ? (
@@ -2442,7 +2654,7 @@ export default function QuotationManagement() {
                           </td>
                           <td className="px-3 py-2">
                             <Button size="sm" onClick={() => setReviewPR(pr)}>
-                              <Eye size={14} className="mr-1" /> {isApprover ? 'Review & Approve' : 'View'}
+                              <Eye size={14} className="mr-1" /> Review & Approve
                             </Button>
                           </td>
                         </tr>
@@ -2484,6 +2696,11 @@ export default function QuotationManagement() {
         onCreated={() => {
           fetchData();
         }}
+      />
+      <ResubmitQuotationModal
+        quotation={resubmitTarget}
+        onClose={() => setResubmitTarget(null)}
+        onResubmitted={fetchData}
       />
     </div>
   );

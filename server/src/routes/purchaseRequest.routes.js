@@ -80,7 +80,10 @@ router.get('/', authenticate, async (req, res) => {
           },
           quotations: {
             select: {
-              id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true, submittedToAdminAt: true, heldAt: true,
+              id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true,
+              submittedToAdminAt: true, heldAt: true, holdNote: true,
+              createdById: true,
+              createdBy: { select: { id: true, name: true } },
               sourceRequests: {
                 include: {
                   purchaseRequest: {
@@ -106,7 +109,10 @@ router.get('/', authenticate, async (req, res) => {
             include: {
               quotation: {
                 select: {
-                  id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true, submittedToAdminAt: true, heldAt: true,
+                  id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true,
+                  submittedToAdminAt: true, heldAt: true, holdNote: true,
+                  createdById: true,
+                  createdBy: { select: { id: true, name: true } },
                   sourceRequests: {
                     include: {
                       purchaseRequest: {
