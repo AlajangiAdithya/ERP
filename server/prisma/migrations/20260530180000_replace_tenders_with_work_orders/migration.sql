@@ -1,33 +1,37 @@
 -- Drop legacy Tender table + enum (SUPPLY_CHAIN no longer manages tenders).
 -- Replace with WorkOrder + supporting tables modelled on the printable
--- RAPS/WO/01 form.
+-- RAPS/WO/01 form. Idempotent so partial-state re-runs are safe.
 
 -- ── Drop Tender ───────────────────────────────────────────────────────
 DROP TABLE IF EXISTS "Tender" CASCADE;
 DROP TYPE IF EXISTS "TenderStatus";
 
 -- ── WorkOrder enums ───────────────────────────────────────────────────
-CREATE TYPE "WorkOrderStatus" AS ENUM (
-  'PENDING_ADMIN',
-  'ADMIN_ACCEPTED',
-  'UNIT_ACCEPTED',
-  'IN_PROGRESS',
-  'COMPLETED',
-  'CLOSED',
-  'CANCELLED',
-  'REJECTED'
-);
+DO $$ BEGIN
+  CREATE TYPE "WorkOrderStatus" AS ENUM (
+    'PENDING_ADMIN',
+    'ADMIN_ACCEPTED',
+    'UNIT_ACCEPTED',
+    'IN_PROGRESS',
+    'COMPLETED',
+    'CLOSED',
+    'CANCELLED',
+    'REJECTED'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE "WorkOrderDeliveryStatus" AS ENUM (
-  'NOT_STARTED',
-  'IN_PROGRESS',
-  'PARTIAL',
-  'DELIVERED',
-  'DELAYED'
-);
+DO $$ BEGIN
+  CREATE TYPE "WorkOrderDeliveryStatus" AS ENUM (
+    'NOT_STARTED',
+    'IN_PROGRESS',
+    'PARTIAL',
+    'DELIVERED',
+    'DELAYED'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── WorkOrder ─────────────────────────────────────────────────────────
-CREATE TABLE "WorkOrder" (
+CREATE TABLE IF NOT EXISTS "WorkOrder" (
   "id"                     TEXT NOT NULL,
   "workOrderNumber"        TEXT NOT NULL,
   "ionNumber"              TEXT,
@@ -76,30 +80,38 @@ CREATE TABLE "WorkOrder" (
   CONSTRAINT "WorkOrder_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "WorkOrder_workOrderNumber_key" ON "WorkOrder"("workOrderNumber");
-CREATE UNIQUE INDEX "WorkOrder_ionNumber_key" ON "WorkOrder"("ionNumber");
-CREATE INDEX "WorkOrder_assignedUnitId_idx" ON "WorkOrder"("assignedUnitId");
-CREATE INDEX "WorkOrder_status_idx" ON "WorkOrder"("status");
-CREATE INDEX "WorkOrder_pdcDate_idx" ON "WorkOrder"("pdcDate");
+CREATE UNIQUE INDEX IF NOT EXISTS "WorkOrder_workOrderNumber_key" ON "WorkOrder"("workOrderNumber");
+CREATE UNIQUE INDEX IF NOT EXISTS "WorkOrder_ionNumber_key" ON "WorkOrder"("ionNumber");
+CREATE INDEX IF NOT EXISTS "WorkOrder_assignedUnitId_idx" ON "WorkOrder"("assignedUnitId");
+CREATE INDEX IF NOT EXISTS "WorkOrder_status_idx" ON "WorkOrder"("status");
+CREATE INDEX IF NOT EXISTS "WorkOrder_pdcDate_idx" ON "WorkOrder"("pdcDate");
 
-ALTER TABLE "WorkOrder"
-  ADD CONSTRAINT "WorkOrder_assignedUnitId_fkey"
-  FOREIGN KEY ("assignedUnitId") REFERENCES "Unit"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "WorkOrder"
+    ADD CONSTRAINT "WorkOrder_assignedUnitId_fkey"
+    FOREIGN KEY ("assignedUnitId") REFERENCES "Unit"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE "WorkOrder"
-  ADD CONSTRAINT "WorkOrder_unitAcceptedById_fkey"
-  FOREIGN KEY ("unitAcceptedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "WorkOrder"
+    ADD CONSTRAINT "WorkOrder_unitAcceptedById_fkey"
+    FOREIGN KEY ("unitAcceptedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE "WorkOrder"
-  ADD CONSTRAINT "WorkOrder_adminAcceptedById_fkey"
-  FOREIGN KEY ("adminAcceptedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "WorkOrder"
+    ADD CONSTRAINT "WorkOrder_adminAcceptedById_fkey"
+    FOREIGN KEY ("adminAcceptedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE "WorkOrder"
-  ADD CONSTRAINT "WorkOrder_createdById_fkey"
-  FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "WorkOrder"
+    ADD CONSTRAINT "WorkOrder_createdById_fkey"
+    FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── WorkOrderExtension ────────────────────────────────────────────────
-CREATE TABLE "WorkOrderExtension" (
+CREATE TABLE IF NOT EXISTS "WorkOrderExtension" (
   "id"           TEXT NOT NULL,
   "workOrderId"  TEXT NOT NULL,
   "extensionNo"  INTEGER NOT NULL,
@@ -110,20 +122,24 @@ CREATE TABLE "WorkOrderExtension" (
   CONSTRAINT "WorkOrderExtension_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "WorkOrderExtension_workOrderId_extensionNo_key"
+CREATE UNIQUE INDEX IF NOT EXISTS "WorkOrderExtension_workOrderId_extensionNo_key"
   ON "WorkOrderExtension"("workOrderId", "extensionNo");
-CREATE INDEX "WorkOrderExtension_workOrderId_idx" ON "WorkOrderExtension"("workOrderId");
+CREATE INDEX IF NOT EXISTS "WorkOrderExtension_workOrderId_idx" ON "WorkOrderExtension"("workOrderId");
 
-ALTER TABLE "WorkOrderExtension"
-  ADD CONSTRAINT "WorkOrderExtension_workOrderId_fkey"
-  FOREIGN KEY ("workOrderId") REFERENCES "WorkOrder"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "WorkOrderExtension"
+    ADD CONSTRAINT "WorkOrderExtension_workOrderId_fkey"
+    FOREIGN KEY ("workOrderId") REFERENCES "WorkOrder"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE "WorkOrderExtension"
-  ADD CONSTRAINT "WorkOrderExtension_grantedById_fkey"
-  FOREIGN KEY ("grantedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "WorkOrderExtension"
+    ADD CONSTRAINT "WorkOrderExtension_grantedById_fkey"
+    FOREIGN KEY ("grantedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── WorkOrderInvoice ──────────────────────────────────────────────────
-CREATE TABLE "WorkOrderInvoice" (
+CREATE TABLE IF NOT EXISTS "WorkOrderInvoice" (
   "id"           TEXT NOT NULL,
   "workOrderId"  TEXT NOT NULL,
   "invoiceNo"    TEXT NOT NULL,
@@ -136,12 +152,16 @@ CREATE TABLE "WorkOrderInvoice" (
   CONSTRAINT "WorkOrderInvoice_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "WorkOrderInvoice_workOrderId_idx" ON "WorkOrderInvoice"("workOrderId");
+CREATE INDEX IF NOT EXISTS "WorkOrderInvoice_workOrderId_idx" ON "WorkOrderInvoice"("workOrderId");
 
-ALTER TABLE "WorkOrderInvoice"
-  ADD CONSTRAINT "WorkOrderInvoice_workOrderId_fkey"
-  FOREIGN KEY ("workOrderId") REFERENCES "WorkOrder"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "WorkOrderInvoice"
+    ADD CONSTRAINT "WorkOrderInvoice_workOrderId_fkey"
+    FOREIGN KEY ("workOrderId") REFERENCES "WorkOrder"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE "WorkOrderInvoice"
-  ADD CONSTRAINT "WorkOrderInvoice_createdById_fkey"
-  FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "WorkOrderInvoice"
+    ADD CONSTRAINT "WorkOrderInvoice_createdById_fkey"
+    FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
