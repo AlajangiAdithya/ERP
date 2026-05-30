@@ -65,15 +65,13 @@ export default function Sidebar() {
   const sidebarContent = (
     <>
       <div className="px-3 pt-5 pb-4">
-        <div className="relative">
+        <div className="relative flex items-center justify-center">
           <div className="absolute -inset-3 bg-blue-400/30 blur-3xl rounded-3xl" aria-hidden="true" />
-          <div className="relative rounded-2xl px-4 py-3.5 bg-white ring-1 ring-white/40 shadow-[0_8px_28px_rgba(58,107,224,0.45)] flex items-center justify-center">
-            <img
-              src="/rapslogo6.png"
-              alt="RAPS"
-              className="h-14 w-auto object-contain drop-shadow-sm"
-            />
-          </div>
+          <img
+            src="/rapslogo6.png"
+            alt="RAPS"
+            className="relative h-24 w-auto object-contain drop-shadow-sm"
+          />
         </div>
         {user?.unit && (
           <div className="mt-3.5 flex items-center justify-center gap-1.5 bg-white/[0.08] border border-white/15 rounded-full px-3 py-1.5">
