@@ -11,6 +11,11 @@ const router = express.Router();
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
+// Payment-request read access — narrower than CHAIN_ROLES. Only Admin,
+// Purchase Officer (raises the request), and Accounting (approves & pays)
+// need visibility into supplier payments.
+const PAYMENT_VIEW_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING'];
+
 const createSchema = z.object({
   purchaseOrderId: z.string().uuid(),
   amount: z.number().positive(),
@@ -19,7 +24,7 @@ const createSchema = z.object({
 });
 
 // GET /api/payment-requests — role-filtered list
-router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
+router.get('/', authenticate, authorize(...PAYMENT_VIEW_ROLES), async (req, res) => {
   try {
     const { status, purchaseOrderId, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -65,7 +70,7 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
 });
 
 // GET /api/payment-requests/:id
-router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
+router.get('/:id', authenticate, authorize(...PAYMENT_VIEW_ROLES), async (req, res) => {
   try {
     const request = await prisma.paymentRequest.findUnique({
       where: { id: req.params.id },
@@ -211,7 +216,7 @@ router.put('/:id/approve', authenticate, authorize('ADMIN'), async (req, res) =>
 });
 
 // PUT /api/payment-requests/:id/pay — ACCOUNTING marks as paid (after admin approval)
-router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
+router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (req, res) => {
   try {
     const request = await prisma.paymentRequest.findUnique({
       where: { id: req.params.id },
@@ -380,7 +385,7 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN')
 });
 
 // PUT /api/payment-requests/:id/reject — ACCOUNTING rejects
-router.put('/:id/reject', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
+router.put('/:id/reject', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (req, res) => {
   try {
     const { notes } = req.body;
 

@@ -31,7 +31,7 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
   const [rejectNotes, setRejectNotes] = useState('');
   const [processing, setProcessing] = useState(false);
   const isAdmin = currentUser?.role === 'ADMIN';
-  const isAccounting = currentUser?.role === 'ACCOUNTING' || currentUser?.role === 'FINANCE';
+  const isAccounting = currentUser?.role === 'ACCOUNTING';
 
   if (!payment) return null;
 
@@ -190,7 +190,7 @@ export default function PaymentRequests() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const isAccounting = ['ACCOUNTING', 'FINANCE', 'ADMIN'].includes(user?.role);
+  const isAccounting = ['ACCOUNTING', 'ADMIN'].includes(user?.role);
   const refreshKey = useAutoRefresh();
 
   const fetchData = async () => {

@@ -2,7 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
-const { authorizeMinRole } = require('../middleware/rbac');
+const { authorize, authorizeMinRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
 const {
   paginate, applyDateFilter,
@@ -12,7 +12,7 @@ const {
 const router = express.Router();
 
 // POST /api/inventory/inward — Core inward entry flow
-router.post('/inward', authenticate, authorizeMinRole('STORE_MANAGER'), async (req, res) => {
+router.post('/inward', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async (req, res) => {
   try {
     const { productId, quantity, batchNumber, notes } = req.body;
     const qty = parseFloat(quantity);
@@ -157,7 +157,7 @@ router.post('/adjustment', authenticate, authorizeMinRole('STORE_MANAGER'), audi
 });
 
 // POST /api/inventory/inward-new — Create new product and add inward entry in one transaction
-router.post('/inward-new', authenticate, authorizeMinRole('STORE_MANAGER'), async (req, res) => {
+router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async (req, res) => {
   try {
     const schema = z.object({
       name: z.string().min(1),

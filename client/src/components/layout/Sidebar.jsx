@@ -4,7 +4,6 @@ import {
   LayoutDashboard, Package, PackagePlus, UserCog,
   FileText, BarChart3, Settings, Menu, X,
   CheckSquare, ScrollText, Bell, History,
-  FileSearch, CreditCard,
   Building2, ShieldCheck, Database, HardDrive, Activity, Boxes
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -30,13 +29,11 @@ const buildAllItems = () => {
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
     { to: '/products', icon: Package, label: 'Products', roles: ALL_ROLES },
     { to: '/procurement', icon: Boxes, label: 'Procurement', roles: PROCUREMENT_ROLES },
-    { to: '/quotations', icon: FileSearch, label: 'Quotations', roles: CHAIN_ROLES },
     { to: '/suppliers', icon: Building2, label: 'Suppliers', roles: CHAIN_ROLES },
-    { to: '/payment-requests', icon: CreditCard, label: 'Payment Requests', roles: CHAIN_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },
-    { to: '/inward-entry', icon: PackagePlus, label: 'Inward Entry', roles: CHAIN_ROLES },
+    { to: '/inward-entry', icon: PackagePlus, label: 'Inward Entry', roles: ['ADMIN', 'STORE_MANAGER'] },
     { to: '/stock-movements', icon: BarChart3, label: 'Stock Movements', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
     { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY', 'ADMIN'] },
     { to: '/unit-usage', icon: History, label: 'Unit Usage Logs', roles: ['ADMIN', 'SAFETY'] },

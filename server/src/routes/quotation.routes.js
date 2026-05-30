@@ -20,6 +20,10 @@ const router = express.Router();
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
+// Quotation read access — narrower than CHAIN_ROLES. Supplier prices are
+// finance-sensitive: only Admin, Purchase Officer, and Stores need them.
+const QUOTATION_VIEW_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER'];
+
 // Product names entered on quotations can drift from the canonical PR-item
 // productName by whitespace / case. Always normalize before comparing — the
 // cleanup logic depends on these matches, and a silent mismatch lets stale
@@ -163,7 +167,7 @@ router.get('/pool-candidates', authenticate, authorize('PURCHASE_OFFICER'), asyn
 });
 
 // GET /api/quotations?purchaseRequestId=X — list quotations for a PR (includes unions touching that PR)
-router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
+router.get('/', authenticate, authorize(...QUOTATION_VIEW_ROLES), async (req, res) => {
   try {
     const { purchaseRequestId, page, limit } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -240,7 +244,7 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
 });
 
 // GET /api/quotations/:id
-router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
+router.get('/:id', authenticate, authorize(...QUOTATION_VIEW_ROLES), async (req, res) => {
   try {
     const quotation = await prisma.quotation.findUnique({
       where: { id: req.params.id },

@@ -109,7 +109,7 @@ export default function App() {
               } />
 
               <Route path="/quotations" element={
-                <PrivateRoute allowedRoles={CHAIN_ROLES}><QuotationManagement /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER']}><QuotationManagement /></PrivateRoute>
               } />
 
               <Route path="/suppliers" element={
@@ -121,7 +121,7 @@ export default function App() {
               } />
 
               <Route path="/payment-requests" element={
-                <PrivateRoute allowedRoles={CHAIN_ROLES}><PaymentRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING']}><PaymentRequests /></PrivateRoute>
               } />
 
               <Route path="/qc-inspections" element={
@@ -129,7 +129,7 @@ export default function App() {
               } />
 
               <Route path="/inward-entry" element={
-                <PrivateRoute allowedRoles={CHAIN_ROLES}><InwardEntry /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER']}><InwardEntry /></PrivateRoute>
               } />
               <Route path="/stock-movements" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY']}><StockMovements /></PrivateRoute>

@@ -1,11 +1,17 @@
 import { Link } from 'react-router-dom';
 import {
-  ShoppingCart, Truck, ClipboardCheck, ClipboardList, ArrowLeftRight, ArrowRight
+  ShoppingCart, Truck, ClipboardCheck, ClipboardList, ArrowLeftRight, ArrowRight,
+  FileSearch, CreditCard,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
+
+// Narrower visibility for finance-sensitive modules. Unit managers and the
+// quality/design departments don't need to see supplier prices or payment runs.
+const QUOTATION_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER'];
+const PAYMENT_ROLES   = ['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING'];
 
 const MODULES = [
   {
@@ -19,6 +25,15 @@ const MODULES = [
     iconBg: 'bg-blue-50 text-blue-600',
   },
   {
+    to: '/quotations',
+    icon: FileSearch,
+    title: 'Quotations',
+    description: 'Collect supplier quotations and select winning bids.',
+    roles: QUOTATION_ROLES,
+    accent: 'from-indigo-500 to-indigo-600',
+    iconBg: 'bg-indigo-50 text-indigo-600',
+  },
+  {
     to: '/purchase-orders',
     icon: Truck,
     title: 'Purchase Orders',
@@ -26,6 +41,15 @@ const MODULES = [
     roles: CHAIN_ROLES,
     accent: 'from-emerald-500 to-emerald-600',
     iconBg: 'bg-emerald-50 text-emerald-600',
+  },
+  {
+    to: '/payment-requests',
+    icon: CreditCard,
+    title: 'Payment Requests',
+    description: 'Raise, approve, and clear supplier payment requests.',
+    roles: PAYMENT_ROLES,
+    accent: 'from-teal-500 to-teal-600',
+    iconBg: 'bg-teal-50 text-teal-600',
   },
   {
     to: '/qc-inspections',
