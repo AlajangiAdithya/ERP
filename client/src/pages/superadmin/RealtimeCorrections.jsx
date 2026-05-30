@@ -25,6 +25,11 @@ export default function RealtimeCorrections() {
   const [loadingUploads, setLoadingUploads] = useState(false);
   const [uploadFilter, setUploadFilter] = useState('');
   const [uploadTableFilter, setUploadTableFilter] = useState('ALL');
+  // Multi-select state for bulk delete. selectedRows holds row ids in the
+  // currently active table; selectedUploads holds `${table}|${recordId}|${field}`.
+  const [selectedRows, setSelectedRows] = useState(new Set());
+  const [selectedUploads, setSelectedUploads] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   useEffect(() => {
     fetchTables();
@@ -32,6 +37,7 @@ export default function RealtimeCorrections() {
 
   useEffect(() => {
     if (active) fetchRows(active, page);
+    setSelectedRows(new Set());
   }, [active, page]);
 
   useEffect(() => {
@@ -171,6 +177,85 @@ export default function RealtimeCorrections() {
     return dt.toLocaleString();
   };
 
+  const uploadKey = (u) => `${u.table}|${u.recordId}|${u.field}`;
+
+  const toggleRowSelection = (id) => {
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllRows = () => {
+    if (selectedRows.size === rows.length && rows.length > 0) {
+      setSelectedRows(new Set());
+    } else {
+      setSelectedRows(new Set(rows.map((r) => r.id)));
+    }
+  };
+
+  const toggleUploadSelection = (u) => {
+    const k = uploadKey(u);
+    setSelectedUploads((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  };
+
+  const toggleAllUploads = () => {
+    if (selectedUploads.size === filteredUploads.length && filteredUploads.length > 0) {
+      setSelectedUploads(new Set());
+    } else {
+      setSelectedUploads(new Set(filteredUploads.map(uploadKey)));
+    }
+  };
+
+  async function bulkDeleteRows() {
+    if (selectedRows.size === 0) return;
+    if (!window.confirm(`Delete ${selectedRows.size} row(s) from ${active}? This is permanent.`)) return;
+    setBulkDeleting(true);
+    setError('');
+    const ids = [...selectedRows];
+    const failures = [];
+    for (const id of ids) {
+      try {
+        await api.delete(`/superadmin/table/${active}/row/${id}`);
+      } catch (e) {
+        failures.push({ id, error: e.response?.data?.error || e.message });
+      }
+    }
+    setBulkDeleting(false);
+    setSelectedRows(new Set());
+    if (failures.length > 0) {
+      setError(`${failures.length}/${ids.length} delete(s) failed. First error: ${failures[0].error}`);
+    }
+    fetchRows(active, page);
+  }
+
+  async function bulkDeleteUploads() {
+    if (selectedUploads.size === 0) return;
+    if (!window.confirm(`Clear ${selectedUploads.size} upload reference(s)? The file blobs are not removed from disk.`)) return;
+    setBulkDeleting(true);
+    setError('');
+    const targets = uploads.filter((u) => selectedUploads.has(uploadKey(u)));
+    const failures = [];
+    for (const u of targets) {
+      try {
+        await api.delete('/superadmin/uploads', { data: { table: u.table, recordId: u.recordId, field: u.field } });
+      } catch (e) {
+        failures.push({ key: uploadKey(u), error: e.response?.data?.error || e.message });
+      }
+    }
+    setBulkDeleting(false);
+    setSelectedUploads(new Set());
+    if (failures.length > 0) {
+      setError(`${failures.length}/${targets.length} delete(s) failed. First error: ${failures[0].error}`);
+    }
+    fetchUploads();
+  }
+
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center gap-3">
@@ -212,6 +297,15 @@ export default function RealtimeCorrections() {
               <span className="text-xs text-gray-500">({filteredUploads.length} of {uploads.length})</span>
             </div>
             <div className="flex items-center gap-2">
+              {selectedUploads.size > 0 && (
+                <button
+                  onClick={bulkDeleteUploads}
+                  disabled={bulkDeleting}
+                  className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Trash2 size={14} /> Delete selected ({selectedUploads.size})
+                </button>
+              )}
               <select
                 value={uploadTableFilter}
                 onChange={(e) => setUploadTableFilter(e.target.value)}
@@ -243,6 +337,15 @@ export default function RealtimeCorrections() {
               <table className="min-w-full text-xs">
                 <thead className="bg-gray-50 sticky top-0">
                   <tr>
+                    <th className="px-3 py-2 w-8">
+                      <input
+                        type="checkbox"
+                        checked={filteredUploads.length > 0 && selectedUploads.size === filteredUploads.length}
+                        ref={(el) => { if (el) el.indeterminate = selectedUploads.size > 0 && selectedUploads.size < filteredUploads.length; }}
+                        onChange={toggleAllUploads}
+                        title="Select all"
+                      />
+                    </th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-600 w-24">Actions</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">Where (Table / Record)</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">What</th>
@@ -253,7 +356,14 @@ export default function RealtimeCorrections() {
                 </thead>
                 <tbody>
                   {filteredUploads.map((u, i) => (
-                    <tr key={`${u.table}-${u.recordId}-${u.field}-${i}`} className="border-t hover:bg-gray-50">
+                    <tr key={`${u.table}-${u.recordId}-${u.field}-${i}`} className={`border-t hover:bg-gray-50 ${selectedUploads.has(uploadKey(u)) ? 'bg-purple-50' : ''}`}>
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedUploads.has(uploadKey(u))}
+                          onChange={() => toggleUploadSelection(u)}
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         <div className="flex gap-2">
                           <a
@@ -332,6 +442,15 @@ export default function RealtimeCorrections() {
               <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
                 <span className="font-semibold text-gray-900">{active}</span>
                 <div className="flex items-center gap-2">
+                  {selectedRows.size > 0 && (
+                    <button
+                      onClick={bulkDeleteRows}
+                      disabled={bulkDeleting}
+                      className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Trash2 size={14} /> Delete selected ({selectedRows.size})
+                    </button>
+                  )}
                   <button
                     onClick={() => setCreating(true)}
                     className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1"
@@ -370,6 +489,15 @@ export default function RealtimeCorrections() {
                   <table className="min-w-full text-xs">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>
+                        <th className="px-2 py-2 w-8">
+                          <input
+                            type="checkbox"
+                            checked={rows.length > 0 && selectedRows.size === rows.length}
+                            ref={(el) => { if (el) el.indeterminate = selectedRows.size > 0 && selectedRows.size < rows.length; }}
+                            onChange={toggleAllRows}
+                            title="Select all"
+                          />
+                        </th>
                         <th className="px-2 py-2 text-left font-semibold text-gray-600 w-20">Actions</th>
                         {columns.map((c) => (
                           <th key={c} className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">{c}</th>
@@ -380,7 +508,7 @@ export default function RealtimeCorrections() {
                       {rows.map((row) => (
                         editingId === row.id ? (
                           <tr key={row.id} className="bg-yellow-50">
-                            <td colSpan={columns.length + 1} className="p-3">
+                            <td colSpan={columns.length + 2} className="p-3">
                               <div className="text-xs text-gray-600 mb-1">Editing row <span className="font-mono">{row.id}</span> — provide partial JSON:</div>
                               <textarea
                                 value={editDraft}
@@ -396,7 +524,14 @@ export default function RealtimeCorrections() {
                             </td>
                           </tr>
                         ) : (
-                          <tr key={row.id} className="border-t hover:bg-gray-50">
+                          <tr key={row.id} className={`border-t hover:bg-gray-50 ${selectedRows.has(row.id) ? 'bg-purple-50' : ''}`}>
+                            <td className="px-2 py-1">
+                              <input
+                                type="checkbox"
+                                checked={selectedRows.has(row.id)}
+                                onChange={() => toggleRowSelection(row.id)}
+                              />
+                            </td>
                             <td className="px-2 py-1">
                               <div className="flex gap-1">
                                 <button onClick={() => startEdit(row)} className="text-blue-600 hover:text-blue-800" title="Edit">
