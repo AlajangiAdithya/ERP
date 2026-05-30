@@ -7,6 +7,10 @@ const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, 
 
 const router = express.Router();
 
+// Departments allowed to see the PR → PO → QC → Inward chain.
+// Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
+
 const createSchema = z.object({
   purchaseOrderId: z.string().uuid(),
   amount: z.number().positive(),
@@ -15,7 +19,7 @@ const createSchema = z.object({
 });
 
 // GET /api/payment-requests — role-filtered list
-router.get('/', authenticate, async (req, res) => {
+router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
     const { status, purchaseOrderId, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -61,7 +65,7 @@ router.get('/', authenticate, async (req, res) => {
 });
 
 // GET /api/payment-requests/:id
-router.get('/:id', authenticate, async (req, res) => {
+router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
     const request = await prisma.paymentRequest.findUnique({
       where: { id: req.params.id },

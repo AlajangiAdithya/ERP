@@ -329,7 +329,7 @@ model PurchaseRequestItem {
   itemStatus            ItemOrderStatus? // Set once ORDER_PLACED; mirrored from PO items
   itemQuotationStatus   PRItemQuotationStatus         @default(AWAITING_QUOTATION) // Per-item quote progress, independent of order/inward status
   // PRF form fields
-  materialType          String? // Raw material / Consumable / Tooling / Others
+  materialType          String? // Raw material / Consumable / Hand Tools & Fastners / Others
   materialSpecification String? // Material specification data
   qapNo                 String? // QAP no. & QAP attachment reference
   drawingNo             String? // Drawing no. & detailed drawing reference
@@ -906,8 +906,9 @@ enum GatePassStatus {
   OPEN
 }
 
-// ──── INTER OFFICE NOTE (ION) — MANAGER ↔ LAB secret workflow ────
-// Doc No: RAMS/ION/00
+// ──── INTER OFFICE NOTE (ION) — MANAGER ↔ LAB / METROLOGY / NDT workflows ────
+// Standard form: Doc No RAMS/ION/00 (LAB / METROLOGY / cross-unit MANAGER).
+// NDT variant:  Doc No RAPS/ION-7 — adds qty + per-activity sub-details (UT/RT/VT).
 model InterOfficeNote {
   id                 String    @id @default(uuid())
   ionNumber          String    @unique
@@ -924,6 +925,7 @@ model InterOfficeNote {
   externalQAWitness  String?
   qcContactDetails   String?
   otherInformation   String?
+  reportNoAndDate    String?   // NDT only: "Report No & Date" closing field
   status             IONStatus @default(SENT)
   recipientRole      String?   @default("LAB") // LAB | METROLOGY | NDT | RND | DESIGNS (when not assigned to a specific manager)
   createdById        String
@@ -945,6 +947,11 @@ model IONItem {
   materialComposition String?
   drawingNo           String?
   specification       String?
+  // NDT extras (RAPS/ION-7). Left nullable so the standard form is unaffected.
+  nameOfJob           String?
+  qty                 String?
+  itemRemarks         String?
+  ndtDetails          Json?           // { method, gridSize, gridPoints, stage, acceptanceLimit, shotType, shotCount, acceptanceCriteria }
 }
 
 enum IONStatus {

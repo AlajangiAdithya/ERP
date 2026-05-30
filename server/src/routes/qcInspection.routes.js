@@ -104,7 +104,7 @@ const INSPECTION_INCLUDE = {
 // GET /api/qc-inspections — list inspections.
 // Once an inspection report is filled, everyone in the originating PR chain (PR manager and
 // requester roles MANAGER/LAB/SAFETY) can see it scoped to PRs they raised.
-router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'SAFETY', 'MANAGER', 'LAB', 'PLANNING'), async (req, res) => {
+router.get('/', authenticate, authorize('ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -113,9 +113,9 @@ router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STOR
     applyDateFilter(where, { fromDate, toDate });
     if (status) where.result = status;
 
-    // PR originators (MANAGER/LAB/SAFETY) only see inspections tied to PRs they raised.
-    // Privileged roles (QC, ADMIN, PURCHASE_OFFICER, STORE_MANAGER) see everything.
-    const originatorRoles = ['MANAGER', 'LAB', 'SAFETY'];
+    // PR originators (MANAGER/DESIGNS/RND) only see inspections tied to PRs they raised.
+    // Privileged roles (QC, ADMIN, PURCHASE_OFFICER, STORE_MANAGER, ACCOUNTING) see everything.
+    const originatorRoles = ['MANAGER', 'DESIGNS', 'RND'];
     if (originatorRoles.includes(req.user.role)) {
       where.purchaseOrder = { purchaseRequest: { managerId: req.user.id } };
     }
@@ -165,7 +165,7 @@ router.get('/', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STOR
 });
 
 // GET /api/qc-inspections/:id
-router.get('/:id', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'SAFETY', 'MANAGER', 'LAB', 'PLANNING'), async (req, res) => {
+router.get('/:id', authenticate, authorize('ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'), async (req, res) => {
   try {
     const inspection = await prisma.qCInspection.findUnique({
       where: { id: req.params.id },
@@ -175,7 +175,7 @@ router.get('/:id', authenticate, authorize('QC', 'ADMIN', 'PURCHASE_OFFICER', 'S
     if (!inspection) return res.status(404).json({ error: 'Inspection not found' });
 
     // Originator roles can only view inspections tied to PRs they raised.
-    const originatorRoles = ['MANAGER', 'LAB', 'SAFETY'];
+    const originatorRoles = ['MANAGER', 'DESIGNS', 'RND'];
     if (originatorRoles.includes(req.user.role)) {
       const prManagerId = inspection.purchaseOrder?.purchaseRequest?.manager?.id;
       if (prManagerId !== req.user.id) {

@@ -17,14 +17,15 @@ const applyDateFilter = (where, { fromDate, toDate }, field = 'createdAt') => {
 };
 
 // ──── Material types (fixed dropdown shared by PR items, Products, QC, SKU prefix) ────
-const MATERIAL_TYPES = ['Raw Material', 'Consumable', 'Tooling', 'Others'];
+const MATERIAL_TYPES = ['Raw Material', 'Consumable', 'Hand Tools & Fastners', 'Others'];
 
 const materialTypeToSkuPrefix = (materialType) => {
   switch ((materialType || '').trim().toLowerCase()) {
-    case 'raw material': return 'RAW';
-    case 'consumable':   return 'CONS';
-    case 'tooling':      return 'TOOL';
-    default:             return 'OTH';
+    case 'raw material':           return 'RAW';
+    case 'consumable':             return 'CONS';
+    case 'hand tools & fastners':  return 'TOOL';
+    case 'tooling':                return 'TOOL';
+    default:                       return 'OTH';
   }
 };
 
@@ -33,7 +34,13 @@ const normalizeMaterialType = (value) => {
   const t = String(value).trim().toLowerCase();
   if (t === 'raw material' || t === 'raw' || t === 'raw_material') return 'Raw Material';
   if (t === 'consumable' || t === 'consumables') return 'Consumable';
-  if (t === 'tooling' || t === 'tool' || t === 'tooling & fixtures') return 'Tooling';
+  if (
+    t === 'hand tools & fastners' ||
+    t === 'hand tools and fastners' ||
+    t === 'tooling' ||
+    t === 'tool' ||
+    t === 'tooling & fixtures'
+  ) return 'Hand Tools & Fastners';
   return 'Others';
 };
 

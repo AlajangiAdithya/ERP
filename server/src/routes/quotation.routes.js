@@ -16,6 +16,10 @@ const {
 
 const router = express.Router();
 
+// Departments allowed to see the PR → PO → QC → Inward chain.
+// Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
+
 // Product names entered on quotations can drift from the canonical PR-item
 // productName by whitespace / case. Always normalize before comparing — the
 // cleanup logic depends on these matches, and a silent mismatch lets stale
@@ -159,7 +163,7 @@ router.get('/pool-candidates', authenticate, authorize('PURCHASE_OFFICER'), asyn
 });
 
 // GET /api/quotations?purchaseRequestId=X — list quotations for a PR (includes unions touching that PR)
-router.get('/', authenticate, async (req, res) => {
+router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
     const { purchaseRequestId, page, limit } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -236,7 +240,7 @@ router.get('/', authenticate, async (req, res) => {
 });
 
 // GET /api/quotations/:id
-router.get('/:id', authenticate, async (req, res) => {
+router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
     const quotation = await prisma.quotation.findUnique({
       where: { id: req.params.id },

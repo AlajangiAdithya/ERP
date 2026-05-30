@@ -1157,7 +1157,7 @@ function AcceptInwardForm({ gatePass, onCancel, onComplete }) {
                       <option>Others</option>
                       <option>Raw Material</option>
                       <option>Consumable</option>
-                      <option>Tooling</option>
+                      <option>Hand Tools & Fastners</option>
                     </select>
                   </div>
                 </>

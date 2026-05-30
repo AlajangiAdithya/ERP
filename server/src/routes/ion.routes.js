@@ -13,8 +13,8 @@ const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation }
 
 const router = express.Router();
 
-const ION_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND', 'DESIGNS', 'SAFETY'];
-const ION_RECIPIENT_ROLES = ['LAB', 'METROLOGY', 'NDT', 'RND', 'DESIGNS'];
+const ION_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT'];
+const ION_RECIPIENT_ROLES = ['LAB', 'METROLOGY', 'NDT'];
 
 const ION_INCLUDE = {
   createdBy:  { select: { id: true, name: true, role: true, unit: { select: { name: true, code: true } } } },
@@ -110,7 +110,9 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
       recipientType, assignedToId,
       userReferenceNo, section, projectName, supplyOrderNo, referenceDocQA,
       materialSupplyDate, sampleRequired, reportGeneration, requiredByDate,
-      externalQAWitness, qcContactDetails, otherInformation, remarks, items,
+      externalQAWitness, qcContactDetails, otherInformation, remarks,
+      reportNoAndDate, // NDT only
+      items,
     } = req.body;
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -161,6 +163,7 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
         externalQAWitness: externalQAWitness || null,
         qcContactDetails: qcContactDetails || null,
         otherInformation: otherInformation || null,
+        reportNoAndDate: reportNoAndDate || null,
         remarks: remarks || null,
         status: 'SENT',
         recipientRole: resolvedRecipientRole,
@@ -173,6 +176,10 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
             materialComposition: it.materialComposition || null,
             drawingNo:           it.drawingNo || null,
             specification:       it.specification || null,
+            nameOfJob:           it.nameOfJob || null,
+            qty:                 it.qty || null,
+            itemRemarks:         it.itemRemarks || null,
+            ndtDetails:          it.ndtDetails || null,
           })),
         },
       },
@@ -210,7 +217,7 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
 
 // PUT /api/ion/:id/status — recipient transitions SENT → WAITING → COLLECTED
 //   Recipient = LAB/METROLOGY/NDT/RND user (for unassigned/role-assigned) OR the specific manager assigned to it.
-router.put('/:id/status', authenticate, authorize('LAB', 'MANAGER', 'METROLOGY', 'NDT', 'RND', 'DESIGNS'), async (req, res) => {
+router.put('/:id/status', authenticate, authorize('LAB', 'MANAGER', 'METROLOGY', 'NDT'), async (req, res) => {
   try {
     const { status, remarks } = req.body;
     if (!['WAITING', 'COLLECTED'].includes(status)) {

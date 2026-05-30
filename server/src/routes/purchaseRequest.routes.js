@@ -11,11 +11,13 @@ const { buildCoverageSummary } = require('../utils/prClosure');
 
 const router = express.Router();
 
-// Roles that can create/manage their own purchase requests (same privileges as MANAGER)
-const REQUESTER_ROLES = ['MANAGER', 'LAB', 'PLANNING'];
-// SAFETY can create PRs AND monitor all of them (handled as a non-requester so it
-// sees the full list without being filtered to its own records).
-const MONITOR_ROLES = ['SAFETY'];
+// Roles that can create/manage their own purchase requests (same privileges as MANAGER).
+// Restricted to: Unit Managers, Designs, R&D.
+const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND'];
+// Reserved for monitor-only roles (none currently — SAFETY removed from PR chain).
+const MONITOR_ROLES = [];
+// Full chain visibility: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
 const createSchema = z.object({
   notes: z.string().optional(),
@@ -41,7 +43,7 @@ const createSchema = z.object({
 });
 
 // GET /api/purchase-requests — list based on role
-router.get('/', authenticate, async (req, res) => {
+router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -410,7 +412,7 @@ router.get('/dashboard-stats', authenticate, async (req, res) => {
 });
 
 // GET /api/purchase-requests/:id
-router.get('/:id', authenticate, async (req, res) => {
+router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: req.params.id },
@@ -556,7 +558,7 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // POST /api/purchase-requests — Requester creates.
-router.post('/', authenticate, authorize('MANAGER', 'LAB', 'PLANNING', 'SAFETY', 'STORE_MANAGER'), async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER'), async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
 
@@ -963,7 +965,7 @@ router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), 
 });
 
 // PUT /api/purchase-requests/:id/cancel — Requester cancels own pending request
-router.put('/:id/cancel', authenticate, authorize('MANAGER', 'LAB', 'PLANNING', 'SAFETY', 'STORE_MANAGER'), async (req, res) => {
+router.put('/:id/cancel', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER'), async (req, res) => {
   try {
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: req.params.id },

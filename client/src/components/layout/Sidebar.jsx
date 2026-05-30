@@ -3,9 +3,9 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Package, PackagePlus, UserCog,
   FileText, BarChart3, Settings, Menu, X,
-  ClipboardList, CheckSquare, ScrollText, Bell, History, ShoppingCart,
-  FileSearch, Truck, CreditCard, ClipboardCheck, ArrowLeftRight,
-  Building2, ShieldCheck, Database, HardDrive, Activity
+  CheckSquare, ScrollText, Bell, History,
+  FileSearch, CreditCard,
+  Building2, ShieldCheck, Database, HardDrive, Activity, Boxes
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -15,22 +15,29 @@ const ALL_ROLES = [
   'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS',
 ];
 
-const buildAllItems = (role) => {
+// Departments allowed to see the PR → PO → QC → Inward chain.
+// Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
+
+// Union of roles that can see at least one module inside the Procurement hub.
+const PROCUREMENT_ROLES = [
+  ...CHAIN_ROLES,
+  'LAB', 'LOGISTICS', 'SAFETY',
+];
+
+const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
     { to: '/products', icon: Package, label: 'Products', roles: ALL_ROLES },
-    { to: '/purchase-requests', icon: ShoppingCart, label: role === 'PURCHASE_OFFICER' ? 'Purchase Assignments' : 'Purchase Requests', roles: ['ADMIN', 'MANAGER', 'ACCOUNTING', 'FINANCE', 'QC', 'LAB', 'PURCHASE_OFFICER', 'PLANNING', 'SAFETY', 'STORE_MANAGER'] },
-    { to: '/quotations', icon: FileSearch, label: 'Quotations', roles: ['PURCHASE_OFFICER', 'ADMIN', 'SUPPLY_CHAIN', 'SAFETY'] },
-    { to: '/suppliers', icon: Building2, label: 'Suppliers', roles: ['PURCHASE_OFFICER', 'ADMIN', 'SAFETY'] },
-    { to: '/purchase-orders', icon: Truck, label: 'Purchase Orders', roles: ['PURCHASE_OFFICER', 'ADMIN', 'ACCOUNTING', 'FINANCE', 'STORE_MANAGER', 'QC', 'MANAGER', 'LAB', 'PLANNING', 'SUPPLY_CHAIN', 'SAFETY'] },
-    { to: '/payment-requests', icon: CreditCard, label: 'Payment Requests', roles: ['PURCHASE_OFFICER', 'ACCOUNTING', 'FINANCE', 'ADMIN', 'SAFETY'] },
-    { to: '/qc-inspections', icon: ClipboardCheck, label: 'QC Inspections', roles: ['QC', 'ADMIN', 'SAFETY', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'MANAGER', 'LAB', 'PLANNING'] },
-    { to: '/my-requests', icon: ClipboardList, label: 'MIV Requests', roles: ['MANAGER', 'LAB'] },
+    { to: '/procurement', icon: Boxes, label: 'Procurement', roles: PROCUREMENT_ROLES },
+    { to: '/quotations', icon: FileSearch, label: 'Quotations', roles: CHAIN_ROLES },
+    { to: '/suppliers', icon: Building2, label: 'Suppliers', roles: CHAIN_ROLES },
+    { to: '/payment-requests', icon: CreditCard, label: 'Payment Requests', roles: CHAIN_ROLES },
+    { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },
-    { to: '/inward-entry', icon: PackagePlus, label: 'Inward Entry', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS'] },
+    { to: '/inward-entry', icon: PackagePlus, label: 'Inward Entry', roles: CHAIN_ROLES },
     { to: '/stock-movements', icon: BarChart3, label: 'Stock Movements', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
-    { to: '/inventory-transfers', icon: ArrowLeftRight, label: 'Inventory Transfers', roles: ['MANAGER', 'LOGISTICS', 'SAFETY'] },
     { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY', 'ADMIN'] },
     { to: '/unit-usage', icon: History, label: 'Unit Usage Logs', roles: ['ADMIN', 'SAFETY'] },
     { to: '/audit-logs', icon: FileText, label: 'Audit Logs', roles: ['ADMIN', 'SAFETY'] },
@@ -50,7 +57,7 @@ export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user } = useAuth();
 
-  const navItems = buildAllItems(user?.role).filter((item) => item.roles.includes(user?.role));
+  const navItems = buildAllItems().filter((item) => item.roles.includes(user?.role));
 
   const sidebarContent = (
     <>

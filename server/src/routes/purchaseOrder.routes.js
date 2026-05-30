@@ -43,6 +43,10 @@ function unlinkPublicFile(publicUrl) {
 
 const router = express.Router();
 
+// Departments allowed to see the PR → PO → QC → Inward chain.
+// Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
+
 const ORDER_INCLUDE = {
   createdBy: { select: { id: true, name: true } },
   creditPlacedBy: { select: { id: true, name: true } },
@@ -112,7 +116,7 @@ const ORDER_INCLUDE = {
 };
 
 // GET /api/purchase-orders — role-filtered list
-router.get('/', authenticate, async (req, res) => {
+router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -338,7 +342,7 @@ router.get('/po-dashboard-feed', authenticate, authorize('PURCHASE_OFFICER', 'AD
 });
 
 // GET /api/purchase-orders/:id
-router.get('/:id', authenticate, async (req, res) => {
+router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
     const order = await prisma.purchaseOrder.findUnique({
       where: { id: req.params.id },

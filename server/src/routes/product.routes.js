@@ -64,7 +64,15 @@ const productSchema = z.object({
 // GET /api/products
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { search, category, page, limit, includeUnitStock, includeMir } = req.query;
+    const { search, category, page, limit, includeUnitStock, includeMir, sort } = req.query;
+
+    // Sort presets — default to alphabetical by name, which is what Stores asked for.
+    const sortPresets = {
+      name: [{ name: 'asc' }],
+      category: [{ category: 'asc' }, { name: 'asc' }],
+      id: [{ materialCode: 'asc' }, { sku: 'asc' }],
+    };
+    const orderBy = sortPresets[sort] || sortPresets.name;
 
     // RAPS products list excludes FIM-only items — those belong on the FIM Status tab.
     // A product is "FIM-only" when every batch it has is isFim=true. Products with no
@@ -126,7 +134,7 @@ router.get('/', authenticate, async (req, res) => {
     if (limit === 'all') {
       const products = await prisma.product.findMany({
         where,
-        orderBy: { name: 'asc' },
+        orderBy,
         include: Object.keys(include).length ? include : undefined,
       });
       if (wantMir) await annotateMirAndExpiry(products);
@@ -138,7 +146,7 @@ router.get('/', authenticate, async (req, res) => {
     const [products, total] = await Promise.all([
       prisma.product.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take,
         include: Object.keys(include).length ? include : undefined,

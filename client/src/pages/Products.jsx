@@ -45,6 +45,7 @@ export default function Products() {
   const [showModal, setShowModal] = useState(false);
   const [categories, setCategories] = useState([]);
   const [catFilter, setCatFilter] = useState('');
+  const [sort, setSort] = useState('name'); // 'name' | 'category' | 'id' — default alphabetical
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -128,7 +129,7 @@ export default function Products() {
 
   const fetchProducts = () => {
     setLoading(true);
-    const params = { page, limit: 100, search: search || undefined, category: catFilter || undefined, includeUnitStock: 'true', includeMir: 'true' };
+    const params = { page, limit: 100, search: search || undefined, category: catFilter || undefined, sort, includeUnitStock: 'true', includeMir: 'true' };
     api.get('/products', { params })
       .then(({ data }) => {
         setProducts(data.products);
@@ -138,7 +139,7 @@ export default function Products() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchProducts(); }, [page, search, catFilter]);
+  useEffect(() => { fetchProducts(); }, [page, search, catFilter, sort]);
   useEffect(() => {
     api.get('/products/categories').then(({ data }) => setCategories(data));
     api.get('/products/material-types').then(({ data }) => setMaterialTypes(data)).catch(() => {});
@@ -287,6 +288,11 @@ export default function Products() {
               <option value="">All Categories</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </Select>
+            <Select value={sort} onChange={(e) => { setSort(e.target.value); setPage(1); }} className="w-full sm:w-48">
+              <option value="name">Sort: Alphabetical (A–Z)</option>
+              <option value="category">Sort: Category</option>
+              <option value="id">Sort: ID No.</option>
+            </Select>
           </div>
 
           {loading ? (
@@ -320,7 +326,7 @@ export default function Products() {
             <Input label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             <div className="grid grid-cols-3 gap-4">
               <Select label="Material Type *" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} required>
-                {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Tooling', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
+                {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools & Fastners', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
               </Select>
               <Select label="Unit" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
                 {['pcs', 'kg', 'litre', 'meter', 'Sq. mtr', 'box', 'set'].map(u => <option key={u} value={u}>{u}</option>)}
