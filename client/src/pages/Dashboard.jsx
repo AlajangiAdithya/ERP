@@ -1606,6 +1606,106 @@ function LowStockModal({ isOpen, onClose, products, loading }) {
   );
 }
 
+// ──────────────────────────────────────────────────────────────────
+// Supply Chain Dashboard — Work Order tracker + on-time delivery %
+// ──────────────────────────────────────────────────────────────────
+function SupplyChainDashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [workOrders, setWorkOrders] = useState([]);
+  const [stats, setStats] = useState({ completedCount: 0, onTimeCount: 0, onTimePercent: null });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/work-orders', { params: { limit: 200 } })
+      .then(({ data }) => {
+        if (cancelled) return;
+        setWorkOrders(data.workOrders || []);
+        setStats(data.stats || { completedCount: 0, onTimeCount: 0, onTimePercent: null });
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <Loader />;
+
+  const pending = workOrders.filter((w) => w.status === 'PENDING_ADMIN').length;
+  const inProgress = workOrders.filter((w) => ['UNIT_ACCEPTED', 'IN_PROGRESS', 'ADMIN_ACCEPTED'].includes(w.status)).length;
+  const overdue = workOrders.filter((w) => w.overdue).length;
+  const completed = workOrders.filter((w) => ['COMPLETED', 'CLOSED'].includes(w.status)).length;
+  const onTimePct = stats.onTimePercent;
+
+  return (
+    <div className="space-y-6">
+      <DashboardHero
+        title={greet(user, 'Supply Chain')}
+        subtitle="Work orders, PDC tracking and on-time delivery"
+        actions={
+          <Button onClick={() => navigate('/work-orders')}>
+            <ClipboardList size={16} className="mr-1" /> Work Orders
+          </Button>
+        }
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard
+          title="On-Time Delivery"
+          value={onTimePct != null ? `${onTimePct}%` : '—'}
+          subtitle={`${stats.onTimeCount}/${stats.completedCount} on time`}
+          icon={TrendingUp}
+          color={onTimePct == null ? 'navy' : onTimePct >= 90 ? 'green' : onTimePct >= 70 ? 'yellow' : 'red'}
+          onClick={() => navigate('/work-orders')}
+        />
+        <StatsCard title="Awaiting Admin" value={pending} icon={Clock} color="yellow" onClick={() => navigate('/work-orders')} />
+        <StatsCard title="In Progress" value={inProgress} icon={Activity} color="blue" onClick={() => navigate('/work-orders')} />
+        <StatsCard title="Overdue" value={overdue} icon={AlertTriangle} color={overdue > 0 ? 'red' : 'green'} onClick={() => navigate('/work-orders')} />
+      </div>
+
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-700">Recent Work Orders <span className="ml-2 text-xs font-normal text-gray-500">({workOrders.length})</span></h3>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/work-orders')}>View All</Button>
+        </div>
+        {workOrders.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">No work orders yet</div>
+        ) : (
+          <div className="space-y-2">
+            {workOrders.slice(0, 8).map((w) => {
+              const deliveredPct = w.orderQuantity > 0 ? Math.round((w.deliveredQty / w.orderQuantity) * 100) : 0;
+              return (
+                <div
+                  key={w.id}
+                  onClick={() => navigate('/work-orders')}
+                  className="border rounded-lg p-3 hover:shadow-sm cursor-pointer flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs text-navy-600">{w.workOrderNumber}</span>
+                      <Badge color={
+                        w.status === 'COMPLETED' ? 'green' :
+                        w.status === 'PENDING_ADMIN' ? 'yellow' :
+                        w.status === 'REJECTED' ? 'red' : 'blue'
+                      }>{w.status.replace('_', ' ')}</Badge>
+                      {w.overdue && <Badge color="red">Overdue</Badge>}
+                    </div>
+                    <p className="text-sm text-navy-800 truncate mt-0.5">{w.customerName} • SO {w.supplyOrderNo}</p>
+                  </div>
+                  <div className="text-right text-xs">
+                    <p className="text-gray-500">PDC {formatDateTime(w.effectivePdcDate).split(' ')[0]}</p>
+                    <p className="font-semibold text-navy-700">{deliveredPct}% — {w.deliveredQty}/{w.orderQuantity}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 function Loader() {
   return (
     <div className="flex items-center justify-center h-64">
@@ -1620,7 +1720,8 @@ export default function Dashboard() {
   if (user?.role === 'ADMIN') return <AdminDashboard />;
   if (['MANAGER', 'LAB', 'PLANNING'].includes(user?.role)) return <ManagerDashboard />;
   if (['STORE_MANAGER', 'LOGISTICS'].includes(user?.role)) return <StoreManagerDashboard />;
-  if (['PURCHASE_OFFICER', 'SUPPLY_CHAIN'].includes(user?.role)) return <PurchaseOfficerDashboard />;
+  if (user?.role === 'SUPPLY_CHAIN') return <SupplyChainDashboard />;
+  if (user?.role === 'PURCHASE_OFFICER') return <PurchaseOfficerDashboard />;
   if (['ACCOUNTING', 'FINANCE'].includes(user?.role)) return <AccountingDashboard />;
   if (user?.role === 'METROLOGY') return <MetrologyDashboard />;
   if (['QC', 'NDT', 'RND', 'DESIGNS'].includes(user?.role)) return <QCDashboard />;

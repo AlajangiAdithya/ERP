@@ -928,8 +928,34 @@ function ProcurementJourney({ request }) {
 // a PR-item with same-material items from other PRs (or undo) directly from
 // this modal. After the action, parent refetches so badges + states stay in sync.
 function DetailModal({ request, onClose, isPO = false, onReload }) {
+  const { user } = useAuth();
   const [poolPickerItem, setPoolPickerItem] = useState(null);
   const [unpoolingId, setUnpoolingId] = useState(null);
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  const [closeReason, setCloseReason] = useState('');
+  const [closing, setClosing] = useState(false);
+
+  const canCloseThisPR =
+    user?.role === 'MANAGER' &&
+    request &&
+    request.managerId === user.id &&
+    !['COMPLETED', 'REJECTED'].includes(request.status);
+
+  const submitClose = async () => {
+    setClosing(true);
+    try {
+      await api.post(`/purchase-requests/${request.id}/close`, {
+        reason: closeReason.trim() || undefined,
+      });
+      setCloseConfirmOpen(false);
+      setCloseReason('');
+      onReload?.();
+      onClose?.();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to close PR');
+    }
+    setClosing(false);
+  };
 
   const unpool = async (poolId, poolItemId) => {
     if (!confirm('Remove this item from the pool? Other partners stay pooled; the pool dissolves if fewer than 2 items remain.')) return;
@@ -1201,7 +1227,12 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           </table>
         </div>
 
-        <div className="flex justify-end pt-2">
+        <div className="flex justify-end gap-2 pt-2">
+          {canCloseThisPR && (
+            <Button variant="danger" onClick={() => setCloseConfirmOpen(true)}>
+              <XCircle size={16} className="mr-1" /> Close PR
+            </Button>
+          )}
           <DownloadPdfButton
             document={<PRPdf request={request} />}
             fileName={`PR-${request.requestNumber}.pdf`}
@@ -1210,6 +1241,52 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           />
         </div>
       </div>
+
+      {closeConfirmOpen && (
+        <Modal
+          isOpen
+          onClose={() => { if (!closing) { setCloseConfirmOpen(false); setCloseReason(''); } }}
+          title="Close this Purchase Request?"
+          size="md"
+        >
+          <div className="space-y-4">
+            <div className="bg-red-50 border-l-4 border-red-500 rounded-md p-3 text-sm text-red-900">
+              Closing the PR is permanent. Any items still awaiting quotations or pending
+              POs will be marked <span className="font-semibold">CANCELLED</span> and the
+              request will move to <span className="font-semibold">Completed</span>.
+              {request.status === 'ORDER_PLACED' && (
+                <div className="mt-1 text-xs">
+                  An order has already been placed against this PR — closing it here will
+                  not cancel the active PO; it only stops the PR from tracking further work.
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Reason (optional)</label>
+              <textarea
+                value={closeReason}
+                onChange={(e) => setCloseReason(e.target.value)}
+                rows={2}
+                maxLength={500}
+                placeholder="Why are you closing this PR?"
+                className="w-full px-3 py-2 border rounded-md text-sm"
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="secondary"
+                onClick={() => { setCloseConfirmOpen(false); setCloseReason(''); }}
+                disabled={closing}
+              >
+                Cancel
+              </Button>
+              <Button variant="danger" onClick={submitClose} disabled={closing}>
+                <XCircle size={16} className="mr-1" /> {closing ? 'Closing…' : 'Close PR'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {poolPickerItem && (
         <PoolPickerModal

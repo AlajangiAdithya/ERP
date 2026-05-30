@@ -28,11 +28,9 @@ const updateUserSchema = z.object({
 });
 
 // GET /api/users/managers — lightweight list of active managers.
-// Used by ION recipient picker (MANAGER/LAB) and the Tender assignment picker (SUPPLY_CHAIN).
-router.get('/managers', authenticate, authorize('MANAGER', 'LAB', 'ADMIN', 'SUPPLY_CHAIN'), async (req, res) => {
+// Used by the ION recipient picker (MANAGER/LAB).
+router.get('/managers', authenticate, authorize('MANAGER', 'LAB', 'ADMIN'), async (req, res) => {
   try {
-    // Tender manager assigning a tender to a unit needs to see ALL active managers
-    // including themselves' counterparts. ION picker excludes the requester.
     const excludeSelf = ['MANAGER', 'LAB'].includes(req.user.role);
     const managers = await prisma.user.findMany({
       where: {

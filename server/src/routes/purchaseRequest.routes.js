@@ -8,7 +8,7 @@ const {
   generateSequentialNumber, generateProductSku, normalizeMaterialType,
   paginate, applyDateFilter, isUniqueViolation,
 } = require('../utils/helpers');
-const { buildCoverageSummary } = require('../utils/prClosure');
+const { buildCoverageSummary, cancelLeftoverPRItems } = require('../utils/prClosure');
 
 const router = express.Router();
 
@@ -1028,6 +1028,82 @@ router.put('/:id/cancel', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', '
     res.json(updated);
   } catch (error) {
     console.error('Cancel purchase request error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/purchase-requests/:id/close — Unit Manager manually closes their
+// own PR. Allowed in any non-terminal state. Any still-live items are flipped
+// to CANCELLED (which also prunes their pending quotations) and the PR is
+// forced to COMPLETED so downstream queues stop tracking it.
+router.post('/:id/close', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
+
+    const request = await prisma.purchaseRequest.findUnique({
+      where: { id: req.params.id },
+      include: { items: { select: { id: true, itemQuotationStatus: true } } },
+    });
+    if (!request) return res.status(404).json({ error: 'Purchase request not found' });
+
+    if (req.user.role === 'MANAGER' && request.managerId !== req.user.id) {
+      return res.status(403).json({ error: 'You can only close your own requests' });
+    }
+
+    if (['COMPLETED', 'REJECTED'].includes(request.status)) {
+      return res.status(400).json({ error: 'Purchase request is already closed' });
+    }
+
+    const priorStatus = request.status;
+    const liveItemIds = request.items
+      .filter(i => i.itemQuotationStatus !== 'CANCELLED')
+      .map(i => i.id);
+
+    await prisma.$transaction(async (tx) => {
+      if (liveItemIds.length > 0) {
+        await cancelLeftoverPRItems(tx, liveItemIds, reason || 'Closed by unit manager');
+      }
+      // cancelLeftoverPRItems' status sync skips terminal states, so force the
+      // final COMPLETED here to guarantee a manual close is sticky regardless
+      // of where the PR was sitting (e.g. ORDER_PLACED).
+      await tx.purchaseRequest.update({
+        where: { id: request.id },
+        data: { status: 'COMPLETED' },
+      });
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'CLOSE_PR',
+        entity: 'PurchaseRequest',
+        entityId: request.id,
+        details: { requestNumber: request.requestNumber, reason: reason || null, priorStatus },
+        ipAddress: req.ip,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        type: 'PR_CLOSED',
+        title: `PR ${request.requestNumber} closed`,
+        message: `${req.user.name} closed PR ${request.requestNumber}${reason ? '. Reason: ' + reason : ''}`,
+        targetRole: 'ADMIN',
+        sentById: req.user.id,
+      },
+    });
+
+    const updated = await prisma.purchaseRequest.findUnique({
+      where: { id: request.id },
+      include: {
+        manager: { select: { id: true, name: true } },
+        unit: { select: { id: true, name: true, code: true } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+      },
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('Close purchase request error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

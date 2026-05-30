@@ -24,7 +24,7 @@ const gatePassRoutes = require('./routes/gatepass.routes');
 const ionRoutes = require('./routes/ion.routes');
 const inventoryTransferRoutes = require('./routes/inventoryTransfer.routes');
 const supplierRoutes = require('./routes/supplier.routes');
-const tenderRoutes = require('./routes/tender.routes');
+const workOrderRoutes = require('./routes/workOrder.routes');
 const superadminRoutes = require('./routes/superadmin.routes');
 const calibrationRoutes = require('./routes/calibration.routes');
 
@@ -88,7 +88,7 @@ app.use('/api/gatepasses', gatePassRoutes);
 app.use('/api/ion', ionRoutes);
 app.use('/api/inventory-transfers', inventoryTransferRoutes);
 app.use('/api/suppliers', supplierRoutes);
-app.use('/api/tenders', tenderRoutes);
+app.use('/api/work-orders', workOrderRoutes);
 app.use('/api/superadmin', superadminRoutes);
 app.use('/api/calibration', calibrationRoutes);
 

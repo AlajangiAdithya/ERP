@@ -61,7 +61,7 @@ const DOC_NUMBER_MAP = {
   ISS: { model: 'productRequest',           field: 'issueNo' },
   PAY: { model: 'paymentRequest',           field: 'paymentNumber' },
   TRF: { model: 'inventoryTransferRequest', field: 'transferNumber' },
-  TND: { model: 'tender',                   field: 'tenderNumber' },
+  WO:  { model: 'workOrder',                field: 'workOrderNumber' },
 };
 
 const formatDDMMYY = (date = new Date()) => {

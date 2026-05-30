@@ -51,8 +51,11 @@ model User {
   ionsAssigned               InterOfficeNote[]          @relation("IONAssignee")
   transferRequestsCreated    InventoryTransferRequest[] @relation("TransferRequester")
   transferRequestsApproved   InventoryTransferRequest[] @relation("TransferApprover")
-  tendersCreated             Tender[]                   @relation("TenderCreator")
-  tendersAssigned            Tender[]                   @relation("TenderAssignee")
+  workOrdersCreated          WorkOrder[]                @relation("WorkOrderCreator")
+  workOrdersAdminAccepted    WorkOrder[]                @relation("WorkOrderAdminAcceptor")
+  workOrdersUnitAccepted     WorkOrder[]                @relation("WorkOrderUnitAcceptor")
+  workOrderExtensionsGranted WorkOrderExtension[]       @relation("WorkOrderExtensionGranter")
+  workOrderInvoicesLogged    WorkOrderInvoice[]         @relation("WorkOrderInvoiceCreator")
   materialPoolsCreated       MaterialPool[]             @relation("MaterialPoolCreator")
 }
 
@@ -101,7 +104,7 @@ model Unit {
   transfersFrom      InventoryTransferRequest[] @relation("TransferFromUnit")
   transfersTo        InventoryTransferRequest[] @relation("TransferToUnit")
   productStocks      ProductUnitStock[]
-  tenders            Tender[]
+  workOrders         WorkOrder[]                @relation("WorkOrderAssignedUnit")
   inwardGatePasses   GatePass[]                 @relation("GatePassDestinationUnit")
   fimBatchesAssigned ProductBatch[]             @relation("FimAssignedToUnit")
 }
@@ -1165,34 +1168,147 @@ enum TransferStatus {
   TRANSFERRED
 }
 
-// ──── TENDERS (Tender Manager assigns to units) ────
-model Tender {
-  id             String       @id @default(uuid())
-  tenderNumber   String       @unique
-  title          String
-  description    String?
-  clientName     String?
-  estimatedValue Float?
-  submissionDate DateTime?
-  status         TenderStatus @default(ASSIGNED)
-  notes          String?
-  unitId         String
-  unit           Unit         @relation(fields: [unitId], references: [id])
-  createdById    String
-  createdBy      User         @relation("TenderCreator", fields: [createdById], references: [id])
-  assignedToId   String?
-  assignedTo     User?        @relation("TenderAssignee", fields: [assignedToId], references: [id])
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+// ──── WORK ORDERS (SUPPLY_CHAIN drafts → ADMIN accepts → UNIT executes) ────
+// Doc No: RAPS/WO/01. Mirrors the printable Work Order form (ION header).
+// SUPPLY_CHAIN records the customer's external Supply Order + drafts a Work Order.
+// ADMIN reviews + accepts (acceptance form). On acceptance the WO is assigned to
+// a unit; that unit's MANAGER accepts and starts execution. Delivery progress is
+// tracked via per-invoice qty entries; on-time % is computed from PDC (latest
+// extension wins) vs. completion date.
+model WorkOrder {
+  id                     String                  @id @default(uuid())
+  // Auto-generated internal Work Order number — RAPS/WO/<FY>/<N>
+  workOrderNumber        String                  @unique
+  // ION header number on the printable form — RAPS/<UNIT>/<FY>/<N>. Auto.
+  ionNumber              String?                 @unique
+
+  // ── External Supply Order (customer's reference) ──
+  supplyOrderNo          String
+  supplyOrderDate        DateTime
+  supplyOrderDescription String?
+
+  // ── Customer ──
+  customerName           String
+  customerContact        String?
+
+  // ── Order details ──
+  orderQuantity          Float
+  orderUnit              String                  @default("Nos")
+  pdcDate                DateTime                // Primary delivery commitment date
+  deliveryClause         String?
+
+  // ── Scope / specs ──
+  fimDetails             String?
+  inspectionAgency       String?
+  qapNo                  String?
+  drawingsDetails        String?
+  processDrawingsDetails String?
+  toolingScope           String?                 // RAPS scope / Customer scope
+  packingDetails         String?
+  transportationDetails  String?
+  majorWorksAtSite       String?                 // e.g. "Unit-5"
+  projectCoordinator     String?
+  otherInformation       String?
+  orderTermsAndScope     String?
+  remarks                String?
+
+  // ── Bank Guarantee ──
+  bankGuaranteeNo        String?
+  bankGuaranteeDate      DateTime?
+
+  // ── Insurance ──
+  insuranceNo            String?
+  insuranceDate          DateTime?
+
+  // ── Unit assignment + acceptance ──
+  assignedUnitId         String?
+  assignedUnit           Unit?                   @relation("WorkOrderAssignedUnit", fields: [assignedUnitId], references: [id])
+  unitAcceptedAt         DateTime?
+  unitAcceptedById       String?
+  unitAcceptedBy         User?                   @relation("WorkOrderUnitAcceptor", fields: [unitAcceptedById], references: [id])
+  unitAcceptanceNote     String?
+
+  // ── Admin acceptance (acceptance form sent to admins) ──
+  adminAcceptedAt        DateTime?
+  adminAcceptedById      String?
+  adminAcceptedBy        User?                   @relation("WorkOrderAdminAcceptor", fields: [adminAcceptedById], references: [id])
+  adminAcceptanceNote    String?
+
+  status                 WorkOrderStatus         @default(PENDING_ADMIN)
+  deliveryStatus         WorkOrderDeliveryStatus @default(NOT_STARTED)
+
+  // Aggregated qty trackers (kept in sync from invoices).
+  deliveredQty           Float                   @default(0)
+  invoicedQty            Float                   @default(0)
+  invoicedAmount         Float                   @default(0)
+
+  // Set when the unit marks the WO fully delivered. Used for on-time %.
+  completedAt            DateTime?
+
+  createdById            String
+  createdBy              User                    @relation("WorkOrderCreator", fields: [createdById], references: [id])
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  extensions             WorkOrderExtension[]
+  invoices               WorkOrderInvoice[]
+
+  @@index([assignedUnitId])
+  @@index([status])
+  @@index([pdcDate])
 }
 
-enum TenderStatus {
-  ASSIGNED
-  IN_PROGRESS
-  SUBMITTED
-  WON
-  LOST
+// PDC extension log (Extension 1, 2, ...). Latest extension's newPdcDate is the
+// effective PDC for on-time computation.
+model WorkOrderExtension {
+  id           String    @id @default(uuid())
+  workOrderId  String
+  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  extensionNo  Int
+  newPdcDate   DateTime
+  reason       String?
+  grantedAt    DateTime  @default(now())
+  grantedById  String?
+  grantedBy    User?     @relation("WorkOrderExtensionGranter", fields: [grantedById], references: [id])
+
+  @@unique([workOrderId, extensionNo])
+  @@index([workOrderId])
+}
+
+// Per-invoice qty + amount log (qty-wise invoice tracking).
+model WorkOrderInvoice {
+  id           String    @id @default(uuid())
+  workOrderId  String
+  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  invoiceNo    String
+  invoiceDate  DateTime
+  quantity     Float
+  amount       Float?
+  remarks      String?
+  createdById  String?
+  createdBy    User?     @relation("WorkOrderInvoiceCreator", fields: [createdById], references: [id])
+  createdAt    DateTime  @default(now())
+
+  @@index([workOrderId])
+}
+
+enum WorkOrderStatus {
+  PENDING_ADMIN     // drafted by SUPPLY_CHAIN; awaiting admin acceptance
+  ADMIN_ACCEPTED    // admin accepted; awaiting unit acceptance
+  UNIT_ACCEPTED     // unit acknowledged; execution begins
+  IN_PROGRESS       // ≥1 invoice logged
+  COMPLETED         // delivered qty ≥ order qty
+  CLOSED
   CANCELLED
+  REJECTED          // admin rejected
+}
+
+enum WorkOrderDeliveryStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  PARTIAL
+  DELIVERED
+  DELAYED
 }
 
 // ──── METROLOGY / CALIBRATION ITEMS ────

@@ -30,7 +30,7 @@ const TABLES = [
   'Quotation', 'QuotationItem', 'QuotationSource', 'PurchaseOrder', 'PurchaseOrderItem',
   'PurchaseOrderSource', 'PurchaseOrderItemAllocation', 'PaymentRequest', 'QCInspection',
   'QCInspectionItem', 'GatePass', 'GatePassItem', 'InterOfficeNote', 'InventoryTransferRequest',
-  'InventoryTransferItem', 'Supplier', 'Tender', 'Notification',
+  'InventoryTransferItem', 'Supplier', 'WorkOrder', 'WorkOrderExtension', 'WorkOrderInvoice', 'Notification',
 ];
 
 // Convert PascalCase table name to camelCase Prisma model accessor.

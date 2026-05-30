@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ShieldCheck, ShoppingCart, FileSearch, Truck, CreditCard, ClipboardCheck,
-  ScrollText, BarChart3, DoorOpen, ArrowLeftRight, FlaskConical, Briefcase,
+  ScrollText, BarChart3, DoorOpen, ArrowLeftRight, FlaskConical, ClipboardList,
   History, FileText,
 } from 'lucide-react';
 import api from '../api/axios';
@@ -20,7 +20,7 @@ const TILES = [
   { to: '/gate-pass',           label: 'Gate Passes',         icon: DoorOpen,       endpoint: '/gatepasses',          key: 'gatePasses' },
   { to: '/inventory-transfers', label: 'Inventory Transfers', icon: ArrowLeftRight, endpoint: '/inventory-transfers', key: 'transfers' },
   { to: '/ion',                 label: 'Inter Office Notes',  icon: FlaskConical,   endpoint: '/ion',                 key: 'ions' },
-  { to: '/tenders',             label: 'Tenders',             icon: Briefcase,      endpoint: '/tenders',             key: 'tenders' },
+  { to: '/work-orders',         label: 'Work Orders',         icon: ClipboardList,  endpoint: '/work-orders',         key: 'workOrders' },
   { to: '/audit-logs',          label: 'Audit Logs',          icon: FileText,       endpoint: '/reports/audit-logs',  key: 'logs' },
   { to: '/unit-usage',          label: 'Unit Usage',          icon: History,        endpoint: '/reports/unit-usage',  key: 'logs' },
 ];

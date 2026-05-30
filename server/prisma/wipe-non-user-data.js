@@ -58,8 +58,10 @@ async function main() {
     // Suppliers — safe to drop now that quotations + POs are gone
     ['supplier', () => prisma.supplier.deleteMany()],
 
-    // Tenders — independent of the procurement chain
-    ['tender', () => prisma.tender.deleteMany()],
+    // Work Orders — independent of the procurement chain
+    ['workOrderInvoice', () => prisma.workOrderInvoice.deleteMany()],
+    ['workOrderExtension', () => prisma.workOrderExtension.deleteMany()],
+    ['workOrder', () => prisma.workOrder.deleteMany()],
 
     // MIV (legacy ProductRequest chain)
     ['requestItem', () => prisma.requestItem.deleteMany()],

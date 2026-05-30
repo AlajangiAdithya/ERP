@@ -26,7 +26,7 @@ import Monitoring from './pages/Monitoring';
 import GatePass from './pages/GatePass';
 import InterOfficeNote from './pages/InterOfficeNote';
 import InventoryTransfers from './pages/InventoryTransfers';
-import Tenders from './pages/Tenders';
+import WorkOrders from './pages/WorkOrders';
 import SafetyMonitor from './pages/SafetyMonitor';
 import RealtimeCorrections from './pages/superadmin/RealtimeCorrections';
 import Backups from './pages/superadmin/Backups';
@@ -172,9 +172,9 @@ export default function App() {
                 <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'METROLOGY', 'NDT']}><InterOfficeNote /></PrivateRoute>
               } />
 
-              {/* Tenders — SUPPLY_CHAIN assigns; MANAGER works; SAFETY monitors */}
-              <Route path="/tenders" element={
-                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY']}><Tenders /></PrivateRoute>
+              {/* Work Orders — SUPPLY_CHAIN drafts; ADMIN accepts; assigned unit MANAGER executes; SAFETY monitors */}
+              <Route path="/work-orders" element={
+                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY']}><WorkOrders /></PrivateRoute>
               } />
 
               {/* Safety Monitor */}
