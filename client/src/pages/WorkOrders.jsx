@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   ClipboardList, Plus, Send, CheckCircle2, Clock, XCircle, Building2,
-  FileText, Receipt, CalendarClock, TrendingUp, ShieldCheck,
+  FileText, Receipt, CalendarClock, TrendingUp, ShieldCheck, PauseCircle,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -24,9 +24,10 @@ const STATUS_META = {
   CLOSED:         { color: 'navy',   label: 'Closed',           Icon: CheckCircle2 },
   CANCELLED:      { color: 'gray',   label: 'Cancelled',        Icon: XCircle },
   REJECTED:       { color: 'red',    label: 'Rejected',         Icon: XCircle },
+  ON_HOLD:        { color: 'red',    label: 'On Hold',          Icon: PauseCircle },
 };
 
-const STATUS_TABS = ['ALL', 'PENDING_ADMIN', 'ADMIN_ACCEPTED', 'UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'CANCELLED', 'REJECTED'];
+const STATUS_TABS = ['ALL', 'PENDING_ADMIN', 'ADMIN_ACCEPTED', 'ON_HOLD', 'UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'CANCELLED', 'REJECTED'];
 
 export default function WorkOrders() {
   const { user } = useAuth();
@@ -360,7 +361,9 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
   const role = currentUser?.role;
   const isCreator = role === 'SUPPLY_CHAIN' || role === 'ADMIN';
   const isAdmin = role === 'ADMIN';
+  const isSupplyChain = role === 'SUPPLY_CHAIN';
   const isUnitManager = role === 'MANAGER' && currentUser.unitId === wo.assignedUnitId;
+  const canReassign = (isSupplyChain || isAdmin) && wo.status === 'ON_HOLD';
   const meta = STATUS_META[wo.status];
 
   const handleAction = async (fn) => {
@@ -404,10 +407,10 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
 
         {section === 'overview' && <OverviewTab wo={wo} />}
         {section === 'extensions' && (
-          <ExtensionsTab wo={wo} canManage={isCreator} busy={busy} onAdd={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/extensions`, payload))} />
+          <ExtensionsTab wo={wo} canManage={isSupplyChain} busy={busy} onAdd={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/extensions`, payload))} />
         )}
         {section === 'invoices' && (
-          <InvoicesTab wo={wo} canLog={isUnitManager || isAdmin} busy={busy} onAdd={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/invoices`, payload))} />
+          <InvoicesTab wo={wo} canLog={isUnitManager || isSupplyChain} busy={busy} onAdd={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/invoices`, payload))} />
         )}
 
         {/* Action footer */}
@@ -419,10 +422,17 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
               onReject={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/admin-accept`, { accept: false, ...payload }))}
             />
           )}
-          {(isUnitManager || isAdmin) && wo.status === 'ADMIN_ACCEPTED' && (
+          {isUnitManager && wo.status === 'ADMIN_ACCEPTED' && (
             <UnitAcceptControl
               busy={busy}
-              onAccept={(note) => handleAction(() => api.post(`/work-orders/${wo.id}/unit-accept`, { note }))}
+              onAccept={(note) => handleAction(() => api.post(`/work-orders/${wo.id}/unit-accept`, { accept: true, note }))}
+              onReject={(note) => handleAction(() => api.post(`/work-orders/${wo.id}/unit-accept`, { accept: false, note }))}
+            />
+          )}
+          {canReassign && (
+            <ReassignControl
+              wo={wo} units={units} busy={busy}
+              onReassign={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/reassign`, payload))}
             />
           )}
           {isCreator && !['CLOSED', 'CANCELLED', 'REJECTED'].includes(wo.status) && (
@@ -626,14 +636,51 @@ function AdminAcceptControls({ wo, units, busy, onAccept, onReject }) {
   );
 }
 
-function UnitAcceptControl({ busy, onAccept }) {
+function UnitAcceptControl({ busy, onAccept, onReject }) {
   const [note, setNote] = useState('');
   return (
     <div className="w-full space-y-2 border-t pt-3">
-      <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Unit Acceptance</p>
-      <Textarea label="Acceptance note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+      <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Unit Decision</p>
+      <Textarea
+        label="Note (required when rejecting)"
+        rows={2}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Reason for rejection or remarks on acceptance"
+      />
+      <div className="flex justify-end gap-2">
+        <Button variant="danger" disabled={busy || !note.trim()} onClick={() => onReject(note)}>
+          Reject
+        </Button>
+        <Button disabled={busy} onClick={() => onAccept(note)}>Accept</Button>
+      </div>
+      <p className="text-xs text-navy-500">
+        Rejecting puts this WO on hold. Supply Chain or Admin can reassign it to another unit.
+      </p>
+    </div>
+  );
+}
+
+function ReassignControl({ wo, units, busy, onReassign }) {
+  const [assignedUnitId, setAssignedUnitId] = useState(wo.assignedUnitId || '');
+  const [note, setNote] = useState('');
+  return (
+    <div className="w-full space-y-2 border-t pt-3">
+      <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Reassign Work Order</p>
+      {wo.unitAcceptanceNote && (
+        <p className="text-xs text-red-700 bg-red-50 p-2 rounded">
+          Rejection note: {wo.unitAcceptanceNote}
+        </p>
+      )}
+      <Select label="Assign to Unit *" value={assignedUnitId} onChange={(e) => setAssignedUnitId(e.target.value)}>
+        <option value="">Select unit...</option>
+        {units.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.code})</option>)}
+      </Select>
+      <Textarea label="Reassignment note (optional)" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
       <div className="flex justify-end">
-        <Button disabled={busy} onClick={() => onAccept(note)}>Accept on behalf of unit</Button>
+        <Button disabled={busy || !assignedUnitId} onClick={() => onReassign({ assignedUnitId, note })}>
+          Reassign &amp; Send to Unit
+        </Button>
       </div>
     </div>
   );

@@ -1301,6 +1301,7 @@ enum WorkOrderStatus {
   CLOSED
   CANCELLED
   REJECTED          // admin rejected
+  ON_HOLD           // unit rejected; awaiting reassignment by supply chain/admin
 }
 
 enum WorkOrderDeliveryStatus {

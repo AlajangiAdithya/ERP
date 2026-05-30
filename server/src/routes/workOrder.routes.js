@@ -25,7 +25,7 @@ const router = express.Router();
 const WO_VIEW_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY'];
 const WO_STATUSES = [
   'PENDING_ADMIN', 'ADMIN_ACCEPTED', 'UNIT_ACCEPTED',
-  'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'CANCELLED', 'REJECTED',
+  'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'CANCELLED', 'REJECTED', 'ON_HOLD',
 ];
 const DELIVERY_STATUSES = ['NOT_STARTED', 'IN_PROGRESS', 'PARTIAL', 'DELIVERED', 'DELAYED'];
 
@@ -269,7 +269,7 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
     const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
     if (existing.status !== 'PENDING_ADMIN') {
-      return res.status(400).json({ error: 'Work order is not awaiting admin acceptance' });
+      return res.status(400).json({ error: 'Work order is not awaiting admin acceptance. Use reassign for on-hold WOs.' });
     }
 
     let unitId = assignedUnitId || existing.assignedUnitId;
@@ -323,38 +323,69 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
 });
 
 // ── POST /api/work-orders/:id/unit-accept — MANAGER of assigned unit ──
-router.post('/:id/unit-accept', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+// `accept: true`  → status UNIT_ACCEPTED
+// `accept: false` → status ON_HOLD (supply chain/admin must reassign)
+router.post('/:id/unit-accept', authenticate, authorize('MANAGER'), async (req, res) => {
   try {
-    const { note } = req.body || {};
+    const { accept = true, note } = req.body || {};
     const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
     if (existing.status !== 'ADMIN_ACCEPTED') {
       return res.status(400).json({ error: 'Work order is not awaiting unit acceptance' });
     }
-    if (req.user.role === 'MANAGER' && existing.assignedUnitId !== req.user.unitId) {
+    if (existing.assignedUnitId !== req.user.unitId) {
       return res.status(403).json({ error: 'Not your unit' });
     }
 
     const updated = await prisma.workOrder.update({
       where: { id: req.params.id },
-      data: {
-        status: 'UNIT_ACCEPTED',
-        unitAcceptedAt: new Date(),
-        unitAcceptedById: req.user.id,
-        unitAcceptanceNote: note || null,
-      },
+      data: accept
+        ? {
+            status: 'UNIT_ACCEPTED',
+            unitAcceptedAt: new Date(),
+            unitAcceptedById: req.user.id,
+            unitAcceptanceNote: note || null,
+          }
+        : {
+            status: 'ON_HOLD',
+            unitAcceptedAt: null,
+            unitAcceptedById: null,
+            unitAcceptanceNote: note || 'Rejected by unit',
+          },
       include: WO_INCLUDE,
     });
 
-    await prisma.notification.create({
-      data: {
-        type: 'WORK_ORDER_UNIT_ACCEPTED',
-        title: `WO ${updated.workOrderNumber} accepted by unit`,
-        message: `${req.user.name} accepted Work Order ${updated.workOrderNumber} on behalf of the assigned unit.`,
-        targetUserId: existing.createdById,
-        sentById: req.user.id,
-      },
-    });
+    if (accept) {
+      await prisma.notification.create({
+        data: {
+          type: 'WORK_ORDER_UNIT_ACCEPTED',
+          title: `WO ${updated.workOrderNumber} accepted by unit`,
+          message: `${req.user.name} accepted Work Order ${updated.workOrderNumber}.`,
+          targetUserId: existing.createdById,
+          sentById: req.user.id,
+        },
+      });
+    } else {
+      // Notify the creator + all admins so reassignment can happen.
+      await prisma.notification.createMany({
+        data: [
+          {
+            type: 'WORK_ORDER_UNIT_REJECTED',
+            title: `WO ${updated.workOrderNumber} on hold — unit rejected`,
+            message: `${req.user.name} rejected Work Order ${updated.workOrderNumber}${note ? `: ${note}` : ''}. Reassign to another unit.`,
+            targetUserId: existing.createdById,
+            sentById: req.user.id,
+          },
+          {
+            type: 'WORK_ORDER_UNIT_REJECTED',
+            title: `WO ${updated.workOrderNumber} on hold — unit rejected`,
+            message: `${req.user.name} rejected Work Order ${updated.workOrderNumber}${note ? `: ${note}` : ''}. Reassign to another unit.`,
+            targetRole: 'ADMIN',
+            sentById: req.user.id,
+          },
+        ],
+      });
+    }
 
     res.json(decorate(updated));
   } catch (error) {
@@ -363,8 +394,58 @@ router.post('/:id/unit-accept', authenticate, authorize('MANAGER', 'ADMIN'), asy
   }
 });
 
+// ── POST /api/work-orders/:id/reassign — SUPPLY_CHAIN/ADMIN ───
+// Available only from ON_HOLD (after unit rejection). Sets a new (or same)
+// assigned unit and moves status back to ADMIN_ACCEPTED so the new unit
+// manager can accept/reject.
+router.post('/:id/reassign', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
+  try {
+    const { assignedUnitId, note } = req.body || {};
+    if (!assignedUnitId) return res.status(400).json({ error: 'assignedUnitId is required' });
+
+    const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Work order not found' });
+    if (existing.status !== 'ON_HOLD') {
+      return res.status(400).json({ error: 'Work order is not on hold' });
+    }
+
+    const unit = await prisma.unit.findUnique({ where: { id: assignedUnitId } });
+    if (!unit) return res.status(400).json({ error: 'Assigned unit not found' });
+
+    const updated = await prisma.workOrder.update({
+      where: { id: req.params.id },
+      data: {
+        assignedUnitId,
+        status: 'ADMIN_ACCEPTED',
+        unitAcceptedAt: null,
+        unitAcceptedById: null,
+        unitAcceptanceNote: null,
+        adminAcceptanceNote: note
+          ? `${existing.adminAcceptanceNote ? existing.adminAcceptanceNote + '\n' : ''}Reassigned to ${unit.name}: ${note}`
+          : existing.adminAcceptanceNote,
+      },
+      include: WO_INCLUDE,
+    });
+
+    await prisma.notification.create({
+      data: {
+        type: 'WORK_ORDER_ASSIGNED_TO_UNIT',
+        title: `Work Order ${updated.workOrderNumber} reassigned to your unit`,
+        message: `${req.user.name} reassigned WO ${updated.workOrderNumber} (Customer: ${updated.customerName}). Please review and accept.`,
+        targetRole: 'MANAGER',
+        sentById: req.user.id,
+      },
+    });
+
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Reassign WO error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── POST /api/work-orders/:id/extensions — log a PDC extension ────────
-router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
+router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN'), async (req, res) => {
   try {
     const { newPdcDate, reason } = req.body || {};
     if (!newPdcDate) return res.status(400).json({ error: 'newPdcDate is required' });
@@ -398,7 +479,7 @@ router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'),
 
 // ── POST /api/work-orders/:id/invoices — log qty-wise invoice ─────────
 // Manager of the assigned unit (or SUPPLY_CHAIN/ADMIN) records each invoice.
-router.post('/:id/invoices', authenticate, authorize('MANAGER', 'SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
+router.post('/:id/invoices', authenticate, authorize('MANAGER', 'SUPPLY_CHAIN'), async (req, res) => {
   try {
     const { invoiceNo, invoiceDate, quantity, amount, remarks } = req.body || {};
     if (!invoiceNo || !invoiceDate || quantity === undefined) {
