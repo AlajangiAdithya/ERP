@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import {
   ShoppingCart, Truck, ClipboardCheck, ClipboardList, ArrowLeftRight, ArrowRight,
-  FileSearch, CreditCard,
+  FileSearch, CreditCard, Building2, PackagePlus,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -12,6 +12,10 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 // quality/design departments don't need to see supplier prices or payment runs.
 const QUOTATION_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER'];
 const PAYMENT_ROLES   = ['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING'];
+
+// Inward Entry: Stores actually records inward (write); Manager/QC/Designs/R&D
+// can see what's ready and what's been inwarded for traceability (read-only).
+const INWARD_ROLES = ['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'DESIGNS', 'RND'];
 
 const MODULES = [
   {
@@ -52,6 +56,15 @@ const MODULES = [
     iconBg: 'bg-teal-50 text-teal-600',
   },
   {
+    to: '/suppliers',
+    icon: Building2,
+    title: 'Suppliers',
+    description: 'Manage approved vendor list and supplier contact details.',
+    roles: CHAIN_ROLES,
+    accent: 'from-slate-500 to-slate-600',
+    iconBg: 'bg-slate-50 text-slate-600',
+  },
+  {
     to: '/qc-inspections',
     icon: ClipboardCheck,
     title: 'QC Inspections',
@@ -59,6 +72,15 @@ const MODULES = [
     roles: CHAIN_ROLES,
     accent: 'from-amber-500 to-amber-600',
     iconBg: 'bg-amber-50 text-amber-600',
+  },
+  {
+    to: '/inward-entry',
+    icon: PackagePlus,
+    title: 'Inward Entry',
+    description: 'Receive QC-passed materials into stores and track FIM acceptance.',
+    roles: INWARD_ROLES,
+    accent: 'from-orange-500 to-orange-600',
+    iconBg: 'bg-orange-50 text-orange-600',
   },
   {
     to: '/my-requests',

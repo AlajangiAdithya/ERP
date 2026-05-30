@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Check, Package, ClipboardList, Truck, Plus, FileInput, FileText, Trash2, Send } from 'lucide-react';
+import { Check, Package, ClipboardList, Truck, Plus, FileInput, FileText, Trash2, Send, Eye } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -11,6 +11,11 @@ import SearchBar from '../components/shared/SearchBar';
 import { formatDate, formatDateTime } from '../utils/formatters';
 import InwardPdf from '../components/pdf/InwardPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+
+// Stores does the actual inward work. Manager / QC / Designs / R&D get a
+// read-only view so they can trace what's pending and what has already
+// been inwarded without being able to mutate anything.
+const INWARD_WRITE_ROLES = ['ADMIN', 'STORE_MANAGER'];
 
 // Helper: pick the latest PASSED/PARTIAL inspection (the lot ready for inward)
 function activeInspectionOf(order) {
@@ -25,6 +30,8 @@ function cumulativeArrived(order) {
 }
 
 export default function InwardEntry() {
+  const { user } = useAuth();
+  const canEdit = INWARD_WRITE_ROLES.includes(user?.role);
   const [mode, setMode] = useState('po');
   const [success, setSuccess] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -48,8 +55,24 @@ export default function InwardEntry() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Inward Entry</h1>
-        <p className="text-sm text-gray-500">Record materials received into stores.</p>
+        <p className="text-sm text-gray-500">
+          {canEdit
+            ? 'Record materials received into stores.'
+            : 'Track what is ready for inwarding and what has already been received.'}
+        </p>
       </div>
+
+      {!canEdit && (
+        <Card className="border-blue-200 bg-blue-50">
+          <div className="flex items-center gap-3">
+            <Eye size={18} className="text-blue-600 flex-shrink-0" />
+            <p className="text-sm text-blue-800">
+              <strong>View-only:</strong> only Stores can record inward entries.
+              You can see pending and completed inward activity for traceability.
+            </p>
+          </div>
+        </Card>
+      )}
 
       {success && (
         <Card className="border-green-200 bg-green-50">
@@ -78,44 +101,85 @@ export default function InwardEntry() {
         {tabBtn('gatepass', 'From Gate Pass (FIM)', FileInput)}
       </div>
 
-      {mode === 'po' && <FromPOMode onSuccess={onSuccess} refreshKey={refreshKey} />}
-      {mode === 'direct' && <DirectEntryMode onSuccess={onSuccess} />}
-      {mode === 'gatepass' && <FromGatePassMode onSuccess={onSuccess} refreshKey={refreshKey} />}
+      {mode === 'po' && <FromPOMode onSuccess={onSuccess} refreshKey={refreshKey} canEdit={canEdit} />}
+      {mode === 'direct' && <DirectEntryMode onSuccess={onSuccess} canEdit={canEdit} />}
+      {mode === 'gatepass' && <FromGatePassMode onSuccess={onSuccess} refreshKey={refreshKey} canEdit={canEdit} />}
     </div>
   );
 }
 
 // ─── From PO Mode ───
-function FromPOMode({ onSuccess, refreshKey }) {
+// PENDING list = QC-passed orders awaiting inward (PARTIAL stays here too: more lots may still arrive).
+// INWARDED list = orders with at least one completed inward (INWARD_DONE / COMPLETED / CLOSED).
+const PO_PENDING_STATUSES = ['QC_PASSED', 'PARTIAL'];
+const PO_INWARDED_STATUSES = ['INWARD_DONE', 'COMPLETED', 'CLOSED'];
+
+function FromPOMode({ onSuccess, refreshKey, canEdit }) {
+  const [view, setView] = useState('pending'); // 'pending' | 'inwarded'
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
 
   useEffect(() => {
     setLoading(true);
-    api.get('/purchase-orders', { params: { status: 'QC_PASSED', limit: 100 } })
-      .then(({ data }) => setOrders(data.orders || []))
+    const statuses = view === 'pending' ? PO_PENDING_STATUSES : PO_INWARDED_STATUSES;
+    // Fetch each status bucket in parallel and merge — the list endpoint takes
+    // a single status, so we just hit it once per status the user wants to see.
+    Promise.all(
+      statuses.map((s) => api.get('/purchase-orders', { params: { status: s, limit: 100 } })),
+    )
+      .then((results) => {
+        const merged = results.flatMap((r) => r.data.orders || []);
+        // De-dupe by id in case the same order appears in overlapping buckets.
+        const byId = new Map();
+        for (const o of merged) byId.set(o.id, o);
+        setOrders(Array.from(byId.values()));
+      })
       .finally(() => setLoading(false));
-  }, [refreshKey]);
+  }, [refreshKey, view]);
 
   if (selectedOrder) {
     return (
       <POInwardForm
         order={selectedOrder}
+        canEdit={canEdit && view === 'pending'}
         onCancel={() => setSelectedOrder(null)}
         onComplete={(msg) => { setSelectedOrder(null); onSuccess(msg); }}
       />
     );
   }
 
+  const viewBtn = (key, label) => (
+    <button
+      onClick={() => setView(key)}
+      className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+        view === key
+          ? 'bg-navy-700 text-white border-navy-700'
+          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div>
-      <h3 className="text-lg font-semibold text-gray-800 mb-3">QC-Passed Orders Pending Inward</h3>
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <h3 className="text-lg font-semibold text-gray-800">
+          {view === 'pending' ? 'QC-Passed Orders Pending Inward' : 'Orders Already Inwarded'}
+        </h3>
+        <div className="flex gap-2">
+          {viewBtn('pending', 'Pending')}
+          {viewBtn('inwarded', 'Inwarded')}
+        </div>
+      </div>
       {loading ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : orders.length === 0 ? (
         <Card className="text-center text-gray-500 py-8">
-          No QC-passed orders waiting for inward entry.
+          {view === 'pending'
+            ? 'No QC-passed orders waiting for inward entry.'
+            : 'No completed inward orders yet.'}
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -181,7 +245,7 @@ function FromPOMode({ onSuccess, refreshKey }) {
   );
 }
 
-function POInwardForm({ order, onCancel, onComplete }) {
+function POInwardForm({ order, onCancel, onComplete, canEdit }) {
   // Pull latest QC inspection (qcInspections come sorted desc from API) — this is the
   // current lot ready for inward.
   const latestInspection = activeInspectionOf(order);
@@ -389,8 +453,9 @@ function POInwardForm({ order, onCancel, onComplete }) {
                 </td>
                 <td className="px-3 py-2">
                   <input type="number" value={it.receivedQty} min="0" step="any"
+                    disabled={!canEdit}
                     onChange={(e) => updateItem(idx, 'receivedQty', e.target.value)}
-                    className="w-24 px-2 py-1 border border-gray-300 rounded text-sm" />
+                    className="w-24 px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100 disabled:text-gray-600" />
                   <span className="ml-1 text-xs text-gray-500">{it.productUnit}</span>
                 </td>
                 <td className="px-3 py-2 font-mono text-xs text-amber-800 font-semibold">
@@ -446,18 +511,33 @@ function POInwardForm({ order, onCancel, onComplete }) {
       )}
 
       <div className="flex justify-end gap-3 mt-4">
-        <Button variant="secondary" onClick={onCancel}>Cancel</Button>
-        <Button onClick={submit} disabled={saving}>
-          {saving ? 'Saving…' : 'Record Inward Entry'}
-        </Button>
+        <Button variant="secondary" onClick={onCancel}>Back to list</Button>
+        {canEdit && (
+          <Button onClick={submit} disabled={saving}>
+            {saving ? 'Saving…' : 'Record Inward Entry'}
+          </Button>
+        )}
       </div>
     </Card>
   );
 }
 
 // ─── Direct Entry Mode ───
-function DirectEntryMode({ onSuccess }) {
+function DirectEntryMode({ onSuccess, canEdit }) {
   const [subMode, setSubMode] = useState('existing');
+
+  if (!canEdit) {
+    return (
+      <Card className="text-center text-gray-500 py-10">
+        <ClipboardList size={28} className="mx-auto text-gray-400 mb-2" />
+        <p className="text-sm">
+          Direct / cash-purchase inward is handled by Stores.
+          There's no list to view here — completed direct entries appear in the
+          product's stock movements once recorded.
+        </p>
+      </Card>
+    );
+  }
 
   const subBtn = (key, label, Icon) => (
     <button onClick={() => setSubMode(key)}
@@ -668,9 +748,8 @@ function NewProductForm({ onSuccess }) {
 // Records customer-supplied material (FIM) and accepts it into Products.
 // Created ProductBatches are tagged FIM and linked back to the originating
 // inward entry so we can trace each batch back to the customer.
-function FromGatePassMode({ onSuccess, refreshKey }) {
-  const { user } = useAuth();
-  const canRecord = ['STORE_MANAGER', 'LOGISTICS', 'ADMIN'].includes(user?.role);
+function FromGatePassMode({ onSuccess, refreshKey, canEdit }) {
+  const [view, setView] = useState('pending'); // 'pending' | 'accepted'
   const [gatePasses, setGatePasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
@@ -679,32 +758,53 @@ function FromGatePassMode({ onSuccess, refreshKey }) {
 
   const load = () => {
     setLoading(true);
-    api.get('/gatepasses', { params: { direction: 'INWARD', status: 'PENDING_ACCEPTANCE', limit: 100 } })
+    const status = view === 'pending' ? 'PENDING_ACCEPTANCE' : 'ACCEPTED';
+    api.get('/gatepasses', { params: { direction: 'INWARD', status, limit: 100 } })
       .then(({ data }) => setGatePasses(data.gatePasses || []))
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [refreshKey, localRefresh]);
+  useEffect(load, [refreshKey, localRefresh, view]);
 
   if (selected) {
     return (
       <AcceptInwardForm
         gatePass={selected}
+        canEdit={canEdit && view === 'pending'}
         onCancel={() => setSelected(null)}
         onComplete={(msg) => { setSelected(null); load(); onSuccess(msg); }}
       />
     );
   }
 
+  const viewBtn = (key, label) => (
+    <button
+      onClick={() => setView(key)}
+      className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+        view === key
+          ? 'bg-navy-700 text-white border-navy-700'
+          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-semibold text-gray-800">Record Inward (FIM)</h3>
-        {canRecord && (
-          <Button onClick={() => setShowRecord(true)}>
-            <Plus size={14} /> Record Inward (FIM)
-          </Button>
-        )}
+      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+        <h3 className="text-lg font-semibold text-gray-800">
+          {view === 'pending' ? 'FIM Awaiting Acceptance' : 'Already Accepted FIM'}
+        </h3>
+        <div className="flex items-center gap-2">
+          {viewBtn('pending', 'Pending')}
+          {viewBtn('accepted', 'Accepted')}
+          {canEdit && (
+            <Button onClick={() => setShowRecord(true)}>
+              <Plus size={14} /> Record Inward (FIM)
+            </Button>
+          )}
+        </div>
       </div>
       <p className="text-xs text-gray-500 mb-3">
         Items recorded here are added to stock immediately — no separate acceptance step. They show up under
@@ -714,28 +814,36 @@ function FromGatePassMode({ onSuccess, refreshKey }) {
         <p className="text-sm text-gray-500">Loading…</p>
       ) : gatePasses.length === 0 ? (
         <Card className="text-center text-gray-500 py-8">
-          No legacy inward entries awaiting acceptance. New ones are inwarded automatically on submission.
+          {view === 'pending'
+            ? 'No legacy inward entries awaiting acceptance. New ones are inwarded automatically on submission.'
+            : 'No accepted FIM gate passes yet.'}
         </Card>
-      ) : (
+      ) : view === 'pending' ? (
         <div className="mb-3 text-xs text-amber-700">
           The entries below were created before auto-acceptance was enabled and still need to be processed.
         </div>
-      )}
+      ) : null}
       {!loading && gatePasses.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {gatePasses.map(g => {
             const pending = (g.items || []).filter(i => (i.inwardedQty || 0) < (i.quantity || 0));
+            const inwardedCount = (g.items || []).length - pending.length;
             return (
               <Card key={g.id} className="cursor-pointer hover:border-navy-400 hover:shadow-md transition-all border border-gray-200"
                 onClick={() => setSelected(g)}>
                 <div className="flex items-start justify-between mb-2">
                   <h4 className="font-semibold text-navy-700">{g.passNumber}</h4>
-                  <Badge color="yellow">Pending Acceptance</Badge>
+                  <Badge color={view === 'pending' ? 'yellow' : 'green'}>
+                    {view === 'pending' ? 'Pending Acceptance' : 'Accepted'}
+                  </Badge>
                 </div>
                 <div className="text-xs text-gray-600 space-y-1">
                   <div><span className="text-gray-500">Customer:</span> {g.customerName || '—'}</div>
                   <div><span className="text-gray-500">Customer GP:</span> {g.customerGatePassNo || '—'}{g.customerGatePassDate ? ` (${formatDate(g.customerGatePassDate)})` : ''}</div>
-                  <div><span className="text-gray-500">Items pending:</span> {pending.length} of {g.items?.length || 0}</div>
+                  <div>
+                    <span className="text-gray-500">Items {view === 'pending' ? 'pending' : 'accepted'}:</span>{' '}
+                    {view === 'pending' ? pending.length : inwardedCount} of {g.items?.length || 0}
+                  </div>
                 </div>
               </Card>
             );
@@ -743,7 +851,7 @@ function FromGatePassMode({ onSuccess, refreshKey }) {
         </div>
       )}
 
-      {showRecord && (
+      {showRecord && canEdit && (
         <RecordInwardModal
           onClose={() => setShowRecord(false)}
           onCreated={() => { setShowRecord(false); setLocalRefresh(k => k + 1); }}
@@ -1020,7 +1128,7 @@ function RecordInwardModal({ onClose, onCreated }) {
   );
 }
 
-function AcceptInwardForm({ gatePass, onCancel, onComplete }) {
+function AcceptInwardForm({ gatePass, onCancel, onComplete, canEdit }) {
   const items = (gatePass.items || []).filter(i => (i.inwardedQty || 0) < (i.quantity || 0));
   const [products, setProducts] = useState([]);
   const [rows, setRows] = useState(
@@ -1191,10 +1299,12 @@ function AcceptInwardForm({ gatePass, onCancel, onComplete }) {
       </div>
 
       <div className="flex justify-end gap-3 mt-4">
-        <Button variant="secondary" onClick={onCancel}>Cancel</Button>
-        <Button onClick={submit} disabled={saving || rows.length === 0}>
-          {saving ? 'Saving…' : 'Accept & Inward FIM'}
-        </Button>
+        <Button variant="secondary" onClick={onCancel}>Back to list</Button>
+        {canEdit && (
+          <Button onClick={submit} disabled={saving || rows.length === 0}>
+            {saving ? 'Saving…' : 'Accept & Inward FIM'}
+          </Button>
+        )}
       </div>
     </Card>
   );

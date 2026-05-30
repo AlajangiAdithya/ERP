@@ -128,8 +128,10 @@ export default function App() {
                 <PrivateRoute allowedRoles={CHAIN_ROLES}><QCInspections /></PrivateRoute>
               } />
 
+              {/* Inward Entry — Stores does the work; Manager/QC/Designs/R&D
+                  get read-only access for traceability. */}
               <Route path="/inward-entry" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER']}><InwardEntry /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'DESIGNS', 'RND']}><InwardEntry /></PrivateRoute>
               } />
               <Route path="/stock-movements" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY']}><StockMovements /></PrivateRoute>

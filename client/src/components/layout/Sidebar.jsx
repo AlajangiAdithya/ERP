@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Package, PackagePlus, UserCog,
+  LayoutDashboard, Package, UserCog,
   FileText, BarChart3, Settings, Menu, X,
   CheckSquare, ScrollText, Bell, History,
   Building2, ShieldCheck, Database, HardDrive, Activity, Boxes
@@ -29,13 +29,11 @@ const buildAllItems = () => {
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
     { to: '/products', icon: Package, label: 'Products', roles: ALL_ROLES },
     { to: '/procurement', icon: Boxes, label: 'Procurement', roles: PROCUREMENT_ROLES },
-    { to: '/suppliers', icon: Building2, label: 'Suppliers', roles: CHAIN_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },
-    { to: '/inward-entry', icon: PackagePlus, label: 'Inward Entry', roles: ['ADMIN', 'STORE_MANAGER'] },
     { to: '/stock-movements', icon: BarChart3, label: 'Stock Movements', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
-    { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY', 'ADMIN'] },
+    { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY'] },
     { to: '/unit-usage', icon: History, label: 'Unit Usage Logs', roles: ['ADMIN', 'SAFETY'] },
     { to: '/audit-logs', icon: FileText, label: 'Audit Logs', roles: ['ADMIN', 'SAFETY'] },
     { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
