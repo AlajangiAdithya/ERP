@@ -66,7 +66,7 @@ export default function Sidebar() {
     <>
       <div className="px-3 pt-5 pb-4">
         <div className="relative flex items-center justify-center">
-          <div className="absolute -inset-4 bg-white/15 blur-2xl rounded-full pointer-events-none" aria-hidden="true" />
+          <div className="absolute -inset-6 bg-white/40 blur-3xl rounded-full pointer-events-none" aria-hidden="true" />
           <img
             src="/rapslogo6.png"
             alt="RAPS"
