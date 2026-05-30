@@ -29,8 +29,9 @@ const METROLOGY_VIEW_ROLES = [
 ];
 
 // Procurement & Inventory Management hub is visible to every authenticated
-// user EXCEPT Metrology — Metrology team only works the calibration registers.
-const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY');
+// user EXCEPT Metrology and Supply Chain — those teams don't need the
+// procurement hub in their sidebar.
+const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY' && r !== 'SUPPLY_CHAIN');
 
 const buildAllItems = () => {
   const items = [
