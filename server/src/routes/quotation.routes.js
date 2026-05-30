@@ -170,6 +170,12 @@ router.get('/', authenticate, async (req, res) => {
     if (req.user.role !== 'PURCHASE_OFFICER') {
       where.submittedToAdminAt = { not: null };
     }
+    // Once a quotation is approved (isSelected=true), it has been converted to a
+    // PO — the PO list owns it from here. Hide it from the quotation queue so
+    // PO/admin aren't seeing already-actioned quotes alongside open ones.
+    if (req.query.includeApproved !== '1') {
+      where.isSelected = false;
+    }
 
     const [quotations, total] = await Promise.all([
       prisma.quotation.findMany({

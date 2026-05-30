@@ -204,10 +204,12 @@ router.get('/', authenticate, async (req, res) => {
 // GET /api/purchase-requests/in-progress-summary — floating in-progress PR/PO counts visible to ALL roles
 router.get('/in-progress-summary', authenticate, async (req, res) => {
   try {
-    // PR statuses considered "in progress" (anything not COMPLETED/REJECTED)
+    // PR statuses considered "PR pending" — the PR still needs procurement action
+    // before the order is in flight. Once admin has approved a quotation and the
+    // PO exists (QUOTATION_APPROVED onwards), the PR's procurement work is done;
+    // the PO list owns the rest of the lifecycle.
     const prInProgressStatuses = [
-      'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED',
-      'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'IN_PROGRESS',
+      'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS',
     ];
     const poInProgressStatuses = [
       'PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PLACED', 'ADVANCE_PAID',

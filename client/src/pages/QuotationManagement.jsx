@@ -1759,7 +1759,7 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover, isPO }) 
 // becomes a separate draft union quotation. The pool dissolves automatically
 // once admin approves one of the quotes (PR-items follow the union PO from
 // there via the existing FIFO allocation chain).
-function OpenPoolsSection({ onUpdated }) {
+function OpenPoolsSection({ onUpdated, reloadKey }) {
   const [pools, setPools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [poolState, setPoolState] = useState({});
@@ -1777,7 +1777,7 @@ function OpenPoolsSection({ onUpdated }) {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [reloadKey]);
 
   const getState = (id) => poolState[id] || {
     unitPrice: '',
@@ -2359,6 +2359,10 @@ export default function QuotationManagement() {
   const [resubmitTarget, setResubmitTarget] = useState(null);
   // Which draft union is currently being sent to admin (per-union spinner).
   const [sendingUnionId, setSendingUnionId] = useState(null);
+  // Incremented every time fetchData runs so child sections (OpenPoolsSection,
+  // PoolByMaterialSection) reload their own data without us having to lift
+  // their state up.
+  const [reloadKey, setReloadKey] = useState(0);
 
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isApprover = user?.role === 'ADMIN';
@@ -2406,6 +2410,7 @@ export default function QuotationManagement() {
       }
       setQuotationCounts(counts);
       setUnionCounts(unionCounts);
+      setReloadKey(k => k + 1);
     } catch (err) {
       console.error(err);
     }
@@ -2748,7 +2753,7 @@ export default function QuotationManagement() {
           <p className="text-xs text-gray-500 mb-3">
             Pools are built from the <strong>PR detail page</strong> — open a PR, click <em>Pool</em> on any material to bundle it with the same material from another PR. Add competing quotes here; each becomes a separate draft union quotation you can send to admin.
           </p>
-          <OpenPoolsSection onUpdated={fetchData} />
+          <OpenPoolsSection onUpdated={fetchData} reloadKey={reloadKey} />
         </div>
       )}
 
