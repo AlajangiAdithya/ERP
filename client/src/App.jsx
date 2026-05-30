@@ -133,8 +133,10 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER']}><QuotationManagement /></PrivateRoute>
               } />
 
+              {/* Approved Supplier List register — client-spec viewers only:
+                  admin, managers, purchase, stores, designs. */}
               <Route path="/suppliers" element={
-                <PrivateRoute allowedRoles={CHAIN_ROLES}><Suppliers /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS']}><Suppliers /></PrivateRoute>
               } />
 
               <Route path="/purchase-orders" element={

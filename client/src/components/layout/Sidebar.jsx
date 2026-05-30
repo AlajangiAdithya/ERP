@@ -28,13 +28,13 @@ const METROLOGY_VIEW_ROLES = [
 ];
 
 // Procurement & Inventory Management hub is visible to every authenticated
-// user — at minimum they can reach the Products module (stock visibility is
-// universal). Per-module access inside the hub is filtered separately.
+// user EXCEPT Metrology — Metrology team only works the calibration registers.
+const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY');
 
 const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
-    { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: ALL_ROLES },
+    { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: PROCUREMENT_ROLES },
     { to: '/metrology', icon: Ruler, label: 'Metrology', roles: METROLOGY_VIEW_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },

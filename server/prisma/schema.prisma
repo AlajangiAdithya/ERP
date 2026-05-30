@@ -381,13 +381,25 @@ enum PRItemQuotationStatus {
 // records survive supplier renames. The supplierId FK is for lookups + history.
 model Supplier {
   id                         String              @id @default(uuid())
+  // Vendor ID auto-generated as RAPS/SUP/<NNNN>. Sequential across all FY.
+  vendorIdNo                 String?             @unique
   name                       String              @unique
+  // Legacy single-line contact retained; new format splits into person + phone.
   contact                    String?
+  contactPerson              String?
+  contactPhone               String?
   address                    String?
   gstNumber                  String?
   email                      String?
   isActive                   Boolean             @default(true)
   notes                      String?
+  // Approved Supplier List columns (client format).
+  scopeOfSupply              String?
+  materialType               SupplierMaterialType?
+  approvalStatus             SupplierApprovalStatus?
+  approvalDate               DateTime?
+  typeAndExtentOfControl     String?
+  remarks                    String?
   // Vendor Evaluation PDF — uploaded once when the supplier is first onboarded.
   // Survives FY data resets; never re-required.
   vendorEvaluationPdfUrl     String?
@@ -404,6 +416,162 @@ model Supplier {
   quotationItems             QuotationItem[]
   purchaseOrders             PurchaseOrder[]
   purchaseOrderItems         PurchaseOrderItem[]
+  reEvaluations              SupplierReEvaluation[]
+  assessmentForms            SupplierAssessmentForm[]
+  performanceRatings         SupplierPerformanceRatingItem[]
+}
+
+enum SupplierMaterialType {
+  MATERIAL
+  JOB_WORK
+  SERVICE
+}
+
+enum SupplierApprovalStatus {
+  APPROVED
+  CONDITIONAL
+  REJECTED
+  TERMINATED
+}
+
+// ──── SUPPLIER RE-EVALUATION (one row per review event) ────
+// Drives the "Evaluation Details" panel in the Approved Supplier List.
+// Snapshot of the printable Supplier Re-Evaluation Form. The latest record per
+// (supplier, financialYear) is what the master list shows.
+model SupplierReEvaluation {
+  id                          String     @id @default(uuid())
+  supplierId                  String
+  supplier                    Supplier   @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  financialYear               String     // e.g. "26-27"
+  initialEvaluationDate       DateTime?
+  initialEvaluationScope      String?    // Product / Process / Service text
+  // YES/NO criteria — nullable boolean so "not answered" is distinct from NO.
+  noOrders6Months             Boolean?
+  noOrdersReason              String?
+  managementChanged           Boolean?
+  newMgmtContinuingTerms      Boolean?
+  shiftedLocation             Boolean?
+  newAddress                  String?
+  performanceBelowPar         Boolean?
+  correctiveActionInitiated   String?    // free-text: instructions given
+  recommendedTermination      Boolean?
+  correctiveActionEffective   Boolean?
+  noNonconformitiesReported   Boolean?
+  newMachinesAdded            Boolean?
+  wishToContinueForNewParts   Boolean?
+  isoCertified                Boolean?
+  // Outcome.
+  overallDecision             SupplierReEvalDecision @default(CONTINUES)
+  // Schedule.
+  evaluationDate              DateTime?
+  nextReviewDate              DateTime?
+  // Performance score copied from the latest performance rating, or entered
+  // manually. Shown in the "Performance Rating after review" column.
+  performanceRating           Float?
+  remarks                     String?
+  evaluatedByUserId           String?
+  evaluatedByName             String?    // snapshot in case the user is renamed
+  createdAt                   DateTime   @default(now())
+  updatedAt                   DateTime   @updatedAt
+
+  @@index([supplierId])
+  @@index([supplierId, financialYear])
+}
+
+enum SupplierReEvalDecision {
+  CONTINUES
+  TERMINATED
+}
+
+// ──── STRUCTURED VENDOR / SUPPLIER ASSESSMENT FORM ────
+// Captured during onboarding (or re-captured if vendor profile changes). The
+// existing supplierAssessmentPdfUrl is kept as an optional fallback / scan.
+model SupplierAssessmentForm {
+  id                       String     @id @default(uuid())
+  supplierId               String
+  supplier                 Supplier   @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  financialYear            String     // FY the form was submitted under
+  companyName              String?
+  companyAddress           String?
+  businessType             SupplierBusinessType?
+  businessRole             SupplierBusinessRole?
+  productsRange            String?
+  machineryAndEquipment    String?
+  majorCustomers           String?
+  transportFacilities      String?
+  deliveryPeriod           String?
+  allowsCapabilityVerify   Boolean?
+  hasQualityControlSystem  Boolean?
+  isoCertified             Boolean?
+  isoCertificateUrl        String?
+  testCertWithDelivery     Boolean?
+  readyToUpgradePerformance Boolean?
+  reviewComments           String?
+  reviewedByName           String?
+  reviewedByUserId         String?
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @updatedAt
+
+  @@index([supplierId])
+  @@index([supplierId, financialYear])
+}
+
+enum SupplierBusinessType {
+  PROPRIETORSHIP
+  PARTNERSHIP
+  PRIVATE_LTD
+  PUBLIC_LTD
+}
+
+enum SupplierBusinessRole {
+  MANUFACTURER
+  SUPPLIER
+  DEALER
+}
+
+// ──── SUPPLIER PERFORMANCE RATING (FY-bucketed scorecard) ────
+// Header carries the period and overall summary; one row per (item, supplier)
+// in items. Mirrors the printable rating sheet — the overall % is recomputed
+// from item rows on every write.
+model SupplierPerformanceRating {
+  id              String                          @id @default(uuid())
+  financialYear   String                          // e.g. "24-25"
+  periodFrom      DateTime?
+  periodTo        DateTime?
+  preparedDate    DateTime?
+  preparedByName  String?
+  preparedByUserId String?
+  minimumCriteria Float                           @default(85)
+  overallRating   Float?                          // computed from items
+  remarks         String?
+  createdAt       DateTime                        @default(now())
+  updatedAt       DateTime                        @updatedAt
+  items           SupplierPerformanceRatingItem[]
+
+  @@unique([financialYear])
+  @@index([financialYear])
+}
+
+model SupplierPerformanceRatingItem {
+  id                       String                     @id @default(uuid())
+  ratingId                 String
+  rating                   SupplierPerformanceRating  @relation(fields: [ratingId], references: [id], onDelete: Cascade)
+  supplierId               String?
+  supplier                 Supplier?                  @relation(fields: [supplierId], references: [id])
+  itemDescription          String
+  supplierName             String
+  suppliesReceived         Int                        @default(0)
+  qtyAccepted              Int                        @default(0)
+  qualityRating            Float                      @default(0)  // out of 60
+  totalDeliveries          Int                        @default(0)
+  deliveriesOnTime         Int                        @default(0)
+  deliveriesLate           Int                        @default(0)
+  deliveryRating           Float                      @default(0)  // out of 40
+  totalRating              Float                      @default(0)  // out of 100
+  createdAt                DateTime                   @default(now())
+
+  @@index([ratingId])
+  @@index([supplierId])
 }
 
 // ──── MATERIAL POOLS (PO bundles same-material lines across PRs before quoting) ────

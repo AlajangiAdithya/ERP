@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2 } from 'lucide-react';
+import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -1339,6 +1339,197 @@ function QCDashboard() {
   );
 }
 
+function MetrologyDashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/calibration')
+      .then(({ data }) => { if (!cancelled) setItems(data.items || []); })
+      .catch(() => { if (!cancelled) setItems([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <Loader />;
+
+  const daysUntil = (d) => Math.ceil((new Date(d) - new Date()) / 86400000);
+
+  const overdue = [];
+  const dueSoon = [];
+  let healthy = 0;
+  items.forEach((it) => {
+    if (!it.calibrationDueDate) { healthy++; return; }
+    const d = daysUntil(it.calibrationDueDate);
+    if (d < 0) overdue.push({ ...it, daysOver: -d });
+    else if (d <= 30) dueSoon.push({ ...it, daysLeft: d });
+    else healthy++;
+  });
+  overdue.sort((a, b) => b.daysOver - a.daysOver);
+  dueSoon.sort((a, b) => a.daysLeft - b.daysLeft);
+
+  const CATEGORY_LABEL = {
+    PRESSURE_GAUGE: 'Pressure Gauges',
+    VACUUM_GAUGE: 'Vacuum Gauges',
+    WEIGHING_BALANCE: 'Weighing Balances',
+    TESTING_EQUIPMENT: 'Testing Equipment',
+    METROLOGY_INSTRUMENT: 'Metrology Instruments',
+    MMR: 'Monitoring & Measuring Resources',
+  };
+  const CATEGORY_ROUTE = {
+    PRESSURE_GAUGE: '/metrology/pressure-gauges',
+    VACUUM_GAUGE: '/metrology/vacuum-gauges',
+    WEIGHING_BALANCE: '/metrology/weighing-balances',
+    TESTING_EQUIPMENT: '/metrology/testing-equipment',
+    METROLOGY_INSTRUMENT: '/metrology/metrology-instruments',
+    MMR: '/metrology/mmr',
+  };
+
+  const perCategory = Object.keys(CATEGORY_LABEL).map((key) => {
+    const cat = items.filter((i) => i.category === key);
+    let cOverdue = 0;
+    let cDue = 0;
+    cat.forEach((i) => {
+      if (!i.calibrationDueDate) return;
+      const d = daysUntil(i.calibrationDueDate);
+      if (d < 0) cOverdue++;
+      else if (d <= 30) cDue++;
+    });
+    return { key, total: cat.length, overdue: cOverdue, dueSoon: cDue };
+  });
+
+  return (
+    <div className="space-y-6">
+      <DashboardHero
+        title={greet(user, 'Metrology')}
+        subtitle="Calibration registers across all units — overdue and upcoming due dates"
+        eyebrow="Metrology Workspace"
+        actions={
+          <Button onClick={() => navigate('/metrology')}>
+            <Ruler size={16} className="mr-1" /> Open Registers
+          </Button>
+        }
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard title="Total Instruments" value={items.length} icon={Ruler} color="navy" onClick={() => navigate('/metrology')} />
+        <StatsCard title="Healthy" value={healthy} icon={CheckCircle} color="green" />
+        <StatsCard title="Due in 30 days" value={dueSoon.length} icon={Clock} color="yellow" />
+        <StatsCard title="Overdue" value={overdue.length} icon={AlertTriangle} color="red" />
+      </div>
+
+      <Card>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            <AlertTriangle size={14} className="text-red-600" /> Overdue Calibrations
+          </h3>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/metrology')}>All Registers</Button>
+        </div>
+        {overdue.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">No overdue instruments — everything is current.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Instrument</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Category</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Serial</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Location</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Due</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Days Over</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overdue.slice(0, 10).map((it) => (
+                  <tr key={it.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate(CATEGORY_ROUTE[it.category] || '/metrology')}>
+                    <td className="px-3 py-2 font-medium text-navy-700">{it.name || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600 text-xs">{CATEGORY_LABEL[it.category] || it.category}</td>
+                    <td className="px-3 py-2 text-gray-500 font-mono text-xs">{it.serialNo || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500">{it.unitLocation || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500">{new Date(it.calibrationDueDate).toLocaleDateString()}</td>
+                    <td className="px-3 py-2"><Badge color="red">{it.daysOver}d</Badge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {overdue.length > 10 && (
+              <p className="text-xs text-gray-400 mt-2 text-center">+ {overdue.length - 10} more overdue</p>
+            )}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            <Clock size={14} className="text-amber-600" /> Due in Next 30 Days
+          </h3>
+        </div>
+        {dueSoon.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">No upcoming calibrations in the next 30 days.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Instrument</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Category</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Serial</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Location</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Due</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">In</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dueSoon.slice(0, 10).map((it) => (
+                  <tr key={it.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate(CATEGORY_ROUTE[it.category] || '/metrology')}>
+                    <td className="px-3 py-2 font-medium text-navy-700">{it.name || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600 text-xs">{CATEGORY_LABEL[it.category] || it.category}</td>
+                    <td className="px-3 py-2 text-gray-500 font-mono text-xs">{it.serialNo || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500">{it.unitLocation || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500">{new Date(it.calibrationDueDate).toLocaleDateString()}</td>
+                    <td className="px-3 py-2"><Badge color="yellow">{it.daysLeft}d</Badge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {dueSoon.length > 10 && (
+              <p className="text-xs text-gray-400 mt-2 text-center">+ {dueSoon.length - 10} more upcoming</p>
+            )}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-700">Registers by Category</h3>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {perCategory.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => navigate(CATEGORY_ROUTE[c.key])}
+              className="text-left p-3 rounded-lg border border-gray-100 hover:border-navy-200 hover:bg-navy-50/40 transition-colors"
+            >
+              <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">{CATEGORY_LABEL[c.key]}</p>
+              <p className="text-2xl font-bold text-navy-800 mt-1 tabular-nums">{c.total}</p>
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {c.overdue > 0 && <Badge color="red">{c.overdue} overdue</Badge>}
+                {c.dueSoon > 0 && <Badge color="yellow">{c.dueSoon} due</Badge>}
+                {c.overdue === 0 && c.dueSoon === 0 && <Badge color="green">healthy</Badge>}
+              </div>
+            </button>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function PackageCheck(props) {
   return <CheckCircle {...props} />;
 }
@@ -1431,7 +1622,8 @@ export default function Dashboard() {
   if (['STORE_MANAGER', 'LOGISTICS'].includes(user?.role)) return <StoreManagerDashboard />;
   if (['PURCHASE_OFFICER', 'SUPPLY_CHAIN'].includes(user?.role)) return <PurchaseOfficerDashboard />;
   if (['ACCOUNTING', 'FINANCE'].includes(user?.role)) return <AccountingDashboard />;
-  if (['QC', 'METROLOGY', 'NDT', 'RND', 'DESIGNS'].includes(user?.role)) return <QCDashboard />;
+  if (user?.role === 'METROLOGY') return <MetrologyDashboard />;
+  if (['QC', 'NDT', 'RND', 'DESIGNS'].includes(user?.role)) return <QCDashboard />;
 
   return <AdminDashboard />;
 }

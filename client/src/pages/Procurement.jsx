@@ -84,9 +84,9 @@ const MODULES = [
   {
     to: '/suppliers',
     icon: Building2,
-    title: 'Suppliers',
-    description: 'Manage approved vendor list and supplier contact details.',
-    roles: CHAIN_ROLES,
+    title: 'Approved Suppliers',
+    description: 'Approved Supplier List, re-evaluation log, assessment forms and performance ratings.',
+    roles: ['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS'],
     gradient: 'from-slate-500 via-slate-600 to-gray-700',
     glow: 'group-hover:shadow-slate-500/40',
     iconBg: 'bg-gradient-to-br from-slate-100 to-gray-200 text-slate-700',
