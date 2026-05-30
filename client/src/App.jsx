@@ -22,6 +22,7 @@ import PurchaseOrders from './pages/PurchaseOrders';
 import PaymentRequests from './pages/PaymentRequests';
 import QCInspections from './pages/QCInspections';
 import Procurement from './pages/Procurement';
+import Monitoring from './pages/Monitoring';
 import GatePass from './pages/GatePass';
 import InterOfficeNote from './pages/InterOfficeNote';
 import InventoryTransfers from './pages/InventoryTransfers';
@@ -100,6 +101,11 @@ export default function App() {
               {/* Procurement hub — landing page that links to the modules below. */}
               <Route path="/procurement" element={
                 <PrivateRoute allowedRoles={[...CHAIN_ROLES, 'LAB', 'LOGISTICS', 'SAFETY']}><Procurement /></PrivateRoute>
+              } />
+
+              {/* Monitoring hub — Stock Movements, Audit Logs, Unit Usage Logs. */}
+              <Route path="/monitoring" element={
+                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY']}><Monitoring /></PrivateRoute>
               } />
 
               {/* PR → PO → QC → Inward chain — restricted to: Unit Managers, Quality,

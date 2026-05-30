@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Check, Package, ClipboardList, Truck, Plus, FileInput, FileText, Trash2, Send, Eye } from 'lucide-react';
+import { Check, Package, ClipboardList, Truck, Plus, FileInput, FileText, Trash2, Send } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -61,18 +61,6 @@ export default function InwardEntry() {
             : 'Track what is ready for inwarding and what has already been received.'}
         </p>
       </div>
-
-      {!canEdit && (
-        <Card className="border-blue-200 bg-blue-50">
-          <div className="flex items-center gap-3">
-            <Eye size={18} className="text-blue-600 flex-shrink-0" />
-            <p className="text-sm text-blue-800">
-              <strong>View-only:</strong> only Stores can record inward entries.
-              You can see pending and completed inward activity for traceability.
-            </p>
-          </div>
-        </Card>
-      )}
 
       {success && (
         <Card className="border-green-200 bg-green-50">
