@@ -65,12 +65,8 @@ export default function Sidebar() {
   const sidebarContent = (
     <>
       <div className="px-3 pt-5 pb-4">
-        <div className="relative flex items-center justify-center h-24">
-          <div
-            className="absolute inset-0 bg-contain bg-center bg-no-repeat opacity-20 pointer-events-none"
-            style={{ backgroundImage: "url('/rocket.jpg')" }}
-            aria-hidden="true"
-          />
+        <div className="relative flex items-center justify-center">
+          <div className="absolute -inset-4 bg-white/15 blur-2xl rounded-full pointer-events-none" aria-hidden="true" />
           <img
             src="/rapslogo6.png"
             alt="RAPS"
