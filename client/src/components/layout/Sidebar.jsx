@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Package, UserCog,
+  LayoutDashboard, UserCog,
   FileText, BarChart3, Settings, Menu, X,
   CheckSquare, ScrollText, Bell, History,
   Building2, ShieldCheck, Database, HardDrive, Activity, Boxes
@@ -18,17 +18,14 @@ const ALL_ROLES = [
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
-// Union of roles that can see at least one module inside the Procurement hub.
-const PROCUREMENT_ROLES = [
-  ...CHAIN_ROLES,
-  'LAB', 'LOGISTICS', 'SAFETY',
-];
+// Procurement & Inventory Management hub is visible to every authenticated
+// user — at minimum they can reach the Products module (stock visibility is
+// universal). Per-module access inside the hub is filtered separately.
 
 const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
-    { to: '/products', icon: Package, label: 'Products', roles: ALL_ROLES },
-    { to: '/procurement', icon: Boxes, label: 'Procurement', roles: PROCUREMENT_ROLES },
+    { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: ALL_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },

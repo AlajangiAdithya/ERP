@@ -1,12 +1,19 @@
 import { Link } from 'react-router-dom';
 import {
   ShoppingCart, Truck, ClipboardCheck, ClipboardList, ArrowLeftRight, ArrowRight,
-  FileSearch, CreditCard, Building2, PackagePlus,
+  FileSearch, CreditCard, Building2, PackagePlus, Package,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
+
+// Every authenticated role gets Products visibility — stock data is universal.
+const ALL_ROLES = [
+  'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
+  'METROLOGY', 'NDT', 'RND', 'SAFETY', 'SUPPLY_CHAIN',
+  'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS', 'SUPERADMIN',
+];
 
 // Narrower visibility for finance-sensitive modules. Unit managers and the
 // quality/design departments don't need to see supplier prices or payment runs.
@@ -18,6 +25,15 @@ const PAYMENT_ROLES   = ['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING'];
 const INWARD_ROLES = ['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'DESIGNS', 'RND'];
 
 const MODULES = [
+  {
+    to: '/products',
+    icon: Package,
+    title: 'Products',
+    description: 'Browse the product catalogue, current stock, and per-unit balances.',
+    roles: ALL_ROLES,
+    accent: 'from-sky-500 to-sky-600',
+    iconBg: 'bg-sky-50 text-sky-600',
+  },
   {
     to: '/purchase-requests',
     icon: ShoppingCart,
@@ -111,9 +127,9 @@ export default function Procurement() {
   return (
     <div className="space-y-6">
       <div className="bg-gradient-to-r from-navy-800 to-navy-700 rounded-2xl px-6 py-6 text-white shadow-card">
-        <h1 className="text-2xl font-bold tracking-tight">Procurement</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Procurement &amp; Inventory Management</h1>
         <p className="text-sm text-blue-100/90 mt-1">
-          A single workspace for purchase, quality, and material movement workflows.
+          A single workspace for products, purchase, quality, and material movement workflows.
         </p>
       </div>
 
