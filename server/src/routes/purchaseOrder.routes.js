@@ -65,7 +65,8 @@ const ORDER_INCLUDE = {
       items: {
         select: {
           id: true, productName: true, productUnit: true, requestedQty: true,
-          materialSpecification: true, drawingNo: true, qapNo: true, itemRemarks: true,
+          materialSpecification: true, specAttachmentUrl: true, specAttachmentName: true,
+          drawingNo: true, qapNo: true, itemRemarks: true,
         },
       },
     },
@@ -77,6 +78,13 @@ const ORDER_INCLUDE = {
           id: true, requestNumber: true, status: true, managerId: true,
           manager: { select: { id: true, name: true, role: true } },
           unit: { select: { id: true, name: true, code: true } },
+          items: {
+            select: {
+              id: true, productName: true, productUnit: true, requestedQty: true,
+              materialSpecification: true, specAttachmentUrl: true, specAttachmentName: true,
+              drawingNo: true, qapNo: true, itemRemarks: true,
+            },
+          },
         },
       },
     },

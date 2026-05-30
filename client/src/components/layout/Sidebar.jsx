@@ -4,7 +4,7 @@ import {
   LayoutDashboard, UserCog,
   BarChart3, Settings, Menu, X,
   CheckSquare, ScrollText, Bell,
-  Building2, ShieldCheck, Database, HardDrive, Activity, Boxes
+  Building2, ShieldCheck, Database, HardDrive, Activity, Boxes, Ruler
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -18,6 +18,15 @@ const ALL_ROLES = [
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
+// Metrology hub viewers: METROLOGY owns the registers; admin + procurement +
+// quality + stores + safety get read-only entry. Hidden from FINANCE/PLANNING
+// /LOGISTICS/SUPPLY_CHAIN to keep the sidebar lean for roles that don't need it.
+const METROLOGY_VIEW_ROLES = [
+  'METROLOGY', 'ADMIN', 'MANAGER', 'STORE_MANAGER',
+  'PURCHASE_OFFICER', 'QC', 'ACCOUNTING', 'SAFETY',
+  'LAB', 'NDT', 'RND', 'DESIGNS',
+];
+
 // Procurement & Inventory Management hub is visible to every authenticated
 // user — at minimum they can reach the Products module (stock visibility is
 // universal). Per-module access inside the hub is filtered separately.
@@ -26,6 +35,7 @@ const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
     { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: ALL_ROLES },
+    { to: '/metrology', icon: Ruler, label: 'Metrology', roles: METROLOGY_VIEW_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },

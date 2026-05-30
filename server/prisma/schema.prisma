@@ -316,32 +316,37 @@ model PurchaseRequest {
 
 // Form No: RAPS/PRF Rev no. 02 Date: 31/08/2024
 model PurchaseRequestItem {
-  id                    String                        @id @default(uuid())
-  requestId             String
-  request               PurchaseRequest               @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  productId             String?
-  product               Product?                      @relation(fields: [productId], references: [id])
-  productName           String // Material Description
-  productUnit           String                        @default("pcs") // UOM
-  requestedQty          Float // Required Quantity
-  adminApprovedQty      Float?
-  purchasedQty          Float                         @default(0)
-  itemStatus            ItemOrderStatus? // Set once ORDER_PLACED; mirrored from PO items
-  itemQuotationStatus   PRItemQuotationStatus         @default(AWAITING_QUOTATION) // Per-item quote progress, independent of order/inward status
+  id                     String                        @id @default(uuid())
+  requestId              String
+  request                PurchaseRequest               @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  productId              String?
+  product                Product?                      @relation(fields: [productId], references: [id])
+  productName            String // Material Description
+  productUnit            String                        @default("pcs") // UOM
+  requestedQty           Float // Required Quantity
+  adminApprovedQty       Float?
+  purchasedQty           Float                         @default(0)
+  itemStatus             ItemOrderStatus? // Set once ORDER_PLACED; mirrored from PO items
+  itemQuotationStatus    PRItemQuotationStatus         @default(AWAITING_QUOTATION) // Per-item quote progress, independent of order/inward status
   // PRF form fields
-  materialType          String? // Raw material / Consumable / Hand Tools & Fastners / Others
-  materialSpecification String? // Material specification data
-  qapNo                 String? // QAP no. & QAP attachment reference
-  drawingNo             String? // Drawing no. & detailed drawing reference
-  materialRequiredFor   String? // SO no. / R&D
-  internalWorkOrder     String? // Internal Work Order (free text)
-  purpose               String? // Purpose
-  sourceOfSupply        String? // Source of supply if any
-  scopeOfWork           String? // Reports Required / Scope of Work
-  inspectionType        String? // Inhouse / External (RAPS QC/Customer QC)
-  requiredByDate        DateTime? // Required by date
-  itemRemarks           String? // Other details/Remarks
-  poItemAllocations     PurchaseOrderItemAllocation[]
+  materialType           String? // Raw material / Consumable / Hand Tools & Fastners / Others
+  materialSpecification  String? // Material specification data
+  // Optional confidential material-spec PDF attached at PR creation time.
+  // Shown as a "View spec" link in PR views; merged after the PR body in the
+  // downloaded PR PDF; surfaced to QC alongside the source PR.
+  specAttachmentUrl      String?
+  specAttachmentName     String?
+  qapNo                  String? // QAP no. & QAP attachment reference
+  drawingNo              String? // Drawing no. & detailed drawing reference
+  materialRequiredFor    String? // SO no. / R&D
+  internalWorkOrder      String? // Internal Work Order (free text)
+  purpose                String? // Purpose
+  sourceOfSupply         String? // Source of supply if any
+  scopeOfWork            String? // Reports Required / Scope of Work
+  inspectionType         String? // Inhouse / External (RAPS QC/Customer QC)
+  requiredByDate         DateTime? // Required by date
+  itemRemarks            String? // Other details/Remarks
+  poItemAllocations      PurchaseOrderItemAllocation[]
   materialPoolMembership MaterialPoolItem?
 }
 
@@ -437,49 +442,49 @@ model MaterialPoolItem {
 }
 
 enum MaterialPoolStatus {
-  OPEN      // accepting union quotations
-  QUOTED    // ≥1 union quotation submitted to admin
-  APPROVED  // one union quotation approved → PO live
+  OPEN // accepting union quotations
+  QUOTED // ≥1 union quotation submitted to admin
+  APPROVED // one union quotation approved → PO live
   CANCELLED // pool dissolved
 }
 
 // ──── QUOTATIONS (PO collects from suppliers) ────
 model Quotation {
-  id                   String            @id @default(uuid())
-  quotationNumber      String            @unique
-  purchaseRequestId    String?
-  purchaseRequest      PurchaseRequest?  @relation(fields: [purchaseRequestId], references: [id])
-  isUnion              Boolean           @default(false)
-  supplierId           String?
-  supplier             Supplier?         @relation(fields: [supplierId], references: [id])
-  supplierName         String?
-  supplierContact      String?
-  supplierAddress      String?
-  totalAmount          Float
-  notes                String?
-  quotationPdfUrl      String? // Optional supplier-quote PDF uploaded by PO
-  selectionNote        String? // Admin's note explaining why this quote was chosen
-  isSelected           Boolean           @default(false)
-  holdNote             String? // Admin's reason for putting the quotation on hold (compliance docs missing, etc.)
-  heldAt               DateTime? // Timestamp when admin put this quotation on hold
+  id                      String            @id @default(uuid())
+  quotationNumber         String            @unique
+  purchaseRequestId       String?
+  purchaseRequest         PurchaseRequest?  @relation(fields: [purchaseRequestId], references: [id])
+  isUnion                 Boolean           @default(false)
+  supplierId              String?
+  supplier                Supplier?         @relation(fields: [supplierId], references: [id])
+  supplierName            String?
+  supplierContact         String?
+  supplierAddress         String?
+  totalAmount             Float
+  notes                   String?
+  quotationPdfUrl         String? // Optional supplier-quote PDF uploaded by PO
+  selectionNote           String? // Admin's note explaining why this quote was chosen
+  isSelected              Boolean           @default(false)
+  holdNote                String? // Admin's reason for putting the quotation on hold (compliance docs missing, etc.)
+  heldAt                  DateTime? // Timestamp when admin put this quotation on hold
   // PO must explicitly send the batch to admin before admin can see/approve it.
   // Null = still in PO draft; non-null = visible to admin for review.
-  submittedToAdminAt   DateTime?
-  submittedToAdminById String?
-  submittedToAdmin     User?             @relation("QuotationSubmitter", fields: [submittedToAdminById], references: [id])
+  submittedToAdminAt      DateTime?
+  submittedToAdminById    String?
+  submittedToAdmin        User?             @relation("QuotationSubmitter", fields: [submittedToAdminById], references: [id])
   // Set when admin approves a competing quote on the same coverage — soft-archives
   // this quote so it disappears from the queue but stays for supplier-price history.
-  supersededAt         DateTime?
+  supersededAt            DateTime?
   supersededByQuotationId String?
-  supersededBy         Quotation?        @relation("QuotationSuperseded", fields: [supersededByQuotationId], references: [id])
-  superseded           Quotation[]       @relation("QuotationSuperseded")
-  createdById          String
-  createdBy            User              @relation("QuotationCreator", fields: [createdById], references: [id])
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
-  items                QuotationItem[]
-  purchaseOrders       PurchaseOrder[]
-  sourceRequests       QuotationSource[]
+  supersededBy            Quotation?        @relation("QuotationSuperseded", fields: [supersededByQuotationId], references: [id])
+  superseded              Quotation[]       @relation("QuotationSuperseded")
+  createdById             String
+  createdBy               User              @relation("QuotationCreator", fields: [createdById], references: [id])
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  items                   QuotationItem[]
+  purchaseOrders          PurchaseOrder[]
+  sourceRequests          QuotationSource[]
 }
 
 // Junction: links a union Quotation to its source PurchaseRequests
@@ -925,7 +930,7 @@ model InterOfficeNote {
   externalQAWitness  String?
   qcContactDetails   String?
   otherInformation   String?
-  reportNoAndDate    String?   // NDT only: "Report No & Date" closing field
+  reportNoAndDate    String? // NDT only: "Report No & Date" closing field
   status             IONStatus @default(SENT)
   recipientRole      String?   @default("LAB") // LAB | METROLOGY | NDT | RND | DESIGNS (when not assigned to a specific manager)
   createdById        String
@@ -951,7 +956,7 @@ model IONItem {
   nameOfJob           String?
   qty                 String?
   itemRemarks         String?
-  ndtDetails          Json?           // { method, gridSize, gridPoints, stage, acceptanceLimit, shotType, shotCount, acceptanceCriteria }
+  ndtDetails          Json? // { method, gridSize, gridPoints, stage, acceptanceLimit, shotType, shotCount, acceptanceCriteria }
 }
 
 enum IONStatus {
@@ -1020,6 +1025,48 @@ enum TenderStatus {
   WON
   LOST
   CANCELLED
+}
+
+// ──── METROLOGY / CALIBRATION ITEMS ────
+// One row per piece of equipment that Metrology calibrates. Categorised by
+// equipment kind so the UI can route each list to its dedicated page.
+// Write access is restricted to METROLOGY + ADMIN; all other procurement-chain
+// roles see read-only listings.
+model CalibrationItem {
+  id                     String              @id @default(uuid())
+  category               CalibrationCategory
+  name                   String // e.g. "Pressure Gauge", "Vernier Caliper"
+  make                   String?
+  model                  String?
+  serialNo               String?
+  rapsplSerialNo         String?
+  operatingRange         String? // e.g. "0-400 Kg/Cm²"
+  capacityMin            String? // for weighing balances
+  capacityMax            String? // for weighing balances
+  leastCount             String?
+  unitLocation           String? // UNIT-I, UNIT-II, UNIT-III, UNIT-V, UNIT-S, Store, etc.
+  usedFor                String? // e.g. "Hydraulic Press-I", "Autoclave"
+  calibrationOn          DateTime?
+  calibrationDueDate     DateTime?
+  recallDueDate          DateTime?
+  calibrationCertificate String?
+  periodicity            String              @default("Every One Year")
+  notes                  String?
+  isActive               Boolean             @default(true)
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  @@index([category])
+  @@index([unitLocation])
+}
+
+enum CalibrationCategory {
+  PRESSURE_GAUGE
+  VACUUM_GAUGE
+  WEIGHING_BALANCE
+  TESTING_EQUIPMENT
+  METROLOGY_INSTRUMENT
+  MMR // Monitoring & Measuring Resources — thermocouples / temperature controllers
 }
 
 // ──── NOTIFICATIONS ────

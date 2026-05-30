@@ -31,10 +31,25 @@ import SafetyMonitor from './pages/SafetyMonitor';
 import RealtimeCorrections from './pages/superadmin/RealtimeCorrections';
 import Backups from './pages/superadmin/Backups';
 import Health from './pages/superadmin/Health';
+import Metrology from './pages/Metrology';
+import PressureGauges from './pages/metrology/PressureGauges';
+import VacuumGauges from './pages/metrology/VacuumGauges';
+import WeighingBalances from './pages/metrology/WeighingBalances';
+import TestingEquipment from './pages/metrology/TestingEquipment';
+import MetrologyInstruments from './pages/metrology/MetrologyInstruments';
+import MMR from './pages/metrology/MMR';
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
+
+// Metrology calibration registers — METROLOGY + ADMIN can edit; the rest
+// of the procurement / quality chain has read-only visibility.
+const METROLOGY_VIEW_ROLES = [
+  'METROLOGY', 'ADMIN', 'MANAGER', 'STORE_MANAGER',
+  'PURCHASE_OFFICER', 'QC', 'ACCOUNTING', 'SAFETY',
+  'LAB', 'NDT', 'RND', 'DESIGNS',
+];
 
 function PrivateRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
@@ -163,6 +178,31 @@ export default function App() {
               {/* Safety Monitor */}
               <Route path="/safety" element={
                 <PrivateRoute allowedRoles={['SAFETY', 'ADMIN']}><SafetyMonitor /></PrivateRoute>
+              } />
+
+              {/* Metrology hub + per-category calibration registers.
+                  Editing is gated server-side to METROLOGY + ADMIN; the page
+                  itself also hides edit/add/delete controls for viewers. */}
+              <Route path="/metrology" element={
+                <PrivateRoute allowedRoles={METROLOGY_VIEW_ROLES}><Metrology /></PrivateRoute>
+              } />
+              <Route path="/metrology/pressure-gauges" element={
+                <PrivateRoute allowedRoles={METROLOGY_VIEW_ROLES}><PressureGauges /></PrivateRoute>
+              } />
+              <Route path="/metrology/vacuum-gauges" element={
+                <PrivateRoute allowedRoles={METROLOGY_VIEW_ROLES}><VacuumGauges /></PrivateRoute>
+              } />
+              <Route path="/metrology/weighing-balances" element={
+                <PrivateRoute allowedRoles={METROLOGY_VIEW_ROLES}><WeighingBalances /></PrivateRoute>
+              } />
+              <Route path="/metrology/testing-equipment" element={
+                <PrivateRoute allowedRoles={METROLOGY_VIEW_ROLES}><TestingEquipment /></PrivateRoute>
+              } />
+              <Route path="/metrology/metrology-instruments" element={
+                <PrivateRoute allowedRoles={METROLOGY_VIEW_ROLES}><MetrologyInstruments /></PrivateRoute>
+              } />
+              <Route path="/metrology/mmr" element={
+                <PrivateRoute allowedRoles={METROLOGY_VIEW_ROLES}><MMR /></PrivateRoute>
               } />
 
               {/* SUPERADMIN-only — owner hatch */}

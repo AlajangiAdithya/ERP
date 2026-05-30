@@ -11,6 +11,7 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
 import { pdf } from '@react-pdf/renderer';
+import { PDFDocument } from 'pdf-lib';
 import PRPdf from '../components/pdf/PRPdf';
 
 const formatCurrency = (amt) => `₹${Number(amt).toLocaleString('en-IN')}`;
@@ -242,7 +243,34 @@ function InspectionDocsPanel({ order, inspection, qcView = false }) {
       setBusy(true);
       try {
         const blob = await pdf(<PRPdf request={pr} />).toBlob();
-        const url = URL.createObjectURL(blob);
+        const specUrls = (pr.items || []).map(i => i.specAttachmentUrl).filter(Boolean);
+
+        let finalBlob = blob;
+        if (specUrls.length > 0) {
+          try {
+            const mainBytes = await blob.arrayBuffer();
+            const merged = await PDFDocument.load(mainBytes);
+            for (const specUrl of specUrls) {
+              try {
+                const resp = await fetch(specUrl);
+                if (!resp.ok) continue;
+                const bytes = await resp.arrayBuffer();
+                const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+                const pages = await merged.copyPages(src, src.getPageIndices());
+                pages.forEach((p) => merged.addPage(p));
+              } catch (mergeErr) {
+                console.warn('Skipped attachment', specUrl, mergeErr);
+              }
+            }
+            const mergedBytes = await merged.save();
+            finalBlob = new Blob([mergedBytes], { type: 'application/pdf' });
+          } catch (mergeErr) {
+            console.warn('PR spec merge failed — opening main PR only', mergeErr);
+            finalBlob = blob;
+          }
+        }
+
+        const url = URL.createObjectURL(finalBlob);
         window.open(url, '_blank', 'noopener,noreferrer');
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       } catch (err) {
@@ -269,6 +297,19 @@ function InspectionDocsPanel({ order, inspection, qcView = false }) {
       </button>
     );
   };
+
+  // Flatten every per-item confidential spec PDF uploaded across all PRs in the
+  // chain so QC can open each one directly without scrolling the merged PR PDF.
+  const specAttachments = prs.flatMap((pr) =>
+    (pr.items || [])
+      .filter((it) => it.specAttachmentUrl)
+      .map((it) => ({
+        prNumber: pr.requestNumber,
+        productName: it.productName,
+        url: it.specAttachmentUrl,
+        name: it.specAttachmentName || 'spec.pdf',
+      })),
+  );
 
   return (
     <div className="border border-gray-300 rounded-md overflow-hidden">
@@ -326,6 +367,33 @@ function InspectionDocsPanel({ order, inspection, qcView = false }) {
           missingHint="Purchase Officer has not uploaded the current-FY Supplier Assessment PDF."
         />
       </div>
+
+      {specAttachments.length > 0 && (
+        <div className="border-t border-gray-300 bg-amber-50/30 px-3 py-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-900 mb-2">
+            <Paperclip size={11} /> Confidential Material Spec PDFs (uploaded by Unit Manager)
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {specAttachments.map((sp, i) => (
+              <a
+                key={i}
+                href={sp.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-start gap-2 px-3 py-2 rounded border border-amber-200 bg-white text-xs text-amber-900 hover:bg-amber-50 transition"
+              >
+                <FileText size={14} className="mt-0.5 text-amber-700" />
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">{sp.productName}</div>
+                  <div className="text-amber-700 truncate">
+                    {sp.prNumber ? `${sp.prNumber} • ` : ''}{sp.name}
+                  </div>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

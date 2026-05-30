@@ -3,6 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
+const { prSpecsUpload, publicUrlFor } = require('../middleware/upload');
 const {
   generateSequentialNumber, generateProductSku, normalizeMaterialType,
   paginate, applyDateFilter, isUniqueViolation,
@@ -29,6 +30,9 @@ const createSchema = z.object({
     // PRF form fields
     materialType: z.string().optional(),
     materialSpecification: z.string().optional(),
+    // Confidential per-item spec PDF uploaded via POST /upload-spec before submit.
+    specAttachmentUrl: z.string().optional().nullable(),
+    specAttachmentName: z.string().optional().nullable(),
     qapNo: z.string().optional(),
     drawingNo: z.string().optional(),
     materialRequiredFor: z.string().optional(),
@@ -41,6 +45,25 @@ const createSchema = z.object({
     itemRemarks: z.string().optional(),
   })).min(1),
 });
+
+// POST /api/purchase-requests/upload-spec — uploads a confidential material-spec
+// PDF and returns { url, name } so the create form can attach it to the item
+// before submitting the PR. Only requester roles (and admin) can upload.
+router.post(
+  '/upload-spec',
+  authenticate,
+  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER'),
+  (req, res) => {
+    prSpecsUpload.single('file')(req, res, (err) => {
+      if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
+      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      res.json({
+        url: publicUrlFor('pr-specs', req.file.filename),
+        name: req.file.originalname,
+      });
+    });
+  },
+);
 
 // GET /api/purchase-requests — list based on role
 router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
@@ -629,6 +652,8 @@ router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MAN
                 requestedQty: item.requestedQty,
                 materialType: item.materialType,
                 materialSpecification: item.materialSpecification || null,
+                specAttachmentUrl: item.specAttachmentUrl || null,
+                specAttachmentName: item.specAttachmentName || null,
                 qapNo: item.qapNo || null,
                 drawingNo: item.drawingNo || null,
                 materialRequiredFor: item.materialRequiredFor || null,

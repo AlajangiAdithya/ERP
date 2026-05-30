@@ -34,6 +34,8 @@ const PR_SPEC_SELECT = {
       adminApprovedQty: true,
       materialType: true,
       materialSpecification: true,
+      specAttachmentUrl: true,
+      specAttachmentName: true,
       qapNo: true,
       drawingNo: true,
       materialRequiredFor: true,
