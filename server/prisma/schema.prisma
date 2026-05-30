@@ -332,7 +332,7 @@ model PurchaseRequestItem {
   itemStatus             ItemOrderStatus? // Set once ORDER_PLACED; mirrored from PO items
   itemQuotationStatus    PRItemQuotationStatus         @default(AWAITING_QUOTATION) // Per-item quote progress, independent of order/inward status
   // PRF form fields
-  materialType           String? // Raw material / Consumable / Hand Tools & Fastners / Others
+  materialType           String? // Raw material / Consumable / Hand Tools & Fastners / Tools & Fixtures / Others
   materialSpecification  String? // Material specification data
   // Optional confidential material-spec PDF attached at PR creation time.
   // Shown as a "View spec" link in PR views; merged after the PR body in the

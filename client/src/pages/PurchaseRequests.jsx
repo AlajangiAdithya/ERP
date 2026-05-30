@@ -309,6 +309,7 @@ function CreateRequestModal({ isOpen, onClose, onCreated, prefillItems = null, p
                       <option value="Raw Material">Raw Material</option>
                       <option value="Consumable">Consumable</option>
                       <option value="Hand Tools & Fastners">Hand Tools & Fastners</option>
+                      <option value="Tools & Fixtures">Tools & Fixtures</option>
                       <option value="Others">Others</option>
                     </select>
                   </td>
