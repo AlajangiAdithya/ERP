@@ -1,15 +1,27 @@
-// SUPERADMIN-only operational dashboard. One-shot fetch of /superadmin/health
-// renders five sections: Server (CPU/memory/swap/uptime), App (pm2 process),
-// Database (size, connections, top tables), Activity (logins, sessions,
-// recent errors), Backups (last run + S3 totals).
+// SUPERADMIN-only operational dashboard. Live polls /superadmin/health on a
+// configurable cadence (default 5s, pauses when tab hidden) and renders five
+// sections: Server (load, mem, swap, disk, uploads dir, uptime), App (pm2
+// process list), Database (size, connections, top tables), Activity (logins,
+// sessions, recent errors), Backups (last run + S3 totals).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Activity, Cpu, Boxes, Database, Users, Cloud, RefreshCw,
-  CheckCircle2, AlertCircle, Clock,
+  CheckCircle2, AlertCircle, Clock, HardDrive,
 } from 'lucide-react';
 import api from '../../api/axios';
 import PageHero from '../../components/shared/PageHero';
+
+// Default poll cadence. 5s feels real-time without hammering the EC2 box —
+// the heaviest call is `aws s3 ls --recursive`, which costs a few hundred ms.
+const DEFAULT_INTERVAL_MS = 5000;
+const INTERVAL_OPTIONS = [
+  { label: 'Off', value: 0 },
+  { label: '2s', value: 2000 },
+  { label: '5s', value: 5000 },
+  { label: '10s', value: 10000 },
+  { label: '30s', value: 30000 },
+];
 
 const fmtBytes = (n) => {
   if (n == null) return '—';
@@ -71,20 +83,53 @@ export default function Health() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
+  const [intervalMs, setIntervalMs] = useState(DEFAULT_INTERVAL_MS);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+  const [now, setNow] = useState(Date.now());
+  const inFlight = useRef(false);
 
-  useEffect(() => { load(); }, []);
-  async function load() {
-    setLoading(true);
+  // Ticker so the "updated Ns ago" label stays current even between fetches.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  async function load({ silent = false } = {}) {
+    if (inFlight.current) return;          // don't stack requests if the box is slow
+    inFlight.current = true;
+    if (!silent) setLoading(true);
     setErr('');
     try {
       const { data } = await api.get('/superadmin/health');
       setData(data);
+      setLastUpdatedAt(Date.now());
     } catch (e) {
       setErr(e.response?.data?.error || e.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+      inFlight.current = false;
     }
   }
+
+  // Initial fetch.
+  useEffect(() => { load(); }, []);
+
+  // Live polling — pauses when the tab is hidden so we don't pummel the EC2 box
+  // when no one is looking. Resumes (with an immediate refresh) on focus.
+  useEffect(() => {
+    if (!intervalMs) return;
+    let timer = null;
+    const tick = () => { if (!document.hidden) load({ silent: true }); };
+    timer = setInterval(tick, intervalMs);
+    const onVisible = () => { if (!document.hidden) load({ silent: true }); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [intervalMs]);
+
+  const updatedAgoSec = lastUpdatedAt ? Math.max(0, Math.floor((now - lastUpdatedAt) / 1000)) : null;
 
   return (
     <div className="p-6 space-y-6">
@@ -94,9 +139,27 @@ export default function Health() {
         eyebrow="SuperAdmin"
         icon={Activity}
         actions={
-          <button onClick={load} className="px-3 py-2 text-sm bg-white/10 hover:bg-white/15 backdrop-blur-sm border border-white/20 rounded-lg text-white flex items-center gap-1.5 transition-colors">
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-white/90 bg-white/10 border border-white/20 rounded-lg">
+              <span className={`inline-block w-1.5 h-1.5 rounded-full ${intervalMs ? 'bg-emerald-400 animate-pulse' : 'bg-gray-400'}`} />
+              {intervalMs
+                ? (updatedAgoSec != null ? `Live · updated ${updatedAgoSec}s ago` : 'Live')
+                : 'Paused'}
+            </div>
+            <select
+              value={intervalMs}
+              onChange={(e) => setIntervalMs(Number(e.target.value))}
+              className="px-2 py-1.5 text-xs bg-white/10 hover:bg-white/15 border border-white/20 rounded-lg text-white outline-none"
+              title="Auto-refresh interval"
+            >
+              {INTERVAL_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value} className="text-gray-900">{o.label}</option>
+              ))}
+            </select>
+            <button onClick={() => load()} className="px-3 py-2 text-sm bg-white/10 hover:bg-white/15 backdrop-blur-sm border border-white/20 rounded-lg text-white flex items-center gap-1.5 transition-colors">
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+            </button>
+          </div>
         }
       />
 
@@ -143,6 +206,28 @@ export default function Health() {
                   </>
                 ) : <span className="text-gray-400">—</span>}
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-100">
+              <div>
+                <div className="text-xs text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                  <HardDrive size={12} /> Disk (root filesystem)
+                </div>
+                {data.server.disk ? (
+                  <>
+                    <div className="text-sm font-medium text-gray-900 mb-1">
+                      {fmtBytes(data.server.disk.used)} / {fmtBytes(data.server.disk.total)} <span className="text-gray-500 font-normal">({data.server.disk.percent}%)</span>
+                      <span className="ml-2 text-xs text-gray-500">· {fmtBytes(data.server.disk.available)} free</span>
+                    </div>
+                    <Bar percent={data.server.disk.percent} />
+                  </>
+                ) : <span className="text-gray-400">—</span>}
+              </div>
+              <Stat
+                label="Uploads dir"
+                value={fmtBytes(data.server.uploadsBytes)}
+                sub="invoices · quotations · PO docs · QC docs · supplier files"
+              />
             </div>
           </Section>
 
@@ -286,7 +371,11 @@ export default function Health() {
           </Section>
 
           <div className="text-xs text-gray-400 text-center pt-2 flex items-center justify-center gap-1.5">
-            <Clock size={12} /> Snapshot at {new Date().toLocaleString()}
+            <Clock size={12} />
+            {intervalMs
+              ? <>Live · refresh every {INTERVAL_OPTIONS.find((o) => o.value === intervalMs)?.label} · last update {lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString() : '—'}</>
+              : <>Auto-refresh paused · last update {lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleString() : '—'}</>
+            }
           </div>
         </div>
       )}

@@ -386,6 +386,27 @@ router.get('/health', async (req, res) => {
     out.server.uptimeSeconds = Math.floor(parseFloat(stdout.trim().split(' ')[0]));
   } catch (_) { /* ignore */ }
 
+  // Root filesystem usage — the 30 GB EBS volume is the real capacity ceiling.
+  try {
+    const { stdout } = await execAsync("df -B1 / | awk 'NR==2 {print $2, $3, $4}'");
+    const [total, used, available] = stdout.trim().split(/\s+/).map(Number);
+    if (total) {
+      out.server.disk = {
+        total,
+        used,
+        available,
+        percent: Math.round((used / total) * 100),
+      };
+    }
+  } catch (_) { /* dev box, ignore */ }
+
+  // Uploads dir size — visible alongside DB size so you can see what's eating disk.
+  try {
+    const uploadsPath = path.resolve(__dirname, '../../uploads');
+    const { stdout } = await execAsync(`du -sb "${uploadsPath}" 2>/dev/null | cut -f1`);
+    out.server.uploadsBytes = parseInt(stdout.trim(), 10) || 0;
+  } catch (_) { /* ignore */ }
+
   // ── App: pm2 process list ────
   try {
     const { stdout } = await execAsync('pm2 jlist', { env: { ...process.env, PATH: `${process.env.PATH}:/usr/local/bin:/usr/bin` } });
