@@ -1,30 +1,48 @@
 -- Supplier register expansion: Approved Supplier List columns + structured
 -- assessment, re-evaluation, and performance rating tables. Lets Purchase
 -- Officer maintain the printable forms in the system instead of attaching PDFs.
+--
+-- This migration is written defensively (IF NOT EXISTS + exception-swallowing
+-- DO blocks for CREATE TYPE) because the production DB has been touched by
+-- `prisma db push` historically, so individual objects may already exist.
 
 -- ── Enums ───────────────────────────────────────────────────────────────
-CREATE TYPE "SupplierMaterialType"   AS ENUM ('MATERIAL', 'JOB_WORK', 'SERVICE');
-CREATE TYPE "SupplierApprovalStatus" AS ENUM ('APPROVED', 'CONDITIONAL', 'REJECTED', 'TERMINATED');
-CREATE TYPE "SupplierReEvalDecision" AS ENUM ('CONTINUES', 'TERMINATED');
-CREATE TYPE "SupplierBusinessType"   AS ENUM ('PROPRIETORSHIP', 'PARTNERSHIP', 'PRIVATE_LTD', 'PUBLIC_LTD');
-CREATE TYPE "SupplierBusinessRole"   AS ENUM ('MANUFACTURER', 'SUPPLIER', 'DEALER');
+DO $$ BEGIN
+  CREATE TYPE "SupplierMaterialType" AS ENUM ('MATERIAL', 'JOB_WORK', 'SERVICE');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "SupplierApprovalStatus" AS ENUM ('APPROVED', 'CONDITIONAL', 'REJECTED', 'TERMINATED');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "SupplierReEvalDecision" AS ENUM ('CONTINUES', 'TERMINATED');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "SupplierBusinessType" AS ENUM ('PROPRIETORSHIP', 'PARTNERSHIP', 'PRIVATE_LTD', 'PUBLIC_LTD');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "SupplierBusinessRole" AS ENUM ('MANUFACTURER', 'SUPPLIER', 'DEALER');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── Supplier: new approved-list columns ─────────────────────────────────
 ALTER TABLE "Supplier"
-  ADD COLUMN "vendorIdNo"             TEXT,
-  ADD COLUMN "contactPerson"          TEXT,
-  ADD COLUMN "contactPhone"           TEXT,
-  ADD COLUMN "scopeOfSupply"          TEXT,
-  ADD COLUMN "materialType"           "SupplierMaterialType",
-  ADD COLUMN "approvalStatus"         "SupplierApprovalStatus",
-  ADD COLUMN "approvalDate"           TIMESTAMP(3),
-  ADD COLUMN "typeAndExtentOfControl" TEXT,
-  ADD COLUMN "remarks"                TEXT;
+  ADD COLUMN IF NOT EXISTS "vendorIdNo"             TEXT,
+  ADD COLUMN IF NOT EXISTS "contactPerson"          TEXT,
+  ADD COLUMN IF NOT EXISTS "contactPhone"           TEXT,
+  ADD COLUMN IF NOT EXISTS "scopeOfSupply"          TEXT,
+  ADD COLUMN IF NOT EXISTS "materialType"           "SupplierMaterialType",
+  ADD COLUMN IF NOT EXISTS "approvalStatus"         "SupplierApprovalStatus",
+  ADD COLUMN IF NOT EXISTS "approvalDate"           TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "typeAndExtentOfControl" TEXT,
+  ADD COLUMN IF NOT EXISTS "remarks"                TEXT;
 
-CREATE UNIQUE INDEX "Supplier_vendorIdNo_key" ON "Supplier"("vendorIdNo");
+CREATE UNIQUE INDEX IF NOT EXISTS "Supplier_vendorIdNo_key" ON "Supplier"("vendorIdNo");
 
 -- ── Re-evaluation log ───────────────────────────────────────────────────
-CREATE TABLE "SupplierReEvaluation" (
+CREATE TABLE IF NOT EXISTS "SupplierReEvaluation" (
   "id"                          TEXT NOT NULL,
   "supplierId"                  TEXT NOT NULL,
   "financialYear"               TEXT NOT NULL,
@@ -53,16 +71,20 @@ CREATE TABLE "SupplierReEvaluation" (
   "evaluatedByName"             TEXT,
   "createdAt"                   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt"                   TIMESTAMP(3) NOT NULL,
-  CONSTRAINT "SupplierReEvaluation_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "SupplierReEvaluation_supplierId_fkey"
-    FOREIGN KEY ("supplierId") REFERENCES "Supplier"("id") ON DELETE CASCADE ON UPDATE CASCADE
+  CONSTRAINT "SupplierReEvaluation_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "SupplierReEvaluation_supplierId_idx"               ON "SupplierReEvaluation"("supplierId");
-CREATE INDEX "SupplierReEvaluation_supplierId_financialYear_idx" ON "SupplierReEvaluation"("supplierId", "financialYear");
+DO $$ BEGIN
+  ALTER TABLE "SupplierReEvaluation"
+    ADD CONSTRAINT "SupplierReEvaluation_supplierId_fkey"
+    FOREIGN KEY ("supplierId") REFERENCES "Supplier"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE INDEX IF NOT EXISTS "SupplierReEvaluation_supplierId_idx"               ON "SupplierReEvaluation"("supplierId");
+CREATE INDEX IF NOT EXISTS "SupplierReEvaluation_supplierId_financialYear_idx" ON "SupplierReEvaluation"("supplierId", "financialYear");
 
 -- ── Structured assessment form ──────────────────────────────────────────
-CREATE TABLE "SupplierAssessmentForm" (
+CREATE TABLE IF NOT EXISTS "SupplierAssessmentForm" (
   "id"                        TEXT NOT NULL,
   "supplierId"                TEXT NOT NULL,
   "financialYear"             TEXT NOT NULL,
@@ -86,16 +108,20 @@ CREATE TABLE "SupplierAssessmentForm" (
   "reviewedByUserId"          TEXT,
   "createdAt"                 TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt"                 TIMESTAMP(3) NOT NULL,
-  CONSTRAINT "SupplierAssessmentForm_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "SupplierAssessmentForm_supplierId_fkey"
-    FOREIGN KEY ("supplierId") REFERENCES "Supplier"("id") ON DELETE CASCADE ON UPDATE CASCADE
+  CONSTRAINT "SupplierAssessmentForm_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "SupplierAssessmentForm_supplierId_idx"               ON "SupplierAssessmentForm"("supplierId");
-CREATE INDEX "SupplierAssessmentForm_supplierId_financialYear_idx" ON "SupplierAssessmentForm"("supplierId", "financialYear");
+DO $$ BEGIN
+  ALTER TABLE "SupplierAssessmentForm"
+    ADD CONSTRAINT "SupplierAssessmentForm_supplierId_fkey"
+    FOREIGN KEY ("supplierId") REFERENCES "Supplier"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE INDEX IF NOT EXISTS "SupplierAssessmentForm_supplierId_idx"               ON "SupplierAssessmentForm"("supplierId");
+CREATE INDEX IF NOT EXISTS "SupplierAssessmentForm_supplierId_financialYear_idx" ON "SupplierAssessmentForm"("supplierId", "financialYear");
 
 -- ── Performance rating (header + items) ────────────────────────────────
-CREATE TABLE "SupplierPerformanceRating" (
+CREATE TABLE IF NOT EXISTS "SupplierPerformanceRating" (
   "id"               TEXT NOT NULL,
   "financialYear"    TEXT NOT NULL,
   "periodFrom"       TIMESTAMP(3),
@@ -111,10 +137,10 @@ CREATE TABLE "SupplierPerformanceRating" (
   CONSTRAINT "SupplierPerformanceRating_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "SupplierPerformanceRating_financialYear_key" ON "SupplierPerformanceRating"("financialYear");
-CREATE INDEX        "SupplierPerformanceRating_financialYear_idx" ON "SupplierPerformanceRating"("financialYear");
+CREATE UNIQUE INDEX IF NOT EXISTS "SupplierPerformanceRating_financialYear_key" ON "SupplierPerformanceRating"("financialYear");
+CREATE INDEX        IF NOT EXISTS "SupplierPerformanceRating_financialYear_idx" ON "SupplierPerformanceRating"("financialYear");
 
-CREATE TABLE "SupplierPerformanceRatingItem" (
+CREATE TABLE IF NOT EXISTS "SupplierPerformanceRatingItem" (
   "id"                TEXT NOT NULL,
   "ratingId"          TEXT NOT NULL,
   "supplierId"        TEXT,
@@ -129,12 +155,20 @@ CREATE TABLE "SupplierPerformanceRatingItem" (
   "deliveryRating"    DOUBLE PRECISION NOT NULL DEFAULT 0,
   "totalRating"       DOUBLE PRECISION NOT NULL DEFAULT 0,
   "createdAt"         TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT "SupplierPerformanceRatingItem_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "SupplierPerformanceRatingItem_ratingId_fkey"
-    FOREIGN KEY ("ratingId") REFERENCES "SupplierPerformanceRating"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT "SupplierPerformanceRatingItem_supplierId_fkey"
-    FOREIGN KEY ("supplierId") REFERENCES "Supplier"("id") ON DELETE SET NULL ON UPDATE CASCADE
+  CONSTRAINT "SupplierPerformanceRatingItem_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "SupplierPerformanceRatingItem_ratingId_idx"   ON "SupplierPerformanceRatingItem"("ratingId");
-CREATE INDEX "SupplierPerformanceRatingItem_supplierId_idx" ON "SupplierPerformanceRatingItem"("supplierId");
+DO $$ BEGIN
+  ALTER TABLE "SupplierPerformanceRatingItem"
+    ADD CONSTRAINT "SupplierPerformanceRatingItem_ratingId_fkey"
+    FOREIGN KEY ("ratingId") REFERENCES "SupplierPerformanceRating"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE "SupplierPerformanceRatingItem"
+    ADD CONSTRAINT "SupplierPerformanceRatingItem_supplierId_fkey"
+    FOREIGN KEY ("supplierId") REFERENCES "Supplier"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE INDEX IF NOT EXISTS "SupplierPerformanceRatingItem_ratingId_idx"   ON "SupplierPerformanceRatingItem"("ratingId");
+CREATE INDEX IF NOT EXISTS "SupplierPerformanceRatingItem_supplierId_idx" ON "SupplierPerformanceRatingItem"("supplierId");
