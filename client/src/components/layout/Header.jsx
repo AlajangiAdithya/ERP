@@ -43,7 +43,7 @@ export default function Header() {
   const roleLabel = ROLE_LABELS[user?.role] || user?.role?.replace(/_/g, ' ');
 
   return (
-    <header className="bg-white border-b border-navy-100 px-4 sm:px-6 h-16 flex items-center justify-between sticky top-0 z-30 shadow-[0_1px_0_rgba(16,36,82,0.04)]">
+    <header className="bg-gradient-to-r from-navy-800 to-navy-900 border-b border-navy-900 px-4 sm:px-6 h-16 flex items-center justify-between sticky top-0 z-30 shadow-[0_2px_8px_rgba(16,36,82,0.25)]">
       <div className="flex items-center gap-3 min-w-0">
         <div className="lg:hidden w-10 flex-shrink-0" />
       </div>
@@ -52,29 +52,29 @@ export default function Header() {
         <button
           onClick={() => navigate('/notifications')}
           aria-label="Notifications"
-          className="relative p-2 text-navy-600 hover:text-navy-800 hover:bg-navy-50 rounded-full transition-colors"
+          className="relative p-2 text-white/90 hover:text-white hover:bg-white/10 rounded-full transition-colors"
         >
           <Bell size={20} />
           {unreadCount > 0 && (
-            <span className="absolute top-0.5 right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-brand-red text-white text-[10px] font-bold rounded-full ring-2 ring-white">
+            <span className="absolute top-0.5 right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-brand-red text-white text-[10px] font-bold rounded-full ring-2 ring-navy-800">
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
         </button>
 
-        <span className="h-7 w-px bg-navy-100 mx-1" />
+        <span className="h-7 w-px bg-white/15 mx-1" />
 
         <Dropdown
           trigger={
-            <button className="flex items-center gap-2.5 pl-1 pr-2 sm:pr-3 py-1 rounded-full hover:bg-navy-50 transition-colors">
-              <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-navy-700 rounded-full flex items-center justify-center text-white text-[13px] font-semibold shadow-sm ring-2 ring-white">
+            <button className="flex items-center gap-2.5 pl-1 pr-2 sm:pr-3 py-1 rounded-full hover:bg-white/10 transition-colors">
+              <div className="w-9 h-9 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white text-[13px] font-semibold shadow-sm ring-2 ring-white/30">
                 {getInitials(user?.name)}
               </div>
               <div className="hidden sm:block text-left leading-tight">
-                <p className="text-[13px] font-semibold text-navy-800 truncate max-w-[160px]">{user?.name}</p>
-                <p className="text-[11px] text-navy-500 mt-0.5">{roleLabel}</p>
+                <p className="text-[13px] font-semibold text-white truncate max-w-[160px]">{user?.name}</p>
+                <p className="text-[11px] text-blue-200 mt-0.5">{roleLabel}</p>
               </div>
-              <ChevronDown size={14} className="text-navy-400 hidden sm:block" />
+              <ChevronDown size={14} className="text-white/70 hidden sm:block" />
             </button>
           }
         >

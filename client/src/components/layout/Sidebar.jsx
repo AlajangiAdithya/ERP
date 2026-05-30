@@ -66,7 +66,7 @@ export default function Sidebar() {
     <>
       <div className="px-3 pt-5 pb-4">
         <div className="relative flex items-center justify-center">
-          <div className="absolute -inset-6 bg-white/40 blur-3xl rounded-full pointer-events-none" aria-hidden="true" />
+          <div className="absolute -inset-6 bg-blue-400/30 blur-3xl rounded-full pointer-events-none" aria-hidden="true" />
           <img
             src="/rapslogo6.png"
             alt="RAPS"
@@ -74,16 +74,16 @@ export default function Sidebar() {
           />
         </div>
         {user?.unit && (
-          <div className="mt-3.5 flex items-center justify-center gap-1.5 bg-white/[0.08] border border-white/15 rounded-full px-3 py-1.5">
-            <Building2 size={11} className="text-blue-300 flex-shrink-0" />
-            <span className="text-[10px] font-semibold tracking-[0.14em] uppercase text-blue-100 truncate">
+          <div className="mt-3.5 flex items-center justify-center gap-1.5 bg-blue-50 border border-blue-100 rounded-full px-3 py-1.5">
+            <Building2 size={11} className="text-blue-600 flex-shrink-0" />
+            <span className="text-[10px] font-semibold tracking-[0.14em] uppercase text-navy-700 truncate">
               {user.unit.name}
             </span>
           </div>
         )}
       </div>
 
-      <div className="mx-4 border-t border-white/10" />
+      <div className="mx-4 border-t border-navy-100" />
 
       <nav className="flex-1 pt-2.5 pb-3 overflow-y-auto">
         {navItems.map((item) => (
@@ -95,8 +95,8 @@ export default function Sidebar() {
             className={({ isActive }) =>
               `group flex items-center gap-2.5 px-3 py-2 mx-2 rounded-lg text-[13px] transition-all duration-150 mb-0.5
               ${isActive
-                ? 'bg-white/15 text-white font-medium shadow-[inset_3px_0_0_theme(colors.blue.400)]'
-                : 'text-white/90 hover:bg-white/[0.08] hover:text-white'
+                ? 'bg-blue-50 text-blue-700 font-semibold shadow-[inset_3px_0_0_theme(colors.blue.500)]'
+                : 'text-navy-700 hover:bg-blue-50/60 hover:text-blue-700'
               }`
             }
           >
@@ -106,8 +106,8 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="px-4 py-2.5 border-t border-white/10">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-blue-200/70 font-semibold text-center">
+      <div className="px-4 py-2.5 border-t border-navy-100">
+        <p className="text-[10px] uppercase tracking-[0.2em] text-blue-600 font-semibold text-center">
           RAPS ERP
         </p>
       </div>
@@ -128,16 +128,10 @@ export default function Sidebar() {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-40">
           <div className="fixed inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <div className="fixed left-0 top-0 bottom-0 w-56 bg-gradient-to-b from-navy-800 to-navy-900 flex flex-col z-50 overflow-hidden">
-            <div
-              className="absolute inset-0 opacity-[0.06] bg-cover bg-center pointer-events-none"
-              style={{ backgroundImage: "url('/rocket.jpg')" }}
-              aria-hidden="true"
-            />
-            <div className="absolute inset-0 bg-gradient-to-b from-navy-800/70 via-navy-800/85 to-navy-900 pointer-events-none" aria-hidden="true" />
+          <div className="fixed left-0 top-0 bottom-0 w-56 bg-white border-r border-navy-100 flex flex-col z-50 overflow-hidden">
             <button
               onClick={() => setMobileOpen(false)}
-              className="absolute top-4 right-4 text-white/70 hover:text-white z-10"
+              className="absolute top-4 right-4 text-navy-500 hover:text-navy-800 z-10"
             >
               <X size={20} />
             </button>
@@ -147,13 +141,7 @@ export default function Sidebar() {
       )}
 
       {/* Desktop sidebar — fixed so it stays put while the page scrolls */}
-      <aside className="hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 fixed left-0 top-0 bottom-0 w-56 shadow-xl z-30 overflow-hidden">
-        <div
-          className="absolute inset-0 opacity-[0.06] bg-cover bg-center pointer-events-none"
-          style={{ backgroundImage: "url('/rocket.jpg')" }}
-          aria-hidden="true"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-navy-800/70 via-navy-800/85 to-navy-900 pointer-events-none" aria-hidden="true" />
+      <aside className="hidden lg:flex flex-col bg-white border-r border-navy-100 fixed left-0 top-0 bottom-0 w-56 shadow-[2px_0_12px_rgba(16,36,82,0.06)] z-30 overflow-hidden">
         <div className="relative z-10 flex flex-col flex-1 min-h-0">{sidebarContent}</div>
       </aside>
     </>
