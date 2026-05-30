@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Send, CheckCircle, Trash2, Eye, FileText, X, Layers, Paperclip, RefreshCw, AlertCircle, PauseCircle, GitMerge } from 'lucide-react';
+import { Plus, Send, CheckCircle, Trash2, Eye, FileText, X, Layers, Paperclip, RefreshCw, AlertCircle, PauseCircle, GitMerge, FileSearch } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -2554,12 +2555,17 @@ export default function QuotationManagement() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Quotation Management</h1>
-        <Button variant="secondary" onClick={fetchData} disabled={loading}>
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
-        </Button>
-      </div>
+      <PageHero
+        title="Quotation Management"
+        subtitle="Collect supplier quotations, review submissions, and select winning bids."
+        eyebrow="Bid Management"
+        icon={FileSearch}
+        actions={
+          <Button variant="secondary" onClick={fetchData} disabled={loading}>
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
+          </Button>
+        }
+      />
 
       {/* PO: Action Required — held quotations (single + union) admin sent back. */}
       {isPO && heldQuotations.length > 0 && (

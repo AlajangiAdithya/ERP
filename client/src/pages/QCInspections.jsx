@@ -13,6 +13,7 @@ import { formatDateTime } from '../utils/formatters';
 import { pdf } from '@react-pdf/renderer';
 import { PDFDocument } from 'pdf-lib';
 import PRPdf from '../components/pdf/PRPdf';
+import PageHero from '../components/shared/PageHero';
 
 const formatCurrency = (amt) => `₹${Number(amt).toLocaleString('en-IN')}`;
 
@@ -1568,10 +1569,13 @@ export default function QCInspections() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">QC Inspections</h1>
-        <span className="text-xs text-gray-500">Role: {user?.role}</span>
-      </div>
+      <PageHero
+        title="QC Inspections"
+        subtitle="Inspect inward materials and record quality acceptance results."
+        eyebrow="Quality Control"
+        icon={ClipboardCheck}
+        actions={<span className="text-xs text-blue-100/80">Role: {user?.role}</span>}
+      />
 
       <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
 

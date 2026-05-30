@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import api from '../api/axios';
 import Card from '../components/ui/Card';
+import PageHero from '../components/shared/PageHero';
 
 const TILES = [
   { to: '/purchase-requests',   label: 'Purchase Requests',   icon: ShoppingCart,   endpoint: '/purchase-requests',   key: 'requests' },
@@ -48,12 +49,12 @@ export default function SafetyMonitor() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-navy-900 flex items-center gap-2">
-          <ShieldCheck size={24} className="text-blue-600" /> Safety Monitor
-        </h1>
-        <p className="text-sm text-navy-600">Read-only overview of every workflow across the organisation.</p>
-      </div>
+      <PageHero
+        title="Safety Monitor"
+        subtitle="Read-only overview of every workflow across the organisation."
+        eyebrow="Oversight"
+        icon={ShieldCheck}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {TILES.map((tile) => {

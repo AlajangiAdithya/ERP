@@ -6,6 +6,8 @@ import Pagination from '../components/shared/Pagination';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { Select } from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
+import { FileText } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 
 export default function AuditLogs() {
   const [logs, setLogs] = useState([]);
@@ -67,10 +69,17 @@ export default function AuditLogs() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Audit Logs</h1>
-        <span className="text-sm text-gray-500">{total} total entries</span>
-      </div>
+      <PageHero
+        title="Audit Logs"
+        subtitle="Every privileged action recorded across the system, by user, action, and entity."
+        eyebrow="Compliance"
+        icon={FileText}
+        actions={
+          <span className="text-xs font-medium text-blue-100/90 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-full ring-1 ring-white/20">
+            {total} total entries
+          </span>
+        }
+      />
 
       <div className="flex flex-wrap gap-3 items-end">
         <Select value={filters.action} onChange={(e) => { setFilters({ ...filters, action: e.target.value }); setPage(1); }} className="w-40">

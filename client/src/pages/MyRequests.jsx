@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, ClipboardList } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
@@ -103,10 +104,13 @@ export default function MyRequests() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">My Requests</h1>
-        <Button onClick={openCreate}><Plus size={16} /> New Request</Button>
-      </div>
+      <PageHero
+        title="My Requests"
+        subtitle="Material Issue Voucher requests for your store withdrawals."
+        eyebrow="MIV"
+        icon={ClipboardList}
+        actions={<Button onClick={openCreate}><Plus size={16} /> New Request</Button>}
+      />
 
       <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
 

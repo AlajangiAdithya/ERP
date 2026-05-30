@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import {
   Plus, Trash2, RotateCcw, CheckCircle2, Truck, PackageCheck,
   Send, ShieldCheck, Calculator, Stamp, XCircle, Clock, AlertCircle, LayoutList,
-  Link2,
+  Link2, DoorOpen,
 } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -81,19 +82,19 @@ export default function GatePass() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Gate Pass</h1>
-          <p className="text-sm text-gray-500">
-            OUTWARD (RAMS/GPR/01) — Returnable, Non-Returnable, or Delivery Challan. Manager raises → Stores → Accounts.
-          </p>
-        </div>
-        {canCreate && (
-          <Button onClick={() => setShowCreate(true)}>
-            <Plus size={16} /> Create Request
-          </Button>
-        )}
-      </div>
+      <PageHero
+        title="Gate Pass"
+        subtitle="OUTWARD (RAMS/GPR/01) — Returnable, Non-Returnable, or Delivery Challan. Manager raises → Stores → Accounts."
+        eyebrow="Outward Movement"
+        icon={DoorOpen}
+        actions={
+          canCreate && (
+            <Button onClick={() => setShowCreate(true)}>
+              <Plus size={16} /> Create Request
+            </Button>
+          )
+        }
+      />
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex flex-wrap gap-2 border-b border-gray-200">

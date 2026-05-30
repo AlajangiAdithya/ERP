@@ -6,6 +6,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Database, Edit2, Trash2, Plus, Save, X, RefreshCw, FileText, ExternalLink } from 'lucide-react';
 import api from '../../api/axios';
+import PageHero from '../../components/shared/PageHero';
 
 export default function RealtimeCorrections() {
   const [view, setView] = useState('tables'); // 'tables' | 'uploads'
@@ -257,14 +258,13 @@ export default function RealtimeCorrections() {
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-center gap-3">
-        <Database className="text-purple-700" size={28} />
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Real-time Corrections</h1>
-          <p className="text-sm text-gray-500">Direct database editor — actions are not audit-logged.</p>
-        </div>
-      </div>
+    <div className="p-6 space-y-6">
+      <PageHero
+        title="Real-time Corrections"
+        subtitle="Direct database editor — actions are not audit-logged."
+        eyebrow="SuperAdmin"
+        icon={Database}
+      />
 
       <div className="mb-4 border-b border-gray-200 flex gap-1">
         <button

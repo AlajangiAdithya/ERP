@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import {
-  BarChart3, FileText, History, ArrowRight,
+  BarChart3, FileText, History, ArrowRight, Sparkles, Activity,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -12,8 +12,10 @@ const MODULES = [
     title: 'Stock Movements',
     description: 'Track inward, outward, and transfer movements across all stores.',
     roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'],
-    accent: 'from-blue-500 to-blue-600',
-    iconBg: 'bg-blue-50 text-blue-600',
+    gradient: 'from-blue-500 via-blue-600 to-indigo-600',
+    glow: 'group-hover:shadow-blue-500/40',
+    iconBg: 'bg-gradient-to-br from-blue-100 to-blue-200 text-blue-700',
+    ringColor: 'ring-blue-200/60',
   },
   {
     to: '/audit-logs',
@@ -21,8 +23,10 @@ const MODULES = [
     title: 'Audit Logs',
     description: 'Review every privileged action recorded across the system.',
     roles: ['ADMIN', 'SAFETY'],
-    accent: 'from-amber-500 to-amber-600',
-    iconBg: 'bg-amber-50 text-amber-600',
+    gradient: 'from-amber-500 via-orange-500 to-red-500',
+    glow: 'group-hover:shadow-amber-500/40',
+    iconBg: 'bg-gradient-to-br from-amber-100 to-orange-200 text-amber-700',
+    ringColor: 'ring-amber-200/60',
   },
   {
     to: '/unit-usage',
@@ -30,8 +34,10 @@ const MODULES = [
     title: 'Unit Usage Logs',
     description: 'Per-unit activity history for compliance and review.',
     roles: ['ADMIN', 'SAFETY'],
-    accent: 'from-purple-500 to-purple-600',
-    iconBg: 'bg-purple-50 text-purple-600',
+    gradient: 'from-purple-500 via-violet-500 to-fuchsia-600',
+    glow: 'group-hover:shadow-purple-500/40',
+    iconBg: 'bg-gradient-to-br from-purple-100 to-violet-200 text-purple-700',
+    ringColor: 'ring-purple-200/60',
   },
 ];
 
@@ -43,11 +49,23 @@ export default function Monitoring() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-gradient-to-r from-navy-800 to-navy-700 rounded-2xl px-6 py-6 text-white shadow-card">
-        <h1 className="text-2xl font-bold tracking-tight">Monitoring</h1>
-        <p className="text-sm text-blue-100/90 mt-1">
-          Stock movement, audit, and unit-usage views in one place.
-        </p>
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-900 via-navy-800 to-indigo-900 px-7 py-7 text-white shadow-2xl">
+        <div className="absolute -top-20 -right-20 w-80 h-80 bg-blue-500/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-10 w-72 h-72 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-4 right-6 opacity-10">
+          <Activity size={140} strokeWidth={1} />
+        </div>
+
+        <div className="relative">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-blue-200/80 font-semibold">
+            <Sparkles size={14} className="text-blue-300" />
+            <span>Monitoring Centre</span>
+          </div>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">Monitoring</h1>
+          <p className="text-sm text-blue-100/90 mt-2 max-w-2xl leading-relaxed">
+            Stock movement, audit, and unit-usage views in one place — track activity and review history across the plant.
+          </p>
+        </div>
       </div>
 
       {visible.length === 0 ? (
@@ -64,23 +82,31 @@ export default function Monitoring() {
               <Link
                 key={m.to}
                 to={m.to}
-                className="group block rounded-xl bg-white border border-navy-100/60 shadow-card hover:shadow-lg hover:-translate-y-0.5 transition-all duration-150 overflow-hidden"
+                className={`group relative block rounded-2xl bg-white border border-navy-100/60 shadow-card
+                  hover:-translate-y-1 hover:shadow-2xl ${m.glow}
+                  transition-all duration-300 overflow-hidden`}
               >
-                <div className={`h-1 bg-gradient-to-r ${m.accent}`} />
-                <div className="p-5">
+                <div className={`h-1.5 bg-gradient-to-r ${m.gradient}`} />
+                <div className={`absolute -top-10 -right-10 w-32 h-32 rounded-full bg-gradient-to-br ${m.gradient} opacity-0 group-hover:opacity-20 blur-2xl transition-opacity duration-500 pointer-events-none`} />
+
+                <div className="p-5 relative">
                   <div className="flex items-start justify-between gap-3">
-                    <div className={`p-2.5 rounded-lg ${m.iconBg}`}>
-                      <Icon size={22} strokeWidth={2} />
+                    <div className={`p-3 rounded-xl ${m.iconBg} ring-1 ${m.ringColor} shadow-sm group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300`}>
+                      <Icon size={22} strokeWidth={2.2} />
                     </div>
-                    <ArrowRight
-                      size={18}
-                      className="text-gray-300 group-hover:text-navy-700 group-hover:translate-x-1 transition-all duration-150"
-                    />
                   </div>
-                  <h3 className="mt-4 text-base font-semibold text-navy-800">
+
+                  <h3 className="mt-4 text-base font-semibold text-navy-800 group-hover:text-navy-900 leading-snug">
                     {m.title}
                   </h3>
-                  <p className="mt-1 text-sm text-gray-500 leading-relaxed">{m.description}</p>
+                  <p className="mt-1 text-sm text-gray-500 leading-relaxed line-clamp-2">{m.description}</p>
+
+                  <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-end">
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-navy-600 group-hover:text-navy-800 group-hover:gap-2 transition-all">
+                      Open module
+                      <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                    </span>
+                  </div>
                 </div>
               </Link>
             );

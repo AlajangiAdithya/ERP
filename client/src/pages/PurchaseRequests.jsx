@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw, GitMerge, Unlink, Upload, Lock, Paperclip } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
@@ -1422,21 +1423,26 @@ export default function PurchaseRequests() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">
-          {isPO ? 'Purchase Assignments' : 'Purchase Requests'}
-        </h1>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={fetchRequests} disabled={loading}>
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
-          </Button>
-          {isManager && (
-            <Button onClick={() => { setCreatePrefill({ items: null, notes: '' }); setShowCreate(true); }}>
-              <Plus size={16} /> New Purchase Request
+      <PageHero
+        title={isPO ? 'Purchase Assignments' : 'Purchase Requests'}
+        subtitle={isPO
+          ? 'Assignments forwarded to you — collect quotations and progress them through to PO placement.'
+          : 'Raise and track material purchase requests across departments.'}
+        eyebrow="Procurement"
+        icon={ShoppingCart}
+        actions={
+          <>
+            <Button variant="secondary" onClick={fetchRequests} disabled={loading}>
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
             </Button>
-          )}
-        </div>
-      </div>
+            {isManager && (
+              <Button onClick={() => { setCreatePrefill({ items: null, notes: '' }); setShowCreate(true); }}>
+                <Plus size={16} /> New Purchase Request
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {isStoreManager && lowStock.length > 0 && (
         <Card>

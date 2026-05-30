@@ -15,6 +15,7 @@ import Modal from '../components/ui/Modal';
 import Input, { Select } from '../components/ui/Input';
 import SearchBar from '../components/shared/SearchBar';
 import Pagination from '../components/shared/Pagination';
+import PageHero from '../components/shared/PageHero';
 
 // Compute days-until-return for a FIM batch's probable return date.
 // Returns { label, color } so the FIM Status table can show a red countdown.
@@ -239,21 +240,26 @@ export default function Products() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Products</h1>
-        <div className="flex gap-2">
-          {tab === 'raps' && (
-            <Button variant="secondary" onClick={downloadStockStatement} disabled={downloading}>
-              <Download size={16} /> {downloading ? 'Preparing…' : 'Download Stock Statement'}
-            </Button>
-          )}
-          {canEdit && tab === 'raps' && (
-            <Button onClick={() => setShowModal(true)}>
-              <Plus size={16} /> Add Product
-            </Button>
-          )}
-        </div>
-      </div>
+      <PageHero
+        title="Products"
+        subtitle="Browse the product catalogue, stock levels, and FIM lifecycle across all units."
+        eyebrow="Product Catalogue"
+        icon={Package}
+        actions={
+          <>
+            {tab === 'raps' && (
+              <Button variant="secondary" onClick={downloadStockStatement} disabled={downloading}>
+                <Download size={16} /> {downloading ? 'Preparing…' : 'Download Stock Statement'}
+              </Button>
+            )}
+            {canEdit && tab === 'raps' && (
+              <Button onClick={() => setShowModal(true)}>
+                <Plus size={16} /> Add Product
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <div className="flex gap-1 border-b border-gray-200">
         <button

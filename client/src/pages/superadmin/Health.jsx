@@ -9,6 +9,7 @@ import {
   CheckCircle2, AlertCircle, Clock,
 } from 'lucide-react';
 import api from '../../api/axios';
+import PageHero from '../../components/shared/PageHero';
 
 const fmtBytes = (n) => {
   if (n == null) return '—';
@@ -86,19 +87,18 @@ export default function Health() {
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Activity className="text-purple-700" size={28} />
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900">System Health</h1>
-            <p className="text-sm text-gray-500">Live operational view — server, app, database, activity, and backups.</p>
-          </div>
-        </div>
-        <button onClick={load} className="px-3 py-2 text-sm border rounded hover:bg-gray-50 flex items-center gap-1.5">
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
-        </button>
-      </div>
+    <div className="p-6 space-y-6">
+      <PageHero
+        title="System Health"
+        subtitle="Live operational view — server, app, database, activity, and backups."
+        eyebrow="SuperAdmin"
+        icon={Activity}
+        actions={
+          <button onClick={load} className="px-3 py-2 text-sm bg-white/10 hover:bg-white/15 backdrop-blur-sm border border-white/20 rounded-lg text-white flex items-center gap-1.5 transition-colors">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        }
+      />
 
       {err && (
         <div className="mb-4 p-3 rounded bg-red-50 border border-red-200 text-sm text-red-800">{err}</div>

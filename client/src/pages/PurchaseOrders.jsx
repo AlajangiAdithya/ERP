@@ -14,6 +14,7 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
+import PageHero from '../components/shared/PageHero';
 
 const formatCurrency = (amt) => `₹${Number(amt || 0).toLocaleString('en-IN')}`;
 
@@ -2137,12 +2138,12 @@ export default function PurchaseOrders() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
-        <div className="text-xs text-gray-500">
-          Grouped by purchase request → supplier → material
-        </div>
-      </div>
+      <PageHero
+        title="Purchase Orders"
+        subtitle="Issue purchase orders to suppliers, monitor delivery, payment, and QC status — grouped by PR → supplier → material."
+        eyebrow="Order Tracking"
+        icon={Truck}
+      />
 
       {/* Dashboard Stats */}
       {dashboard && (

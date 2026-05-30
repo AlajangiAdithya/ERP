@@ -5,6 +5,8 @@ import Badge from '../components/ui/Badge';
 import Pagination from '../components/shared/Pagination';
 import { Select } from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
+import { History } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 
 export default function UnitUsageLogs() {
   const [movements, setMovements] = useState([]);
@@ -36,10 +38,17 @@ export default function UnitUsageLogs() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Unit Usage Logs</h1>
-        <span className="text-sm text-gray-500">{total} total entries</span>
-      </div>
+      <PageHero
+        title="Unit Usage Logs"
+        subtitle="Per-unit activity history for compliance and review."
+        eyebrow="Compliance"
+        icon={History}
+        actions={
+          <span className="text-xs font-medium text-blue-100/90 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-full ring-1 ring-white/20">
+            {total} total entries
+          </span>
+        }
+      />
 
       <div className="flex gap-3">
         <Select value={unitFilter} onChange={(e) => { setUnitFilter(e.target.value); setPage(1); }} className="w-56">

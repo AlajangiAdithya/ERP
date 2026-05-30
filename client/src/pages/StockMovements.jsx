@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { ArrowDown, ArrowUp, RefreshCw } from 'lucide-react';
+import { ArrowDown, ArrowUp, RefreshCw, BarChart3 } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
@@ -44,7 +45,12 @@ export default function StockMovements() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Stock Movements</h1>
+      <PageHero
+        title="Stock Movements"
+        subtitle="Inward, outward, and adjustment movements across all stores."
+        eyebrow="Inventory"
+        icon={BarChart3}
+      />
 
       <div className="flex flex-wrap gap-3 items-end">
         <Select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }} className="w-40">

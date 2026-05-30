@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Plus, CheckCircle2, XCircle, ListOrdered, RefreshCw } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Plus, CheckCircle2, XCircle, ListOrdered, RefreshCw, ArrowLeftRight } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -146,18 +147,20 @@ export default function InventoryTransfers() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inventory Transfers</h1>
-          <p className="text-sm text-gray-500">Request and track stock movements between units.</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={load} disabled={loading}>
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
-          </Button>
-          <Button onClick={openCreate}><Plus size={16} /> New Transfer Request</Button>
-        </div>
-      </div>
+      <PageHero
+        title="Inventory Transfers"
+        subtitle="Request and track stock movements between units."
+        eyebrow="Inter-Unit Movement"
+        icon={ArrowLeftRight}
+        actions={
+          <>
+            <Button variant="secondary" onClick={load} disabled={loading}>
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
+            </Button>
+            <Button onClick={openCreate}><Plus size={16} /> New Transfer Request</Button>
+          </>
+        }
+      />
 
       <div className="flex gap-2 border-b border-gray-200">
         {TABS.map(({ key, label, Icon }) => (

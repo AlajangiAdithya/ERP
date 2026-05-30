@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { HardDrive, Download, Eye, ChevronRight, ChevronDown, RefreshCw, X, Database, FolderArchive } from 'lucide-react';
 import api from '../../api/axios';
+import PageHero from '../../components/shared/PageHero';
 
 const TIER_LABELS = {
   weekly: 'Weekly',
@@ -86,19 +87,18 @@ export default function Backups() {
   const fys = Object.keys(tree).sort().reverse();
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <HardDrive className="text-purple-700" size={28} />
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Backups</h1>
-            <p className="text-sm text-gray-500">Browse the S3 tier ladder. Download links expire in 5 minutes.</p>
-          </div>
-        </div>
-        <button onClick={() => { fetchTree(); fetchSysInfo(); }} className="px-3 py-2 text-sm border rounded hover:bg-gray-50 flex items-center gap-1.5">
-          <RefreshCw size={14} /> Refresh
-        </button>
-      </div>
+    <div className="p-6 space-y-6">
+      <PageHero
+        title="Backups"
+        subtitle="Browse the S3 tier ladder. Download links expire in 5 minutes."
+        eyebrow="SuperAdmin"
+        icon={HardDrive}
+        actions={
+          <button onClick={() => { fetchTree(); fetchSysInfo(); }} className="px-3 py-2 text-sm bg-white/10 hover:bg-white/15 backdrop-blur-sm border border-white/20 rounded-lg text-white flex items-center gap-1.5 transition-colors">
+            <RefreshCw size={14} /> Refresh
+          </button>
+        }
+      />
 
       {sysInfo && (
         <div className="mb-5 grid grid-cols-1 sm:grid-cols-3 gap-3">

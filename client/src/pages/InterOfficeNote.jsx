@@ -12,6 +12,7 @@ import Modal from '../components/ui/Modal';
 import { formatDate, formatDateTime } from '../utils/formatters';
 import IONPdf from '../components/pdf/IONPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import PageHero from '../components/shared/PageHero';
 
 const STATUS_TABS = [
   { key: 'ALL', label: 'All' },
@@ -79,24 +80,21 @@ export default function InterOfficeNote() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <FlaskConical size={24} className="text-navy-700" />
-            Inter Office Note
-          </h1>
-          <p className="text-sm text-gray-500">
-            {isManager
-              ? 'Raise lab / metrology / NDT work orders, or send machining requests to managers in other units.'
-              : 'Incoming work orders from production.'}
-          </p>
-        </div>
-        {isManager && (
-          <Button onClick={() => setShowCreate(true)}>
-            <Plus size={16} /> New ION
-          </Button>
-        )}
-      </div>
+      <PageHero
+        title="Inter Office Note"
+        subtitle={isManager
+          ? 'Raise lab / metrology / NDT work orders, or send machining requests to managers in other units.'
+          : 'Incoming work orders from production.'}
+        eyebrow="Work Orders"
+        icon={FlaskConical}
+        actions={
+          isManager && (
+            <Button onClick={() => setShowCreate(true)}>
+              <Plus size={16} /> New ION
+            </Button>
+          )
+        }
+      />
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex gap-2 border-b border-gray-200">

@@ -8,6 +8,8 @@ import Modal from '../components/ui/Modal';
 import Pagination from '../components/shared/Pagination';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { formatDateTime } from '../utils/formatters';
+import { ScrollText } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 
 export default function AllRequests() {
   const [requests, setRequests] = useState([]);
@@ -35,7 +37,12 @@ export default function AllRequests() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">All Requests</h1>
+      <PageHero
+        title="All MIV Requests"
+        subtitle="Every MIV request across the plant — filter by status and date range."
+        eyebrow="Stores Oversight"
+        icon={ScrollText}
+      />
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">

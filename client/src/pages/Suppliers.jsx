@@ -10,6 +10,7 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import SearchBar from '../components/shared/SearchBar';
 import Pagination from '../components/shared/Pagination';
+import PageHero from '../components/shared/PageHero';
 
 export default function Suppliers() {
   const { user } = useAuth();
@@ -156,24 +157,21 @@ export default function Suppliers() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Building2 size={22} /> Suppliers
-          </h1>
-          {currentFY && (
-            <p className="text-xs text-gray-500 mt-0.5">
-              Current financial year: <span className="font-semibold text-navy-700">FY {currentFY}</span>.
-              Annual assessment must be re-uploaded at the start of each FY.
-            </p>
-          )}
-        </div>
-        {canEdit && (
-          <Button onClick={() => setShowAdd(true)}>
-            <Plus size={16} /> Add Supplier
-          </Button>
-        )}
-      </div>
+      <PageHero
+        title="Suppliers"
+        subtitle={currentFY
+          ? `Approved vendor register — current FY ${currentFY}. Annual assessment must be re-uploaded at the start of each FY.`
+          : 'Approved vendor register and supplier contact details.'}
+        eyebrow="Vendor Master"
+        icon={Building2}
+        actions={
+          canEdit && (
+            <Button onClick={() => setShowAdd(true)}>
+              <Plus size={16} /> Add Supplier
+            </Button>
+          )
+        }
+      />
 
       <Card>
         <div className="mb-4">

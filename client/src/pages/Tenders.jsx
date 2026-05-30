@@ -9,6 +9,7 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { formatDate } from '../utils/formatters';
+import PageHero from '../components/shared/PageHero';
 
 const STATUS_META = {
   ASSIGNED:    { color: 'blue',   label: 'Assigned',    Icon: Send },
@@ -60,19 +61,19 @@ export default function Tenders() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-navy-900 flex items-center gap-2">
-            <Briefcase size={24} /> Tenders
-          </h1>
-          <p className="text-sm text-navy-600">Assign and track tender opportunities across units.</p>
-        </div>
-        {canCreate && (
-          <Button onClick={() => setShowCreate(true)}>
-            <Plus size={16} className="mr-1.5" /> New Tender
-          </Button>
-        )}
-      </div>
+      <PageHero
+        title="Tenders"
+        subtitle="Assign and track tender opportunities across units."
+        eyebrow="Bidding"
+        icon={Briefcase}
+        actions={
+          canCreate && (
+            <Button onClick={() => setShowCreate(true)}>
+              <Plus size={16} className="mr-1.5" /> New Tender
+            </Button>
+          )
+        }
+      />
 
       <Card className="p-4">
         <div className="flex flex-wrap gap-2 mb-3">

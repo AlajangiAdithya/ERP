@@ -8,6 +8,7 @@ import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
 import Pagination from '../components/shared/Pagination';
 import { formatDateTime } from '../utils/formatters';
+import PageHero from '../components/shared/PageHero';
 
 const typeRoutes = {
   LOW_STOCK: '/products',
@@ -109,17 +110,26 @@ export default function Notifications() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
-          {totalCount > 0 && <Badge color="gray">{totalCount}</Badge>}
-        </div>
-        {notifications.length > 0 && (
-          <Button variant="secondary" onClick={clearAll}>
-            <Trash2 size={16} className="mr-1" /> Clear All
-          </Button>
-        )}
-      </div>
+      <PageHero
+        title="Notifications"
+        subtitle="System alerts about requests, orders, transfers, and inventory events relevant to you."
+        eyebrow="Inbox"
+        icon={Bell}
+        actions={
+          <>
+            {totalCount > 0 && (
+              <span className="text-xs font-medium text-blue-100/90 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-full ring-1 ring-white/20">
+                {totalCount} total
+              </span>
+            )}
+            {notifications.length > 0 && (
+              <Button variant="secondary" onClick={clearAll}>
+                <Trash2 size={16} className="mr-1" /> Clear All
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <Card>
         {loading ? (

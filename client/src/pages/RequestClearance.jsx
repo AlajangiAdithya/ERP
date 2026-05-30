@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, XCircle } from 'lucide-react';
+import { CheckCircle, XCircle, CheckSquare } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
@@ -74,7 +75,12 @@ export default function RequestClearance() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">MIV Clearance</h1>
+      <PageHero
+        title="MIV Clearance"
+        subtitle="Approve, reject, and clear Material Issue Voucher requests raised by departments."
+        eyebrow="Stores"
+        icon={CheckSquare}
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">

@@ -10,6 +10,7 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
+import PageHero from '../components/shared/PageHero';
 
 const formatCurrency = (amt) => `₹${Number(amt).toLocaleString('en-IN')}`;
 
@@ -212,9 +213,14 @@ export default function PaymentRequests() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">
-        {isAccounting ? 'Payment Requests' : 'My Payment Requests'}
-      </h1>
+      <PageHero
+        title={isAccounting ? 'Payment Requests' : 'My Payment Requests'}
+        subtitle={isAccounting
+          ? 'Approve, reject, and process supplier payments raised by the purchase team.'
+          : 'Raise and track your payment requests through the approval flow.'}
+        eyebrow="Finance"
+        icon={CreditCard}
+      />
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">

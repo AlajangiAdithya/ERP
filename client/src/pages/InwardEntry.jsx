@@ -11,6 +11,7 @@ import SearchBar from '../components/shared/SearchBar';
 import { formatDate, formatDateTime } from '../utils/formatters';
 import InwardPdf from '../components/pdf/InwardPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import PageHero from '../components/shared/PageHero';
 
 // Stores does the actual inward work. Manager / QC / Designs / R&D get a
 // read-only view so they can trace what's pending and what has already
@@ -53,14 +54,14 @@ export default function InwardEntry() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Inward Entry</h1>
-        <p className="text-sm text-gray-500">
-          {canEdit
-            ? 'Record materials received into stores.'
-            : 'Track what is ready for inwarding and what has already been received.'}
-        </p>
-      </div>
+      <PageHero
+        title="Inward Entry"
+        subtitle={canEdit
+          ? 'Record materials received into stores and generate MIV PDFs.'
+          : 'Track what is ready for inwarding and what has already been received.'}
+        eyebrow="Stores"
+        icon={Package}
+      />
 
       {success && (
         <Card className="border-green-200 bg-green-50">

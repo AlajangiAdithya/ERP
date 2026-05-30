@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, UserCog, Building2 } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -59,9 +60,12 @@ export default function Management() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Management</h1>
-      </div>
+      <PageHero
+        title="Management"
+        subtitle="Users, roles, and unit definitions."
+        eyebrow="Administration"
+        icon={UserCog}
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">

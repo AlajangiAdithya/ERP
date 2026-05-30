@@ -5,6 +5,8 @@ import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Badge from '../components/ui/Badge';
+import { Settings as SettingsIcon } from 'lucide-react';
+import PageHero from '../components/shared/PageHero';
 
 export default function Settings() {
   const { user } = useAuth();
@@ -41,7 +43,12 @@ export default function Settings() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+      <PageHero
+        title="Settings"
+        subtitle="Your profile information and account settings."
+        eyebrow="Account"
+        icon={SettingsIcon}
+      />
 
       <Card>
         <h3 className="text-sm font-semibold text-gray-700 mb-4">Profile Information</h3>
