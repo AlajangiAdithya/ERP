@@ -10,6 +10,11 @@
 //   APPROVED  > SUBMITTED > HELD > AWAITING
 // (CANCELLED is set explicitly by force-close and is not derived here.)
 
+// Productnames captured on quotations can differ from the canonical PR-item
+// name by stray whitespace / casing. Always normalize for coverage comparisons
+// so a single-PR quote's items still match the PR-item they belong to.
+const normalizeName = (s) => (s == null ? '' : String(s).trim().toLowerCase());
+
 const PR_ITEM_QUOTATION_STATUS = {
   AWAITING_QUOTATION: 'AWAITING_QUOTATION',
   QUOTATION_SUBMITTED: 'QUOTATION_SUBMITTED',
@@ -52,6 +57,10 @@ async function recomputePRItemQuotationStatus(tx, prItemIds) {
     // or union via sourceRequests). isSelected=true means approved.
     const quotations = await tx.quotation.findMany({
       where: {
+        // Skip soft-archived quotes (a winning competing quote already pushed
+        // these out). They're kept in DB for supplier-price history but must
+        // not influence the live per-item status rollup.
+        supersededAt: null,
         OR: [
           { purchaseRequestId: prId },
           { sourceRequests: { some: { purchaseRequestId: prId } } },
@@ -75,6 +84,7 @@ async function recomputePRItemQuotationStatus(tx, prItemIds) {
       if (item.itemQuotationStatus === PR_ITEM_QUOTATION_STATUS.CANCELLED) continue;
 
       let best = PR_ITEM_QUOTATION_STATUS.AWAITING_QUOTATION;
+      const itemNameKey = normalizeName(item.productName);
 
       for (const q of quotations) {
         const covers = q.items.some(qi => {
@@ -82,7 +92,7 @@ async function recomputePRItemQuotationStatus(tx, prItemIds) {
             return qi.sourceAllocations.some(s => s.purchaseRequestItemId === item.id);
           }
           // Non-union: match by productName (same convention used at PO creation).
-          return qi.productName === item.productName;
+          return normalizeName(qi.productName) === itemNameKey;
         });
         if (!covers) continue;
 
@@ -121,6 +131,7 @@ async function syncPRStatusAfterChange(tx, prId) {
   const hasSubmittedQuote = await tx.quotation.findFirst({
     where: {
       submittedToAdminAt: { not: null },
+      supersededAt: null,
       OR: [
         { purchaseRequestId: prId },
         { sourceRequests: { some: { purchaseRequestId: prId } } },

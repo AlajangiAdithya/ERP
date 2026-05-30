@@ -467,6 +467,12 @@ model Quotation {
   submittedToAdminAt   DateTime?
   submittedToAdminById String?
   submittedToAdmin     User?             @relation("QuotationSubmitter", fields: [submittedToAdminById], references: [id])
+  // Set when admin approves a competing quote on the same coverage — soft-archives
+  // this quote so it disappears from the queue but stays for supplier-price history.
+  supersededAt         DateTime?
+  supersededByQuotationId String?
+  supersededBy         Quotation?        @relation("QuotationSuperseded", fields: [supersededByQuotationId], references: [id])
+  superseded           Quotation[]       @relation("QuotationSuperseded")
   createdById          String
   createdBy            User              @relation("QuotationCreator", fields: [createdById], references: [id])
   createdAt            DateTime          @default(now())

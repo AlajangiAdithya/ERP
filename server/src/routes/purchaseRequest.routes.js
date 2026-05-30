@@ -97,6 +97,10 @@ router.get('/', authenticate, async (req, res) => {
             },
           },
           quotations: {
+            // Exclude soft-archived competing quotes so the PR's live quotation
+            // list / counters stay clean. The archive remains in DB for the
+            // product's supplier-price history.
+            where: { supersededAt: null },
             select: {
               id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true,
               submittedToAdminAt: true, heldAt: true, holdNote: true,
@@ -124,6 +128,9 @@ router.get('/', authenticate, async (req, res) => {
             },
           },
           quotationSources: {
+            // Same archive filter on the union-quotation junction so superseded
+            // unions don't surface in PR/PO union counters.
+            where: { quotation: { supersededAt: null } },
             include: {
               quotation: {
                 select: {
@@ -437,6 +444,7 @@ router.get('/:id', authenticate, async (req, res) => {
           },
         },
         quotations: {
+          where: { supersededAt: null },
           select: {
             id: true, quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true, isUnion: true, submittedToAdminAt: true, heldAt: true,
             sourceRequests: {
@@ -479,6 +487,7 @@ router.get('/:id', authenticate, async (req, res) => {
           },
         },
         quotationSources: {
+          where: { quotation: { supersededAt: null } },
           include: {
             quotation: {
               select: {

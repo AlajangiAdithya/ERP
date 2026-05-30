@@ -16,6 +16,12 @@ const {
 
 const router = express.Router();
 
+// Product names entered on quotations can drift from the canonical PR-item
+// productName by whitespace / case. Always normalize before comparing — the
+// cleanup logic depends on these matches, and a silent mismatch lets stale
+// competing quotes survive after an approval.
+const normalizeName = (s) => (s == null ? '' : String(s).trim().toLowerCase());
+
 // Wrap multer single-file middleware to convert multer errors into proper 400s
 // (rather than the global 500 handler). Field name: `quotationPdf`.
 function acceptQuotationPdf(req, res, next) {
@@ -111,7 +117,7 @@ router.get('/pool-candidates', authenticate, authorize('PURCHASE_OFFICER'), asyn
       // Union quotations: walk sourceAllocations on QuotationItem
       const unionItems = await prisma.quotationItem.findMany({
         where: {
-          quotation: { isUnion: true, isSelected: false },
+          quotation: { isUnion: true, isSelected: false, supersededAt: null },
         },
         select: { quotationId: true, sourceAllocations: true },
       });
@@ -127,7 +133,7 @@ router.get('/pool-candidates', authenticate, authorize('PURCHASE_OFFICER'), asyn
       const prIdsTouched = [...new Set(items.map(i => i.request.id))];
       const singleItems = await prisma.quotationItem.findMany({
         where: {
-          quotation: { isUnion: false, isSelected: false, purchaseRequestId: { in: prIdsTouched } },
+          quotation: { isUnion: false, isSelected: false, supersededAt: null, purchaseRequestId: { in: prIdsTouched } },
         },
         select: { quotation: { select: { purchaseRequestId: true } }, productName: true },
       });
@@ -175,6 +181,12 @@ router.get('/', authenticate, async (req, res) => {
     // PO/admin aren't seeing already-actioned quotes alongside open ones.
     if (req.query.includeApproved !== '1') {
       where.isSelected = false;
+    }
+    // Hide soft-archived competing quotes (the ones a winning quote pushed out).
+    // They remain in DB for the product's supplier-price history. Pass
+    // includeSuperseded=1 to see them (e.g. audit views).
+    if (req.query.includeSuperseded !== '1') {
+      where.supersededAt = null;
     }
 
     const [quotations, total] = await Promise.all([
@@ -731,7 +743,7 @@ router.post('/submit/:purchaseRequestId', authenticate, authorize('PURCHASE_OFFI
     }
 
     const quotations = await prisma.quotation.findMany({
-      where: { purchaseRequestId },
+      where: { purchaseRequestId, supersededAt: null },
       include: { items: true },
     });
 
@@ -824,6 +836,7 @@ router.post('/union/submit', authenticate, authorize('PURCHASE_OFFICER'), async 
       where: {
         isUnion: true,
         isSelected: false,
+        supersededAt: null,
         sourceRequests: { some: { purchaseRequestId: { in: uniquePrIds } } },
       },
       include: {
@@ -1242,13 +1255,13 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
       ? `UNION: ${sourcePRs.map(p => p.requestNumber).join(' + ')}`
       : quotation.purchaseRequest.requestNumber;
 
-    // For non-union: match by productName as before.
+    // For non-union: match by productName. Normalize to defeat whitespace/case
+    // drift between quotation-entered names and PR-item names.
     const allPRItems = sourcePRs.flatMap(p => p.items);
     const matchPRItem = (productName) => {
-      const exact = allPRItems.find((i) => i.productName === productName);
-      if (exact) return exact.id;
-      const ci = allPRItems.find((i) => i.productName.toLowerCase() === productName.toLowerCase());
-      return ci ? ci.id : null;
+      const target = normalizeName(productName);
+      const hit = allPRItems.find((i) => normalizeName(i.productName) === target);
+      return hit ? hit.id : null;
     };
 
     // Group items by supplierName (one PO per supplier, as today)
@@ -1295,11 +1308,13 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         data: { isSelected: true, selectionNote },
       });
 
-      // Clean up the now-stale competing quotations. Any UNSELECTED quotation
+      // Soft-archive the now-stale competing quotations. Any UNSELECTED quotation
       // (single or union) that covers an item this approval just locked in
       // can never be approved — its items will move to QUOTATION_APPROVED and
-      // the PO it would produce would conflict. Delete them so the PO queue
-      // doesn't show ghost competing rows and the audit trail stays clean.
+      // the PO it would produce would conflict. We DON'T delete them: the
+      // product's Supplier History tab reads QuotationItem-where-not-selected
+      // to surface "Quoted but not bought" prices. Setting supersededAt hides
+      // them from the active queue while keeping the price/supplier audit trail.
       //
       // Approved item ids: for unions, walk this quotation's sourceAllocations;
       // for single-PR, map by productName against the parent PR.
@@ -1313,8 +1328,8 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
       } else {
         const prItems = quotation.purchaseRequest?.items || [];
         for (const qi of quotation.items) {
-          const match = prItems.find(p => p.productName === qi.productName)
-            || prItems.find(p => p.productName.toLowerCase() === qi.productName.toLowerCase());
+          const target = normalizeName(qi.productName);
+          const match = prItems.find(p => normalizeName(p.productName) === target);
           if (match) approvedItemIds.add(match.id);
         }
       }
@@ -1355,15 +1370,18 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
           } else if (q.purchaseRequestId) {
             const prItems = prItemsByPR.get(q.purchaseRequestId) || [];
             overlaps = q.items.some(qi => {
-              const match = prItems.find(p => p.productName === qi.productName)
-                || prItems.find(p => p.productName.toLowerCase() === (qi.productName || '').toLowerCase());
+              const target = normalizeName(qi.productName);
+              const match = prItems.find(p => normalizeName(p.productName) === target);
               return match && approvedItemIds.has(match.id);
             });
           }
           if (overlaps) toDelete.push(q.id);
         }
         if (toDelete.length > 0) {
-          await tx.quotation.deleteMany({ where: { id: { in: toDelete } } });
+          await tx.quotation.updateMany({
+            where: { id: { in: toDelete } },
+            data: { supersededAt: new Date(), supersededByQuotationId: req.params.id },
+          });
         }
       }
 
