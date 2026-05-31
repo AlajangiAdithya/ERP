@@ -8,15 +8,11 @@ import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 
-const VIEW_ROLES = [
-  'METROLOGY', 'ADMIN', 'SUPERADMIN', 'MANAGER', 'STORE_MANAGER',
-  'PURCHASE_OFFICER', 'QC', 'ACCOUNTING', 'SAFETY',
-  'LAB', 'NDT', 'RND', 'DESIGNS',
-];
-// Units allowed to see the registers when role = MANAGER.
+// STRICT — only the roles below see the metrology hub. ADMIN is intentionally
+// excluded per client direction; SUPERADMIN keeps its owner-only bypass.
 const MANAGER_VIEW_UNITS = ['UNIT-I', 'UNIT-1A', 'UNIT-II', 'UNIT-III', 'UNIT-IV', 'UNIT-V'];
 const MANAGER_EDIT_UNITS = ['UNIT-V'];
-const BASE_EDIT_ROLES = ['METROLOGY', 'QC', 'ADMIN', 'SUPERADMIN'];
+const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
 
 const MODULES = [
   {
@@ -94,10 +90,10 @@ export default function Metrology() {
   const role = user?.role;
   const unitCode = user?.unit?.code || user?.unit?.name || '';
 
-  const canEdit = BASE_EDIT_ROLES.includes(role) || (role === 'MANAGER' && MANAGER_EDIT_UNITS.includes(unitCode));
-  const canView = canEdit
-    || (role && VIEW_ROLES.includes(role) && role !== 'MANAGER')
-    || (role === 'MANAGER' && MANAGER_VIEW_UNITS.includes(unitCode));
+  const canEdit = role === 'SUPERADMIN'
+    || BASE_EDIT_ROLES.includes(role)
+    || (role === 'MANAGER' && MANAGER_EDIT_UNITS.includes(unitCode));
+  const canView = canEdit || (role === 'MANAGER' && MANAGER_VIEW_UNITS.includes(unitCode));
 
   const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);

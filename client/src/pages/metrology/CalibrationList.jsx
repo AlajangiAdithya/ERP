@@ -19,14 +19,14 @@ const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
 // appending here.
 const FY_COLUMNS = ['FY 26-27', 'FY 27-28'];
 
+// STRICT metrology access — only the roles listed below see this page.
+// Edit:  METROLOGY (Metrology), QC (Quality), MANAGER on UNIT-V (Unit-5).
+// View:  MANAGER on UNIT-I, UNIT-1A, UNIT-II, UNIT-III, UNIT-IV.
+// Hidden: everyone else, including ADMIN. SUPERADMIN bypasses globally
+//         per codebase convention but never appears in UI listings.
 const VIEW_UNIT_CODES = ['UNIT-I', 'UNIT-1A', 'UNIT-II', 'UNIT-III', 'UNIT-IV'];
 const EDIT_UNIT_CODES = ['UNIT-V'];
-const BASE_EDIT_ROLES = ['METROLOGY', 'QC', 'ADMIN', 'SUPERADMIN'];
-const ALWAYS_VIEW_ROLES = [
-  'ADMIN', 'SUPERADMIN', 'METROLOGY', 'QC',
-  'SAFETY', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING',
-  'LAB', 'NDT', 'RND', 'DESIGNS',
-];
+const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
 
 const fmtDate = (v) => {
   if (!v) return '';
@@ -101,6 +101,7 @@ export default function CalibrationList({
 
   const canEdit = useMemo(() => {
     if (!user) return false;
+    if (user.role === 'SUPERADMIN') return true; // owner hatch
     if (BASE_EDIT_ROLES.includes(user.role)) return true;
     if (user.role === 'MANAGER' && EDIT_UNIT_CODES.includes(userUnitCode)) return true;
     return false;
@@ -109,7 +110,6 @@ export default function CalibrationList({
   const canView = useMemo(() => {
     if (!user) return false;
     if (canEdit) return true;
-    if (ALWAYS_VIEW_ROLES.includes(user.role)) return true;
     if (user.role === 'MANAGER' && VIEW_UNIT_CODES.includes(userUnitCode)) return true;
     return false;
   }, [user, userUnitCode, canEdit]);

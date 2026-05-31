@@ -1,31 +1,54 @@
 // ──────────────────────────────────────────────────────────────
 // Metrology — Calibration Item registry
 //
-// Access model (per latest client direction):
-//   • Edit:        METROLOGY, QC, ADMIN, SUPERADMIN, and any MANAGER
-//                  whose assigned unit is UNIT-V (Unit-5).
+// Access model (per latest client direction — STRICT):
+//   • Edit:        METROLOGY, QC, and any MANAGER assigned to UNIT-V.
+//                  (SUPERADMIN bypasses every authorize() check globally,
+//                   per the codebase convention; ADMIN does NOT get access.)
 //   • View only:   MANAGER assigned to UNIT-I, UNIT-1A, UNIT-II,
-//                  UNIT-III, UNIT-IV. SAFETY/PURCHASE/STORE/LAB
-//                  retain read access for traceability.
+//                  UNIT-III, UNIT-IV. No other role — not even ADMIN —
+//                  may view this register.
 //   • Remarks:     editable by anyone who can view the register
 //                  (handled by a dedicated PATCH /:id/remarks route).
-// Server gates writes; the UI hides controls based on the same rules.
+// Server gates everything; the UI hides controls based on the same rules.
 // ──────────────────────────────────────────────────────────────
 const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
-const { authorize } = require('../middleware/rbac');
 const { calibrationCertUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
 
 const EDIT_UNIT_CODES = ['UNIT-V'];
-const BASE_WRITE_ROLES = ['METROLOGY', 'QC', 'ADMIN', 'SUPERADMIN'];
-const READ_ROLES = [
-  'METROLOGY', 'QC', 'ADMIN', 'SUPERADMIN', 'SAFETY',
-  'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING',
-  'LAB', 'NDT', 'RND', 'DESIGNS', 'MANAGER',
-];
+const VIEW_UNIT_CODES = ['UNIT-I', 'UNIT-1A', 'UNIT-II', 'UNIT-III', 'UNIT-IV'];
+const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
+
+const unitCodeOf = (user) => user?.unit?.code || user?.unit?.name || '';
+
+const canWrite = (user) => {
+  if (!user) return false;
+  if (user.role === 'SUPERADMIN') return true; // owner hatch, never appears in UI
+  if (BASE_EDIT_ROLES.includes(user.role)) return true;
+  if (user.role === 'MANAGER' && EDIT_UNIT_CODES.includes(unitCodeOf(user))) return true;
+  return false;
+};
+
+const canRead = (user) => {
+  if (!user) return false;
+  if (canWrite(user)) return true;
+  if (user.role === 'MANAGER' && VIEW_UNIT_CODES.includes(unitCodeOf(user))) return true;
+  return false;
+};
+
+const requireRead = (req, res, next) => {
+  if (!canRead(req.user)) return res.status(403).json({ error: 'Forbidden' });
+  next();
+};
+
+const requireWrite = (req, res, next) => {
+  if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
+  next();
+};
 
 const VALID_CATEGORIES = [
   'PRESSURE_GAUGE',
@@ -45,21 +68,6 @@ const VALID_MMR_SUBS = [
   'EOT_CRANES_CHAIN_BLOCKS',
   'OTHER',
 ];
-
-const canWrite = (user) => {
-  if (!user) return false;
-  if (BASE_WRITE_ROLES.includes(user.role)) return true;
-  if (user.role === 'MANAGER') {
-    const code = user.unit?.code || user.unit?.name;
-    if (code && EDIT_UNIT_CODES.includes(code)) return true;
-  }
-  return false;
-};
-
-const requireWrite = (req, res, next) => {
-  if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
-  next();
-};
 
 const parseDate = (v) => {
   if (!v) return null;
@@ -127,7 +135,7 @@ const sanitizeRecord = (body, { partial = false } = {}) => {
 // ─────────────────────────────────────────────
 // GET /api/calibration — list, optional ?category=&mmrSubCategory=&search=&unit=
 // ─────────────────────────────────────────────
-router.get('/', authenticate, authorize(...READ_ROLES), async (req, res) => {
+router.get('/', authenticate, requireRead, async (req, res) => {
   try {
     const { category, mmrSubCategory, search, unit } = req.query;
     const where = {};
@@ -162,7 +170,7 @@ router.get('/', authenticate, authorize(...READ_ROLES), async (req, res) => {
 });
 
 // GET /api/calibration/:id
-router.get('/:id', authenticate, authorize(...READ_ROLES), async (req, res) => {
+router.get('/:id', authenticate, requireRead, async (req, res) => {
   try {
     const item = await prisma.calibrationItem.findUnique({
       where: { id: req.params.id },
@@ -177,7 +185,7 @@ router.get('/:id', authenticate, authorize(...READ_ROLES), async (req, res) => {
 });
 
 // POST /api/calibration — write-gated by role+unit
-router.post('/', authenticate, authorize(...READ_ROLES), requireWrite, async (req, res) => {
+router.post('/', authenticate, requireRead, requireWrite, async (req, res) => {
   try {
     const data = sanitizeItem(req.body, { partial: false });
     const records = Array.isArray(req.body.records)
@@ -198,7 +206,7 @@ router.post('/', authenticate, authorize(...READ_ROLES), requireWrite, async (re
 });
 
 // PUT /api/calibration/:id — write-gated
-router.put('/:id', authenticate, authorize(...READ_ROLES), requireWrite, async (req, res) => {
+router.put('/:id', authenticate, requireRead, requireWrite, async (req, res) => {
   try {
     const existing = await prisma.calibrationItem.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Calibration item not found' });
@@ -220,7 +228,7 @@ router.put('/:id', authenticate, authorize(...READ_ROLES), requireWrite, async (
 });
 
 // PATCH /api/calibration/:id/remarks — any viewer can edit the remarks cell
-router.patch('/:id/remarks', authenticate, authorize(...READ_ROLES), async (req, res) => {
+router.patch('/:id/remarks', authenticate, requireRead, async (req, res) => {
   try {
     const remarks = req.body.remarks == null || req.body.remarks === ''
       ? null
@@ -239,7 +247,7 @@ router.patch('/:id/remarks', authenticate, authorize(...READ_ROLES), async (req,
 });
 
 // DELETE /api/calibration/:id — write-gated
-router.delete('/:id', authenticate, authorize(...READ_ROLES), requireWrite, async (req, res) => {
+router.delete('/:id', authenticate, requireRead, requireWrite, async (req, res) => {
   try {
     await prisma.calibrationItem.delete({ where: { id: req.params.id } });
     res.json({ success: true });
@@ -255,7 +263,7 @@ router.delete('/:id', authenticate, authorize(...READ_ROLES), requireWrite, asyn
 // ─────────────────────────────────────────────
 
 // PUT /api/calibration/:id/records/:fiscalYear — upsert FY record
-router.put('/:id/records/:fiscalYear', authenticate, authorize(...READ_ROLES), requireWrite, async (req, res) => {
+router.put('/:id/records/:fiscalYear', authenticate, requireRead, requireWrite, async (req, res) => {
   try {
     const fyParam = decodeURIComponent(req.params.fiscalYear).trim();
     const data = sanitizeRecord({ ...req.body, fiscalYear: fyParam }, { partial: false });
@@ -273,7 +281,7 @@ router.put('/:id/records/:fiscalYear', authenticate, authorize(...READ_ROLES), r
 });
 
 // DELETE /api/calibration/:id/records/:fiscalYear
-router.delete('/:id/records/:fiscalYear', authenticate, authorize(...READ_ROLES), requireWrite, async (req, res) => {
+router.delete('/:id/records/:fiscalYear', authenticate, requireRead, requireWrite, async (req, res) => {
   try {
     const fy = decodeURIComponent(req.params.fiscalYear).trim();
     await prisma.calibrationRecord.delete({
@@ -291,7 +299,7 @@ router.delete('/:id/records/:fiscalYear', authenticate, authorize(...READ_ROLES)
 router.post(
   '/:id/records/:fiscalYear/certificate',
   authenticate,
-  authorize(...READ_ROLES),
+  requireRead,
   requireWrite,
   calibrationCertUpload.single('certificate'),
   async (req, res) => {

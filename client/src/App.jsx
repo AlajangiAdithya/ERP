@@ -43,16 +43,13 @@ import MMR from './pages/metrology/MMR';
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
-// Metrology calibration registers — METROLOGY, QC and ADMIN edit; MANAGER
-// (per-unit) edits if assigned to Unit-V, else view-only for Units I/1A/II/III/IV;
-// other procurement-chain roles retain read access for traceability.
-// The CalibrationList page enforces the unit-aware split client-side and the
-// server's calibration.routes.js gates writes server-side.
-const METROLOGY_VIEW_ROLES = [
-  'METROLOGY', 'ADMIN', 'SUPERADMIN', 'MANAGER', 'STORE_MANAGER',
-  'PURCHASE_OFFICER', 'QC', 'ACCOUNTING', 'SAFETY',
-  'LAB', 'NDT', 'RND', 'DESIGNS',
-];
+// Metrology calibration registers — STRICT access per client direction:
+// Edit  = METROLOGY (Quality), QC, MANAGER@UNIT-V (Unit-5).
+// View  = MANAGER@UNIT-I/1A/II/III/IV.
+// Hidden = everyone else, including ADMIN.
+// The route guard allows any potential viewer through; the page itself
+// (and the server's calibration.routes.js) enforces the unit-aware split.
+const METROLOGY_VIEW_ROLES = ['METROLOGY', 'QC', 'MANAGER', 'SUPERADMIN'];
 
 function PrivateRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
