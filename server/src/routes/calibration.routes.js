@@ -1,15 +1,12 @@
 // ──────────────────────────────────────────────────────────────
 // Metrology — Calibration Item registry
 //
-// Access model (per latest client direction — STRICT):
-//   • Edit:        METROLOGY, QC, and any MANAGER assigned to UNIT-V.
-//                  (SUPERADMIN bypasses every authorize() check globally,
-//                   per the codebase convention; ADMIN does NOT get access.)
-//   • View only:   MANAGER assigned to UNIT-I, UNIT-1A, UNIT-II,
-//                  UNIT-III, UNIT-IV. No other role — not even ADMIN —
-//                  may view this register.
-//   • Remarks:     editable by anyone who can view the register
-//                  (handled by a dedicated PATCH /:id/remarks route).
+// Access model (per latest client direction):
+//   • Edit:    METROLOGY, QC, and any MANAGER assigned to UNIT-V.
+//              (SUPERADMIN bypasses every authorize() check globally.)
+//   • View:    ADMIN, METROLOGY, QC, and any MANAGER (all units).
+//   • Remarks: editable by anyone who can view the register
+//              (handled by a dedicated PATCH /:id/remarks route).
 // Server gates everything; the UI hides controls based on the same rules.
 // ──────────────────────────────────────────────────────────────
 const express = require('express');
@@ -20,8 +17,8 @@ const { calibrationCertUpload, publicUrlFor } = require('../middleware/upload');
 const router = express.Router();
 
 const EDIT_UNIT_CODES = ['UNIT-V'];
-const VIEW_UNIT_CODES = ['UNIT-I', 'UNIT-1A', 'UNIT-II', 'UNIT-III', 'UNIT-IV'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
+const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC'];
 
 const unitCodeOf = (user) => user?.unit?.code || user?.unit?.name || '';
 
@@ -36,7 +33,8 @@ const canWrite = (user) => {
 const canRead = (user) => {
   if (!user) return false;
   if (canWrite(user)) return true;
-  if (user.role === 'MANAGER' && VIEW_UNIT_CODES.includes(unitCodeOf(user))) return true;
+  if (BASE_VIEW_ROLES.includes(user.role)) return true;
+  if (user.role === 'MANAGER') return true; // any unit manager may view
   return false;
 };
 

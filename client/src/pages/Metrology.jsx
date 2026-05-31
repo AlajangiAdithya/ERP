@@ -8,11 +8,11 @@ import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 
-// STRICT — only the roles below see the metrology hub. ADMIN is intentionally
-// excluded per client direction; SUPERADMIN keeps its owner-only bypass.
-const MANAGER_VIEW_UNITS = ['UNIT-I', 'UNIT-1A', 'UNIT-II', 'UNIT-III', 'UNIT-IV', 'UNIT-V'];
+// View: ADMIN, METROLOGY, QC, all unit MANAGERs. Edit: METROLOGY, QC,
+// MANAGER@UNIT-V. SUPERADMIN keeps its owner-only bypass.
 const MANAGER_EDIT_UNITS = ['UNIT-V'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
+const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC'];
 
 const MODULES = [
   {
@@ -93,7 +93,9 @@ export default function Metrology() {
   const canEdit = role === 'SUPERADMIN'
     || BASE_EDIT_ROLES.includes(role)
     || (role === 'MANAGER' && MANAGER_EDIT_UNITS.includes(unitCode));
-  const canView = canEdit || (role === 'MANAGER' && MANAGER_VIEW_UNITS.includes(unitCode));
+  const canView = canEdit
+    || BASE_VIEW_ROLES.includes(role)
+    || role === 'MANAGER';
 
   const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);

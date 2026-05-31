@@ -19,14 +19,10 @@ const ALL_ROLES = [
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
-// Metrology hub viewers: METROLOGY owns the registers; admin + procurement +
-// quality + stores + safety get read-only entry. Hidden from FINANCE/PLANNING
-// /LOGISTICS/SUPPLY_CHAIN to keep the sidebar lean for roles that don't need it.
-const METROLOGY_VIEW_ROLES = [
-  'METROLOGY', 'ADMIN', 'MANAGER', 'STORE_MANAGER',
-  'PURCHASE_OFFICER', 'QC', 'ACCOUNTING', 'SAFETY',
-  'LAB', 'NDT', 'RND', 'DESIGNS',
-];
+// Metrology hub viewers: ADMIN, METROLOGY, QC, and all unit MANAGERs.
+// Edit access (METROLOGY, QC, MANAGER@UNIT-V) is enforced inside the page
+// and on the server; everyone else sees a read-only register.
+const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER'];
 
 // Procurement & Inventory Management hub is visible to every authenticated
 // user EXCEPT Metrology and Supply Chain — those teams don't need the

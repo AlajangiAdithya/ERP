@@ -19,14 +19,12 @@ const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
 // appending here.
 const FY_COLUMNS = ['FY 26-27', 'FY 27-28'];
 
-// STRICT metrology access — only the roles listed below see this page.
-// Edit:  METROLOGY (Metrology), QC (Quality), MANAGER on UNIT-V (Unit-5).
-// View:  MANAGER on UNIT-I, UNIT-1A, UNIT-II, UNIT-III, UNIT-IV.
-// Hidden: everyone else, including ADMIN. SUPERADMIN bypasses globally
-//         per codebase convention but never appears in UI listings.
-const VIEW_UNIT_CODES = ['UNIT-I', 'UNIT-1A', 'UNIT-II', 'UNIT-III', 'UNIT-IV'];
+// Metrology access:
+// Edit: METROLOGY, QC, MANAGER on UNIT-V.
+// View: ADMIN, METROLOGY, QC, MANAGER (all units). SUPERADMIN bypasses.
 const EDIT_UNIT_CODES = ['UNIT-V'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
+const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC'];
 
 const fmtDate = (v) => {
   if (!v) return '';
@@ -110,9 +108,10 @@ export default function CalibrationList({
   const canView = useMemo(() => {
     if (!user) return false;
     if (canEdit) return true;
-    if (user.role === 'MANAGER' && VIEW_UNIT_CODES.includes(userUnitCode)) return true;
+    if (BASE_VIEW_ROLES.includes(user.role)) return true;
+    if (user.role === 'MANAGER') return true; // any unit manager may view
     return false;
-  }, [user, userUnitCode, canEdit]);
+  }, [user, canEdit]);
 
   const theme = HERO_THEME[category] || HERO_THEME.PRESSURE_GAUGE;
 
