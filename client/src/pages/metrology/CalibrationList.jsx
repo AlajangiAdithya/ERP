@@ -105,6 +105,7 @@ export default function CalibrationList({
   defaultName,
   fields = {},
   mmrSubOptions = null, // [{value, label}] when category=MMR
+  hideBack = false,
 }) {
   const { user } = useAuth();
 
@@ -366,14 +367,16 @@ export default function CalibrationList({
         <div className="absolute -bottom-20 -left-10 w-64 h-64 bg-white/5 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative">
-          <Link
-            to="/metrology"
-            className="inline-flex items-center gap-1 text-xs text-white/80 hover:text-white transition-colors"
-          >
-            <ChevronLeft size={14} /> Back to Metrology
-          </Link>
+          {!hideBack && (
+            <Link
+              to="/metrology"
+              className="inline-flex items-center gap-1 text-xs text-white/80 hover:text-white transition-colors"
+            >
+              <ChevronLeft size={14} /> Back to Metrology
+            </Link>
+          )}
 
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-4">
+          <div className={`${hideBack ? '' : 'mt-2 '}flex flex-wrap items-center justify-between gap-4`}>
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{title}</h1>
               <p className="text-sm text-white/80 mt-1">
