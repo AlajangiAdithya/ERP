@@ -549,15 +549,15 @@ export default function CalibrationList({
             <p className="text-xs text-gray-400 mt-1">Try clearing the search or status filter above.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto -mx-5 px-5">
-            <table className="min-w-full text-xs border-separate border-spacing-0">
-              <thead>
+          <div className="overflow-x-auto -mx-5 px-5 rounded-xl ring-1 ring-navy-100/70 bg-white">
+            <table className="w-full text-[11.5px] border-separate border-spacing-0">
+              <thead className="sticky top-0 z-10">
                 {/* Top header — base columns span 2 rows, FY groups span their inner columns */}
-                <tr className="bg-navy-50/70">
+                <tr>
                   <Th rowSpan={2} sticky>#</Th>
                   <Th rowSpan={2}>MIR no.</Th>
                   <Th rowSpan={2}>MIR date</Th>
-                  <Th rowSpan={2}>Name of Gauge / equipment</Th>
+                  <Th rowSpan={2}>Name of Gauge / Equipment</Th>
                   {showBucketColumn && <Th rowSpan={2}>Category</Th>}
                   {showOperatingRange && <Th rowSpan={2}>Range</Th>}
                   {showCapacity && <Th rowSpan={2}>Capacity</Th>}
@@ -566,67 +566,91 @@ export default function CalibrationList({
                   <Th rowSpan={2}>Model</Th>
                   <Th rowSpan={2}>S.no</Th>
                   <Th rowSpan={2}>RAP S.no</Th>
-                  <Th rowSpan={2}>Located at</Th>
-                  {FY_COLUMNS.map((fy) => (
-                    <Th key={fy} colSpan={5} center groupTone>
+                  <Th rowSpan={2} groupEnd>Located at</Th>
+                  {FY_COLUMNS.map((fy, idx) => (
+                    <Th
+                      key={fy}
+                      colSpan={5}
+                      center
+                      groupTone
+                      groupEnd={idx === FY_COLUMNS.length - 1 || true}
+                    >
                       {fy}
                     </Th>
                   ))}
                   <Th rowSpan={2}>Remarks</Th>
                   {canEdit && <Th rowSpan={2}>Actions</Th>}
                 </tr>
-                <tr className="bg-navy-50/40">
+                <tr>
                   {FY_COLUMNS.flatMap((fy) => [
-                    <Th key={`${fy}-qc`}>QC Verification by</Th>,
+                    <Th key={`${fy}-qc`}>QC Verif. by</Th>,
                     <Th key={`${fy}-vo`}>Verified on</Th>,
                     <Th key={`${fy}-cn`}>Certificate no.</Th>,
                     <Th key={`${fy}-co`}>Calibrated on</Th>,
-                    <Th key={`${fy}-dd`}>Due date</Th>,
+                    <Th key={`${fy}-dd`} groupEnd>Due date</Th>,
                   ])}
                 </tr>
               </thead>
               <tbody>
-                {filteredItems.map((row) => {
+                {filteredItems.map((row, rowIdx) => {
                   rapCounter += 1;
                   const fyMap = recordsByFy(row.records);
+                  const zebra = rowIdx % 2 === 1 ? 'bg-gray-50/50' : 'bg-white';
                   return (
-                    <tr key={row.id} className="group hover:bg-navy-50/40">
-                      <Td sticky className="text-gray-400 tabular-nums">{rapCounter}</Td>
-                      <Td>{row.mirNo || ''}</Td>
-                      <Td>{fmtDate(row.mirDate)}</Td>
-                      <Td>
+                    <tr
+                      key={row.id}
+                      className={`group ${zebra} hover:bg-navy-50/60 transition-colors`}
+                    >
+                      <Td sticky className="text-gray-400 tabular-nums font-mono text-[10px] text-center">
+                        {rapCounter}
+                      </Td>
+                      <Td className="font-mono text-[11px] text-gray-700">{orDash(row.mirNo)}</Td>
+                      <Td className="text-gray-600">{row.mirDate ? fmtDate(row.mirDate) : <Dash />}</Td>
+                      <Td nowrap={false} className="min-w-[180px] max-w-[260px]">
                         <div className="font-semibold text-navy-800 leading-tight">{row.name}</div>
-                        {row.usedFor && <div className="text-[10px] text-gray-500 mt-0.5">For: {row.usedFor}</div>}
+                        {row.usedFor && (
+                          <div className="text-[10px] text-gray-500 mt-0.5 truncate" title={row.usedFor}>
+                            For: {row.usedFor}
+                          </div>
+                        )}
                       </Td>
                       {showBucketColumn && (
-                        <Td>
+                        <Td nowrap={false} className="max-w-[180px]">
                           {(() => {
                             const b = bucketOfItem(row);
                             return b ? (
-                              <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 ring-1 ring-violet-200 whitespace-normal">
+                              <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 ring-1 ring-violet-200 leading-tight">
                                 {b.label}
                               </span>
-                            ) : <span className="text-[10px] text-gray-400">—</span>;
+                            ) : <Dash />;
                           })()}
                         </Td>
                       )}
-                      {showOperatingRange && <Td><span className="font-mono">{row.operatingRange || ''}</span></Td>}
-                      {showCapacity && <Td><span className="font-mono">{(row.capacityMin || '')}{row.capacityMax ? ` – ${row.capacityMax}` : ''}</span></Td>}
-                      {showLeastCount && <Td><span className="font-mono">{row.leastCount || ''}</span></Td>}
-                      <Td>{row.make || ''}</Td>
-                      <Td><span className="font-mono">{row.model || ''}</span></Td>
-                      <Td><span className="font-mono">{row.serialNo || ''}</span></Td>
-                      <Td>
-                        <span className="font-mono text-navy-700 font-semibold tabular-nums">
-                          {showRapspl && row.rapsplSerialNo ? row.rapsplSerialNo : rapCounter}
-                        </span>
+                      {showOperatingRange && (
+                        <Td className="font-mono text-[11px] text-gray-700">{orDash(row.operatingRange)}</Td>
+                      )}
+                      {showCapacity && (
+                        <Td className="font-mono text-[11px] text-gray-700">
+                          {row.capacityMin || row.capacityMax
+                            ? `${row.capacityMin || ''}${row.capacityMax ? ` – ${row.capacityMax}` : ''}`
+                            : <Dash />}
+                        </Td>
+                      )}
+                      {showLeastCount && (
+                        <Td className="font-mono text-[11px] text-gray-700">{orDash(row.leastCount)}</Td>
+                      )}
+                      <Td className="text-gray-700">{orDash(row.make)}</Td>
+                      <Td className="font-mono text-[11px] text-gray-700">{orDash(row.model)}</Td>
+                      <Td className="font-mono text-[11px] text-gray-700">{orDash(row.serialNo)}</Td>
+                      <Td className="font-mono text-[11px] text-navy-700 font-semibold tabular-nums">
+                        {showRapspl && row.rapsplSerialNo ? row.rapsplSerialNo : rapCounter}
                       </Td>
-                      <Td>
+                      <Td groupEnd>
                         {row.unitLocation ? (
-                          <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 ring-1 ring-blue-200">
+                          <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 ring-1 ring-blue-200">
                             {row.unitLocation}
                           </span>
-                        ) : ''}
+                        ) : <Dash />}
                       </Td>
 
                       {FY_COLUMNS.flatMap((fy) => {
@@ -634,64 +658,78 @@ export default function CalibrationList({
                         const due = r.dueDate;
                         const status = dueStatus(due);
                         return [
-                          <Td key={`${fy}-qc`}>{r.qcVerifiedBy || ''}</Td>,
-                          <Td key={`${fy}-vo`}>{fmtDate(r.verifiedOn)}</Td>,
+                          <Td key={`${fy}-qc`} className="text-gray-700">{orDash(r.qcVerifiedBy)}</Td>,
+                          <Td key={`${fy}-vo`} className="text-gray-600">{r.verifiedOn ? fmtDate(r.verifiedOn) : <Dash />}</Td>,
                           <Td key={`${fy}-cn`}>
-                            <div className="flex flex-col gap-0.5">
-                              <span className="font-mono text-[10px]">{r.certificateNo || ''}</span>
-                              {r.certificateAttachment && (
-                                <a
-                                  href={`${API_ORIGIN}${r.certificateAttachment}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-[10px] text-navy-600 hover:text-navy-800"
-                                >
-                                  <Download size={10} /> PDF
-                                </a>
-                              )}
-                            </div>
+                            {r.certificateNo || r.certificateAttachment ? (
+                              <div className="flex flex-col gap-0.5 leading-tight">
+                                {r.certificateNo && (
+                                  <span className="font-mono text-[10px] text-gray-800">{r.certificateNo}</span>
+                                )}
+                                {r.certificateAttachment && (
+                                  <a
+                                    href={`${API_ORIGIN}${r.certificateAttachment}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-[10px] text-navy-600 hover:text-navy-800 hover:underline w-fit"
+                                  >
+                                    <Download size={10} /> PDF
+                                  </a>
+                                )}
+                              </div>
+                            ) : <Dash />}
                           </Td>,
-                          <Td key={`${fy}-co`}>{fmtDate(r.calibratedOn)}</Td>,
-                          <Td key={`${fy}-dd`}>
-                            <div className="flex flex-col gap-0.5">
-                              <span>{fmtDate(due)}</span>
-                              {status.tone === 'overdue' && (
-                                <span className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 ring-1 ring-rose-200 w-fit">
-                                  <AlertTriangle size={9} /> {status.label}
-                                </span>
-                              )}
-                              {status.tone === 'dueSoon' && (
-                                <span className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 ring-1 ring-amber-200 w-fit">
-                                  <Clock size={9} /> {status.label}
-                                </span>
-                              )}
-                            </div>
+                          <Td key={`${fy}-co`} className="text-gray-600">{r.calibratedOn ? fmtDate(r.calibratedOn) : <Dash />}</Td>,
+                          <Td key={`${fy}-dd`} groupEnd>
+                            {due ? (
+                              <div className="flex flex-col gap-0.5 leading-tight">
+                                <span className="text-gray-800">{fmtDate(due)}</span>
+                                {status.tone === 'overdue' && (
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200 w-fit">
+                                    <AlertTriangle size={9} /> {status.label}
+                                  </span>
+                                )}
+                                {status.tone === 'dueSoon' && (
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200 w-fit">
+                                    <Clock size={9} /> {status.label}
+                                  </span>
+                                )}
+                              </div>
+                            ) : <Dash />}
                           </Td>,
                         ];
                       })}
 
                       {/* Remarks — every viewer can edit */}
-                      <Td>
+                      <Td nowrap={false} className="min-w-[200px]">
                         <div className="flex items-start gap-1">
                           <textarea
                             value={remarksDraft[row.id] ?? ''}
                             onChange={(e) => setRemarksDraft((d) => ({ ...d, [row.id]: e.target.value }))}
                             onBlur={() => saveRemarks(row)}
-                            placeholder="Add remarks..."
+                            placeholder="Add remarks…"
                             rows={1}
-                            className="w-40 text-[11px] px-1.5 py-1 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 focus:border-navy-500 bg-white resize-y"
+                            className="w-full text-[11px] px-2 py-1 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-navy-400 focus:border-navy-400 bg-gray-50 hover:bg-white focus:bg-white resize-y transition-colors"
                           />
-                          {remarksBusy[row.id] && <Save size={12} className="text-gray-400 animate-pulse mt-1" />}
+                          {remarksBusy[row.id] && <Save size={12} className="text-gray-400 animate-pulse mt-1.5 flex-shrink-0" />}
                         </div>
                       </Td>
 
                       {canEdit && (
                         <Td>
-                          <div className="inline-flex items-center gap-1">
-                            <button onClick={() => openEdit(row)} className="p-1 rounded hover:bg-navy-100 text-navy-700" title="Edit">
+                          <div className="inline-flex items-center gap-0.5">
+                            <button
+                              onClick={() => openEdit(row)}
+                              className="p-1.5 rounded-md hover:bg-navy-100 text-navy-600 hover:text-navy-800 transition-colors"
+                              title="Edit"
+                            >
                               <Pencil size={12} />
                             </button>
-                            <button onClick={() => setDeleting(row)} className="p-1 rounded hover:bg-red-100 text-red-600" title="Delete">
+                            <button
+                              onClick={() => setDeleting(row)}
+                              className="p-1.5 rounded-md hover:bg-rose-100 text-gray-400 hover:text-rose-600 transition-colors"
+                              title="Delete"
+                            >
                               <Trash2 size={12} />
                             </button>
                           </div>
@@ -912,26 +950,39 @@ function latestDueDate(item) {
   return latest || item.calibrationDueDate || null;
 }
 
-function Th({ children, rowSpan = 1, colSpan = 1, sticky = false, groupTone = false, center = false }) {
-  const base = 'px-2 py-2 text-[10px] font-bold uppercase tracking-widest border-b border-gray-200';
-  const stickyCls = sticky ? 'sticky left-0 bg-navy-50/90 z-10' : '';
-  const tone = groupTone ? 'text-navy-800 bg-navy-100/70 border-l border-r border-navy-200/60' : 'text-gray-600';
+function Th({ children, rowSpan = 1, colSpan = 1, sticky = false, groupTone = false, groupEnd = false, center = false }) {
+  const base = 'px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider border-b border-navy-200/70';
+  const stickyCls = sticky ? 'sticky left-0 z-20 bg-navy-100/90' : '';
+  const tone = groupTone
+    ? 'text-navy-800 bg-navy-100/80 border-t border-navy-200/60'
+    : 'text-navy-700/80 bg-navy-50/80';
   const align = center ? 'text-center' : 'text-left';
+  const edge = groupEnd ? 'border-r-2 border-navy-200' : '';
   return (
-    <th rowSpan={rowSpan} colSpan={colSpan} className={`${base} ${tone} ${stickyCls} ${align} whitespace-nowrap`}>
+    <th
+      rowSpan={rowSpan}
+      colSpan={colSpan}
+      className={`${base} ${tone} ${stickyCls} ${align} ${edge} whitespace-nowrap`}
+    >
       {children}
     </th>
   );
 }
 
-function Td({ children, sticky = false, className = '' }) {
-  const stickyCls = sticky ? 'sticky left-0 bg-white group-hover:bg-navy-50/40 z-10' : '';
+function Td({ children, sticky = false, className = '', groupEnd = false, nowrap = true }) {
+  const stickyCls = sticky ? 'sticky left-0 z-10 bg-inherit' : '';
+  const edge = groupEnd ? 'border-r-2 border-navy-100' : '';
+  const wrap = nowrap ? 'whitespace-nowrap' : '';
   return (
-    <td className={`px-2 py-2 align-top border-b border-gray-100 whitespace-nowrap ${stickyCls} ${className}`}>
+    <td className={`px-2.5 py-1.5 align-middle border-b border-gray-100/80 ${wrap} ${stickyCls} ${edge} ${className}`}>
       {children}
     </td>
   );
 }
+
+// Subtle em-dash placeholder for empty values so the table doesn't look hollow.
+const Dash = () => <span className="text-gray-300 select-none">—</span>;
+const orDash = (v) => (v == null || v === '' ? <Dash /> : v);
 
 function StatChip({ icon, label, value, tone, active, onClick }) {
   const tones = {
