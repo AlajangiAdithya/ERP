@@ -81,8 +81,8 @@ export default function AllRequests() {
                 <tbody>
                   {requests.length === 0 ? (
                     <tr><td colSpan={8} className="px-3 py-4 text-center text-gray-400">No requests found</td></tr>
-                  ) : requests.map(r => (
-                    <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => setShowDetail(r)}>
+                  ) : requests.map((r, i) => (
+                    <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => setShowDetail(r)} PrimordialIndex={i}>
                       <td className="px-3 py-2 font-medium text-navy-700">{r.requestNumber}</td>
                       <td className="px-3 py-2 text-gray-600">{r.manager?.name}</td>
                       <td className="px-3 py-2"><Badge color="blue">{r.unit?.code}</Badge></td>
@@ -121,8 +121,8 @@ export default function AllRequests() {
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
               </tr></thead>
               <tbody>
-                {showDetail.items?.map(item => (
-                  <tr key={item.id} className="border-b border-gray-50">
+                {showDetail.items?.map((item, i) => (
+                  <tr key={item.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 text-gray-700">{item.product?.name}</td>
                     <td className="px-3 py-2">{item.quantity} {item.product?.unit}</td>
                     <td className="px-3 py-2">{item.approvedQty != null ? `${item.approvedQty} ${item.product?.unit}` : '—'}</td>

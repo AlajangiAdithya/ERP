@@ -279,13 +279,13 @@ function DashboardTable({ workOrders, onOpen }) {
             </tr>
           </thead>
           <tbody>
-            {workOrders.map((w) => {
+            {workOrders.map((w, i) => {
               const ext = lastExt(w);
               const meta = STATUS_META[w.status] || { color: 'gray', label: w.status };
               return (
                 <tr
                   key={w.id}
-                  className="border-t border-navy-100 hover:bg-navy-50/50 cursor-pointer"
+                  className={`border-t border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`}
                   onClick={() => onOpen(w)}
                 >
                   <Td className="font-medium text-navy-800">{w.supplyOrderNo}</Td>

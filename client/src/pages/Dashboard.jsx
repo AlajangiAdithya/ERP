@@ -106,11 +106,11 @@ function InProgressButton() {
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.prSamples.map(pr => {
+                    {summary.prSamples.map((pr, i) => {
                       const reqBy = pr.earliestRequiredBy ? new Date(pr.earliestRequiredBy) : null;
                       const overdue = reqBy && reqBy < new Date();
                       return (
-                        <tr key={pr.id} className="border-b border-gray-50">
+                        <tr key={pr.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                           <td className="px-2 py-1.5 font-medium text-navy-700">{pr.requestNumber}</td>
                           <td className="px-2 py-1.5">
                             <Badge color="blue">{pr.unit?.code || pr.unit?.name || '—'}</Badge>
@@ -157,7 +157,7 @@ function InProgressButton() {
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.poSamples.map(po => {
+                    {summary.poSamples.map((po, i) => {
                       const directUnit = po.purchaseRequest?.unit;
                       const unionUnits = (po.sourceRequests || [])
                         .map(s => s.purchaseRequest?.unit?.code || s.purchaseRequest?.unit?.name)
@@ -165,7 +165,7 @@ function InProgressButton() {
                       const unitLabel = directUnit?.code || directUnit?.name
                         || (unionUnits.length ? unionUnits.join(', ') : '—');
                       return (
-                        <tr key={po.id} className="border-b border-gray-50">
+                        <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                           <td className="px-2 py-1.5 font-medium text-navy-700">{po.orderNumber}</td>
                           <td className="px-2 py-1.5"><Badge color="blue">{unitLabel}</Badge></td>
                           <td className="px-2 py-1.5 text-gray-600">{po.supplierName || '—'}</td>
@@ -341,8 +341,8 @@ function AdminDashboard() {
               </tr>
             </thead>
             <tbody>
-              {unitSummary.map((u) => (
-                <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50">
+              {unitSummary.map((u, i) => (
+                <tr key={u.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                   <td className="px-3 py-2 font-medium text-gray-700">{u.name}</td>
                   <td className="px-3 py-2"><Badge color="blue">{u.code}</Badge></td>
                   <td className="px-3 py-2 text-gray-600">{u.totalRequests}</td>
@@ -375,8 +375,8 @@ function AdminDashboard() {
                 {recentMovements.length === 0 ? (
                   <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400">No movements yet</td></tr>
                 ) : (
-                  recentMovements.map((m) => (
-                    <tr key={m.id} className="border-b border-gray-50">
+                  recentMovements.map((m, i) => (
+                    <tr key={m.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-3 py-2 text-gray-700">{m.product?.name}</td>
                       <td className="px-3 py-2">
                         <Badge color={m.type === 'IN' ? 'green' : m.type === 'OUT' ? 'red' : 'yellow'}>
@@ -411,8 +411,8 @@ function AdminDashboard() {
                 {recentRequests.length === 0 ? (
                   <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400">No requests yet</td></tr>
                 ) : (
-                  recentRequests.map((r) => (
-                    <tr key={r.id} className="border-b border-gray-50">
+                  recentRequests.map((r, i) => (
+                    <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-3 py-2 font-medium text-gray-700">{r.requestNumber}</td>
                       <td className="px-3 py-2 text-gray-600">{r.manager?.name}</td>
                       <td className="px-3 py-2"><Badge color="blue">{r.unit?.code}</Badge></td>
@@ -558,9 +558,9 @@ function ManagerDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {purchaseRequests.filter(r => ['APPROVED', 'IN_PROGRESS'].includes(r.status)).map(r => {
+                {purchaseRequests.filter(r => ['APPROVED', 'IN_PROGRESS'].includes(r.status)).map((r, i) => {
                   return (
-                    <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/purchase-requests')}>
+                    <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/purchase-requests')}>
                       <td className="px-3 py-2 font-medium text-navy-700">{r.requestNumber}</td>
                       <td className="px-3 py-2 text-gray-600">{r.items?.length}</td>
                       <td className="px-3 py-2">
@@ -593,8 +593,8 @@ function ManagerDashboard() {
               </tr>
             </thead>
             <tbody>
-              {products.slice(0, 10).map((p) => (
-                <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+              {products.slice(0, 10).map((p, i) => (
+                <tr key={p.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                   <td className="px-3 py-2 font-medium text-gray-700">{p.name}</td>
                   <td className="px-3 py-2 text-gray-600">{p.category || '—'}</td>
                   <td className="px-3 py-2 text-gray-700">{p.currentStock} {p.unit}</td>
@@ -629,8 +629,8 @@ function ManagerDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {requests.map((r) => (
-                  <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/my-requests')}>
+                {requests.map((r, i) => (
+                  <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/my-requests')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{r.requestNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{r.items?.length} item(s)</td>
                     <td className="px-3 py-2">
@@ -760,8 +760,8 @@ function StoreManagerDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {pendingRequests.map((r) => (
-                  <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/request-clearance')}>
+                {pendingRequests.map((r, i) => (
+                  <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/request-clearance')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{r.requestNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{r.manager?.name}</td>
                     <td className="px-3 py-2"><Badge color="blue">{r.unit?.code}</Badge></td>
@@ -795,10 +795,10 @@ function StoreManagerDashboard() {
               {lowStock.length === 0 ? (
                 <tr><td colSpan={7} className="px-3 py-4 text-center text-gray-400">All stock levels healthy</td></tr>
               ) : (
-                lowStock.map((p) => {
+                lowStock.map((p, i) => {
                   const fmt = (v) => { const n = Number(v); return Number.isInteger(n) ? n.toString() : n.toFixed(2); };
                   return (
-                    <tr key={p.id} className="border-b border-gray-50">
+                    <tr key={p.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-3 py-2 font-medium text-gray-700">{p.name}</td>
                       <td className="px-3 py-2 text-gray-500">{p.sku}</td>
                       <td className="px-3 py-2">
@@ -961,8 +961,8 @@ function PurchaseOfficerDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {feed.awaitingQc.map(po => (
-                  <tr key={po.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/qc-inspections')}>
+                {feed.awaitingQc.map((po, i) => (
+                  <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/qc-inspections')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{po.orderNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{po.customName || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
@@ -999,8 +999,8 @@ function PurchaseOfficerDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {feed.pendingQuotations.map(pr => (
-                  <tr key={pr.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/quotations')}>
+                {feed.pendingQuotations.map((pr, i) => (
+                  <tr key={pr.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/quotations')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{pr.requestNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{pr.managerName || '—'}</td>
                     <td className="px-3 py-2"><Badge color="blue">{pr.unit?.code || pr.unit?.name || '—'}</Badge></td>
@@ -1039,8 +1039,8 @@ function PurchaseOfficerDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {feed.overdue.map(po => (
-                  <tr key={po.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/purchase-orders')}>
+                {feed.overdue.map((po, i) => (
+                  <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/purchase-orders')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{po.orderNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{po.customName || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
@@ -1157,8 +1157,8 @@ function AccountingDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {actionablePayments.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                {actionablePayments.map((p, i) => (
+                  <tr key={p.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-navy-700">{p.paymentNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.customName || p.purchaseOrder?.orderNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.supplierName || '—'}</td>
@@ -1194,8 +1194,8 @@ function AccountingDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {recentPaid.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-50">
+                {recentPaid.map((p, i) => (
+                  <tr key={p.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-navy-700">{p.paymentNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.customName || p.purchaseOrder?.orderNumber}</td>
                     <td className="px-3 py-2 text-right">{fmtINR(p.amount)}</td>
@@ -1276,8 +1276,8 @@ function QCDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {pendingOrders.map((o) => (
-                  <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/qc-inspections')}>
+                {pendingOrders.map((o, i) => (
+                  <tr key={o.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/qc-inspections')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{o.orderNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{o.supplierName || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">{o.items?.length || 0} items</td>
@@ -1315,8 +1315,8 @@ function QCDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {inspections.slice(0, 10).map((i) => (
-                  <tr key={i.id} className="border-b border-gray-50 hover:bg-gray-50">
+                {inspections.slice(0, 10).map((i, idx) => (
+                  <tr key={i.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-navy-700">{i.inspectionNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{i.purchaseOrder?.orderNumber || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">{i.purchaseOrder?.supplierName || '—'}</td>
@@ -1444,8 +1444,8 @@ function MetrologyDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {overdue.slice(0, 10).map((it) => (
-                  <tr key={it.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate(CATEGORY_ROUTE[it.category] || '/metrology')}>
+                {overdue.slice(0, 10).map((it, i) => (
+                  <tr key={it.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate(CATEGORY_ROUTE[it.category] || '/metrology')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{it.name || '—'}</td>
                     <td className="px-3 py-2 text-gray-600 text-xs">{CATEGORY_LABEL[it.category] || it.category}</td>
                     <td className="px-3 py-2 text-gray-500 font-mono text-xs">{it.serialNo || '—'}</td>
@@ -1485,8 +1485,8 @@ function MetrologyDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {dueSoon.slice(0, 10).map((it) => (
-                  <tr key={it.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => navigate(CATEGORY_ROUTE[it.category] || '/metrology')}>
+                {dueSoon.slice(0, 10).map((it, i) => (
+                  <tr key={it.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate(CATEGORY_ROUTE[it.category] || '/metrology')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{it.name || '—'}</td>
                     <td className="px-3 py-2 text-gray-600 text-xs">{CATEGORY_LABEL[it.category] || it.category}</td>
                     <td className="px-3 py-2 text-gray-500 font-mono text-xs">{it.serialNo || '—'}</td>
@@ -1570,7 +1570,7 @@ function LowStockModal({ isOpen, onClose, products, loading }) {
             </thead>
             <tbody>
               {products.map((p, idx) => (
-                <tr key={p.id} className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${idx % 2 === 1 ? 'bg-gray-50/50' : ''}`}>
+                <tr key={p.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                   <td className="px-3 py-2 text-gray-400 text-xs">{idx + 1}</td>
                   <td className="px-3 py-2 font-medium text-gray-700">{p.name}</td>
                   <td className="px-3 py-2 text-gray-500 font-mono text-xs">{p.sku}</td>

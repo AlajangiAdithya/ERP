@@ -137,8 +137,8 @@ export default function MyRequests() {
                 </tr>
               </thead>
               <tbody>
-                {requests.map((r) => (
-                  <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
+                {requests.map((r, i) => (
+                  <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => setShowDetail(r)}>{r.requestNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{r.items?.length} item(s)</td>
                     <td className="px-3 py-2"><Badge color={statusColor(r.status)}>{r.status}</Badge></td>
@@ -294,8 +294,8 @@ export default function MyRequests() {
                   </tr>
                 </thead>
                 <tbody>
-                  {showDetail.items?.map(item => (
-                    <tr key={item.id} className="border-b border-gray-50">
+                  {showDetail.items?.map((item, i) => (
+                    <tr key={item.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-3 py-2 text-gray-700">{item.product?.name}</td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || '—'}</td>
                       <td className="px-3 py-2 text-gray-600">{item.quantity} {item.product?.unit}</td>

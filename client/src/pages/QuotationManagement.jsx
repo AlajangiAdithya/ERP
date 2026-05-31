@@ -1621,7 +1621,7 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover, isPO }) 
                         </tr>
                       </thead>
                       <tbody>
-                        {q.items.map(item => {
+                        {q.items.map((item, i) => {
                           const allocs = Array.isArray(item.sourceAllocations) ? item.sourceAllocations : [];
                           // Resolve material specs from any source PR item that has them.
                           const specSources = allocs
@@ -1637,7 +1637,7 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover, isPO }) 
                             .filter(Boolean);
                           return (
                             <>
-                              <tr key={item.id} className="border-b border-gray-50 hover:bg-amber-50/30">
+                              <tr key={item.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                                 <td className="px-2 py-1.5">{item.productName}</td>
                                 <td className="px-2 py-1.5 whitespace-nowrap">{item.quantity} {item.productUnit}</td>
                                 <td className="px-2 py-1.5">{formatCurrency(item.unitPrice)}</td>
@@ -1915,11 +1915,11 @@ function OpenPoolsSection({ onUpdated, reloadKey }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {pool.items.map(pi => {
+                      {pool.items.map((pi, i) => {
                         const it = pi.purchaseRequestItem;
                         const qty = it.adminApprovedQty != null ? it.adminApprovedQty : it.requestedQty;
                         return (
-                          <tr key={pi.id} className="border-t">
+                          <tr key={pi.id} className={`border-t border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                             <td className="px-3 py-1.5 font-mono">{it.request?.requestNumber}</td>
                             <td className="px-3 py-1.5">{it.request?.unit?.code || it.request?.unit?.name || '—'}</td>
                             <td className="px-3 py-1.5">{qty} {pool.productUnit}</td>
@@ -2241,11 +2241,11 @@ function PoolByMaterialSection({ onUpdated }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {group.rows.map(r => {
+                  {group.rows.map((r, i) => {
                     const qty = r.adminApprovedQty ?? r.requestedQty ?? 0;
                     const existing = r.existingQuoteCount || 0;
                     return (
-                      <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                         <td className="px-2 py-1.5">
                           <input
                             type="checkbox"

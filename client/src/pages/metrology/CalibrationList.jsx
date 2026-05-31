@@ -581,8 +581,7 @@ export default function CalibrationList({
           </div>
         ) : (
           <div className="overflow-x-auto -mx-5 px-5">
-            <div className="rounded-lg border border-gray-200 overflow-hidden">
-            <table className="w-full text-[11.5px] border-separate border-spacing-0">
+            <table className="min-w-full text-[11.5px] border-separate border-spacing-0 border border-gray-200 rounded-lg">
               <thead className="sticky top-0 z-10">
                 {/* Top header — base columns span 2 rows, FY groups span their inner columns */}
                 <tr>
@@ -772,7 +771,6 @@ export default function CalibrationList({
                 })}
               </tbody>
             </table>
-            </div>
           </div>
         )}
       </Card>
@@ -984,7 +982,7 @@ function latestDueDate(item) {
 }
 
 function Th({ children, rowSpan = 1, colSpan = 1, sticky = false, groupTone = false, groupEnd = false, center = false }) {
-  const base = 'px-4 py-3 text-[10px] font-medium uppercase tracking-wider border-b border-gray-200';
+  const base = 'px-3 py-2 text-[10px] font-medium uppercase tracking-wider border-b border-gray-200';
   const stickyCls = sticky ? 'sticky left-0 z-20 bg-gray-50' : '';
   const tone = groupTone
     ? 'text-gray-600 bg-gray-50 border-t border-gray-200'
@@ -1007,7 +1005,7 @@ function Td({ children, sticky = false, className = '', groupEnd = false, nowrap
   const edge = groupEnd ? 'border-r-2 border-gray-200' : '';
   const wrap = nowrap ? 'whitespace-nowrap' : '';
   return (
-    <td className={`px-4 py-3 align-middle border-b border-gray-100 text-gray-700 ${wrap} ${stickyCls} ${edge} ${className}`}>
+    <td className={`px-3 py-2 align-middle border-b border-gray-100 text-gray-700 ${wrap} ${stickyCls} ${edge} ${className}`}>
       {children}
     </td>
   );

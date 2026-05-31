@@ -115,12 +115,12 @@ function OrderInfoHeader({ order, inspection, qcView = false }) {
               </tr>
             </thead>
             <tbody>
-              {order.items.map(item => {
+              {order.items.map((item, i) => {
                 const recv = item.receivedQty || 0;
                 const pending = Math.max(0, item.quantity - recv);
                 const done = recv >= item.quantity && item.quantity > 0;
                 return (
-                  <tr key={item.id} className="border-b border-gray-100">
+                  <tr key={item.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-1.5">{item.productName}</td>
                     <td className="px-3 py-1.5 text-right">{item.quantity}</td>
                     <td className={`px-3 py-1.5 text-right font-semibold ${recv === 0 ? 'text-gray-400' : done ? 'text-green-700' : 'text-amber-700'}`}>
@@ -156,10 +156,10 @@ function OrderInfoHeader({ order, inspection, qcView = false }) {
               </tr>
             </thead>
             <tbody>
-              {allLots.map((lot) => {
+              {allLots.map((lot, i) => {
                 const isCurrent = inspection?.id === lot.id;
                 return (
-                  <tr key={lot.id} className={`border-t border-gray-100 ${isCurrent ? 'bg-navy-50' : ''}`}>
+                  <tr key={lot.id} className={`border-t border-gray-100 transition-colors ${isCurrent ? 'bg-navy-50' : i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-1 font-medium">Lot {lot.lotNumber ?? '—'}{isCurrent ? ' (this)' : ''}</td>
                     <td className="px-3 py-1 font-mono">{lot.inspectionNumber}</td>
                     <td className="px-3 py-1 text-right">{lot.arrivedQty ?? '—'}</td>
@@ -644,13 +644,13 @@ function PRSpecsPanel({ order }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {pr.items.map((it) => {
+                    {pr.items.map((it, i) => {
                       const approved = it.adminApprovedQty != null ? it.adminApprovedQty : it.requestedQty;
                       const qtyStr = it.adminApprovedQty != null && it.adminApprovedQty !== it.requestedQty
                         ? `${approved} ${it.productUnit} (req ${it.requestedQty})`
                         : `${it.requestedQty} ${it.productUnit}`;
                       return (
-                        <tr key={it.id} className="border-b border-gray-100 align-top">
+                        <tr key={it.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 align-top`}>
                           <td className="px-2 py-1.5 font-medium text-gray-800">{it.productName}</td>
                           <td className="px-2 py-1.5 whitespace-nowrap text-gray-700">{qtyStr}</td>
                           <td className="px-2 py-1.5 text-gray-700">{it.materialType || '—'}</td>
@@ -1141,7 +1141,7 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
             </thead>
             <tbody>
               {parameters.map((param, idx) => (
-                <tr key={idx} className="border-b border-gray-100">
+                <tr key={idx} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                   <td className="px-2 py-1">
                     <input value={param.name} onChange={(e) => updateParam(idx, 'name', e.target.value)}
                       className="w-full px-2 py-1 border border-gray-300 rounded text-sm" placeholder="e.g., Thickness" />
@@ -1496,7 +1496,7 @@ function ViewInspectionModal({ inspection, onClose }) {
                   </thead>
                   <tbody>
                     {inspection.parameters.map((p, idx) => (
-                      <tr key={idx} className="border-b border-gray-100">
+                      <tr key={idx} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                         <td className="px-3 py-1.5">{p.name}</td>
                         <td className="px-3 py-1.5">{p.expected}</td>
                         <td className="px-3 py-1.5">{p.actual}</td>
@@ -1731,8 +1731,8 @@ export default function QCInspections() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(isAdmin ? inspections : completedInspections).map(insp => (
-                    <tr key={insp.id} className="border-b border-gray-50 hover:bg-gray-50">
+                  {(isAdmin ? inspections : completedInspections).map((insp, i) => (
+                    <tr key={insp.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-3 py-2 font-medium text-navy-700">{insp.inspectionNumber}</td>
                       <td className="px-3 py-2 text-gray-600">{insp.purchaseOrder?.customName}</td>
                       <td className="px-3 py-2 text-gray-600">{insp.purchaseOrder?.supplierName}</td>

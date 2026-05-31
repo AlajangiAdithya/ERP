@@ -648,7 +648,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
                 const target = item.purchasedQty || approvedQty || item.requestedQty;
                 const fullyReceived = target > 0 && receivedQty >= target;
                 return (
-                  <tr key={item.id} className="border-b border-gray-50">
+                  <tr key={item.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
                     <td className="px-3 py-2 text-gray-500">{item.product?.category || '—'}</td>
                     <td className="px-3 py-2 text-gray-700">{item.requestedQty} {item.productUnit}</td>
@@ -793,7 +793,7 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
           </thead>
           <tbody>
             {items.map((item, idx) => (
-              <tr key={item.id} className="border-b border-gray-50 align-top">
+              <tr key={item.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 align-top`}>
                 <td className="px-3 py-2 font-medium text-gray-700">
                   <div>{item.productName}</div>
                   {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo || item.specAttachmentUrl) && (
@@ -1084,7 +1084,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
               </tr>
             </thead>
             <tbody>
-              {request.items?.map(item => {
+              {request.items?.map((item, idx) => {
                 const unionRef = unionPOByItem.get(item.id);
                 const poolMembership = item.materialPoolMembership;
                 const pool = poolMembership?.pool;
@@ -1094,7 +1094,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                   && !poolMembership
                   && ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED'].includes(request.status);
                 return (
-                  <tr key={item.id} className="border-b border-gray-50 align-top">
+                  <tr key={item.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 align-top`}>
                     <td className="px-3 py-2 font-medium text-gray-700">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span>{item.productName}</span>
@@ -1372,7 +1372,7 @@ function PoolPickerModal({ anchorItem, onClose, onPooled }) {
                 {candidates.map(c => {
                   const qty = c.adminApprovedQty != null ? c.adminApprovedQty : c.requestedQty;
                   return (
-                    <tr key={c.id} className="border-t hover:bg-purple-50/40">
+                    <tr key={c.id} className={`border-t border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-3 py-2">
                         <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} />
                       </td>
@@ -1559,8 +1559,8 @@ export default function PurchaseRequests() {
                 </tr>
               </thead>
               <tbody>
-                {lowStock.map(p => (
-                  <tr key={p.id} className="border-b border-gray-50 hover:bg-red-50/30">
+                {lowStock.map((p, i) => (
+                  <tr key={p.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-2 py-1.5">
                       <input
                         type="checkbox"
@@ -1635,7 +1635,7 @@ export default function PurchaseRequests() {
                     : null;
 
                   return (
-                    <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => handleRowClick(r)}>
                         {r.requestNumber}
                       </td>
