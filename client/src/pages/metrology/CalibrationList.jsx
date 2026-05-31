@@ -99,6 +99,17 @@ const blankFyRecord = () => ({
   certificateAttachment: '',
 });
 
+// Map a calibration row to a unified category bucket. A group matches when
+// the row's `category` is in `matchCategories` OR (row is MMR and its
+// `mmrSubCategory` is in `matchMmrSubs`).
+const matchesUnified = (item, group) => {
+  if (!group) return true;
+  if (item.category === 'MMR') {
+    return (group.matchMmrSubs || []).includes(item.mmrSubCategory);
+  }
+  return (group.matchCategories || []).includes(item.category);
+};
+
 export default function CalibrationList({
   category,
   title,
@@ -106,7 +117,13 @@ export default function CalibrationList({
   fields = {},
   mmrSubOptions = null, // [{value, label}] when category=MMR
   hideBack = false,
+  // Unified view: shows items from every category in one register. Each group
+  // declares which server-side `category` and MMR `mmrSubCategory` values it
+  // collapses into a single bucket. When set, the register fetches without a
+  // category filter and applies the bucket filter client-side.
+  unifiedCategories = null, // [{value, label, matchCategories, matchMmrSubs}]
 }) {
+  const unified = !!unifiedCategories;
   const { user } = useAuth();
 
   const canEdit = useMemo(() => {
@@ -125,7 +142,12 @@ export default function CalibrationList({
     return false;
   }, [user, canEdit]);
 
-  const theme = HERO_THEME[category] || HERO_THEME.PRESSURE_GAUGE;
+  const theme = HERO_THEME[category] || (unifiedCategories ? HERO_THEME.MMR : HERO_THEME.PRESSURE_GAUGE);
+
+  // The filter-dropdown bucket options. In unified mode this drives a
+  // client-side filter; in MMR mode it drives a server-side `mmrSubCategory`
+  // filter.
+  const bucketOptions = unifiedCategories || mmrSubOptions;
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -151,10 +173,13 @@ export default function CalibrationList({
   const fetchItems = () => {
     if (!canView) { setLoading(false); return; }
     setLoading(true);
-    const params = { category };
+    // In unified mode we want every row regardless of category, so neither
+    // `category` nor `mmrSubCategory` is sent — the bucket filter runs on
+    // the client.
+    const params = unified ? {} : { category };
     if (search.trim()) params.search = search.trim();
     if (unitFilter) params.unit = unitFilter;
-    if (mmrSub) params.mmrSubCategory = mmrSub;
+    if (!unified && mmrSub) params.mmrSubCategory = mmrSub;
     api.get('/calibration', { params })
       .then(({ data }) => {
         setItems(data.items || []);
@@ -175,9 +200,19 @@ export default function CalibrationList({
     return Array.from(set).sort();
   }, [items]);
 
+  // Compute stats over the bucket-filtered rows so the chips reflect what's
+  // visible, not the entire register.
+  const bucketScopedRows = useMemo(() => {
+    if (unified && mmrSub) {
+      const group = unifiedCategories.find((g) => g.value === mmrSub);
+      return items.filter((it) => matchesUnified(it, group));
+    }
+    return items;
+  }, [items, unified, mmrSub, unifiedCategories]);
+
   const stats = useMemo(() => {
     let overdue = 0, dueSoon = 0, healthy = 0;
-    items.forEach((it) => {
+    bucketScopedRows.forEach((it) => {
       // Use the latest FY record's due date if present, else the item snapshot.
       const due = latestDueDate(it);
       const s = dueStatus(due);
@@ -185,17 +220,27 @@ export default function CalibrationList({
       else if (s.tone === 'dueSoon') dueSoon++;
       else healthy++;
     });
-    return { total: items.length, overdue, dueSoon, healthy };
-  }, [items]);
+    return { total: bucketScopedRows.length, overdue, dueSoon, healthy };
+  }, [bucketScopedRows]);
 
   const filteredItems = useMemo(() => {
-    if (!statusFilter) return items;
-    return items.filter((it) => dueStatus(latestDueDate(it)).tone === statusFilter);
-  }, [items, statusFilter]);
+    let rows = items;
+    if (unified && mmrSub) {
+      const group = unifiedCategories.find((g) => g.value === mmrSub);
+      rows = rows.filter((it) => matchesUnified(it, group));
+    }
+    if (statusFilter) {
+      rows = rows.filter((it) => dueStatus(latestDueDate(it)).tone === statusFilter);
+    }
+    return rows;
+  }, [items, statusFilter, unified, mmrSub, unifiedCategories]);
 
   const openCreate = () => {
     setEditing('new');
-    setForm({ ...blankForm, name: defaultName || '' });
+    // In unified mode, pre-select the currently active bucket so the new
+    // entry inherits it.
+    const mmrSubDefault = unified ? (mmrSub || '') : '';
+    setForm({ ...blankForm, name: defaultName || '', mmrSubCategory: mmrSubDefault });
     const fy = {};
     FY_COLUMNS.forEach((f) => { fy[f] = blankFyRecord(); });
     setFyForms(fy);
@@ -262,9 +307,30 @@ export default function CalibrationList({
     setFormError('');
     setSaving(true);
     try {
-      const payload = { ...form, category };
+      // In unified mode rows live under MMR + sub-category. New rows always
+      // require a pick; existing legacy rows (PRESSURE_GAUGE etc.) migrate
+      // to MMR the moment the user explicitly picks a category, otherwise
+      // their original category is preserved.
+      let effectiveCategory;
+      if (unified) {
+        if (editing === 'new') {
+          effectiveCategory = 'MMR';
+        } else if (form.mmrSubCategory) {
+          effectiveCategory = 'MMR';
+        } else {
+          effectiveCategory = editing.category || 'MMR';
+        }
+      } else {
+        effectiveCategory = category;
+      }
+      const payload = { ...form, category: effectiveCategory };
       ['mirDate'].forEach((k) => { if (!payload[k]) payload[k] = null; });
       if (!payload.mmrSubCategory) payload.mmrSubCategory = null;
+      if (unified && editing === 'new' && !payload.mmrSubCategory) {
+        setFormError('Pick a category before saving');
+        setSaving(false);
+        return;
+      }
 
       let itemId;
       if (editing === 'new') {
@@ -349,11 +415,20 @@ export default function CalibrationList({
     );
   }
 
-  const showCapacity = !!fields.capacity;
-  const showLeastCount = !!fields.leastCount;
-  const showOperatingRange = !!fields.operatingRange;
-  const showUsedFor = !!fields.usedFor;
-  const showRapspl = fields.rapspl !== false;
+  // In unified mode show every spec column — rows come from many categories
+  // and each may use a different combination of fields.
+  const showCapacity       = unified ? true : !!fields.capacity;
+  const showLeastCount     = unified ? true : !!fields.leastCount;
+  const showOperatingRange = unified ? true : !!fields.operatingRange;
+  const showUsedFor        = unified ? true : !!fields.usedFor;
+  const showRapspl         = fields.rapspl !== false;
+  const showBucketColumn   = unified;
+
+  // Resolve which unified bucket an item belongs to (for the per-row badge).
+  const bucketOfItem = (item) => {
+    if (!unified) return null;
+    return unifiedCategories.find((g) => matchesUnified(item, g)) || null;
+  };
 
   // Per-category RAP S.no auto-counter — increments per row in the current
   // category view. Independent of any other category.
@@ -428,7 +503,7 @@ export default function CalibrationList({
             )}
           </div>
 
-          {mmrSubOptions && (
+          {bucketOptions && (
             <div className="flex items-center gap-2">
               <Filter size={14} className="text-gray-400" />
               <select
@@ -436,8 +511,8 @@ export default function CalibrationList({
                 onChange={(e) => setMmrSub(e.target.value)}
                 className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-navy-500 focus:bg-white transition-colors"
               >
-                <option value="">All sub-categories</option>
-                {mmrSubOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                <option value="">{unified ? 'All categories' : 'All sub-categories'}</option>
+                {bucketOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           )}
@@ -483,6 +558,7 @@ export default function CalibrationList({
                   <Th rowSpan={2}>MIR no.</Th>
                   <Th rowSpan={2}>MIR date</Th>
                   <Th rowSpan={2}>Name of Gauge / equipment</Th>
+                  {showBucketColumn && <Th rowSpan={2}>Category</Th>}
                   {showOperatingRange && <Th rowSpan={2}>Range</Th>}
                   {showCapacity && <Th rowSpan={2}>Capacity</Th>}
                   {showLeastCount && <Th rowSpan={2}>Least Count</Th>}
@@ -522,6 +598,18 @@ export default function CalibrationList({
                         <div className="font-semibold text-navy-800 leading-tight">{row.name}</div>
                         {row.usedFor && <div className="text-[10px] text-gray-500 mt-0.5">For: {row.usedFor}</div>}
                       </Td>
+                      {showBucketColumn && (
+                        <Td>
+                          {(() => {
+                            const b = bucketOfItem(row);
+                            return b ? (
+                              <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 ring-1 ring-violet-200 whitespace-normal">
+                                {b.label}
+                              </span>
+                            ) : <span className="text-[10px] text-gray-400">—</span>;
+                          })()}
+                        </Td>
+                      )}
                       {showOperatingRange && <Td><span className="font-mono">{row.operatingRange || ''}</span></Td>}
                       {showCapacity && <Td><span className="font-mono">{(row.capacityMin || '')}{row.capacityMax ? ` – ${row.capacityMax}` : ''}</span></Td>}
                       {showLeastCount && <Td><span className="font-mono">{row.leastCount || ''}</span></Td>}
@@ -648,23 +736,28 @@ export default function CalibrationList({
               <div className="grid grid-cols-3 gap-3">
                 {showRapspl && (
                   <Input
-                    label={mmrSubOptions ? 'RAPSPL Serial No (auto if blank)' : 'RAPSPL Serial No'}
+                    label={bucketOptions ? 'RAPSPL Serial No (auto if blank)' : 'RAPSPL Serial No'}
                     value={form.rapsplSerialNo}
                     onChange={(e) => setForm({ ...form, rapsplSerialNo: e.target.value })}
-                    placeholder={mmrSubOptions ? 'Leave blank — auto-numbered per sub-category' : ''}
+                    placeholder={bucketOptions ? 'Leave blank — auto-numbered per category' : ''}
                   />
                 )}
                 <Input label="Located at (Unit-I, Store, etc.)" value={form.unitLocation} onChange={(e) => setForm({ ...form, unitLocation: e.target.value })} />
-                {mmrSubOptions && (
-                  <Select label="MMR sub-category *" value={form.mmrSubCategory} onChange={(e) => setForm({ ...form, mmrSubCategory: e.target.value })} required>
+                {bucketOptions && (
+                  <Select
+                    label={unified ? 'Category *' : 'MMR sub-category *'}
+                    value={form.mmrSubCategory}
+                    onChange={(e) => setForm({ ...form, mmrSubCategory: e.target.value })}
+                    required={editing === 'new'}
+                  >
                     <option value="">— Select —</option>
-                    {mmrSubOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    {bucketOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </Select>
                 )}
               </div>
-              {mmrSubOptions && (
+              {bucketOptions && (
                 <p className="text-[11px] text-gray-500 -mt-1">
-                  RAPSPL serials are auto-assigned per sub-category (PG = Pressure Gauges, VG = Vacuum Gauges, MI = Metrology, LTE = Lab Testing, AOT = Autoclave/Oven/Thermocouples, EOT = EOT/Chain Blocks, OTH = Other) and increment independently in each bucket.
+                  RAPSPL serials are auto-assigned per category (PG = Pressure Gauges, VG = Vacuum Gauges, MI = Metrology, LTE = Lab Testing, AOT = Autoclave/Oven/Thermocouples, EOT = EOT/Chain Blocks, OTH = Other) and increment independently in each bucket.
                 </p>
               )}
             </FormSection>
