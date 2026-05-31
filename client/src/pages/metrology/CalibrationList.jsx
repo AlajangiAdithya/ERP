@@ -644,16 +644,26 @@ export default function CalibrationList({
               </div>
               <div className="grid grid-cols-3 gap-3">
                 {showRapspl && (
-                  <Input label="RAPSPL Serial No" value={form.rapsplSerialNo} onChange={(e) => setForm({ ...form, rapsplSerialNo: e.target.value })} />
+                  <Input
+                    label={mmrSubOptions ? 'RAPSPL Serial No (auto if blank)' : 'RAPSPL Serial No'}
+                    value={form.rapsplSerialNo}
+                    onChange={(e) => setForm({ ...form, rapsplSerialNo: e.target.value })}
+                    placeholder={mmrSubOptions ? 'Leave blank — auto-numbered per sub-category' : ''}
+                  />
                 )}
                 <Input label="Located at (Unit-I, Store, etc.)" value={form.unitLocation} onChange={(e) => setForm({ ...form, unitLocation: e.target.value })} />
                 {mmrSubOptions && (
-                  <Select label="MMR sub-category" value={form.mmrSubCategory} onChange={(e) => setForm({ ...form, mmrSubCategory: e.target.value })}>
+                  <Select label="MMR sub-category *" value={form.mmrSubCategory} onChange={(e) => setForm({ ...form, mmrSubCategory: e.target.value })} required>
                     <option value="">— Select —</option>
                     {mmrSubOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </Select>
                 )}
               </div>
+              {mmrSubOptions && (
+                <p className="text-[11px] text-gray-500 -mt-1">
+                  RAPSPL serials are auto-assigned per sub-category (PG = Pressure Gauges, VG = Vacuum Gauges, MI = Metrology, LTE = Lab Testing, AOT = Autoclave/Oven/Thermocouples, EOT = EOT/Chain Blocks, OTH = Other) and increment independently in each bucket.
+                </p>
+              )}
             </FormSection>
 
             <FormSection title="Specifications">

@@ -81,6 +81,38 @@ const VALID_MMR_SUBS = [
   'OTHER',
 ];
 
+// Per-MMR-sub-category prefix used to mint RAPSPL serials. Each bucket has
+// its own running counter, so Pressure Gauges and Vacuum Gauges start over
+// at 001 independently.
+const MMR_SUB_PREFIX = {
+  PRESSURE_GAUGES:              'PG',
+  VACUUM_GAUGES:                'VG',
+  METROLOGY_INSTRUMENTS:        'MI',
+  LAB_TESTING_EQUIPMENT:        'LTE',
+  AUTOCLAVE_OVEN_THERMOCOUPLES: 'AOT',
+  EOT_CRANES_CHAIN_BLOCKS:      'EOT',
+  OTHER:                        'OTH',
+};
+
+// Build the next RAPSPL serial for a given MMR bucket by scanning the
+// existing rows. Returns e.g. "RAPSPL/PG/001".
+const nextRapsplSerial = async (mmrSubCategory) => {
+  const subPrefix = MMR_SUB_PREFIX[mmrSubCategory] || 'OTH';
+  const prefix = `RAPSPL/${subPrefix}/`;
+  const rows = await prisma.calibrationItem.findMany({
+    where: { rapsplSerialNo: { startsWith: prefix } },
+    select: { rapsplSerialNo: true },
+  });
+  let max = 0;
+  for (const { rapsplSerialNo: serial } of rows) {
+    if (!serial) continue;
+    const tail = serial.slice(prefix.length);
+    const n = parseInt(tail, 10);
+    if (!Number.isNaN(n) && n > max) max = n;
+  }
+  return `${prefix}${String(max + 1).padStart(3, '0')}`;
+};
+
 const parseDate = (v) => {
   if (!v) return null;
   const d = new Date(v);
@@ -203,6 +235,14 @@ router.post('/', authenticate, requireRead, requireWrite, async (req, res) => {
     const records = Array.isArray(req.body.records)
       ? req.body.records.map((r) => sanitizeRecord(r, { partial: false }))
       : [];
+
+    // Auto-mint the RAPSPL serial when the user leaves it blank on MMR rows.
+    // Format: RAPSPL/<sub-prefix>/<NNN>, counter scoped to the sub-category so
+    // each bucket increments independently.
+    if (data.category === 'MMR' && !data.rapsplSerialNo) {
+      data.rapsplSerialNo = await nextRapsplSerial(data.mmrSubCategory);
+    }
+
     const item = await prisma.calibrationItem.create({
       data: { ...data, records: records.length ? { create: records } : undefined },
       include: { records: true },
@@ -224,6 +264,17 @@ router.put('/:id', authenticate, requireRead, requireWrite, async (req, res) => 
     if (!existing) return res.status(404).json({ error: 'Calibration item not found' });
 
     const data = sanitizeItem(req.body, { partial: true });
+
+    // If the row is on the MMR register and the user clears the serial (or
+    // the sub-category changes and the serial isn't set), mint a fresh one
+    // in the new bucket.
+    const effectiveCategory     = data.category        ?? existing.category;
+    const effectiveSubCategory  = data.mmrSubCategory  ?? existing.mmrSubCategory;
+    const serialAfter = 'rapsplSerialNo' in data ? data.rapsplSerialNo : existing.rapsplSerialNo;
+    if (effectiveCategory === 'MMR' && !serialAfter) {
+      data.rapsplSerialNo = await nextRapsplSerial(effectiveSubCategory);
+    }
+
     const item = await prisma.calibrationItem.update({
       where: { id: req.params.id },
       data,
