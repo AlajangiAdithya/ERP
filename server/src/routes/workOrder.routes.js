@@ -2,10 +2,17 @@
 // Work Order — Supply Chain workflow.
 //
 // Flow:
-//   SUPPLY_CHAIN drafts a WO (captures external Supply Order + customer details
-//     + PDC + bank guarantee + insurance + scope per RAPS/WO/01 form) →
+//   SUPPLY_CHAIN logs the external Supply Order (status = ORDER_REVIEW) →
+//   SUPPLY_CHAIN reviews + approves (status = PENDING_ADMIN) →
 //   ADMIN accepts (acceptance form) → WO is assigned to a unit →
 //   That unit's MANAGER accepts → unit logs qty-wise invoices until delivered.
+//
+// Field-level permissions:
+//   - Bank Guarantee + Insurance       : SUPPLY_CHAIN, ACCOUNTING (or ADMIN)
+//   - Delivery Details                 : SUPPLY_CHAIN, ACCOUNTING
+//   - PDC extensions                   : SUPPLY_CHAIN + assigned-unit MANAGER
+//     • Every PDC extension MUST also extend the BG (bankGuaranteeExtendedUpto)
+//   - Remarks                          : any authenticated user (PATCH /:id/remarks)
 //
 // PDC extensions are appended as a numbered log; the latest extension's
 // newPdcDate is the *effective* PDC used for on-time computation.
@@ -22,20 +29,23 @@ const {
 
 const router = express.Router();
 
-const WO_VIEW_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY'];
+const WO_VIEW_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING'];
 const WO_STATUSES = [
-  'PENDING_ADMIN', 'ADMIN_ACCEPTED', 'UNIT_ACCEPTED',
+  'ORDER_REVIEW', 'PENDING_ADMIN', 'ADMIN_ACCEPTED', 'UNIT_ACCEPTED',
   'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'CANCELLED', 'REJECTED', 'ON_HOLD',
 ];
 const DELIVERY_STATUSES = ['NOT_STARTED', 'IN_PROGRESS', 'PARTIAL', 'DELIVERED', 'DELAYED'];
 
 const WO_INCLUDE = {
-  assignedUnit:    { select: { id: true, name: true, code: true } },
-  createdBy:       { select: { id: true, name: true, role: true } },
-  adminAcceptedBy: { select: { id: true, name: true, role: true } },
-  unitAcceptedBy:  { select: { id: true, name: true, role: true } },
-  extensions:      { orderBy: { extensionNo: 'asc' } },
-  invoices:        { orderBy: { invoiceDate: 'asc' } },
+  assignedUnit:               { select: { id: true, name: true, code: true } },
+  createdBy:                  { select: { id: true, name: true, role: true } },
+  orderReviewedBy:            { select: { id: true, name: true, role: true } },
+  orderApprovedBy:            { select: { id: true, name: true, role: true } },
+  adminAcceptedBy:            { select: { id: true, name: true, role: true } },
+  unitAcceptedBy:             { select: { id: true, name: true, role: true } },
+  deliveryDetailsUpdatedBy:   { select: { id: true, name: true, role: true } },
+  extensions:                 { orderBy: { extensionNo: 'asc' } },
+  invoices:                   { orderBy: { invoiceDate: 'asc' } },
 };
 
 // Effective PDC = latest extension if any, else original pdcDate.
@@ -91,7 +101,7 @@ router.get('/', authenticate, authorize(...WO_VIEW_ROLES), async (req, res) => {
     if (req.user.role === 'MANAGER') {
       where.assignedUnitId = req.user.unitId;
     }
-    // SUPPLY_CHAIN, ADMIN, SAFETY: see all.
+    // SUPPLY_CHAIN, ADMIN, SAFETY, ACCOUNTING: see all.
 
     const [rows, total] = await Promise.all([
       prisma.workOrder.findMany({
@@ -138,7 +148,9 @@ router.get('/:id', authenticate, authorize(...WO_VIEW_ROLES), async (req, res) =
   }
 });
 
-// ── POST /api/work-orders — SUPPLY_CHAIN drafts ────────────────
+// ── POST /api/work-orders — SUPPLY_CHAIN logs supply order ──────
+// Lands in ORDER_REVIEW. The Supply Chain team then runs through review +
+// approval to generate the internal Work Order.
 router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
     const body = req.body || {};
@@ -164,6 +176,7 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
           supplyOrderNo: String(body.supplyOrderNo).trim(),
           supplyOrderDate: new Date(body.supplyOrderDate),
           supplyOrderDescription: body.supplyOrderDescription || null,
+          nomenclature: body.nomenclature || null,
           customerName: String(body.customerName).trim(),
           customerContact: body.customerContact || null,
           orderQuantity: Number(body.orderQuantity),
@@ -188,20 +201,20 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
           insuranceNo: body.insuranceNo || null,
           insuranceDate: body.insuranceDate ? new Date(body.insuranceDate) : null,
           assignedUnitId,
-          status: 'PENDING_ADMIN',
+          status: 'ORDER_REVIEW',
           createdById: req.user.id,
         },
         include: WO_INCLUDE,
       });
     });
 
-    // Notify all admins that a new WO is awaiting acceptance.
+    // Notify the Supply Chain team that an order is awaiting review/approval.
     await prisma.notification.create({
       data: {
-        type: 'WORK_ORDER_PENDING_ADMIN',
-        title: `Work Order ${created.workOrderNumber} awaiting acceptance`,
-        message: `${req.user.name} created a Work Order for ${created.customerName} (Qty ${created.orderQuantity} ${created.orderUnit}, PDC ${new Date(created.pdcDate).toLocaleDateString()}). Please review and accept.`,
-        targetRole: 'ADMIN',
+        type: 'WORK_ORDER_PENDING_REVIEW',
+        title: `Order ${created.supplyOrderNo} awaiting review`,
+        message: `${req.user.name} logged supply order ${created.supplyOrderNo} for ${created.customerName} (Qty ${created.orderQuantity} ${created.orderUnit}, PDC ${new Date(created.pdcDate).toLocaleDateString()}). Generate the order review form and approve.`,
+        targetRole: 'SUPPLY_CHAIN',
         sentById: req.user.id,
       },
     });
@@ -213,41 +226,58 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
   }
 });
 
-// ── PATCH /api/work-orders/:id — edit (SUPPLY_CHAIN before admin accept) ──
-router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
+// ── PATCH /api/work-orders/:id — edit (before admin acceptance) ──
+router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'ACCOUNTING'), async (req, res) => {
   try {
     const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
-    if (req.user.role === 'SUPPLY_CHAIN' && existing.status !== 'PENDING_ADMIN') {
-      return res.status(400).json({ error: 'Cannot edit after admin acceptance' });
-    }
 
     const body = req.body || {};
     const data = {};
-    const passthrough = [
-      'supplyOrderNo', 'supplyOrderDescription', 'customerName', 'customerContact',
-      'orderUnit', 'deliveryClause', 'fimDetails', 'inspectionAgency', 'qapNo',
-      'drawingsDetails', 'processDrawingsDetails', 'toolingScope', 'packingDetails',
-      'transportationDetails', 'majorWorksAtSite', 'projectCoordinator',
-      'otherInformation', 'orderTermsAndScope', 'remarks',
-      'bankGuaranteeNo', 'insuranceNo', 'ionNumber',
-    ];
-    for (const f of passthrough) if (body[f] !== undefined) data[f] = body[f] || null;
-    if (body.orderQuantity !== undefined) data.orderQuantity = Number(body.orderQuantity);
-    if (body.supplyOrderDate) data.supplyOrderDate = new Date(body.supplyOrderDate);
-    if (body.pdcDate) data.pdcDate = new Date(body.pdcDate);
-    if (body.bankGuaranteeDate !== undefined) {
-      data.bankGuaranteeDate = body.bankGuaranteeDate ? new Date(body.bankGuaranteeDate) : null;
-    }
-    if (body.insuranceDate !== undefined) {
-      data.insuranceDate = body.insuranceDate ? new Date(body.insuranceDate) : null;
-    }
-    if (body.assignedUnitId !== undefined) {
-      if (body.assignedUnitId) {
-        const u = await prisma.unit.findUnique({ where: { id: body.assignedUnitId } });
-        if (!u) return res.status(400).json({ error: 'Assigned unit not found' });
+
+    // SUPPLY_CHAIN can edit the bulk of the WO while it's still in
+    // ORDER_REVIEW or PENDING_ADMIN. After admin acceptance only the
+    // BG/Insurance + delivery + remarks endpoints (or ADMIN) can touch it.
+    const canEditCore = req.user.role === 'ADMIN'
+      || (req.user.role === 'SUPPLY_CHAIN' && ['ORDER_REVIEW', 'PENDING_ADMIN'].includes(existing.status));
+
+    if (canEditCore) {
+      const passthrough = [
+        'supplyOrderNo', 'supplyOrderDescription', 'nomenclature',
+        'customerName', 'customerContact',
+        'orderUnit', 'deliveryClause', 'fimDetails', 'inspectionAgency', 'qapNo',
+        'drawingsDetails', 'processDrawingsDetails', 'toolingScope', 'packingDetails',
+        'transportationDetails', 'majorWorksAtSite', 'projectCoordinator',
+        'otherInformation', 'orderTermsAndScope', 'ionNumber',
+      ];
+      for (const f of passthrough) if (body[f] !== undefined) data[f] = body[f] || null;
+      if (body.orderQuantity !== undefined) data.orderQuantity = Number(body.orderQuantity);
+      if (body.supplyOrderDate) data.supplyOrderDate = new Date(body.supplyOrderDate);
+      if (body.pdcDate) data.pdcDate = new Date(body.pdcDate);
+      if (body.assignedUnitId !== undefined) {
+        if (body.assignedUnitId) {
+          const u = await prisma.unit.findUnique({ where: { id: body.assignedUnitId } });
+          if (!u) return res.status(400).json({ error: 'Assigned unit not found' });
+        }
+        data.assignedUnitId = body.assignedUnitId || null;
       }
-      data.assignedUnitId = body.assignedUnitId || null;
+    }
+
+    // BG / Insurance — Accounting and Supply Chain both edit these directly.
+    const canEditBgInsurance = ['SUPPLY_CHAIN', 'ACCOUNTING', 'ADMIN'].includes(req.user.role);
+    if (canEditBgInsurance) {
+      if (body.bankGuaranteeNo !== undefined) data.bankGuaranteeNo = body.bankGuaranteeNo || null;
+      if (body.bankGuaranteeDate !== undefined) {
+        data.bankGuaranteeDate = body.bankGuaranteeDate ? new Date(body.bankGuaranteeDate) : null;
+      }
+      if (body.insuranceNo !== undefined) data.insuranceNo = body.insuranceNo || null;
+      if (body.insuranceDate !== undefined) {
+        data.insuranceDate = body.insuranceDate ? new Date(body.insuranceDate) : null;
+      }
+    }
+
+    if (!Object.keys(data).length) {
+      return res.status(400).json({ error: 'No editable fields supplied for your role/status' });
     }
 
     const updated = await prisma.workOrder.update({
@@ -258,6 +288,74 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (re
     res.json(decorate(updated));
   } catch (error) {
     console.error('Update work order error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/work-orders/:id/review — Supply Chain marks review form filled ──
+// Captures the "order review form" step. Status stays ORDER_REVIEW; approval
+// is a separate step so two different SC users can review then approve.
+router.post('/:id/review', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
+  try {
+    const { note } = req.body || {};
+    const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Work order not found' });
+    if (existing.status !== 'ORDER_REVIEW') {
+      return res.status(400).json({ error: 'Order is not in review state' });
+    }
+    const updated = await prisma.workOrder.update({
+      where: { id: req.params.id },
+      data: {
+        orderReviewedAt: new Date(),
+        orderReviewedById: req.user.id,
+        orderReviewNote: note || null,
+      },
+      include: WO_INCLUDE,
+    });
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Review WO error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/work-orders/:id/approve — Supply Chain approves; moves to PENDING_ADMIN ──
+router.post('/:id/approve', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
+  try {
+    const { note } = req.body || {};
+    const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Work order not found' });
+    if (existing.status !== 'ORDER_REVIEW') {
+      return res.status(400).json({ error: 'Order is not in review state' });
+    }
+    if (!existing.orderReviewedAt) {
+      return res.status(400).json({ error: 'Review must be completed before approval' });
+    }
+
+    const updated = await prisma.workOrder.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'PENDING_ADMIN',
+        orderApprovedAt: new Date(),
+        orderApprovedById: req.user.id,
+        orderApprovalNote: note || null,
+      },
+      include: WO_INCLUDE,
+    });
+
+    await prisma.notification.create({
+      data: {
+        type: 'WORK_ORDER_PENDING_ADMIN',
+        title: `Work Order ${updated.workOrderNumber} awaiting acceptance`,
+        message: `${req.user.name} approved order ${updated.supplyOrderNo} (${updated.customerName}, Qty ${updated.orderQuantity} ${updated.orderUnit}, PDC ${new Date(updated.pdcDate).toLocaleDateString()}). Please review and accept.`,
+        targetRole: 'ADMIN',
+        sentById: req.user.id,
+      },
+    });
+
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Approve WO error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -293,7 +391,6 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
       include: WO_INCLUDE,
     });
 
-    // Notify the assigned unit's managers + the creator.
     if (accept && unitId) {
       await prisma.notification.create({
         data: {
@@ -323,8 +420,6 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
 });
 
 // ── POST /api/work-orders/:id/unit-accept — MANAGER of assigned unit ──
-// `accept: true`  → status UNIT_ACCEPTED
-// `accept: false` → status ON_HOLD (supply chain/admin must reassign)
 router.post('/:id/unit-accept', authenticate, authorize('MANAGER'), async (req, res) => {
   try {
     const { accept = true, note } = req.body || {};
@@ -366,7 +461,6 @@ router.post('/:id/unit-accept', authenticate, authorize('MANAGER'), async (req, 
         },
       });
     } else {
-      // Notify the creator + all admins so reassignment can happen.
       await prisma.notification.createMany({
         data: [
           {
@@ -395,9 +489,6 @@ router.post('/:id/unit-accept', authenticate, authorize('MANAGER'), async (req, 
 });
 
 // ── POST /api/work-orders/:id/reassign — SUPPLY_CHAIN/ADMIN ───
-// Available only from ON_HOLD (after unit rejection). Sets a new (or same)
-// assigned unit and moves status back to ADMIN_ACCEPTED so the new unit
-// manager can accept/reject.
 router.post('/:id/reassign', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
     const { assignedUnitId, note } = req.body || {};
@@ -445,18 +536,31 @@ router.post('/:id/reassign', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), a
 });
 
 // ── POST /api/work-orders/:id/extensions — log a PDC extension ────────
-router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN'), async (req, res) => {
+// Open to SUPPLY_CHAIN and the concerned unit MANAGER. PDC extension MUST
+// carry a bankGuaranteeExtendedUpto date — the BG always extends with the PDC.
+router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN', 'MANAGER'), async (req, res) => {
   try {
-    const { newPdcDate, reason } = req.body || {};
+    const {
+      newPdcDate, reason, bankGuaranteeExtendedUpto,
+      requestLetterStatus, prcStatus,
+    } = req.body || {};
     if (!newPdcDate) return res.status(400).json({ error: 'newPdcDate is required' });
+    if (!bankGuaranteeExtendedUpto) {
+      return res.status(400).json({
+        error: 'bankGuaranteeExtendedUpto is required — Bank Guarantee must be extended whenever PDC is extended',
+      });
+    }
 
     const existing = await prisma.workOrder.findUnique({
       where: { id: req.params.id },
       include: { extensions: { orderBy: { extensionNo: 'desc' }, take: 1 } },
     });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
-    if (['CANCELLED', 'REJECTED'].includes(existing.status)) {
-      return res.status(400).json({ error: 'Cannot extend a cancelled/rejected work order' });
+    if (req.user.role === 'MANAGER' && existing.assignedUnitId !== req.user.unitId) {
+      return res.status(403).json({ error: 'Not your unit' });
+    }
+    if (['CANCELLED', 'REJECTED', 'ORDER_REVIEW'].includes(existing.status)) {
+      return res.status(400).json({ error: 'Cannot extend a cancelled/rejected/in-review work order' });
     }
 
     const nextNo = (existing.extensions[0]?.extensionNo || 0) + 1;
@@ -466,6 +570,9 @@ router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN'), async (r
         extensionNo: nextNo,
         newPdcDate: new Date(newPdcDate),
         reason: reason || null,
+        bankGuaranteeExtendedUpto: new Date(bankGuaranteeExtendedUpto),
+        requestLetterStatus: requestLetterStatus || null,
+        prcStatus: prcStatus || null,
         grantedById: req.user.id,
       },
     });
@@ -477,8 +584,83 @@ router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN'), async (r
   }
 });
 
+// ── PATCH /api/work-orders/:id/extensions/:extId — update extension fields ─
+// SUPPLY_CHAIN / assigned MANAGER can update request-letter and PRC statuses
+// as they progress through the approvals.
+router.patch('/:id/extensions/:extId', authenticate, authorize('SUPPLY_CHAIN', 'MANAGER'), async (req, res) => {
+  try {
+    const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (req.user.role === 'MANAGER' && wo.assignedUnitId !== req.user.unitId) {
+      return res.status(403).json({ error: 'Not your unit' });
+    }
+    const body = req.body || {};
+    const data = {};
+    if (body.requestLetterStatus !== undefined) data.requestLetterStatus = body.requestLetterStatus || null;
+    if (body.prcStatus !== undefined) data.prcStatus = body.prcStatus || null;
+    if (body.bankGuaranteeExtendedUpto !== undefined) {
+      data.bankGuaranteeExtendedUpto = body.bankGuaranteeExtendedUpto
+        ? new Date(body.bankGuaranteeExtendedUpto)
+        : null;
+    }
+    if (!Object.keys(data).length) return res.status(400).json({ error: 'No editable fields supplied' });
+    const ext = await prisma.workOrderExtension.update({
+      where: { id: req.params.extId },
+      data,
+    });
+    res.json(ext);
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Extension not found' });
+    console.error('Update WO extension error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── PUT /api/work-orders/:id/delivery-details — SUPPLY_CHAIN + ACCOUNTING ──
+router.put('/:id/delivery-details', authenticate, authorize('SUPPLY_CHAIN', 'ACCOUNTING', 'ADMIN'), async (req, res) => {
+  try {
+    const { deliveryDetails } = req.body || {};
+    const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Work order not found' });
+    const updated = await prisma.workOrder.update({
+      where: { id: req.params.id },
+      data: {
+        deliveryDetails: deliveryDetails || null,
+        deliveryDetailsUpdatedAt: new Date(),
+        deliveryDetailsUpdatedById: req.user.id,
+      },
+      include: WO_INCLUDE,
+    });
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Update delivery details error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── PATCH /api/work-orders/:id/remarks — anybody who can see the WO can edit ──
+// Per client direction: "In remarks - any body can write anything."
+router.patch('/:id/remarks', authenticate, authorize(...WO_VIEW_ROLES), async (req, res) => {
+  try {
+    const { remarks } = req.body || {};
+    const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Work order not found' });
+    if (req.user.role === 'MANAGER' && existing.assignedUnitId !== req.user.unitId) {
+      return res.status(403).json({ error: 'Not your unit' });
+    }
+    const updated = await prisma.workOrder.update({
+      where: { id: req.params.id },
+      data: { remarks: remarks || null },
+      include: WO_INCLUDE,
+    });
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Update WO remarks error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── POST /api/work-orders/:id/invoices — log qty-wise invoice ─────────
-// Manager of the assigned unit (or SUPPLY_CHAIN/ADMIN) records each invoice.
 router.post('/:id/invoices', authenticate, authorize('MANAGER', 'SUPPLY_CHAIN'), async (req, res) => {
   try {
     const { invoiceNo, invoiceDate, quantity, amount, remarks } = req.body || {};

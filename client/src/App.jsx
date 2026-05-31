@@ -172,9 +172,11 @@ export default function App() {
                 <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'METROLOGY', 'NDT']}><InterOfficeNote /></PrivateRoute>
               } />
 
-              {/* Work Orders — SUPPLY_CHAIN drafts; ADMIN accepts; assigned unit MANAGER executes; SAFETY monitors */}
+              {/* Work Orders — SUPPLY_CHAIN drafts → reviews+approves; ADMIN accepts;
+                  assigned unit MANAGER executes; ACCOUNTING manages BG/Insurance + delivery;
+                  SAFETY monitors. */}
               <Route path="/work-orders" element={
-                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY']}><WorkOrders /></PrivateRoute>
+                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING']}><WorkOrders /></PrivateRoute>
               } />
 
               {/* Safety Monitor */}

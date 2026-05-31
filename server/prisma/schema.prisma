@@ -52,8 +52,11 @@ model User {
   transferRequestsCreated    InventoryTransferRequest[] @relation("TransferRequester")
   transferRequestsApproved   InventoryTransferRequest[] @relation("TransferApprover")
   workOrdersCreated          WorkOrder[]                @relation("WorkOrderCreator")
+  workOrdersReviewed         WorkOrder[]                @relation("WorkOrderReviewer")
+  workOrdersApproved         WorkOrder[]                @relation("WorkOrderApprover")
   workOrdersAdminAccepted    WorkOrder[]                @relation("WorkOrderAdminAcceptor")
   workOrdersUnitAccepted     WorkOrder[]                @relation("WorkOrderUnitAcceptor")
+  workOrdersDeliveryUpdated  WorkOrder[]                @relation("WorkOrderDeliveryUpdater")
   workOrderExtensionsGranted WorkOrderExtension[]       @relation("WorkOrderExtensionGranter")
   workOrderInvoicesLogged    WorkOrderInvoice[]         @relation("WorkOrderInvoiceCreator")
   materialPoolsCreated       MaterialPool[]             @relation("MaterialPoolCreator")
@@ -383,10 +386,10 @@ enum PRItemQuotationStatus {
 // Quotation/PO rows still snapshot supplierName/Contact/Address so historical
 // records survive supplier renames. The supplierId FK is for lookups + history.
 model Supplier {
-  id                         String              @id @default(uuid())
+  id                         String                          @id @default(uuid())
   // Vendor ID auto-generated as RAPS/SUP/<NNNN>. Sequential across all FY.
-  vendorIdNo                 String?             @unique
-  name                       String              @unique
+  vendorIdNo                 String?                         @unique
+  name                       String                          @unique
   // Legacy single-line contact retained; new format splits into person + phone.
   contact                    String?
   contactPerson              String?
@@ -394,7 +397,7 @@ model Supplier {
   address                    String?
   gstNumber                  String?
   email                      String?
-  isActive                   Boolean             @default(true)
+  isActive                   Boolean                         @default(true)
   notes                      String?
   // Approved Supplier List columns (client format).
   scopeOfSupply              String?
@@ -413,8 +416,8 @@ model Supplier {
   supplierAssessmentPdfUrl   String?
   assessmentFiscalYear       String?
   assessmentUploadedAt       DateTime?
-  createdAt                  DateTime            @default(now())
-  updatedAt                  DateTime            @updatedAt
+  createdAt                  DateTime                        @default(now())
+  updatedAt                  DateTime                        @updatedAt
   quotations                 Quotation[]
   quotationItems             QuotationItem[]
   purchaseOrders             PurchaseOrder[]
@@ -442,40 +445,40 @@ enum SupplierApprovalStatus {
 // Snapshot of the printable Supplier Re-Evaluation Form. The latest record per
 // (supplier, financialYear) is what the master list shows.
 model SupplierReEvaluation {
-  id                          String     @id @default(uuid())
-  supplierId                  String
-  supplier                    Supplier   @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  financialYear               String     // e.g. "26-27"
-  initialEvaluationDate       DateTime?
-  initialEvaluationScope      String?    // Product / Process / Service text
+  id                        String                 @id @default(uuid())
+  supplierId                String
+  supplier                  Supplier               @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  financialYear             String // e.g. "26-27"
+  initialEvaluationDate     DateTime?
+  initialEvaluationScope    String? // Product / Process / Service text
   // YES/NO criteria — nullable boolean so "not answered" is distinct from NO.
-  noOrders6Months             Boolean?
-  noOrdersReason              String?
-  managementChanged           Boolean?
-  newMgmtContinuingTerms      Boolean?
-  shiftedLocation             Boolean?
-  newAddress                  String?
-  performanceBelowPar         Boolean?
-  correctiveActionInitiated   String?    // free-text: instructions given
-  recommendedTermination      Boolean?
-  correctiveActionEffective   Boolean?
-  noNonconformitiesReported   Boolean?
-  newMachinesAdded            Boolean?
-  wishToContinueForNewParts   Boolean?
-  isoCertified                Boolean?
+  noOrders6Months           Boolean?
+  noOrdersReason            String?
+  managementChanged         Boolean?
+  newMgmtContinuingTerms    Boolean?
+  shiftedLocation           Boolean?
+  newAddress                String?
+  performanceBelowPar       Boolean?
+  correctiveActionInitiated String? // free-text: instructions given
+  recommendedTermination    Boolean?
+  correctiveActionEffective Boolean?
+  noNonconformitiesReported Boolean?
+  newMachinesAdded          Boolean?
+  wishToContinueForNewParts Boolean?
+  isoCertified              Boolean?
   // Outcome.
-  overallDecision             SupplierReEvalDecision @default(CONTINUES)
+  overallDecision           SupplierReEvalDecision @default(CONTINUES)
   // Schedule.
-  evaluationDate              DateTime?
-  nextReviewDate              DateTime?
+  evaluationDate            DateTime?
+  nextReviewDate            DateTime?
   // Performance score copied from the latest performance rating, or entered
   // manually. Shown in the "Performance Rating after review" column.
-  performanceRating           Float?
-  remarks                     String?
-  evaluatedByUserId           String?
-  evaluatedByName             String?    // snapshot in case the user is renamed
-  createdAt                   DateTime   @default(now())
-  updatedAt                   DateTime   @updatedAt
+  performanceRating         Float?
+  remarks                   String?
+  evaluatedByUserId         String?
+  evaluatedByName           String? // snapshot in case the user is renamed
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
 
   @@index([supplierId])
   @@index([supplierId, financialYear])
@@ -490,30 +493,30 @@ enum SupplierReEvalDecision {
 // Captured during onboarding (or re-captured if vendor profile changes). The
 // existing supplierAssessmentPdfUrl is kept as an optional fallback / scan.
 model SupplierAssessmentForm {
-  id                       String     @id @default(uuid())
-  supplierId               String
-  supplier                 Supplier   @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  financialYear            String     // FY the form was submitted under
-  companyName              String?
-  companyAddress           String?
-  businessType             SupplierBusinessType?
-  businessRole             SupplierBusinessRole?
-  productsRange            String?
-  machineryAndEquipment    String?
-  majorCustomers           String?
-  transportFacilities      String?
-  deliveryPeriod           String?
-  allowsCapabilityVerify   Boolean?
-  hasQualityControlSystem  Boolean?
-  isoCertified             Boolean?
-  isoCertificateUrl        String?
-  testCertWithDelivery     Boolean?
+  id                        String                @id @default(uuid())
+  supplierId                String
+  supplier                  Supplier              @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  financialYear             String // FY the form was submitted under
+  companyName               String?
+  companyAddress            String?
+  businessType              SupplierBusinessType?
+  businessRole              SupplierBusinessRole?
+  productsRange             String?
+  machineryAndEquipment     String?
+  majorCustomers            String?
+  transportFacilities       String?
+  deliveryPeriod            String?
+  allowsCapabilityVerify    Boolean?
+  hasQualityControlSystem   Boolean?
+  isoCertified              Boolean?
+  isoCertificateUrl         String?
+  testCertWithDelivery      Boolean?
   readyToUpgradePerformance Boolean?
-  reviewComments           String?
-  reviewedByName           String?
-  reviewedByUserId         String?
-  createdAt                DateTime   @default(now())
-  updatedAt                DateTime   @updatedAt
+  reviewComments            String?
+  reviewedByName            String?
+  reviewedByUserId          String?
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
 
   @@index([supplierId])
   @@index([supplierId, financialYear])
@@ -537,41 +540,41 @@ enum SupplierBusinessRole {
 // in items. Mirrors the printable rating sheet — the overall % is recomputed
 // from item rows on every write.
 model SupplierPerformanceRating {
-  id              String                          @id @default(uuid())
-  financialYear   String                          // e.g. "24-25"
-  periodFrom      DateTime?
-  periodTo        DateTime?
-  preparedDate    DateTime?
-  preparedByName  String?
+  id               String                          @id @default(uuid())
+  financialYear    String // e.g. "24-25"
+  periodFrom       DateTime?
+  periodTo         DateTime?
+  preparedDate     DateTime?
+  preparedByName   String?
   preparedByUserId String?
-  minimumCriteria Float                           @default(85)
-  overallRating   Float?                          // computed from items
-  remarks         String?
-  createdAt       DateTime                        @default(now())
-  updatedAt       DateTime                        @updatedAt
-  items           SupplierPerformanceRatingItem[]
+  minimumCriteria  Float                           @default(85)
+  overallRating    Float? // computed from items
+  remarks          String?
+  createdAt        DateTime                        @default(now())
+  updatedAt        DateTime                        @updatedAt
+  items            SupplierPerformanceRatingItem[]
 
   @@unique([financialYear])
   @@index([financialYear])
 }
 
 model SupplierPerformanceRatingItem {
-  id                       String                     @id @default(uuid())
-  ratingId                 String
-  rating                   SupplierPerformanceRating  @relation(fields: [ratingId], references: [id], onDelete: Cascade)
-  supplierId               String?
-  supplier                 Supplier?                  @relation(fields: [supplierId], references: [id])
-  itemDescription          String
-  supplierName             String
-  suppliesReceived         Int                        @default(0)
-  qtyAccepted              Int                        @default(0)
-  qualityRating            Float                      @default(0)  // out of 60
-  totalDeliveries          Int                        @default(0)
-  deliveriesOnTime         Int                        @default(0)
-  deliveriesLate           Int                        @default(0)
-  deliveryRating           Float                      @default(0)  // out of 40
-  totalRating              Float                      @default(0)  // out of 100
-  createdAt                DateTime                   @default(now())
+  id               String                    @id @default(uuid())
+  ratingId         String
+  rating           SupplierPerformanceRating @relation(fields: [ratingId], references: [id], onDelete: Cascade)
+  supplierId       String?
+  supplier         Supplier?                 @relation(fields: [supplierId], references: [id])
+  itemDescription  String
+  supplierName     String
+  suppliesReceived Int                       @default(0)
+  qtyAccepted      Int                       @default(0)
+  qualityRating    Float                     @default(0) // out of 60
+  totalDeliveries  Int                       @default(0)
+  deliveriesOnTime Int                       @default(0)
+  deliveriesLate   Int                       @default(0)
+  deliveryRating   Float                     @default(0) // out of 40
+  totalRating      Float                     @default(0) // out of 100
+  createdAt        DateTime                  @default(now())
 
   @@index([ratingId])
   @@index([supplierId])
@@ -1176,26 +1179,34 @@ enum TransferStatus {
 // tracked via per-invoice qty entries; on-time % is computed from PDC (latest
 // extension wins) vs. completion date.
 model WorkOrder {
-  id                     String                  @id @default(uuid())
+  id              String  @id @default(uuid())
   // Auto-generated internal Work Order number — RAPS/WO/<FY>/<N>
-  workOrderNumber        String                  @unique
+  workOrderNumber String  @unique
   // ION header number on the printable form — RAPS/<UNIT>/<FY>/<N>. Auto.
-  ionNumber              String?                 @unique
+  ionNumber       String? @unique
 
   // ── External Supply Order (customer's reference) ──
   supplyOrderNo          String
   supplyOrderDate        DateTime
   supplyOrderDescription String?
+  // Short name / description of the item under the supply order.
+  nomenclature           String?
 
   // ── Customer ──
-  customerName           String
-  customerContact        String?
+  customerName    String
+  customerContact String?
 
   // ── Order details ──
-  orderQuantity          Float
-  orderUnit              String                  @default("Nos")
-  pdcDate                DateTime                // Primary delivery commitment date
-  deliveryClause         String?
+  orderQuantity  Float
+  orderUnit      String   @default("Nos")
+  pdcDate        DateTime // Primary delivery commitment date
+  deliveryClause String?
+
+  // Delivery progress notes (filled by Supply Chain or Accounts).
+  deliveryDetails            String?
+  deliveryDetailsUpdatedAt   DateTime?
+  deliveryDetailsUpdatedById String?
+  deliveryDetailsUpdatedBy   User?     @relation("WorkOrderDeliveryUpdater", fields: [deliveryDetailsUpdatedById], references: [id])
 
   // ── Scope / specs ──
   fimDetails             String?
@@ -1203,55 +1214,65 @@ model WorkOrder {
   qapNo                  String?
   drawingsDetails        String?
   processDrawingsDetails String?
-  toolingScope           String?                 // RAPS scope / Customer scope
+  toolingScope           String? // RAPS scope / Customer scope
   packingDetails         String?
   transportationDetails  String?
-  majorWorksAtSite       String?                 // e.g. "Unit-5"
+  majorWorksAtSite       String? // e.g. "Unit-5"
   projectCoordinator     String?
   otherInformation       String?
   orderTermsAndScope     String?
   remarks                String?
 
   // ── Bank Guarantee ──
-  bankGuaranteeNo        String?
-  bankGuaranteeDate      DateTime?
+  bankGuaranteeNo   String?
+  bankGuaranteeDate DateTime?
 
   // ── Insurance ──
-  insuranceNo            String?
-  insuranceDate          DateTime?
+  insuranceNo   String?
+  insuranceDate DateTime?
 
   // ── Unit assignment + acceptance ──
-  assignedUnitId         String?
-  assignedUnit           Unit?                   @relation("WorkOrderAssignedUnit", fields: [assignedUnitId], references: [id])
-  unitAcceptedAt         DateTime?
-  unitAcceptedById       String?
-  unitAcceptedBy         User?                   @relation("WorkOrderUnitAcceptor", fields: [unitAcceptedById], references: [id])
-  unitAcceptanceNote     String?
+  assignedUnitId     String?
+  assignedUnit       Unit?     @relation("WorkOrderAssignedUnit", fields: [assignedUnitId], references: [id])
+  unitAcceptedAt     DateTime?
+  unitAcceptedById   String?
+  unitAcceptedBy     User?     @relation("WorkOrderUnitAcceptor", fields: [unitAcceptedById], references: [id])
+  unitAcceptanceNote String?
+
+  // ── Order review + approval (Supply Chain — first step in the flow) ──
+  orderReviewedAt   DateTime?
+  orderReviewedById String?
+  orderReviewedBy   User?     @relation("WorkOrderReviewer", fields: [orderReviewedById], references: [id])
+  orderReviewNote   String?
+  orderApprovedAt   DateTime?
+  orderApprovedById String?
+  orderApprovedBy   User?     @relation("WorkOrderApprover", fields: [orderApprovedById], references: [id])
+  orderApprovalNote String?
 
   // ── Admin acceptance (acceptance form sent to admins) ──
-  adminAcceptedAt        DateTime?
-  adminAcceptedById      String?
-  adminAcceptedBy        User?                   @relation("WorkOrderAdminAcceptor", fields: [adminAcceptedById], references: [id])
-  adminAcceptanceNote    String?
+  adminAcceptedAt     DateTime?
+  adminAcceptedById   String?
+  adminAcceptedBy     User?     @relation("WorkOrderAdminAcceptor", fields: [adminAcceptedById], references: [id])
+  adminAcceptanceNote String?
 
-  status                 WorkOrderStatus         @default(PENDING_ADMIN)
-  deliveryStatus         WorkOrderDeliveryStatus @default(NOT_STARTED)
+  status         WorkOrderStatus         @default(ORDER_REVIEW)
+  deliveryStatus WorkOrderDeliveryStatus @default(NOT_STARTED)
 
   // Aggregated qty trackers (kept in sync from invoices).
-  deliveredQty           Float                   @default(0)
-  invoicedQty            Float                   @default(0)
-  invoicedAmount         Float                   @default(0)
+  deliveredQty   Float @default(0)
+  invoicedQty    Float @default(0)
+  invoicedAmount Float @default(0)
 
   // Set when the unit marks the WO fully delivered. Used for on-time %.
-  completedAt            DateTime?
+  completedAt DateTime?
 
-  createdById            String
-  createdBy              User                    @relation("WorkOrderCreator", fields: [createdById], references: [id])
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
+  createdById String
+  createdBy   User     @relation("WorkOrderCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  extensions             WorkOrderExtension[]
-  invoices               WorkOrderInvoice[]
+  extensions WorkOrderExtension[]
+  invoices   WorkOrderInvoice[]
 
   @@index([assignedUnitId])
   @@index([status])
@@ -1261,15 +1282,20 @@ model WorkOrder {
 // PDC extension log (Extension 1, 2, ...). Latest extension's newPdcDate is the
 // effective PDC for on-time computation.
 model WorkOrderExtension {
-  id           String    @id @default(uuid())
-  workOrderId  String
-  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  extensionNo  Int
-  newPdcDate   DateTime
-  reason       String?
-  grantedAt    DateTime  @default(now())
-  grantedById  String?
-  grantedBy    User?     @relation("WorkOrderExtensionGranter", fields: [grantedById], references: [id])
+  id                        String    @id @default(uuid())
+  workOrderId               String
+  workOrder                 WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  extensionNo               Int
+  newPdcDate                DateTime
+  reason                    String?
+  // PDC extension requires the bank guarantee to be extended too.
+  bankGuaranteeExtendedUpto DateTime?
+  // Workflow status of the customer-facing request letter and PRC.
+  requestLetterStatus       String?
+  prcStatus                 String?
+  grantedAt                 DateTime  @default(now())
+  grantedById               String?
+  grantedBy                 User?     @relation("WorkOrderExtensionGranter", fields: [grantedById], references: [id])
 
   @@unique([workOrderId, extensionNo])
   @@index([workOrderId])
@@ -1277,31 +1303,32 @@ model WorkOrderExtension {
 
 // Per-invoice qty + amount log (qty-wise invoice tracking).
 model WorkOrderInvoice {
-  id           String    @id @default(uuid())
-  workOrderId  String
-  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  invoiceNo    String
-  invoiceDate  DateTime
-  quantity     Float
-  amount       Float?
-  remarks      String?
-  createdById  String?
-  createdBy    User?     @relation("WorkOrderInvoiceCreator", fields: [createdById], references: [id])
-  createdAt    DateTime  @default(now())
+  id          String    @id @default(uuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  invoiceNo   String
+  invoiceDate DateTime
+  quantity    Float
+  amount      Float?
+  remarks     String?
+  createdById String?
+  createdBy   User?     @relation("WorkOrderInvoiceCreator", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
 
   @@index([workOrderId])
 }
 
 enum WorkOrderStatus {
-  PENDING_ADMIN     // drafted by SUPPLY_CHAIN; awaiting admin acceptance
-  ADMIN_ACCEPTED    // admin accepted; awaiting unit acceptance
-  UNIT_ACCEPTED     // unit acknowledged; execution begins
-  IN_PROGRESS       // ≥1 invoice logged
-  COMPLETED         // delivered qty ≥ order qty
+  ORDER_REVIEW // Supply Chain drafted from the customer SO; awaiting in-house review+approval
+  PENDING_ADMIN // approved by Supply Chain; awaiting admin acceptance
+  ADMIN_ACCEPTED // admin accepted; awaiting unit acceptance
+  UNIT_ACCEPTED // unit acknowledged; execution begins
+  IN_PROGRESS // ≥1 invoice logged
+  COMPLETED // delivered qty ≥ order qty
   CLOSED
   CANCELLED
-  REJECTED          // admin rejected
-  ON_HOLD           // unit rejected; awaiting reassignment by supply chain/admin
+  REJECTED // admin rejected
+  ON_HOLD // unit rejected; awaiting reassignment by supply chain/admin
 }
 
 enum WorkOrderDeliveryStatus {
