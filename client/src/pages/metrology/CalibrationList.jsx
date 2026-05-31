@@ -20,11 +20,23 @@ const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
 const FY_COLUMNS = ['FY 26-27', 'FY 27-28'];
 
 // Metrology access:
-// Edit: METROLOGY, QC, MANAGER on UNIT-V.
+// Edit: METROLOGY, QC, MANAGER for Unit 5.
 // View: ADMIN, METROLOGY, QC, MANAGER (all units). SUPERADMIN bypasses.
-const EDIT_UNIT_CODES = ['UNIT-V'];
+// Unit 5 may appear as code '5', name 'Unit 5', or username 'unit 5'.
+const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
+const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
 const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC'];
+
+const isUnit5Manager = (user) => {
+  if (user?.role !== 'MANAGER') return false;
+  const code = (user?.unit?.code || '').toString().toUpperCase();
+  const name = (user?.unit?.name || '').toString().trim().toLowerCase();
+  const uname = (user?.username || '').toString().trim().toLowerCase();
+  return EDIT_UNIT_CODES.includes(code)
+    || EDIT_UNIT_NAMES.includes(name)
+    || EDIT_UNIT_NAMES.includes(uname);
+};
 
 const fmtDate = (v) => {
   if (!v) return '';
@@ -95,15 +107,14 @@ export default function CalibrationList({
   mmrSubOptions = null, // [{value, label}] when category=MMR
 }) {
   const { user } = useAuth();
-  const userUnitCode = user?.unit?.code || user?.unit?.name || '';
 
   const canEdit = useMemo(() => {
     if (!user) return false;
     if (user.role === 'SUPERADMIN') return true; // owner hatch
     if (BASE_EDIT_ROLES.includes(user.role)) return true;
-    if (user.role === 'MANAGER' && EDIT_UNIT_CODES.includes(userUnitCode)) return true;
+    if (isUnit5Manager(user)) return true;
     return false;
-  }, [user, userUnitCode]);
+  }, [user]);
 
   const canView = useMemo(() => {
     if (!user) return false;

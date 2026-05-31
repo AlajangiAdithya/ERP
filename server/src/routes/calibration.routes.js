@@ -16,17 +16,30 @@ const { calibrationCertUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
 
-const EDIT_UNIT_CODES = ['UNIT-V'];
+// Unit 5 may appear as code '5', name 'Unit 5', or username 'unit 5'
+// depending on which path created the account — match any of them.
+const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
+const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
 const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC'];
 
-const unitCodeOf = (user) => user?.unit?.code || user?.unit?.name || '';
+const unitCodeOf = (user) => (user?.unit?.code || '').toString().toUpperCase();
+const unitNameOf = (user) => (user?.unit?.name || '').toString().trim().toLowerCase();
+const usernameOf = (user) => (user?.username || '').toString().trim().toLowerCase();
+
+const isUnit5Manager = (user) => {
+  if (user?.role !== 'MANAGER') return false;
+  if (EDIT_UNIT_CODES.includes(unitCodeOf(user))) return true;
+  if (EDIT_UNIT_NAMES.includes(unitNameOf(user))) return true;
+  if (EDIT_UNIT_NAMES.includes(usernameOf(user))) return true;
+  return false;
+};
 
 const canWrite = (user) => {
   if (!user) return false;
   if (user.role === 'SUPERADMIN') return true; // owner hatch, never appears in UI
   if (BASE_EDIT_ROLES.includes(user.role)) return true;
-  if (user.role === 'MANAGER' && EDIT_UNIT_CODES.includes(unitCodeOf(user))) return true;
+  if (isUnit5Manager(user)) return true;
   return false;
 };
 

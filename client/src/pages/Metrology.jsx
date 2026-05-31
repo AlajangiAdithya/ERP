@@ -9,10 +9,23 @@ import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 
 // View: ADMIN, METROLOGY, QC, all unit MANAGERs. Edit: METROLOGY, QC,
-// MANAGER@UNIT-V. SUPERADMIN keeps its owner-only bypass.
-const MANAGER_EDIT_UNITS = ['UNIT-V'];
+// MANAGER for Unit 5. SUPERADMIN keeps its owner-only bypass.
+// Unit 5 may appear as code '5', name 'Unit 5', or username 'unit 5'
+// depending on how the account was provisioned.
+const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
+const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
 const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC'];
+
+const isUnit5Manager = (user) => {
+  if (user?.role !== 'MANAGER') return false;
+  const code = (user?.unit?.code || '').toString().toUpperCase();
+  const name = (user?.unit?.name || '').toString().trim().toLowerCase();
+  const uname = (user?.username || '').toString().trim().toLowerCase();
+  return EDIT_UNIT_CODES.includes(code)
+    || EDIT_UNIT_NAMES.includes(name)
+    || EDIT_UNIT_NAMES.includes(uname);
+};
 
 const MODULES = [
   {
@@ -88,11 +101,10 @@ const daysUntil = (d) => Math.ceil((new Date(d) - new Date()) / (1000 * 60 * 60 
 export default function Metrology() {
   const { user } = useAuth();
   const role = user?.role;
-  const unitCode = user?.unit?.code || user?.unit?.name || '';
 
   const canEdit = role === 'SUPERADMIN'
     || BASE_EDIT_ROLES.includes(role)
-    || (role === 'MANAGER' && MANAGER_EDIT_UNITS.includes(unitCode));
+    || isUnit5Manager(user);
   const canView = canEdit
     || BASE_VIEW_ROLES.includes(role)
     || role === 'MANAGER';
