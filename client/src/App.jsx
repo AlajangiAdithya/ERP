@@ -172,10 +172,10 @@ export default function App() {
               } />
 
               {/* Work Orders — SUPPLY_CHAIN drafts → reviews+approves; ADMIN accepts;
-                  assigned unit MANAGER executes (status + remarks); SUPPLY_CHAIN owns
-                  BG/Insurance + delivery; SAFETY monitors. Accounts has no WO access. */}
+                  assigned unit MANAGER executes (status + remarks); SUPPLY_CHAIN or
+                  ACCOUNTING own BG/Insurance + delivery; SAFETY monitors. */}
               <Route path="/work-orders" element={
-                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY']}><WorkOrders /></PrivateRoute>
+                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING']}><WorkOrders /></PrivateRoute>
               } />
 
               {/* Safety Monitor */}

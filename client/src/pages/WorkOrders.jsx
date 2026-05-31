@@ -525,11 +525,12 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
   const isCreator = role === 'SUPPLY_CHAIN' || role === 'ADMIN';
   const isAdmin = role === 'ADMIN';
   const isSupplyChain = role === 'SUPPLY_CHAIN';
+  const isAccounting = role === 'ACCOUNTING';
   const isUnitManager = role === 'MANAGER' && currentUser.unitId === wo.assignedUnitId;
   const canReassign = (isSupplyChain || isAdmin) && wo.status === 'ON_HOLD';
   const canManageExtensions = isSupplyChain || isUnitManager;
-  const canEditDelivery = isSupplyChain || isAdmin;
-  const canEditBgInsurance = isSupplyChain || isAdmin;
+  const canEditDelivery = isSupplyChain || isAdmin || isAccounting;
+  const canEditBgInsurance = isSupplyChain || isAdmin || isAccounting;
   // Anyone who can see the WO can edit remarks.
   const canEditRemarks = true;
   const meta = STATUS_META[wo.status];

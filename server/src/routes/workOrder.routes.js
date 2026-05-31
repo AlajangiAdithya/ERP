@@ -7,9 +7,9 @@
 //   ADMIN accepts (acceptance form) → WO is assigned to a unit →
 //   That unit's MANAGER accepts → unit logs qty-wise invoices until delivered.
 //
-// Field-level permissions (per access chart RAPS/QSP — Accounts has no WO access):
-//   - Bank Guarantee + Insurance       : SUPPLY_CHAIN (or ADMIN)
-//   - Delivery Details                 : SUPPLY_CHAIN (or ADMIN)
+// Field-level permissions (per client direction):
+//   - Bank Guarantee + Insurance       : ACCOUNTING or SUPPLY_CHAIN (ADMIN always)
+//   - Delivery Details                 : SUPPLY_CHAIN or ACCOUNTING (ADMIN always)
 //   - PDC extensions                   : SUPPLY_CHAIN + assigned-unit MANAGER
 //     • Every PDC extension MUST also extend the BG (bankGuaranteeExtendedUpto)
 //   - Remarks                          : any role with view access (PATCH /:id/remarks)
@@ -29,7 +29,7 @@ const {
 
 const router = express.Router();
 
-const WO_VIEW_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY'];
+const WO_VIEW_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING'];
 const WO_STATUSES = [
   'ORDER_REVIEW', 'PENDING_ADMIN', 'ADMIN_ACCEPTED', 'UNIT_ACCEPTED',
   'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'CANCELLED', 'REJECTED', 'ON_HOLD',
@@ -227,7 +227,8 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
 });
 
 // ── PATCH /api/work-orders/:id — edit (before admin acceptance) ──
-router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
+// ACCOUNTING can hit this endpoint but only to set BG/Insurance fields.
+router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'ACCOUNTING'), async (req, res) => {
   try {
     const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
@@ -263,8 +264,8 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (re
       }
     }
 
-    // BG / Insurance — Supply Chain owns these directly (Accounts has no WO access).
-    const canEditBgInsurance = ['SUPPLY_CHAIN', 'ADMIN'].includes(req.user.role);
+    // BG / Insurance — Accounts or Supply Chain (ADMIN always).
+    const canEditBgInsurance = ['SUPPLY_CHAIN', 'ADMIN', 'ACCOUNTING'].includes(req.user.role);
     if (canEditBgInsurance) {
       if (body.bankGuaranteeNo !== undefined) data.bankGuaranteeNo = body.bankGuaranteeNo || null;
       if (body.bankGuaranteeDate !== undefined) {
@@ -616,8 +617,8 @@ router.patch('/:id/extensions/:extId', authenticate, authorize('SUPPLY_CHAIN', '
   }
 });
 
-// ── PUT /api/work-orders/:id/delivery-details — SUPPLY_CHAIN owns this ──
-router.put('/:id/delivery-details', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
+// ── PUT /api/work-orders/:id/delivery-details — SUPPLY_CHAIN or ACCOUNTING ──
+router.put('/:id/delivery-details', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'ACCOUNTING'), async (req, res) => {
   try {
     const { deliveryDetails } = req.body || {};
     const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
