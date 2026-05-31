@@ -248,7 +248,7 @@ function ApprovedSupplierTable({ suppliers, currentFY, canEdit, onEditSupplier, 
             const ratingValue = r?.performanceRating;
             const ratingBelow = ratingValue != null && ratingValue < 85;
             return (
-              <tr key={s.id} className={i % 2 ? 'bg-white' : 'bg-gray-50'}>
+              <tr key={s.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                 <td className="px-2 py-2 border-b text-gray-700 font-mono">{s.vendorIdNo || '—'}</td>
                 <td className="px-2 py-2 border-b">
                   <div className="font-medium text-navy-700">{s.name}</div>

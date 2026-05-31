@@ -112,8 +112,8 @@ export default function StockMovements() {
                 <tbody>
                   {movements.length === 0 ? (
                     <tr><td colSpan={8} className="px-3 py-4 text-center text-gray-400">No movements found</td></tr>
-                  ) : movements.map(m => (
-                    <tr key={m.id} className="border-b border-gray-50 hover:bg-gray-50">
+                  ) : movements.map((m, i) => (
+                    <tr key={m.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">{formatDateTime(m.createdAt)}</td>
                       <td className="px-3 py-2 font-medium text-gray-700">{m.product?.name}</td>
                       <td className="px-3 py-2 text-gray-500">{m.product?.sku}</td>

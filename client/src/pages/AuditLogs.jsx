@@ -116,8 +116,8 @@ export default function AuditLogs() {
                 <tbody>
                   {logs.length === 0 ? (
                     <tr><td colSpan={7} className="px-3 py-4 text-center text-gray-400">No logs found</td></tr>
-                  ) : logs.map(log => (
-                    <tr key={log.id} className="border-b border-gray-50 hover:bg-gray-50">
+                  ) : logs.map((log, i) => (
+                    <tr key={log.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">{formatDateTime(log.createdAt)}</td>
                       <td className="px-3 py-2 font-medium text-gray-700">{log.user?.name}</td>
                       <td className="px-3 py-2">

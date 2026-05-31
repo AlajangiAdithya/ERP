@@ -138,8 +138,8 @@ export default function GatePass() {
                 </tr>
               </thead>
               <tbody>
-                {gatePasses.map(g => (
-                  <tr key={g.id} className="border-b border-gray-100 hover:bg-gray-50">
+                {gatePasses.map((g, i) => (
+                  <tr key={g.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-4 py-2 font-medium text-navy-700">{g.passNumber}</td>
                     <td className="px-4 py-2">{formatDate(g.date)}</td>
                     <td className="px-4 py-2 text-gray-600">{g.siteName || '—'}</td>

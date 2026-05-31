@@ -147,7 +147,7 @@ export default function InterOfficeNote() {
                     ? `${n.assignedTo.name}${n.assignedTo.unit?.code ? ` (${n.assignedTo.unit.code})` : ''}`
                     : roleBucket;
                   return (
-                    <tr key={n.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <tr key={n.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-4 py-2 font-medium text-navy-700">
                         {n.ionNumber}
                         {isNdtIon(n) && <Badge color="purple" className="ml-2">NDT</Badge>}

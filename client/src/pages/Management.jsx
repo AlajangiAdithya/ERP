@@ -192,8 +192,8 @@ function UsersSection() {
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50">
+                {users.map((u, i) => (
+                  <tr key={u.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-gray-700">{u.username}</td>
                     <td className="px-3 py-2 text-gray-600 font-mono text-xs">
                       {u.plainPassword ? u.plainPassword : <span className="text-gray-400">••••</span>}

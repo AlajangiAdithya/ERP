@@ -214,8 +214,8 @@ export default function InventoryTransfers() {
                 </tr>
               </thead>
               <tbody>
-                {transfers.map((t) => (
-                  <tr key={t.id} className="border-b border-gray-100 hover:bg-gray-50">
+                {transfers.map((t, i) => (
+                  <tr key={t.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-4 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => setDetail(t)}>
                       {t.transferNumber}
                     </td>

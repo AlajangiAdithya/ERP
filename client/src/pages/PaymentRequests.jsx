@@ -258,8 +258,8 @@ export default function PaymentRequests() {
                 </tr>
               </thead>
               <tbody>
-                {payments.map(p => (
-                  <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                {payments.map((p, i) => (
+                  <tr key={p.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => setSelectedPayment(p)}>
                       {p.paymentNumber}
                     </td>

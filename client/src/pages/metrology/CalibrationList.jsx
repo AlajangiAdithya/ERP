@@ -482,6 +482,37 @@ export default function CalibrationList({
             <StatChip active={statusFilter === 'dueSoon'} onClick={() => setStatusFilter(statusFilter === 'dueSoon' ? '' : 'dueSoon')} icon={<Clock size={14} />}        label="Due ≤ 30d" value={stats.dueSoon} tone="amber" />
             <StatChip active={statusFilter === 'overdue'} onClick={() => setStatusFilter(statusFilter === 'overdue' ? '' : 'overdue')} icon={<AlertTriangle size={14} />} label="Overdue"   value={stats.overdue} tone="rose" />
           </div>
+
+          {/* Category-wise counts */}
+          {bucketOptions && (() => {
+            const counts = {};
+            bucketOptions.forEach((o) => { counts[o.value] = 0; });
+            items.forEach((it) => {
+              const key = unified
+                ? (unifiedCategories.find((g) => matchesUnified(it, g))?.value || 'OTHER')
+                : (it.mmrSubCategory || 'OTHER');
+              if (counts[key] !== undefined) counts[key]++;
+              else counts['OTHER'] = (counts['OTHER'] || 0) + 1;
+            });
+            return (
+              <div className="flex flex-wrap gap-2 mt-4">
+                {bucketOptions.map((o) => (
+                  <div
+                    key={o.value}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      mmrSub === o.value
+                        ? 'bg-white/25 text-white ring-1 ring-white/40'
+                        : 'bg-white/10 text-white/80 hover:bg-white/15'
+                    }`}
+                    onClick={() => setMmrSub(mmrSub === o.value ? '' : o.value)}
+                  >
+                    <span className="text-sm font-bold tabular-nums">{counts[o.value] || 0}</span>
+                    <span className="truncate max-w-[180px]">{o.label}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -549,7 +580,8 @@ export default function CalibrationList({
             <p className="text-xs text-gray-400 mt-1">Try clearing the search or status filter above.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto -mx-5 px-5 rounded-xl ring-1 ring-navy-100/70 bg-white">
+          <div className="overflow-x-auto -mx-5 px-5">
+            <div className="rounded-lg border border-gray-200 overflow-hidden">
             <table className="w-full text-[11.5px] border-separate border-spacing-0">
               <thead className="sticky top-0 z-10">
                 {/* Top header — base columns span 2 rows, FY groups span their inner columns */}
@@ -595,11 +627,11 @@ export default function CalibrationList({
                 {filteredItems.map((row, rowIdx) => {
                   rapCounter += 1;
                   const fyMap = recordsByFy(row.records);
-                  const zebra = rowIdx % 2 === 1 ? 'bg-gray-50/50' : 'bg-white';
+                  const zebra = rowIdx % 2 === 1 ? 'bg-brand-gray' : 'bg-white';
                   return (
                     <tr
                       key={row.id}
-                      className={`group ${zebra} hover:bg-navy-50/60 transition-colors`}
+                      className={`group ${zebra} hover:bg-navy-50 transition-colors`}
                     >
                       <Td sticky className="text-gray-400 tabular-nums font-mono text-[10px] text-center">
                         {rapCounter}
@@ -740,6 +772,7 @@ export default function CalibrationList({
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </Card>
@@ -951,13 +984,13 @@ function latestDueDate(item) {
 }
 
 function Th({ children, rowSpan = 1, colSpan = 1, sticky = false, groupTone = false, groupEnd = false, center = false }) {
-  const base = 'px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider border-b border-navy-200/70';
-  const stickyCls = sticky ? 'sticky left-0 z-20 bg-navy-100/90' : '';
+  const base = 'px-4 py-3 text-[10px] font-medium uppercase tracking-wider border-b border-gray-200';
+  const stickyCls = sticky ? 'sticky left-0 z-20 bg-gray-50' : '';
   const tone = groupTone
-    ? 'text-navy-800 bg-navy-100/80 border-t border-navy-200/60'
-    : 'text-navy-700/80 bg-navy-50/80';
+    ? 'text-gray-600 bg-gray-50 border-t border-gray-200'
+    : 'text-gray-500 bg-white';
   const align = center ? 'text-center' : 'text-left';
-  const edge = groupEnd ? 'border-r-2 border-navy-200' : '';
+  const edge = groupEnd ? 'border-r-2 border-gray-200' : '';
   return (
     <th
       rowSpan={rowSpan}
@@ -971,10 +1004,10 @@ function Th({ children, rowSpan = 1, colSpan = 1, sticky = false, groupTone = fa
 
 function Td({ children, sticky = false, className = '', groupEnd = false, nowrap = true }) {
   const stickyCls = sticky ? 'sticky left-0 z-10 bg-inherit' : '';
-  const edge = groupEnd ? 'border-r-2 border-navy-100' : '';
+  const edge = groupEnd ? 'border-r-2 border-gray-200' : '';
   const wrap = nowrap ? 'whitespace-nowrap' : '';
   return (
-    <td className={`px-2.5 py-1.5 align-middle border-b border-gray-100/80 ${wrap} ${stickyCls} ${edge} ${className}`}>
+    <td className={`px-4 py-3 align-middle border-b border-gray-100 text-gray-700 ${wrap} ${stickyCls} ${edge} ${className}`}>
       {children}
     </td>
   );

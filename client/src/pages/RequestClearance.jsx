@@ -116,8 +116,8 @@ export default function RequestClearance() {
                 </tr>
               </thead>
               <tbody>
-                {requests.map(r => (
-                  <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
+                {requests.map((r, i) => (
+                  <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => openRequest(r)}>{r.requestNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{r.manager?.name}</td>
                     <td className="px-3 py-2"><Badge color="blue">{r.unit?.code}</Badge></td>
