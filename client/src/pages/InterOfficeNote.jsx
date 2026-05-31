@@ -24,7 +24,8 @@ const STATUS_TABS = [
 const statusColor = (s) => ({ SENT: 'yellow', WAITING: 'blue', COLLECTED: 'green' }[s] || 'gray');
 const statusLabel = (s) => ({ SENT: 'Sent', WAITING: 'In Progress', COLLECTED: 'Completed' }[s] || s);
 
-const RECIPIENT_ROLES = ['LAB', 'METROLOGY', 'NDT'];
+const RECIPIENT_ROLES = ['LAB', 'METROLOGY', 'NDT', 'RND'];
+const CREATOR_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'];
 
 const isNdtIon = (n) => n?.recipientRole === 'NDT' || n?.assignedTo?.role === 'NDT';
 
@@ -43,6 +44,7 @@ export default function InterOfficeNote() {
   const { user } = useAuth();
   const isManager = user?.role === 'MANAGER';
   const isRecipient = RECIPIENT_ROLES.includes(user?.role);
+  const canCreate = CREATOR_ROLES.includes(user?.role);
 
   // Determine if a row is incoming for the current user (so we can show action affordances)
   const incomingForMe = (n) => {
@@ -82,13 +84,13 @@ export default function InterOfficeNote() {
     <div className="space-y-6">
       <PageHero
         title="Inter Office Note"
-        subtitle={isManager
-          ? 'Raise lab / metrology / NDT work orders, or send machining requests to managers in other units.'
+        subtitle={canCreate
+          ? 'Raise lab / metrology / NDT / R&D work orders, or send machining requests to managers in other units.'
           : 'Incoming work orders from production.'}
         eyebrow="Work Orders"
         icon={FlaskConical}
         actions={
-          isManager && (
+          canCreate && (
             <Button onClick={() => setShowCreate(true)}>
               <Plus size={16} /> New ION
             </Button>
@@ -322,6 +324,7 @@ function CreateIONModal({ onClose, onCreated }) {
               { v: 'LAB', icon: <FlaskConical size={14} />, label: 'Lab (testing/QC)', help: 'For sample tests, reports, and inspections.' },
               { v: 'METROLOGY', icon: <Ruler size={14} />, label: 'Metrology', help: 'For dimensional/metrology checks and reports.' },
               { v: 'NDT', icon: <Atom size={14} />, label: 'NDT (VT / UT / RT)', help: 'Non-destructive testing — uses RAPS/ION-7 form.' },
+              { v: 'RND', icon: <FlaskConical size={14} />, label: 'R&D', help: 'For research, development trials, and product investigation.' },
               { v: 'MANAGER', icon: <Users size={14} />, label: 'Manager (another unit)', help: 'For machining or production work in another unit.' },
             ].map(opt => (
               <label key={opt.v} className={`flex items-start gap-3 p-3 border rounded-md cursor-pointer transition-colors ${recipientType === opt.v ? 'border-navy-400 bg-white shadow-sm' : 'border-gray-200 bg-white hover:border-navy-300'}`}>

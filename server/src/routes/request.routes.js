@@ -8,7 +8,7 @@ const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation }
 const router = express.Router();
 
 // Roles that can create/manage their own MIV requests (same privileges as MANAGER)
-const REQUESTER_ROLES = ['MANAGER', 'LAB'];
+const REQUESTER_ROLES = ['MANAGER', 'LAB', 'QC', 'RND'];
 
 const createRequestSchema = z.object({
   notes: z.string().optional(),
@@ -101,7 +101,7 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // POST /api/requests — Requester creates a product request
-router.post('/', authenticate, authorize('MANAGER', 'LAB'), async (req, res) => {
+router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
   try {
     const data = createRequestSchema.parse(req.body);
 
@@ -429,7 +429,7 @@ router.put('/:id/reject', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
 
 // PUT /api/requests/:id/collect — Requester collects items (full or partial)
 // Body: { items?: [{ id, collectedQty }] }  — defaults to each item's remaining approvedQty
-router.put('/:id/collect', authenticate, authorize('MANAGER', 'LAB'), async (req, res) => {
+router.put('/:id/collect', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
   try {
     const request = await prisma.productRequest.findUnique({
       where: { id: req.params.id },
@@ -615,7 +615,7 @@ router.put('/:id/collect', authenticate, authorize('MANAGER', 'LAB'), async (req
 });
 
 // PUT /api/requests/:id/kill-remaining — Requester closes a PARTIAL request without collecting more
-router.put('/:id/kill-remaining', authenticate, authorize('MANAGER', 'LAB'), async (req, res) => {
+router.put('/:id/kill-remaining', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
   try {
     const request = await prisma.productRequest.findUnique({
       where: { id: req.params.id },
@@ -667,7 +667,7 @@ router.put('/:id/kill-remaining', authenticate, authorize('MANAGER', 'LAB'), asy
 });
 
 // PUT /api/requests/:id/cancel — Requester cancels own pending request
-router.put('/:id/cancel', authenticate, authorize('MANAGER', 'LAB'), async (req, res) => {
+router.put('/:id/cancel', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
   try {
     const request = await prisma.productRequest.findUnique({
       where: { id: req.params.id },

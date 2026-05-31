@@ -8,14 +8,14 @@ import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 
-// View: ADMIN, METROLOGY, QC, all unit MANAGERs. Edit: METROLOGY, QC,
-// MANAGER for Unit 5. SUPERADMIN keeps its owner-only bypass.
+// Full edit: METROLOGY, QC, MANAGER@Unit-V. SUPERADMIN keeps its owner-only bypass.
+// View + remarks + cert download: ADMIN, MANAGER (all units), LAB, NDT, RND.
 // Unit 5 may appear as code '5', name 'Unit 5', or username 'unit 5'
 // depending on how the account was provisioned.
 const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
 const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
-const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC'];
+const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'LAB', 'NDT', 'RND'];
 
 const isUnit5Manager = (user) => {
   if (user?.role !== 'MANAGER') return false;

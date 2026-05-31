@@ -19,10 +19,11 @@ const ALL_ROLES = [
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
-// Metrology hub viewers: ADMIN, METROLOGY, QC, and all unit MANAGERs.
-// Edit access (METROLOGY, QC, MANAGER@UNIT-V) is enforced inside the page
-// and on the server; everyone else sees a read-only register.
-const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER'];
+// Metrology hub viewers (per access chart RAPS/QSP):
+// Full edit = METROLOGY, QC, MANAGER@UNIT-V.
+// View + remarks + cert download = ADMIN, MANAGER (all units), LAB, NDT, RND.
+// Edit gating happens inside the page and on the server.
+const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND'];
 
 // Procurement & Inventory Management hub is visible to every authenticated
 // user EXCEPT Metrology and Supply Chain — those teams don't need the
@@ -34,7 +35,7 @@ const buildAllItems = () => {
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
     { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: PROCUREMENT_ROLES },
     { to: '/metrology', icon: Ruler, label: 'Metrology', roles: METROLOGY_VIEW_ROLES },
-    { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT'] },
+    { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },

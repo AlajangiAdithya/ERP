@@ -43,12 +43,12 @@ import MMR from './pages/metrology/MMR';
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
-// Metrology calibration registers access:
-// Edit = METROLOGY, QC, MANAGER@UNIT-V.
-// View = ADMIN, METROLOGY, QC, MANAGER (all units).
+// Metrology calibration registers access (per access chart RAPS/QSP):
+// Full edit = METROLOGY, QC, MANAGER@UNIT-V.
+// View + remarks + cert download = ADMIN, MANAGER (all units), LAB, NDT, RND.
 // The route guard allows any potential viewer through; the page itself
 // (and the server's calibration.routes.js) enforces the unit-aware split.
-const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'SUPERADMIN'];
+const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'SUPERADMIN'];
 
 function PrivateRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
@@ -102,9 +102,9 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><UnitUsageLogs /></PrivateRoute>
               } />
 
-              {/* Manager / Lab */}
+              {/* MIV requesters — Manager / Lab / QC / R&D */}
               <Route path="/my-requests" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LAB']}><MyRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND']}><MyRequests /></PrivateRoute>
               } />
 
               {/* Store Manager only */}
@@ -166,16 +166,16 @@ export default function App() {
                 <PrivateRoute allowedRoles={['MANAGER', 'LOGISTICS', 'SAFETY']}><InventoryTransfers /></PrivateRoute>
               } />
 
-              {/* ION — MANAGER (sender) + LAB/METROLOGY/NDT (recipients) */}
+              {/* ION — MANAGER / LAB / METROLOGY / NDT / RND (creators + recipients) */}
               <Route path="/ion" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'METROLOGY', 'NDT']}><InterOfficeNote /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND']}><InterOfficeNote /></PrivateRoute>
               } />
 
               {/* Work Orders — SUPPLY_CHAIN drafts → reviews+approves; ADMIN accepts;
-                  assigned unit MANAGER executes; ACCOUNTING manages BG/Insurance + delivery;
-                  SAFETY monitors. */}
+                  assigned unit MANAGER executes (status + remarks); SUPPLY_CHAIN owns
+                  BG/Insurance + delivery; SAFETY monitors. Accounts has no WO access. */}
               <Route path="/work-orders" element={
-                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING']}><WorkOrders /></PrivateRoute>
+                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY']}><WorkOrders /></PrivateRoute>
               } />
 
               {/* Safety Monitor */}

@@ -1,8 +1,8 @@
 // ──────────────────────────────────────────────────────────────
 // Inter Office Note (ION) — work-order workflow
-// Sender: MANAGER (always).
-// Recipient: LAB (default — original lab testing flow)
-//            OR another MANAGER (cross-unit machining flow).
+// Sender:    MANAGER, LAB, METROLOGY, NDT, RND (per access chart).
+// Recipient: LAB / METROLOGY / NDT / RND (role bucket)
+//            OR a specific MANAGER (cross-unit machining flow).
 // Doc: RAMS/ION/00
 // ──────────────────────────────────────────────────────────────
 const express = require('express');
@@ -13,8 +13,9 @@ const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation }
 
 const router = express.Router();
 
-const ION_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT'];
-const ION_RECIPIENT_ROLES = ['LAB', 'METROLOGY', 'NDT'];
+const ION_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'];
+const ION_RECIPIENT_ROLES = ['LAB', 'METROLOGY', 'NDT', 'RND'];
+const ION_CREATOR_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'];
 
 const ION_INCLUDE = {
   createdBy:  { select: { id: true, name: true, role: true, unit: { select: { name: true, code: true } } } },
@@ -101,10 +102,10 @@ router.get('/:id', authenticate, authorize(...ION_ROLES), async (req, res) => {
   }
 });
 
-// POST /api/ion — MANAGER creates
+// POST /api/ion — MANAGER / LAB / METROLOGY / NDT / RND create
 //   recipientType:  'LAB' (default) | 'METROLOGY' | 'NDT' | 'RND' | 'MANAGER'
 //   assignedToId:   required when recipientType === 'MANAGER' (must be a MANAGER user id)
-router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
+router.post('/', authenticate, authorize(...ION_CREATOR_ROLES), async (req, res) => {
   try {
     const {
       recipientType, assignedToId,
@@ -217,7 +218,7 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
 
 // PUT /api/ion/:id/status — recipient transitions SENT → WAITING → COLLECTED
 //   Recipient = LAB/METROLOGY/NDT/RND user (for unassigned/role-assigned) OR the specific manager assigned to it.
-router.put('/:id/status', authenticate, authorize('LAB', 'MANAGER', 'METROLOGY', 'NDT'), async (req, res) => {
+router.put('/:id/status', authenticate, authorize(...ION_ROLES), async (req, res) => {
   try {
     const { status, remarks } = req.body;
     if (!['WAITING', 'COLLECTED'].includes(status)) {

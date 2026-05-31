@@ -14,7 +14,7 @@ const router = express.Router();
 
 // Roles that can create/manage their own purchase requests (same privileges as MANAGER).
 // Restricted to: Unit Managers, Designs, R&D.
-const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND'];
+const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC'];
 // Reserved for monitor-only roles (none currently — SAFETY removed from PR chain).
 const MONITOR_ROLES = [];
 // Full chain visibility: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
@@ -52,7 +52,7 @@ const createSchema = z.object({
 router.post(
   '/upload-spec',
   authenticate,
-  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER'),
+  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC'),
   (req, res) => {
     prSpecsUpload.single('file')(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
@@ -581,7 +581,7 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
 });
 
 // POST /api/purchase-requests — Requester creates.
-router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER'), async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC'), async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
 
@@ -990,7 +990,7 @@ router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), 
 });
 
 // PUT /api/purchase-requests/:id/cancel — Requester cancels own pending request
-router.put('/:id/cancel', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER'), async (req, res) => {
+router.put('/:id/cancel', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC'), async (req, res) => {
   try {
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: req.params.id },

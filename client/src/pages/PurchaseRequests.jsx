@@ -1414,7 +1414,7 @@ export default function PurchaseRequests() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const isManager = ['MANAGER', 'LAB', 'PLANNING', 'STORE_MANAGER'].includes(user?.role);
+  const isManager = ['MANAGER', 'PLANNING', 'STORE_MANAGER', 'QC', 'RND', 'DESIGNS'].includes(user?.role);
   const isStoreManager = user?.role === 'STORE_MANAGER';
   const isAdmin = user?.role === 'ADMIN';
   const isPO = user?.role === 'PURCHASE_OFFICER';

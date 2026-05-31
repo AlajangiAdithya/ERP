@@ -1,12 +1,13 @@
 // ──────────────────────────────────────────────────────────────
 // Metrology — Calibration Item registry
 //
-// Access model (per latest client direction):
-//   • Edit:    METROLOGY, QC, and any MANAGER assigned to UNIT-V.
-//              (SUPERADMIN bypasses every authorize() check globally.)
-//   • View:    ADMIN, METROLOGY, QC, and any MANAGER (all units).
+// Access model (per access-chart RAPS/QSP):
+//   • Full edit: METROLOGY, QC, and any MANAGER assigned to UNIT-V.
+//                (SUPERADMIN bypasses every authorize() check globally.)
+//   • View + remarks + cert download:
+//                ADMIN, MANAGER (all units), LAB, NDT, RND.
 //   • Remarks: editable by anyone who can view the register
-//              (handled by a dedicated PATCH /:id/remarks route).
+//                (handled by a dedicated PATCH /:id/remarks route).
 // Server gates everything; the UI hides controls based on the same rules.
 // ──────────────────────────────────────────────────────────────
 const express = require('express');
@@ -21,7 +22,7 @@ const router = express.Router();
 const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
 const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
-const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC'];
+const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'LAB', 'NDT', 'RND'];
 
 const unitCodeOf = (user) => (user?.unit?.code || '').toString().toUpperCase();
 const unitNameOf = (user) => (user?.unit?.name || '').toString().trim().toLowerCase();

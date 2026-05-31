@@ -19,14 +19,14 @@ const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
 // appending here.
 const FY_COLUMNS = ['FY 26-27', 'FY 27-28'];
 
-// Metrology access:
-// Edit: METROLOGY, QC, MANAGER for Unit 5.
-// View: ADMIN, METROLOGY, QC, MANAGER (all units). SUPERADMIN bypasses.
+// Metrology access (per access chart RAPS/QSP):
+// Full edit: METROLOGY, QC, MANAGER@Unit-V. SUPERADMIN bypasses.
+// View + remarks + cert download: ADMIN, MANAGER (all units), LAB, NDT, RND.
 // Unit 5 may appear as code '5', name 'Unit 5', or username 'unit 5'.
 const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
 const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
-const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC'];
+const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'LAB', 'NDT', 'RND'];
 
 const isUnit5Manager = (user) => {
   if (user?.role !== 'MANAGER') return false;

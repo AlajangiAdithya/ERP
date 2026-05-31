@@ -119,7 +119,7 @@ const MODULES = [
     icon: ClipboardList,
     title: 'MIV Requests',
     description: 'Material Issue Voucher requests for store withdrawals.',
-    roles: ['MANAGER', 'LAB'],
+    roles: ['MANAGER', 'LAB', 'QC', 'RND'],
     gradient: 'from-violet-500 via-purple-500 to-fuchsia-500',
     glow: 'group-hover:shadow-violet-500/40',
     iconBg: 'bg-gradient-to-br from-violet-100 to-purple-200 text-violet-700',
