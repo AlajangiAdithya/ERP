@@ -1,20 +1,30 @@
 // ──────────────────────────────────────────────────────────────
 // Metrology — Calibration Item registry
-// Write access: METROLOGY + ADMIN. Everyone else listed below
-// gets read-only access (procurement chain + safety).
+//
+// Access model (per latest client direction):
+//   • Edit:        METROLOGY, QC, ADMIN, SUPERADMIN, and any MANAGER
+//                  whose assigned unit is UNIT-V (Unit-5).
+//   • View only:   MANAGER assigned to UNIT-I, UNIT-1A, UNIT-II,
+//                  UNIT-III, UNIT-IV. SAFETY/PURCHASE/STORE/LAB
+//                  retain read access for traceability.
+//   • Remarks:     editable by anyone who can view the register
+//                  (handled by a dedicated PATCH /:id/remarks route).
+// Server gates writes; the UI hides controls based on the same rules.
 // ──────────────────────────────────────────────────────────────
 const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
+const { calibrationCertUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
 
-const WRITE_ROLES = ['METROLOGY', 'ADMIN'];
+const EDIT_UNIT_CODES = ['UNIT-V'];
+const BASE_WRITE_ROLES = ['METROLOGY', 'QC', 'ADMIN', 'SUPERADMIN'];
 const READ_ROLES = [
-  'METROLOGY', 'ADMIN', 'MANAGER', 'STORE_MANAGER',
-  'PURCHASE_OFFICER', 'QC', 'ACCOUNTING', 'SAFETY',
-  'LAB', 'NDT', 'RND', 'DESIGNS',
+  'METROLOGY', 'QC', 'ADMIN', 'SUPERADMIN', 'SAFETY',
+  'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING',
+  'LAB', 'NDT', 'RND', 'DESIGNS', 'MANAGER',
 ];
 
 const VALID_CATEGORIES = [
@@ -26,36 +36,67 @@ const VALID_CATEGORIES = [
   'MMR',
 ];
 
+const VALID_MMR_SUBS = [
+  'PRESSURE_GAUGES',
+  'VACUUM_GAUGES',
+  'METROLOGY_INSTRUMENTS',
+  'LAB_TESTING_EQUIPMENT',
+  'AUTOCLAVE_OVEN_THERMOCOUPLES',
+  'EOT_CRANES_CHAIN_BLOCKS',
+  'OTHER',
+];
+
+const canWrite = (user) => {
+  if (!user) return false;
+  if (BASE_WRITE_ROLES.includes(user.role)) return true;
+  if (user.role === 'MANAGER') {
+    const code = user.unit?.code || user.unit?.name;
+    if (code && EDIT_UNIT_CODES.includes(code)) return true;
+  }
+  return false;
+};
+
+const requireWrite = (req, res, next) => {
+  if (!canWrite(req.user)) return res.status(403).json({ error: 'Forbidden' });
+  next();
+};
+
 const parseDate = (v) => {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
-const sanitize = (body, { partial = false } = {}) => {
+const sanitizeItem = (body, { partial = false } = {}) => {
   const data = {};
   const set = (k, transform = (x) => x) => {
     if (body[k] !== undefined) data[k] = body[k] === null || body[k] === '' ? null : transform(body[k]);
   };
 
   if (!partial || body.category !== undefined) {
-    if (!VALID_CATEGORIES.includes(body.category)) {
-      throw new Error('Invalid category');
-    }
+    if (!VALID_CATEGORIES.includes(body.category)) throw new Error('Invalid category');
     data.category = body.category;
   }
   if (!partial || body.name !== undefined) {
-    if (!body.name || !String(body.name).trim()) {
-      throw new Error('Name is required');
-    }
+    if (!body.name || !String(body.name).trim()) throw new Error('Name is required');
     data.name = String(body.name).trim();
   }
 
-  ['make', 'model', 'serialNo', 'rapsplSerialNo', 'operatingRange',
-   'capacityMin', 'capacityMax', 'leastCount', 'unitLocation',
-   'usedFor', 'calibrationCertificate', 'notes'].forEach((k) => set(k, (v) => String(v).trim()));
+  if (body.mmrSubCategory !== undefined) {
+    if (body.mmrSubCategory === null || body.mmrSubCategory === '') {
+      data.mmrSubCategory = null;
+    } else if (!VALID_MMR_SUBS.includes(body.mmrSubCategory)) {
+      throw new Error('Invalid MMR sub-category');
+    } else {
+      data.mmrSubCategory = body.mmrSubCategory;
+    }
+  }
 
-  ['calibrationOn', 'calibrationDueDate', 'recallDueDate'].forEach((k) => set(k, parseDate));
+  ['mirNo', 'make', 'model', 'serialNo', 'rapsplSerialNo', 'operatingRange',
+   'capacityMin', 'capacityMax', 'leastCount', 'unitLocation',
+   'usedFor', 'calibrationCertificate', 'notes', 'remarks'].forEach((k) => set(k, (v) => String(v).trim()));
+
+  ['mirDate', 'calibrationOn', 'calibrationDueDate', 'recallDueDate'].forEach((k) => set(k, parseDate));
 
   if (body.periodicity !== undefined) {
     data.periodicity = body.periodicity ? String(body.periodicity).trim() : 'Every One Year';
@@ -65,12 +106,33 @@ const sanitize = (body, { partial = false } = {}) => {
   return data;
 };
 
-// GET /api/calibration — list, optional ?category=&search=
+const sanitizeRecord = (body, { partial = false } = {}) => {
+  const data = {};
+  if (!partial || body.fiscalYear !== undefined) {
+    const fy = body.fiscalYear ? String(body.fiscalYear).trim() : '';
+    if (!fy) throw new Error('Fiscal year is required');
+    data.fiscalYear = fy;
+  }
+  ['qcVerifiedBy', 'certificateNo'].forEach((k) => {
+    if (body[k] !== undefined) {
+      data[k] = body[k] === null || body[k] === '' ? null : String(body[k]).trim();
+    }
+  });
+  ['verifiedOn', 'calibratedOn', 'dueDate'].forEach((k) => {
+    if (body[k] !== undefined) data[k] = parseDate(body[k]);
+  });
+  return data;
+};
+
+// ─────────────────────────────────────────────
+// GET /api/calibration — list, optional ?category=&mmrSubCategory=&search=&unit=
+// ─────────────────────────────────────────────
 router.get('/', authenticate, authorize(...READ_ROLES), async (req, res) => {
   try {
-    const { category, search, unit } = req.query;
+    const { category, mmrSubCategory, search, unit } = req.query;
     const where = {};
     if (category && VALID_CATEGORIES.includes(category)) where.category = category;
+    if (mmrSubCategory && VALID_MMR_SUBS.includes(mmrSubCategory)) where.mmrSubCategory = mmrSubCategory;
     if (unit) where.unitLocation = unit;
     if (search) {
       const q = String(search).trim();
@@ -82,6 +144,7 @@ router.get('/', authenticate, authorize(...READ_ROLES), async (req, res) => {
           { serialNo:       { contains: q, mode: 'insensitive' } },
           { rapsplSerialNo: { contains: q, mode: 'insensitive' } },
           { usedFor:        { contains: q, mode: 'insensitive' } },
+          { mirNo:          { contains: q, mode: 'insensitive' } },
         ];
       }
     }
@@ -89,8 +152,9 @@ router.get('/', authenticate, authorize(...READ_ROLES), async (req, res) => {
     const items = await prisma.calibrationItem.findMany({
       where,
       orderBy: [{ unitLocation: 'asc' }, { createdAt: 'asc' }],
+      include: { records: { orderBy: { fiscalYear: 'asc' } } },
     });
-    res.json({ items });
+    res.json({ items, canEdit: canWrite(req.user) });
   } catch (error) {
     console.error('List calibration items error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -100,7 +164,10 @@ router.get('/', authenticate, authorize(...READ_ROLES), async (req, res) => {
 // GET /api/calibration/:id
 router.get('/:id', authenticate, authorize(...READ_ROLES), async (req, res) => {
   try {
-    const item = await prisma.calibrationItem.findUnique({ where: { id: req.params.id } });
+    const item = await prisma.calibrationItem.findUnique({
+      where: { id: req.params.id },
+      include: { records: { orderBy: { fiscalYear: 'asc' } } },
+    });
     if (!item) return res.status(404).json({ error: 'Calibration item not found' });
     res.json(item);
   } catch (error) {
@@ -109,14 +176,20 @@ router.get('/:id', authenticate, authorize(...READ_ROLES), async (req, res) => {
   }
 });
 
-// POST /api/calibration — METROLOGY/ADMIN
-router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+// POST /api/calibration — write-gated by role+unit
+router.post('/', authenticate, authorize(...READ_ROLES), requireWrite, async (req, res) => {
   try {
-    const data = sanitize(req.body, { partial: false });
-    const item = await prisma.calibrationItem.create({ data });
+    const data = sanitizeItem(req.body, { partial: false });
+    const records = Array.isArray(req.body.records)
+      ? req.body.records.map((r) => sanitizeRecord(r, { partial: false }))
+      : [];
+    const item = await prisma.calibrationItem.create({
+      data: { ...data, records: records.length ? { create: records } : undefined },
+      include: { records: true },
+    });
     res.status(201).json(item);
   } catch (error) {
-    if (error.message === 'Invalid category' || error.message === 'Name is required') {
+    if (['Invalid category', 'Name is required', 'Invalid MMR sub-category', 'Fiscal year is required'].includes(error.message)) {
       return res.status(400).json({ error: error.message });
     }
     console.error('Create calibration item error:', error);
@@ -124,17 +197,21 @@ router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
   }
 });
 
-// PUT /api/calibration/:id — METROLOGY/ADMIN
-router.put('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+// PUT /api/calibration/:id — write-gated
+router.put('/:id', authenticate, authorize(...READ_ROLES), requireWrite, async (req, res) => {
   try {
     const existing = await prisma.calibrationItem.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Calibration item not found' });
 
-    const data = sanitize(req.body, { partial: true });
-    const item = await prisma.calibrationItem.update({ where: { id: req.params.id }, data });
+    const data = sanitizeItem(req.body, { partial: true });
+    const item = await prisma.calibrationItem.update({
+      where: { id: req.params.id },
+      data,
+      include: { records: { orderBy: { fiscalYear: 'asc' } } },
+    });
     res.json(item);
   } catch (error) {
-    if (error.message === 'Invalid category' || error.message === 'Name is required') {
+    if (['Invalid category', 'Name is required', 'Invalid MMR sub-category'].includes(error.message)) {
       return res.status(400).json({ error: error.message });
     }
     console.error('Update calibration item error:', error);
@@ -142,8 +219,27 @@ router.put('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) => 
   }
 });
 
-// DELETE /api/calibration/:id — METROLOGY/ADMIN
-router.delete('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+// PATCH /api/calibration/:id/remarks — any viewer can edit the remarks cell
+router.patch('/:id/remarks', authenticate, authorize(...READ_ROLES), async (req, res) => {
+  try {
+    const remarks = req.body.remarks == null || req.body.remarks === ''
+      ? null
+      : String(req.body.remarks);
+    const item = await prisma.calibrationItem.update({
+      where: { id: req.params.id },
+      data: { remarks },
+      include: { records: { orderBy: { fiscalYear: 'asc' } } },
+    });
+    res.json(item);
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Calibration item not found' });
+    console.error('Update calibration remarks error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/calibration/:id — write-gated
+router.delete('/:id', authenticate, authorize(...READ_ROLES), requireWrite, async (req, res) => {
   try {
     await prisma.calibrationItem.delete({ where: { id: req.params.id } });
     res.json({ success: true });
@@ -153,5 +249,67 @@ router.delete('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) 
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// ─────────────────────────────────────────────
+// Per-FY records (upsert/delete/cert upload)
+// ─────────────────────────────────────────────
+
+// PUT /api/calibration/:id/records/:fiscalYear — upsert FY record
+router.put('/:id/records/:fiscalYear', authenticate, authorize(...READ_ROLES), requireWrite, async (req, res) => {
+  try {
+    const fyParam = decodeURIComponent(req.params.fiscalYear).trim();
+    const data = sanitizeRecord({ ...req.body, fiscalYear: fyParam }, { partial: false });
+    const record = await prisma.calibrationRecord.upsert({
+      where: { itemId_fiscalYear: { itemId: req.params.id, fiscalYear: data.fiscalYear } },
+      create: { ...data, itemId: req.params.id },
+      update: { ...data },
+    });
+    res.json(record);
+  } catch (error) {
+    if (error.message === 'Fiscal year is required') return res.status(400).json({ error: error.message });
+    console.error('Upsert calibration record error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/calibration/:id/records/:fiscalYear
+router.delete('/:id/records/:fiscalYear', authenticate, authorize(...READ_ROLES), requireWrite, async (req, res) => {
+  try {
+    const fy = decodeURIComponent(req.params.fiscalYear).trim();
+    await prisma.calibrationRecord.delete({
+      where: { itemId_fiscalYear: { itemId: req.params.id, fiscalYear: fy } },
+    });
+    res.json({ success: true });
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Record not found' });
+    console.error('Delete calibration record error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/calibration/:id/records/:fiscalYear/certificate — upload PDF
+router.post(
+  '/:id/records/:fiscalYear/certificate',
+  authenticate,
+  authorize(...READ_ROLES),
+  requireWrite,
+  calibrationCertUpload.single('certificate'),
+  async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'Certificate PDF is required' });
+      const fy = decodeURIComponent(req.params.fiscalYear).trim();
+      const url = publicUrlFor('calibration-certs', req.file.filename);
+      const record = await prisma.calibrationRecord.upsert({
+        where: { itemId_fiscalYear: { itemId: req.params.id, fiscalYear: fy } },
+        create: { itemId: req.params.id, fiscalYear: fy, certificateAttachment: url },
+        update: { certificateAttachment: url },
+      });
+      res.json(record);
+    } catch (error) {
+      console.error('Upload calibration cert error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
 
 module.exports = router;

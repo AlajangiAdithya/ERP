@@ -1320,6 +1320,9 @@ enum WorkOrderDeliveryStatus {
 model CalibrationItem {
   id                     String              @id @default(uuid())
   category               CalibrationCategory
+  mmrSubCategory         MmrSubCategory? // only meaningful when category = MMR
+  mirNo                  String?
+  mirDate                DateTime?
   name                   String // e.g. "Pressure Gauge", "Vernier Caliper"
   make                   String?
   model                  String?
@@ -1337,12 +1340,36 @@ model CalibrationItem {
   calibrationCertificate String?
   periodicity            String              @default("Every One Year")
   notes                  String?
+  remarks                String?
   isActive               Boolean             @default(true)
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
+  records                CalibrationRecord[]
 
   @@index([category])
+  @@index([mmrSubCategory])
   @@index([unitLocation])
+}
+
+// Per-fiscal-year calibration history rows shown side-by-side in the register
+// (FY 26-27, FY 27-28, …). Each holds the QC verifier, calibration dates,
+// certificate number and optional uploaded certificate PDF for that year.
+model CalibrationRecord {
+  id                    String          @id @default(uuid())
+  itemId                String
+  item                  CalibrationItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  fiscalYear            String // "FY 26-27"
+  qcVerifiedBy          String?
+  verifiedOn            DateTime?
+  certificateNo         String?
+  certificateAttachment String? // public URL to uploaded PDF
+  calibratedOn          DateTime?
+  dueDate               DateTime?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@unique([itemId, fiscalYear])
+  @@index([itemId])
 }
 
 enum CalibrationCategory {
@@ -1352,6 +1379,18 @@ enum CalibrationCategory {
   TESTING_EQUIPMENT
   METROLOGY_INSTRUMENT
   MMR // Monitoring & Measuring Resources — thermocouples / temperature controllers
+}
+
+// Sub-category buckets used when filtering Monitoring & Measuring Resources
+// from the universal MMR search.
+enum MmrSubCategory {
+  PRESSURE_GAUGES
+  VACUUM_GAUGES
+  METROLOGY_INSTRUMENTS
+  LAB_TESTING_EQUIPMENT
+  AUTOCLAVE_OVEN_THERMOCOUPLES
+  EOT_CRANES_CHAIN_BLOCKS
+  OTHER
 }
 
 // ──── NOTIFICATIONS ────

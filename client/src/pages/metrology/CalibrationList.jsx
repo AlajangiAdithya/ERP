@@ -3,63 +3,67 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Pencil, Trash2, ChevronLeft, Search, Filter,
   CheckCircle2, Clock, AlertTriangle, Activity, FileText,
-  Calendar, Settings2, MapPin, Hash, X,
+  Settings2, X, Upload, Download, Save,
 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
-import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
 import Input, { Select, Textarea } from '../../components/ui/Input';
 
+const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
+
+// Fiscal-year columns shown side-by-side in the register, matching the
+// physical Excel sheet the client maintains. New FYs can be added by
+// appending here.
+const FY_COLUMNS = ['FY 26-27', 'FY 27-28'];
+
+const VIEW_UNIT_CODES = ['UNIT-I', 'UNIT-1A', 'UNIT-II', 'UNIT-III', 'UNIT-IV'];
+const EDIT_UNIT_CODES = ['UNIT-V'];
+const BASE_EDIT_ROLES = ['METROLOGY', 'QC', 'ADMIN', 'SUPERADMIN'];
+const ALWAYS_VIEW_ROLES = [
+  'ADMIN', 'SUPERADMIN', 'METROLOGY', 'QC',
+  'SAFETY', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING',
+  'LAB', 'NDT', 'RND', 'DESIGNS',
+];
+
 const fmtDate = (v) => {
-  if (!v) return '—';
+  if (!v) return '';
   const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return '—';
+  if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
 const daysUntil = (d) => Math.ceil((new Date(d) - new Date()) / (1000 * 60 * 60 * 24));
 
 const dueStatus = (dueDate) => {
-  if (!dueDate) return { tone: 'none', label: null };
+  if (!dueDate) return { tone: 'none' };
   const days = daysUntil(dueDate);
-  if (days < 0)  return { tone: 'overdue', days: Math.abs(days), label: `Overdue ${Math.abs(days)}d` };
+  if (days < 0)   return { tone: 'overdue', days: Math.abs(days), label: `Overdue ${Math.abs(days)}d` };
   if (days <= 30) return { tone: 'dueSoon', days, label: `${days}d left` };
-  return { tone: 'healthy', days, label: null };
+  return { tone: 'healthy', days };
 };
 
-const DueBadge = ({ dueDate }) => {
-  const s = dueStatus(dueDate);
-  if (s.tone === 'none') return null;
-  if (s.tone === 'overdue') {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200">
-        <AlertTriangle size={10} /> {s.label}
-      </span>
-    );
-  }
-  if (s.tone === 'dueSoon') {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200">
-        <Clock size={10} /> {s.label}
-      </span>
-    );
-  }
-  return null;
+const toDateInput = (v) => {
+  if (!v) return '';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
 };
 
-const StatusDot = ({ dueDate }) => {
-  const s = dueStatus(dueDate);
-  const color =
-    s.tone === 'overdue' ? 'bg-rose-500 shadow-rose-500/50' :
-    s.tone === 'dueSoon' ? 'bg-amber-400 shadow-amber-400/50' :
-    'bg-emerald-500 shadow-emerald-500/50';
-  return <span className={`block w-2 h-2 rounded-full ${color} shadow-[0_0_8px]`} />;
+const HERO_THEME = {
+  PRESSURE_GAUGE:       { gradient: 'from-blue-600 via-indigo-600 to-blue-700',     ring: 'ring-blue-300/30' },
+  VACUUM_GAUGE:         { gradient: 'from-sky-600 via-cyan-600 to-teal-600',         ring: 'ring-cyan-300/30' },
+  WEIGHING_BALANCE:     { gradient: 'from-emerald-600 via-green-600 to-emerald-700', ring: 'ring-emerald-300/30' },
+  TESTING_EQUIPMENT:    { gradient: 'from-amber-600 via-orange-600 to-red-600',      ring: 'ring-amber-300/30' },
+  METROLOGY_INSTRUMENT: { gradient: 'from-indigo-600 via-violet-600 to-purple-700',  ring: 'ring-indigo-300/30' },
+  MMR:                  { gradient: 'from-rose-600 via-pink-600 to-fuchsia-700',     ring: 'ring-rose-300/30' },
 };
 
 const blankForm = {
+  mirNo: '',
+  mirDate: '',
   name: '',
   make: '',
   model: '',
@@ -71,66 +75,88 @@ const blankForm = {
   leastCount: '',
   unitLocation: '',
   usedFor: '',
-  calibrationOn: '',
-  calibrationDueDate: '',
-  recallDueDate: '',
-  calibrationCertificate: '',
   periodicity: 'Every One Year',
   notes: '',
+  mmrSubCategory: '',
 };
 
-const toDateInput = (v) => {
-  if (!v) return '';
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toISOString().slice(0, 10);
-};
-
-const HERO_THEME = {
-  PRESSURE_GAUGE:      { gradient: 'from-blue-600 via-indigo-600 to-blue-700',     ring: 'ring-blue-300/30' },
-  VACUUM_GAUGE:        { gradient: 'from-sky-600 via-cyan-600 to-teal-600',         ring: 'ring-cyan-300/30' },
-  WEIGHING_BALANCE:    { gradient: 'from-emerald-600 via-green-600 to-emerald-700', ring: 'ring-emerald-300/30' },
-  TESTING_EQUIPMENT:   { gradient: 'from-amber-600 via-orange-600 to-red-600',      ring: 'ring-amber-300/30' },
-  METROLOGY_INSTRUMENT:{ gradient: 'from-indigo-600 via-violet-600 to-purple-700',  ring: 'ring-indigo-300/30' },
-  MMR:                 { gradient: 'from-rose-600 via-pink-600 to-fuchsia-700',     ring: 'ring-rose-300/30' },
-};
+const blankFyRecord = () => ({
+  qcVerifiedBy: '',
+  verifiedOn: '',
+  certificateNo: '',
+  calibratedOn: '',
+  dueDate: '',
+  certificateAttachment: '',
+});
 
 export default function CalibrationList({
   category,
   title,
   defaultName,
   fields = {},
+  mmrSubOptions = null, // [{value, label}] when category=MMR
 }) {
   const { user } = useAuth();
-  const canEdit = ['METROLOGY', 'ADMIN', 'SUPERADMIN'].includes(user?.role);
+  const userUnitCode = user?.unit?.code || user?.unit?.name || '';
+
+  const canEdit = useMemo(() => {
+    if (!user) return false;
+    if (BASE_EDIT_ROLES.includes(user.role)) return true;
+    if (user.role === 'MANAGER' && EDIT_UNIT_CODES.includes(userUnitCode)) return true;
+    return false;
+  }, [user, userUnitCode]);
+
+  const canView = useMemo(() => {
+    if (!user) return false;
+    if (canEdit) return true;
+    if (ALWAYS_VIEW_ROLES.includes(user.role)) return true;
+    if (user.role === 'MANAGER' && VIEW_UNIT_CODES.includes(userUnitCode)) return true;
+    return false;
+  }, [user, userUnitCode, canEdit]);
+
   const theme = HERO_THEME[category] || HERO_THEME.PRESSURE_GAUGE;
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [unitFilter, setUnitFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState(''); // '' | 'overdue' | 'dueSoon' | 'healthy'
+  const [statusFilter, setStatusFilter] = useState('');
+  const [mmrSub, setMmrSub] = useState('');
 
-  const [editing, setEditing] = useState(null);
+  const [editing, setEditing] = useState(null); // 'new' | item | null
   const [form, setForm] = useState(blankForm);
+  const [fyForms, setFyForms] = useState({}); // { 'FY 26-27': {...}, 'FY 27-28': {...} }
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
   const [deleting, setDeleting] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
+  // Per-row remarks draft and saving state — every viewer is allowed to edit
+  // remarks even if they cannot edit the rest of the row.
+  const [remarksDraft, setRemarksDraft] = useState({});
+  const [remarksBusy, setRemarksBusy] = useState({});
+
   const fetchItems = () => {
+    if (!canView) { setLoading(false); return; }
     setLoading(true);
     const params = { category };
     if (search.trim()) params.search = search.trim();
     if (unitFilter) params.unit = unitFilter;
+    if (mmrSub) params.mmrSubCategory = mmrSub;
     api.get('/calibration', { params })
-      .then(({ data }) => setItems(data.items || []))
+      .then(({ data }) => {
+        setItems(data.items || []);
+        const drafts = {};
+        (data.items || []).forEach((it) => { drafts[it.id] = it.remarks || ''; });
+        setRemarksDraft(drafts);
+      })
       .catch((err) => console.error('Fetch calibration items failed', err))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchItems(); /* eslint-disable-next-line */ }, [category, search, unitFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchItems(); }, [category, search, unitFilter, mmrSub]);
 
   const unitOptions = useMemo(() => {
     const set = new Set();
@@ -141,7 +167,9 @@ export default function CalibrationList({
   const stats = useMemo(() => {
     let overdue = 0, dueSoon = 0, healthy = 0;
     items.forEach((it) => {
-      const s = dueStatus(it.calibrationDueDate);
+      // Use the latest FY record's due date if present, else the item snapshot.
+      const due = latestDueDate(it);
+      const s = dueStatus(due);
       if (s.tone === 'overdue') overdue++;
       else if (s.tone === 'dueSoon') dueSoon++;
       else healthy++;
@@ -151,44 +179,71 @@ export default function CalibrationList({
 
   const filteredItems = useMemo(() => {
     if (!statusFilter) return items;
-    return items.filter((it) => dueStatus(it.calibrationDueDate).tone === statusFilter);
+    return items.filter((it) => dueStatus(latestDueDate(it)).tone === statusFilter);
   }, [items, statusFilter]);
 
   const openCreate = () => {
     setEditing('new');
     setForm({ ...blankForm, name: defaultName || '' });
+    const fy = {};
+    FY_COLUMNS.forEach((f) => { fy[f] = blankFyRecord(); });
+    setFyForms(fy);
     setFormError('');
   };
 
   const openEdit = (item) => {
     setEditing(item);
     setForm({
-      name:                   item.name || '',
-      make:                   item.make || '',
-      model:                  item.model || '',
-      serialNo:               item.serialNo || '',
-      rapsplSerialNo:         item.rapsplSerialNo || '',
-      operatingRange:         item.operatingRange || '',
-      capacityMin:            item.capacityMin || '',
-      capacityMax:            item.capacityMax || '',
-      leastCount:             item.leastCount || '',
-      unitLocation:           item.unitLocation || '',
-      usedFor:                item.usedFor || '',
-      calibrationOn:          toDateInput(item.calibrationOn),
-      calibrationDueDate:     toDateInput(item.calibrationDueDate),
-      recallDueDate:          toDateInput(item.recallDueDate),
-      calibrationCertificate: item.calibrationCertificate || '',
-      periodicity:            item.periodicity || 'Every One Year',
-      notes:                  item.notes || '',
+      mirNo:           item.mirNo || '',
+      mirDate:         toDateInput(item.mirDate),
+      name:            item.name || '',
+      make:            item.make || '',
+      model:           item.model || '',
+      serialNo:        item.serialNo || '',
+      rapsplSerialNo:  item.rapsplSerialNo || '',
+      operatingRange:  item.operatingRange || '',
+      capacityMin:     item.capacityMin || '',
+      capacityMax:     item.capacityMax || '',
+      leastCount:      item.leastCount || '',
+      unitLocation:    item.unitLocation || '',
+      usedFor:         item.usedFor || '',
+      periodicity:     item.periodicity || 'Every One Year',
+      notes:           item.notes || '',
+      mmrSubCategory:  item.mmrSubCategory || '',
     });
+    const byFy = {};
+    FY_COLUMNS.forEach((f) => { byFy[f] = blankFyRecord(); });
+    (item.records || []).forEach((r) => {
+      byFy[r.fiscalYear] = {
+        qcVerifiedBy:           r.qcVerifiedBy || '',
+        verifiedOn:             toDateInput(r.verifiedOn),
+        certificateNo:          r.certificateNo || '',
+        calibratedOn:           toDateInput(r.calibratedOn),
+        dueDate:                toDateInput(r.dueDate),
+        certificateAttachment:  r.certificateAttachment || '',
+      };
+    });
+    setFyForms(byFy);
     setFormError('');
   };
 
   const closeForm = () => {
     setEditing(null);
     setForm(blankForm);
+    setFyForms({});
     setFormError('');
   };
+
+  const buildRecordsPayload = () =>
+    FY_COLUMNS
+      .map((fy) => ({ fiscalYear: fy, ...fyForms[fy] }))
+      .filter((r) => r.qcVerifiedBy || r.verifiedOn || r.certificateNo || r.calibratedOn || r.dueDate)
+      .map((r) => {
+        const out = { fiscalYear: r.fiscalYear };
+        ['qcVerifiedBy', 'certificateNo'].forEach((k) => { out[k] = r[k] || null; });
+        ['verifiedOn', 'calibratedOn', 'dueDate'].forEach((k) => { out[k] = r[k] || null; });
+        return out;
+      });
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -197,13 +252,25 @@ export default function CalibrationList({
     setSaving(true);
     try {
       const payload = { ...form, category };
-      ['calibrationOn', 'calibrationDueDate', 'recallDueDate'].forEach((k) => {
-        if (!payload[k]) payload[k] = null;
-      });
+      ['mirDate'].forEach((k) => { if (!payload[k]) payload[k] = null; });
+      if (!payload.mmrSubCategory) payload.mmrSubCategory = null;
+
+      let itemId;
       if (editing === 'new') {
-        await api.post('/calibration', payload);
+        const records = buildRecordsPayload();
+        const { data } = await api.post('/calibration', { ...payload, records });
+        itemId = data.id;
       } else {
-        await api.put(`/calibration/${editing.id}`, payload);
+        const { data } = await api.put(`/calibration/${editing.id}`, payload);
+        itemId = data.id;
+        // Upsert each FY record that has any value set.
+        const records = buildRecordsPayload();
+        for (const rec of records) {
+          await api.put(
+            `/calibration/${itemId}/records/${encodeURIComponent(rec.fiscalYear)}`,
+            rec
+          );
+        }
       }
       closeForm();
       fetchItems();
@@ -228,11 +295,58 @@ export default function CalibrationList({
     }
   };
 
+  const handleCertUpload = async (itemId, fy, file) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('certificate', file);
+    try {
+      const { data } = await api.post(
+        `/calibration/${itemId}/records/${encodeURIComponent(fy)}/certificate`,
+        fd,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      setFyForms((prev) => ({
+        ...prev,
+        [fy]: { ...(prev[fy] || blankFyRecord()), certificateAttachment: data.certificateAttachment || '' },
+      }));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to upload certificate');
+    }
+  };
+
+  const saveRemarks = async (item) => {
+    const next = remarksDraft[item.id] ?? '';
+    if ((item.remarks || '') === next) return;
+    setRemarksBusy((b) => ({ ...b, [item.id]: true }));
+    try {
+      await api.patch(`/calibration/${item.id}/remarks`, { remarks: next });
+      setItems((rows) => rows.map((r) => r.id === item.id ? { ...r, remarks: next } : r));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save remarks');
+    } finally {
+      setRemarksBusy((b) => ({ ...b, [item.id]: false }));
+    }
+  };
+
+  if (!canView) {
+    return (
+      <Card>
+        <p className="text-center text-gray-500 py-8">
+          You don't have access to the {title} register.
+        </p>
+      </Card>
+    );
+  }
+
   const showCapacity = !!fields.capacity;
   const showLeastCount = !!fields.leastCount;
   const showOperatingRange = !!fields.operatingRange;
   const showUsedFor = !!fields.usedFor;
   const showRapspl = fields.rapspl !== false;
+
+  // Per-category RAP S.no auto-counter — increments per row in the current
+  // category view. Independent of any other category.
+  let rapCounter = 0;
 
   return (
     <div className="space-y-5">
@@ -253,9 +367,8 @@ export default function CalibrationList({
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{title}</h1>
               <p className="text-sm text-white/80 mt-1">
-                {canEdit
-                  ? 'You can add, edit, or remove calibration entries below.'
-                  : 'Read-only view — Metrology team manages this register.'}
+                Periodicity of calibration: <span className="font-semibold">one year</span>
+                {canEdit ? ' · You can add, edit, or remove entries below.' : ' · Read-only view — remarks remain editable.'}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -274,40 +387,12 @@ export default function CalibrationList({
             </div>
           </div>
 
-          {/* Stats strip */}
+          {/* Stat strip */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-5">
-            <StatChip
-              active={statusFilter === ''}
-              onClick={() => setStatusFilter('')}
-              icon={<Activity size={14} />}
-              label="Total"
-              value={stats.total}
-              tone="white"
-            />
-            <StatChip
-              active={statusFilter === 'healthy'}
-              onClick={() => setStatusFilter(statusFilter === 'healthy' ? '' : 'healthy')}
-              icon={<CheckCircle2 size={14} />}
-              label="Healthy"
-              value={stats.healthy}
-              tone="emerald"
-            />
-            <StatChip
-              active={statusFilter === 'dueSoon'}
-              onClick={() => setStatusFilter(statusFilter === 'dueSoon' ? '' : 'dueSoon')}
-              icon={<Clock size={14} />}
-              label="Due ≤ 30d"
-              value={stats.dueSoon}
-              tone="amber"
-            />
-            <StatChip
-              active={statusFilter === 'overdue'}
-              onClick={() => setStatusFilter(statusFilter === 'overdue' ? '' : 'overdue')}
-              icon={<AlertTriangle size={14} />}
-              label="Overdue"
-              value={stats.overdue}
-              tone="rose"
-            />
+            <StatChip active={statusFilter === ''}        onClick={() => setStatusFilter('')}                                  icon={<Activity size={14} />}       label="Total"     value={stats.total}   tone="white" />
+            <StatChip active={statusFilter === 'healthy'} onClick={() => setStatusFilter(statusFilter === 'healthy' ? '' : 'healthy')} icon={<CheckCircle2 size={14} />} label="Healthy"   value={stats.healthy} tone="emerald" />
+            <StatChip active={statusFilter === 'dueSoon'} onClick={() => setStatusFilter(statusFilter === 'dueSoon' ? '' : 'dueSoon')} icon={<Clock size={14} />}        label="Due ≤ 30d" value={stats.dueSoon} tone="amber" />
+            <StatChip active={statusFilter === 'overdue'} onClick={() => setStatusFilter(statusFilter === 'overdue' ? '' : 'overdue')} icon={<AlertTriangle size={14} />} label="Overdue"   value={stats.overdue} tone="rose" />
           </div>
         </div>
       </div>
@@ -320,18 +405,30 @@ export default function CalibrationList({
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, make, model, serial..."
+              placeholder="Search by MIR no, name, make, model, serial..."
               className="w-full pl-9 pr-9 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-navy-500 focus:border-navy-500 focus:bg-white transition-colors"
             />
             {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                 <X size={14} />
               </button>
             )}
           </div>
+
+          {mmrSubOptions && (
+            <div className="flex items-center gap-2">
+              <Filter size={14} className="text-gray-400" />
+              <select
+                value={mmrSub}
+                onChange={(e) => setMmrSub(e.target.value)}
+                className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-navy-500 focus:bg-white transition-colors"
+              >
+                <option value="">All sub-categories</option>
+                {mmrSubOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          )}
+
           {unitOptions.length > 0 && (
             <div className="flex items-center gap-2">
               <Filter size={14} className="text-gray-400" />
@@ -345,6 +442,7 @@ export default function CalibrationList({
               </select>
             </div>
           )}
+
           <span className="text-xs text-gray-500 ml-auto font-medium">
             Showing <span className="text-navy-700 font-bold">{filteredItems.length}</span> of <span className="font-semibold">{items.length}</span>
           </span>
@@ -364,129 +462,143 @@ export default function CalibrationList({
           </div>
         ) : (
           <div className="overflow-x-auto -mx-5 px-5">
-            <table className="w-full text-sm">
+            <table className="min-w-full text-xs border-separate border-spacing-0">
               <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest w-12">#</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Equipment</th>
-                  {showOperatingRange && <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Range</th>}
-                  {showCapacity && <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Capacity</th>}
-                  {showLeastCount && <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Least Count</th>}
-                  <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Make / Model</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Serial Numbers</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Location</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Calibrated</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Due Date</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Certificate</th>
-                  {canEdit && <th className="px-3 py-3 text-right text-[10px] font-bold text-gray-500 uppercase tracking-widest">Actions</th>}
+                {/* Top header — base columns span 2 rows, FY groups span their inner columns */}
+                <tr className="bg-navy-50/70">
+                  <Th rowSpan={2} sticky>#</Th>
+                  <Th rowSpan={2}>MIR no.</Th>
+                  <Th rowSpan={2}>MIR date</Th>
+                  <Th rowSpan={2}>Name of Gauge / equipment</Th>
+                  {showOperatingRange && <Th rowSpan={2}>Range</Th>}
+                  {showCapacity && <Th rowSpan={2}>Capacity</Th>}
+                  {showLeastCount && <Th rowSpan={2}>Least Count</Th>}
+                  <Th rowSpan={2}>Make</Th>
+                  <Th rowSpan={2}>Model</Th>
+                  <Th rowSpan={2}>S.no</Th>
+                  <Th rowSpan={2}>RAP S.no</Th>
+                  <Th rowSpan={2}>Located at</Th>
+                  {FY_COLUMNS.map((fy) => (
+                    <Th key={fy} colSpan={5} center groupTone>
+                      {fy}
+                    </Th>
+                  ))}
+                  <Th rowSpan={2}>Remarks</Th>
+                  {canEdit && <Th rowSpan={2}>Actions</Th>}
+                </tr>
+                <tr className="bg-navy-50/40">
+                  {FY_COLUMNS.flatMap((fy) => [
+                    <Th key={`${fy}-qc`}>QC Verification by</Th>,
+                    <Th key={`${fy}-vo`}>Verified on</Th>,
+                    <Th key={`${fy}-cn`}>Certificate no.</Th>,
+                    <Th key={`${fy}-co`}>Calibrated on</Th>,
+                    <Th key={`${fy}-dd`}>Due date</Th>,
+                  ])}
                 </tr>
               </thead>
               <tbody>
-                {filteredItems.map((row, i) => (
-                  <tr
-                    key={row.id}
-                    className="group border-b border-gray-100 hover:bg-navy-50/40 transition-colors"
-                  >
-                    <td className="px-3 py-3 align-middle">
-                      <div className="flex items-center gap-2">
-                        <StatusDot dueDate={row.calibrationDueDate} />
-                        <span className="text-xs font-medium text-gray-400 tabular-nums">{i + 1}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 align-middle">
-                      <div className="flex flex-col">
-                        <span className="font-semibold text-navy-800 leading-tight">{row.name}</span>
-                        {row.usedFor && (
-                          <span className="text-[11px] text-gray-500 mt-0.5">
-                            <span className="text-gray-400">For:</span> {row.usedFor}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    {showOperatingRange && (
-                      <td className="px-3 py-3 align-middle">
-                        <span className="font-mono text-xs text-gray-700">{row.operatingRange || '—'}</span>
-                      </td>
-                    )}
-                    {showCapacity && (
-                      <td className="px-3 py-3 align-middle">
-                        <span className="font-mono text-xs text-gray-700">
-                          {(row.capacityMin || '—')} – {(row.capacityMax || '—')}
+                {filteredItems.map((row) => {
+                  rapCounter += 1;
+                  const fyMap = recordsByFy(row.records);
+                  return (
+                    <tr key={row.id} className="group hover:bg-navy-50/40">
+                      <Td sticky className="text-gray-400 tabular-nums">{rapCounter}</Td>
+                      <Td>{row.mirNo || ''}</Td>
+                      <Td>{fmtDate(row.mirDate)}</Td>
+                      <Td>
+                        <div className="font-semibold text-navy-800 leading-tight">{row.name}</div>
+                        {row.usedFor && <div className="text-[10px] text-gray-500 mt-0.5">For: {row.usedFor}</div>}
+                      </Td>
+                      {showOperatingRange && <Td><span className="font-mono">{row.operatingRange || ''}</span></Td>}
+                      {showCapacity && <Td><span className="font-mono">{(row.capacityMin || '')}{row.capacityMax ? ` – ${row.capacityMax}` : ''}</span></Td>}
+                      {showLeastCount && <Td><span className="font-mono">{row.leastCount || ''}</span></Td>}
+                      <Td>{row.make || ''}</Td>
+                      <Td><span className="font-mono">{row.model || ''}</span></Td>
+                      <Td><span className="font-mono">{row.serialNo || ''}</span></Td>
+                      <Td>
+                        <span className="font-mono text-navy-700 font-semibold tabular-nums">
+                          {showRapspl && row.rapsplSerialNo ? row.rapsplSerialNo : rapCounter}
                         </span>
-                      </td>
-                    )}
-                    {showLeastCount && (
-                      <td className="px-3 py-3 align-middle">
-                        <span className="font-mono text-xs text-gray-700">{row.leastCount || '—'}</span>
-                      </td>
-                    )}
-                    <td className="px-3 py-3 align-middle">
-                      <div className="flex flex-col">
-                        <span className="text-sm text-gray-800">{row.make || '—'}</span>
-                        {row.model && <span className="text-[11px] text-gray-500 font-mono">{row.model}</span>}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 align-middle">
-                      <div className="flex flex-col gap-0.5">
-                        {row.serialNo ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-mono text-gray-700">
-                            <Hash size={10} className="text-gray-400" />{row.serialNo}
+                      </Td>
+                      <Td>
+                        {row.unitLocation ? (
+                          <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 ring-1 ring-blue-200">
+                            {row.unitLocation}
                           </span>
-                        ) : (
-                          <span className="text-xs text-gray-400">—</span>
-                        )}
-                        {showRapspl && row.rapsplSerialNo && (
-                          <span className="text-[10px] font-mono text-navy-600 bg-navy-50 px-1.5 py-0.5 rounded ring-1 ring-navy-100 inline-block w-fit">
-                            {row.rapsplSerialNo}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 align-middle">
-                      {row.unitLocation ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full bg-blue-50 text-blue-700 ring-1 ring-blue-200">
-                          <MapPin size={10} /> {row.unitLocation}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 align-middle">
-                      <span className="inline-flex items-center gap-1 text-xs text-gray-700">
-                        <Calendar size={11} className="text-gray-400" /> {fmtDate(row.calibrationOn)}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 align-middle">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-xs text-gray-700">{fmtDate(row.calibrationDueDate)}</span>
-                        <DueBadge dueDate={row.calibrationDueDate} />
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 align-middle">
-                      <span className="text-[11px] font-mono text-gray-600">{row.calibrationCertificate || '—'}</span>
-                    </td>
-                    {canEdit && (
-                      <td className="px-3 py-3 align-middle text-right">
-                        <div className="inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => openEdit(row)}
-                            className="p-1.5 rounded-lg hover:bg-navy-100 text-navy-700 transition-colors"
-                            title="Edit"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            onClick={() => setDeleting(row)}
-                            className="p-1.5 rounded-lg hover:bg-red-100 text-red-600 transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                        ) : ''}
+                      </Td>
+
+                      {FY_COLUMNS.flatMap((fy) => {
+                        const r = fyMap[fy] || {};
+                        const due = r.dueDate;
+                        const status = dueStatus(due);
+                        return [
+                          <Td key={`${fy}-qc`}>{r.qcVerifiedBy || ''}</Td>,
+                          <Td key={`${fy}-vo`}>{fmtDate(r.verifiedOn)}</Td>,
+                          <Td key={`${fy}-cn`}>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-mono text-[10px]">{r.certificateNo || ''}</span>
+                              {r.certificateAttachment && (
+                                <a
+                                  href={`${API_ORIGIN}${r.certificateAttachment}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[10px] text-navy-600 hover:text-navy-800"
+                                >
+                                  <Download size={10} /> PDF
+                                </a>
+                              )}
+                            </div>
+                          </Td>,
+                          <Td key={`${fy}-co`}>{fmtDate(r.calibratedOn)}</Td>,
+                          <Td key={`${fy}-dd`}>
+                            <div className="flex flex-col gap-0.5">
+                              <span>{fmtDate(due)}</span>
+                              {status.tone === 'overdue' && (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 ring-1 ring-rose-200 w-fit">
+                                  <AlertTriangle size={9} /> {status.label}
+                                </span>
+                              )}
+                              {status.tone === 'dueSoon' && (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 ring-1 ring-amber-200 w-fit">
+                                  <Clock size={9} /> {status.label}
+                                </span>
+                              )}
+                            </div>
+                          </Td>,
+                        ];
+                      })}
+
+                      {/* Remarks — every viewer can edit */}
+                      <Td>
+                        <div className="flex items-start gap-1">
+                          <textarea
+                            value={remarksDraft[row.id] ?? ''}
+                            onChange={(e) => setRemarksDraft((d) => ({ ...d, [row.id]: e.target.value }))}
+                            onBlur={() => saveRemarks(row)}
+                            placeholder="Add remarks..."
+                            rows={1}
+                            className="w-40 text-[11px] px-1.5 py-1 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 focus:border-navy-500 bg-white resize-y"
+                          />
+                          {remarksBusy[row.id] && <Save size={12} className="text-gray-400 animate-pulse mt-1" />}
                         </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
+                      </Td>
+
+                      {canEdit && (
+                        <Td>
+                          <div className="inline-flex items-center gap-1">
+                            <button onClick={() => openEdit(row)} className="p-1 rounded hover:bg-navy-100 text-navy-700" title="Edit">
+                              <Pencil size={12} />
+                            </button>
+                            <button onClick={() => setDeleting(row)} className="p-1 rounded hover:bg-red-100 text-red-600" title="Delete">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </Td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -499,7 +611,7 @@ export default function CalibrationList({
           isOpen={!!editing}
           onClose={closeForm}
           title={editing === 'new' ? `New ${title} entry` : `Edit ${editing.name}`}
-          size="xl"
+          size="full"
         >
           <form onSubmit={handleSave} className="space-y-4">
             {formError && (
@@ -508,19 +620,28 @@ export default function CalibrationList({
                 {formError}
               </div>
             )}
+
             <FormSection title="Identification">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
+                <Input label="MIR no." value={form.mirNo} onChange={(e) => setForm({ ...form, mirNo: e.target.value })} />
+                <Input label="MIR date" type="date" value={form.mirDate} onChange={(e) => setForm({ ...form, mirDate: e.target.value })} />
                 <Input label="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-                <Input label="Location (Unit-I, Store, etc.)" value={form.unitLocation} onChange={(e) => setForm({ ...form, unitLocation: e.target.value })} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <Input label="Make" value={form.make} onChange={(e) => setForm({ ...form, make: e.target.value })} />
                 <Input label="Model" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                <Input label="Serial No (S.no)" value={form.serialNo} onChange={(e) => setForm({ ...form, serialNo: e.target.value })} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Input label="Serial No" value={form.serialNo} onChange={(e) => setForm({ ...form, serialNo: e.target.value })} />
+              <div className="grid grid-cols-3 gap-3">
                 {showRapspl && (
                   <Input label="RAPSPL Serial No" value={form.rapsplSerialNo} onChange={(e) => setForm({ ...form, rapsplSerialNo: e.target.value })} />
+                )}
+                <Input label="Located at (Unit-I, Store, etc.)" value={form.unitLocation} onChange={(e) => setForm({ ...form, unitLocation: e.target.value })} />
+                {mmrSubOptions && (
+                  <Select label="MMR sub-category" value={form.mmrSubCategory} onChange={(e) => setForm({ ...form, mmrSubCategory: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {mmrSubOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </Select>
                 )}
               </div>
             </FormSection>
@@ -544,19 +665,83 @@ export default function CalibrationList({
               {showUsedFor && (
                 <Input label="Used For" value={form.usedFor} onChange={(e) => setForm({ ...form, usedFor: e.target.value })} />
               )}
+              <Input label="Periodicity" value={form.periodicity} onChange={(e) => setForm({ ...form, periodicity: e.target.value })} />
             </FormSection>
 
-            <FormSection title="Calibration">
-              <div className="grid grid-cols-3 gap-3">
-                <Input label="Calibrated On" type="date" value={form.calibrationOn} onChange={(e) => setForm({ ...form, calibrationOn: e.target.value })} />
-                <Input label="Calibration Due Date" type="date" value={form.calibrationDueDate} onChange={(e) => setForm({ ...form, calibrationDueDate: e.target.value })} />
-                <Input label="Recall Due Date" type="date" value={form.recallDueDate} onChange={(e) => setForm({ ...form, recallDueDate: e.target.value })} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Input label="Calibration Certificate No" value={form.calibrationCertificate} onChange={(e) => setForm({ ...form, calibrationCertificate: e.target.value })} />
-                <Input label="Periodicity" value={form.periodicity} onChange={(e) => setForm({ ...form, periodicity: e.target.value })} />
-              </div>
-              <Textarea label="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            {/* Per-FY editor */}
+            {FY_COLUMNS.map((fy) => {
+              const rec = fyForms[fy] || blankFyRecord();
+              return (
+                <FormSection key={fy} title={`Calibration · ${fy}`}>
+                  <div className="grid grid-cols-3 gap-3">
+                    <Input
+                      label="Calibration certificate QC Verification by"
+                      value={rec.qcVerifiedBy}
+                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], qcVerifiedBy: e.target.value } }))}
+                    />
+                    <Input
+                      label="Verified on"
+                      type="date"
+                      value={rec.verifiedOn}
+                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], verifiedOn: e.target.value } }))}
+                    />
+                    <Input
+                      label="Certificate no."
+                      value={rec.certificateNo}
+                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], certificateNo: e.target.value } }))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <Input
+                      label="Calibrated on"
+                      type="date"
+                      value={rec.calibratedOn}
+                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], calibratedOn: e.target.value } }))}
+                    />
+                    <Input
+                      label="Due date"
+                      type="date"
+                      value={rec.dueDate}
+                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], dueDate: e.target.value } }))}
+                    />
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Certificate PDF</label>
+                      <div className="flex items-center gap-2">
+                        {editing !== 'new' && (
+                          <label className="inline-flex items-center gap-1.5 px-3 py-2 text-xs rounded-md border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer">
+                            <Upload size={12} /> Upload
+                            <input
+                              type="file"
+                              accept="application/pdf"
+                              className="hidden"
+                              onChange={(e) => handleCertUpload(editing.id, fy, e.target.files?.[0])}
+                            />
+                          </label>
+                        )}
+                        {rec.certificateAttachment ? (
+                          <a
+                            href={`${API_ORIGIN}${rec.certificateAttachment}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-navy-600 hover:text-navy-800"
+                          >
+                            <Download size={12} /> Current PDF
+                          </a>
+                        ) : (
+                          <span className="text-xs text-gray-400">No file</span>
+                        )}
+                      </div>
+                      {editing === 'new' && (
+                        <p className="text-[10px] text-gray-400 mt-1">Save the entry first, then upload the certificate.</p>
+                      )}
+                    </div>
+                  </div>
+                </FormSection>
+              );
+            })}
+
+            <FormSection title="Notes">
+              <Textarea label="Internal notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </FormSection>
 
             <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
@@ -569,7 +754,6 @@ export default function CalibrationList({
         </Modal>
       )}
 
-      {/* Delete modal */}
       {deleting && (
         <Modal isOpen={!!deleting} onClose={() => setDeleting(null)} title="Delete calibration entry" size="md">
           <div className="space-y-4">
@@ -591,6 +775,45 @@ export default function CalibrationList({
         </Modal>
       )}
     </div>
+  );
+}
+
+// ── helpers ──
+function recordsByFy(records = []) {
+  const m = {};
+  records.forEach((r) => { m[r.fiscalYear] = r; });
+  return m;
+}
+
+function latestDueDate(item) {
+  const fyRecs = item.records || [];
+  let latest = null;
+  fyRecs.forEach((r) => {
+    if (!r.dueDate) return;
+    const d = new Date(r.dueDate);
+    if (!latest || d > latest) latest = d;
+  });
+  return latest || item.calibrationDueDate || null;
+}
+
+function Th({ children, rowSpan = 1, colSpan = 1, sticky = false, groupTone = false, center = false }) {
+  const base = 'px-2 py-2 text-[10px] font-bold uppercase tracking-widest border-b border-gray-200';
+  const stickyCls = sticky ? 'sticky left-0 bg-navy-50/90 z-10' : '';
+  const tone = groupTone ? 'text-navy-800 bg-navy-100/70 border-l border-r border-navy-200/60' : 'text-gray-600';
+  const align = center ? 'text-center' : 'text-left';
+  return (
+    <th rowSpan={rowSpan} colSpan={colSpan} className={`${base} ${tone} ${stickyCls} ${align} whitespace-nowrap`}>
+      {children}
+    </th>
+  );
+}
+
+function Td({ children, sticky = false, className = '' }) {
+  const stickyCls = sticky ? 'sticky left-0 bg-white group-hover:bg-navy-50/40 z-10' : '';
+  return (
+    <td className={`px-2 py-2 align-top border-b border-gray-100 whitespace-nowrap ${stickyCls} ${className}`}>
+      {children}
+    </td>
   );
 }
 

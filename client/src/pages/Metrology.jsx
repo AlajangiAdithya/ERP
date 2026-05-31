@@ -9,10 +9,14 @@ import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 
 const VIEW_ROLES = [
-  'METROLOGY', 'ADMIN', 'MANAGER', 'STORE_MANAGER',
+  'METROLOGY', 'ADMIN', 'SUPERADMIN', 'MANAGER', 'STORE_MANAGER',
   'PURCHASE_OFFICER', 'QC', 'ACCOUNTING', 'SAFETY',
-  'LAB', 'NDT', 'RND', 'DESIGNS', 'SUPERADMIN',
+  'LAB', 'NDT', 'RND', 'DESIGNS',
 ];
+// Units allowed to see the registers when role = MANAGER.
+const MANAGER_VIEW_UNITS = ['UNIT-I', 'UNIT-1A', 'UNIT-II', 'UNIT-III', 'UNIT-IV', 'UNIT-V'];
+const MANAGER_EDIT_UNITS = ['UNIT-V'];
+const BASE_EDIT_ROLES = ['METROLOGY', 'QC', 'ADMIN', 'SUPERADMIN'];
 
 const MODULES = [
   {
@@ -88,8 +92,12 @@ const daysUntil = (d) => Math.ceil((new Date(d) - new Date()) / (1000 * 60 * 60 
 export default function Metrology() {
   const { user } = useAuth();
   const role = user?.role;
-  const canView = VIEW_ROLES.includes(role);
-  const canEdit = role === 'METROLOGY' || role === 'ADMIN' || role === 'SUPERADMIN';
+  const unitCode = user?.unit?.code || user?.unit?.name || '';
+
+  const canEdit = BASE_EDIT_ROLES.includes(role) || (role === 'MANAGER' && MANAGER_EDIT_UNITS.includes(unitCode));
+  const canView = canEdit
+    || (role && VIEW_ROLES.includes(role) && role !== 'MANAGER')
+    || (role === 'MANAGER' && MANAGER_VIEW_UNITS.includes(unitCode));
 
   const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);

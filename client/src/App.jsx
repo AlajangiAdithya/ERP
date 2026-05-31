@@ -43,10 +43,13 @@ import MMR from './pages/metrology/MMR';
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
-// Metrology calibration registers — METROLOGY + ADMIN can edit; the rest
-// of the procurement / quality chain has read-only visibility.
+// Metrology calibration registers — METROLOGY, QC and ADMIN edit; MANAGER
+// (per-unit) edits if assigned to Unit-V, else view-only for Units I/1A/II/III/IV;
+// other procurement-chain roles retain read access for traceability.
+// The CalibrationList page enforces the unit-aware split client-side and the
+// server's calibration.routes.js gates writes server-side.
 const METROLOGY_VIEW_ROLES = [
-  'METROLOGY', 'ADMIN', 'MANAGER', 'STORE_MANAGER',
+  'METROLOGY', 'ADMIN', 'SUPERADMIN', 'MANAGER', 'STORE_MANAGER',
   'PURCHASE_OFFICER', 'QC', 'ACCOUNTING', 'SAFETY',
   'LAB', 'NDT', 'RND', 'DESIGNS',
 ];

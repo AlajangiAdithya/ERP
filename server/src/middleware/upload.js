@@ -79,6 +79,14 @@ const fimGpUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
+// Calibration certificate PDF (one per fiscal-year record on a calibration item).
+// Every viewer of the metrology register is allowed to download these.
+const calibrationCertUpload = multer({
+  storage: makeStorage('calibration-certs'),
+  fileFilter: pdfOnly,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
 const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
 
 module.exports = {
@@ -90,6 +98,7 @@ module.exports = {
   vendorEvaluationUpload,
   supplierAssessmentUpload,
   fimGpUpload,
+  calibrationCertUpload,
   publicUrlFor,
   UPLOAD_ROOT,
 };
