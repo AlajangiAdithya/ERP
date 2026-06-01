@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Plus, Pencil, Trash2, ChevronLeft, Search, Filter,
+  Plus, Pencil, Trash2, ChevronLeft, ChevronDown, ChevronRight, Search, Filter,
   CheckCircle2, Clock, AlertTriangle, Activity, FileText,
   Settings2, X, Upload, Download, Save,
 } from 'lucide-react';
@@ -161,6 +161,18 @@ export default function CalibrationList({
   const [fyForms, setFyForms] = useState({}); // { 'FY 26-27': {...}, 'FY 27-28': {...} }
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+
+  // Collapsed FY columns in the register. Default: only the most recent FY is
+  // expanded so the table stays readable as more years are added.
+  const [collapsedFys, setCollapsedFys] = useState(
+    () => new Set(FY_COLUMNS.slice(0, -1))
+  );
+  const isFyCollapsed = (fy) => collapsedFys.has(fy);
+  const toggleFy = (fy) => setCollapsedFys((prev) => {
+    const next = new Set(prev);
+    if (next.has(fy)) next.delete(fy); else next.add(fy);
+    return next;
+  });
 
   const [deleting, setDeleting] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -598,28 +610,43 @@ export default function CalibrationList({
                   <Th rowSpan={2}>S.no</Th>
                   <Th rowSpan={2}>RAP S.no</Th>
                   <Th rowSpan={2} groupEnd>Located at</Th>
-                  {FY_COLUMNS.map((fy, idx) => (
-                    <Th
-                      key={fy}
-                      colSpan={5}
-                      center
-                      groupTone
-                      groupEnd={idx === FY_COLUMNS.length - 1 || true}
-                    >
-                      {fy}
-                    </Th>
-                  ))}
+                  {FY_COLUMNS.map((fy) => {
+                    const collapsed = isFyCollapsed(fy);
+                    return (
+                      <Th
+                        key={fy}
+                        colSpan={collapsed ? 1 : 5}
+                        rowSpan={collapsed ? 2 : 1}
+                        center
+                        groupTone
+                        groupEnd
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleFy(fy)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md hover:bg-navy-100 text-navy-700 hover:text-navy-900 transition-colors font-semibold"
+                          title={collapsed ? 'Expand' : 'Collapse'}
+                        >
+                          {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                          <span>{fy}</span>
+                        </button>
+                      </Th>
+                    );
+                  })}
                   <Th rowSpan={2}>Remarks</Th>
                   {canEdit && <Th rowSpan={2}>Actions</Th>}
                 </tr>
                 <tr>
-                  {FY_COLUMNS.flatMap((fy) => [
-                    <Th key={`${fy}-qc`}>QC Verif. by</Th>,
-                    <Th key={`${fy}-vo`}>Verified on</Th>,
-                    <Th key={`${fy}-cn`}>Certificate no.</Th>,
-                    <Th key={`${fy}-co`}>Calibrated on</Th>,
-                    <Th key={`${fy}-dd`} groupEnd>Due date</Th>,
-                  ])}
+                  {FY_COLUMNS.flatMap((fy) => {
+                    if (isFyCollapsed(fy)) return [];
+                    return [
+                      <Th key={`${fy}-qc`}>QC Verif. by</Th>,
+                      <Th key={`${fy}-vo`}>Verified on</Th>,
+                      <Th key={`${fy}-cn`}>Certificate no.</Th>,
+                      <Th key={`${fy}-co`}>Calibrated on</Th>,
+                      <Th key={`${fy}-dd`} groupEnd>Due date</Th>,
+                    ];
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -688,6 +715,38 @@ export default function CalibrationList({
                         const r = fyMap[fy] || {};
                         const due = r.dueDate;
                         const status = dueStatus(due);
+                        if (isFyCollapsed(fy)) {
+                          const hasAny = r.qcVerifiedBy || r.verifiedOn || r.certificateNo || r.calibratedOn || r.dueDate;
+                          return [
+                            <Td
+                              key={`${fy}-collapsed`}
+                              groupEnd
+                              className="text-center cursor-pointer hover:bg-navy-50/60"
+                              onClick={() => toggleFy(fy)}
+                              title={`Expand ${fy}`}
+                            >
+                              {hasAny ? (
+                                due ? (
+                                  <div className="flex flex-col items-center gap-0.5 leading-tight">
+                                    <span className="text-[10px] text-gray-800">{fmtDate(due)}</span>
+                                    {status.tone === 'overdue' && (
+                                      <span className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200">
+                                        <AlertTriangle size={9} /> {status.label}
+                                      </span>
+                                    )}
+                                    {status.tone === 'dueSoon' && (
+                                      <span className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200">
+                                        <Clock size={9} /> {status.label}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-gray-500">…</span>
+                                )
+                              ) : <Dash />}
+                            </Td>,
+                          ];
+                        }
                         return [
                           <Td key={`${fy}-qc`} className="text-gray-700">{orDash(r.qcVerifiedBy)}</Td>,
                           <Td key={`${fy}-vo`} className="text-gray-600">{r.verifiedOn ? fmtDate(r.verifiedOn) : <Dash />}</Td>,
@@ -856,8 +915,22 @@ export default function CalibrationList({
             {/* Per-FY editor */}
             {FY_COLUMNS.map((fy) => {
               const rec = fyForms[fy] || blankFyRecord();
+              const collapsed = isFyCollapsed(fy);
               return (
-                <FormSection key={fy} title={`Calibration · ${fy}`}>
+                <div key={fy} className="space-y-3">
+                  <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => toggleFy(fy)}
+                      className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest font-bold text-navy-700 hover:text-navy-900 transition-colors"
+                    >
+                      {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                      <span>{`Calibration · ${fy}`}</span>
+                    </button>
+                    <span className="flex-1 h-px bg-gradient-to-r from-navy-100 to-transparent" />
+                  </div>
+                  {!collapsed && (
+                  <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-3">
                     <Input
                       label="Calibration certificate QC Verification by"
@@ -921,7 +994,9 @@ export default function CalibrationList({
                       )}
                     </div>
                   </div>
-                </FormSection>
+                  </div>
+                  )}
+                </div>
               );
             })}
 
