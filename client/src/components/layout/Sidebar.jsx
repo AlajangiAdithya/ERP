@@ -20,10 +20,10 @@ const ALL_ROLES = [
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
 // Metrology hub viewers (per access chart RAPS/QSP):
-// Full edit = METROLOGY, QC, MANAGER@UNIT-V.
+// Full edit = METROLOGY, QC, MANAGER@UNIT-V. SUPERADMIN bypasses everywhere.
 // View + remarks + cert download = ADMIN, MANAGER (all units), LAB, NDT, RND.
 // Edit gating happens inside the page and on the server.
-const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND'];
+const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'SUPERADMIN'];
 
 // Procurement & Inventory Management hub is visible to every authenticated
 // user EXCEPT Metrology and Supply Chain — those teams don't need the
