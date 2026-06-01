@@ -857,8 +857,10 @@ enum PaymentRequestStatus {
 model QCInspection {
   id                   String             @id @default(uuid())
   inspectionNumber     String             @unique // ION No.
-  purchaseOrderId      String
-  purchaseOrder        PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
+  // Nullable so stock-statement / opening-balance batches can attach a lightweight
+  // QC record carrying batchNo / DOM / DOE / referredUnit without a parent PO.
+  purchaseOrderId      String?
+  purchaseOrder        PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id])
   result               QCResult           @default(PENDING)
   parameters           Json? // Flexible inspection parameters
   notes                String?

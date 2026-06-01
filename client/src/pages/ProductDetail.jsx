@@ -1150,6 +1150,7 @@ export default function ProductDetail() {
                         <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Received Qty</th>
                         <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Remaining</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Mfg</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Expiry</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Origin</th>
                       </tr>
@@ -1174,6 +1175,11 @@ export default function ProductDetail() {
                               {depleted ? <Badge color="gray">Depleted</Badge>
                                 : partial ? <Badge color="yellow">Partial</Badge>
                                 : <Badge color="green">Full</Badge>}
+                            </td>
+                            <td className="px-3 py-2 text-xs">
+                              {insp?.dateOfManufacturing
+                                ? formatDate(insp.dateOfManufacturing)
+                                : <span className="text-gray-300 italic">—</span>}
                             </td>
                             <td className="px-3 py-2 text-xs">
                               {insp?.dateOfExpiry
@@ -1204,7 +1210,7 @@ export default function ProductDetail() {
                         <tr className="bg-gray-50 border-t-2 font-semibold text-sm">
                           <td colSpan={4} className="px-3 py-2 text-right">Active total:</td>
                           <td className="px-3 py-2 text-right">{activeBatches.reduce((s, b) => s + b.remaining, 0)} {product.unit}</td>
-                          <td colSpan={3} />
+                          <td colSpan={4} />
                         </tr>
                       </tfoot>
                     )}
