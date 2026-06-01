@@ -581,7 +581,7 @@
   },
   {
     "materialCode": "3009",
-    "name": "Vaccum film - VACFILM 800G, \n50 micron , 900mm wide x 300m long LFT",
+    "name": "Vaccum film - VACFILM 800G, \r\n50 micron , 900mm wide x 300m long LFT",
     "unit": "Rolls",
     "type": "Consumable",
     "prRequired": "No",

@@ -24,8 +24,8 @@ function mapType(excelType) {
   const t = (excelType || '').trim().toLowerCase();
   if (t === 'raw material') return 'Raw Material';
   if (t === 'consumable' || t === 'consumables') return 'Consumable';
-  if (t === 'capital') return 'Tooling';
-  if (t === 'stationery') return 'Others';
+  if (t === 'capital') return 'Tools & Fixtures';
+  if (t === 'stationery' || t === 'stationary') return 'Stationery';
   return normalizeMaterialType(excelType);
 }
 
