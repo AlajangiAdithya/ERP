@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ShoppingCart, Truck, ClipboardCheck, ClipboardList, ArrowLeftRight, ArrowRight,
   FileSearch, CreditCard, Building2, PackagePlus, Package, Sparkles, Boxes,
+  GitBranch, FileText, ArrowDown, Download, Paperclip,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
+import Modal from '../components/ui/Modal';
 
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
 
@@ -141,6 +144,7 @@ const MODULES = [
 export default function Procurement() {
   const { user } = useAuth();
   const role = user?.role;
+  const [workflowOpen, setWorkflowOpen] = useState(false);
 
   const visible = MODULES.filter((m) => m.roles.includes(role));
 
@@ -164,6 +168,16 @@ export default function Procurement() {
             A single workspace for products, purchase, quality, and material movement workflows
             across the entire supply chain.
           </p>
+
+          <button
+            type="button"
+            onClick={() => setWorkflowOpen(true)}
+            className="mt-5 inline-flex items-center gap-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2 text-sm font-medium text-white backdrop-blur-sm transition-colors"
+          >
+            <GitBranch size={16} />
+            View Workflow
+            <ArrowRight size={14} />
+          </button>
         </div>
       </div>
 
@@ -212,6 +226,251 @@ export default function Procurement() {
           })}
         </div>
       )}
+
+      <WorkflowModal isOpen={workflowOpen} onClose={() => setWorkflowOpen(false)} />
     </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Read-only reference flowchart shown from the "View Workflow" button on the
+// procurement dashboard. Lists each step, who acts, the status transitions,
+// and which documents are downloadable from which screen.
+// ───────────────────────────────────────────────────────────────────────────
+
+const WORKFLOW_STEPS = [
+  {
+    icon: ShoppingCart,
+    title: 'Purchase Request (PR)',
+    actor: 'Manager / QC / Designs / R&D',
+    to: '/purchase-requests',
+    summary: 'Department raises a request for material or services.',
+    statuses: ['PENDING_ADMIN', 'APPROVED'],
+    docs: [
+      { label: 'PR PDF', detail: 'Open the PR row → "Download PDF" → PR-<requestNumber>.pdf' },
+      { label: 'Item spec attachments', detail: 'Each item can carry a spec file (.pdf / image) viewable from the PR detail view.' },
+    ],
+    color: 'from-blue-500 to-indigo-600',
+    ring: 'ring-blue-200',
+  },
+  {
+    icon: FileSearch,
+    title: 'Quotations',
+    actor: 'Purchase Officer / Store Manager / Admin',
+    to: '/quotations',
+    summary: 'Collect supplier quotes for the approved PR items and select the winning bid.',
+    statuses: ['AWAITING_QUOTATION', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED'],
+    docs: [
+      { label: 'Supplier quote files', detail: 'Uploaded per supplier under each PR item — download from the Quotation modal.' },
+      { label: 'Approved Supplier List', detail: 'Cross-reference at /suppliers before choosing a vendor.' },
+    ],
+    color: 'from-indigo-500 to-violet-600',
+    ring: 'ring-indigo-200',
+  },
+  {
+    icon: Building2,
+    title: 'Approved Suppliers (reference)',
+    actor: 'Purchase Officer / Manager',
+    to: '/suppliers',
+    summary: 'Verify vendor onboarding documents before quoting and ordering.',
+    statuses: ['APPROVED', 'CONDITIONAL', 'REJECTED', 'TERMINATED'],
+    docs: [
+      { label: 'Vendor Evaluation PDF', detail: 'One-time onboarding doc — open the supplier row to download.' },
+      { label: 'Supplier Assessment PDF', detail: 'FY-bound — must be re-uploaded each new financial year.' },
+      { label: 'Supplier Re-Evaluation Form', detail: 'Latest per FY shown in the Evaluation Details panel.' },
+      { label: 'Performance Ratings', detail: 'Generated from PO history; viewable inline on each supplier.' },
+    ],
+    color: 'from-slate-500 to-gray-700',
+    ring: 'ring-slate-200',
+  },
+  {
+    icon: Truck,
+    title: 'Purchase Order (PO)',
+    actor: 'Purchase Officer → Accounting',
+    to: '/purchase-orders',
+    summary: 'PO issued to the chosen supplier; accounting clears credit or advance.',
+    statuses: ['PENDING_ACCOUNTING', 'CREDIT_PLACED', 'PLACED', 'ORDERED', 'GOODS_ARRIVED'],
+    docs: [
+      { label: 'PO PDF', detail: 'Generated per PO with the standard Terms & Conditions annexure (/po-terms-and-conditions.pdf).' },
+      { label: 'Supplier Invoice PDF', detail: 'Uploaded against the PO when goods arrive (required for QC).' },
+    ],
+    color: 'from-emerald-500 to-green-600',
+    ring: 'ring-emerald-200',
+  },
+  {
+    icon: CreditCard,
+    title: 'Payment Requests',
+    actor: 'Purchase Officer / Accounting',
+    to: '/payment-requests',
+    summary: 'Advance, partial, or final payment raised against the PO and cleared by accounting.',
+    statuses: ['PENDING', 'APPROVED', 'PAID'],
+    docs: [
+      { label: 'Internal ledger record', detail: 'No standalone PDF — visible on the Payment Requests screen and on the PO history.' },
+    ],
+    color: 'from-teal-500 to-sky-500',
+    ring: 'ring-teal-200',
+  },
+  {
+    icon: ClipboardCheck,
+    title: 'QC Inspection (IIR)',
+    actor: 'QC',
+    to: '/qc-inspections',
+    summary: 'Form RAPS/IIR Rev 01 — inspect inward materials and record acceptance/rejection.',
+    statuses: ['QC_PENDING', 'QC_PASSED', 'QC_FAILED'],
+    docs: [
+      { label: 'IIR record', detail: 'Stored against the PO; invoice + spec attachments retained for audit.' },
+      { label: 'Spec / supporting files', detail: 'Carried over from the PR/PO and viewable inside the inspection form.' },
+    ],
+    color: 'from-amber-500 to-orange-500',
+    ring: 'ring-amber-200',
+  },
+  {
+    icon: PackagePlus,
+    title: 'Inward Entry (MIV)',
+    actor: 'Store Manager',
+    to: '/inward-entry',
+    summary: 'QC-passed material is received into stores; MIV generated for traceability.',
+    statuses: ['INWARD_DONE', 'COMPLETED', 'CLOSED'],
+    docs: [
+      { label: 'MIV PDF', detail: 'Shown on the success screen after submit — MIV-<mivNumber>.pdf.' },
+    ],
+    color: 'from-orange-500 to-yellow-500',
+    ring: 'ring-orange-200',
+  },
+  {
+    icon: ClipboardList,
+    title: 'MIV Requests (Store withdrawals)',
+    actor: 'Manager / Lab / QC / R&D',
+    to: '/my-requests',
+    summary: 'Departments raise Material Issue Voucher requests to withdraw stock from stores.',
+    statuses: ['PENDING', 'APPROVED', 'ISSUED'],
+    docs: [
+      { label: 'MIV slip', detail: 'Printable issue voucher generated when stores issue the material.' },
+    ],
+    color: 'from-violet-500 to-fuchsia-500',
+    ring: 'ring-violet-200',
+  },
+  {
+    icon: ArrowLeftRight,
+    title: 'Inventory Transfers & Stock',
+    actor: 'Manager / Logistics / Safety',
+    to: '/inventory-transfers',
+    summary: 'Move stock between units; track balances and movement history.',
+    statuses: ['PENDING', 'APPROVED', 'IN_TRANSIT', 'RECEIVED'],
+    docs: [
+      { label: 'Stock Statement PDF', detail: 'Generated on the Stock Movements screen (per-date snapshot).' },
+      { label: 'Stock Statement CSV', detail: 'From /products → "Download Stock Statement" button.' },
+    ],
+    color: 'from-rose-500 to-pink-600',
+    ring: 'ring-rose-200',
+  },
+];
+
+function WorkflowModal({ isOpen, onClose }) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Procurement Workflow & Documents" size="full">
+      <div className="space-y-2">
+        <p className="text-sm text-gray-600">
+          End-to-end flow of how a purchase request travels through the system, who acts at each
+          stage, and where to download or upload the supporting documents. This is read-only — use
+          the linked module on each step to actually take action.
+        </p>
+
+        <div className="mt-4 space-y-3">
+          {WORKFLOW_STEPS.map((step, idx) => {
+            const Icon = step.icon;
+            return (
+              <div key={step.title}>
+                <div className="relative rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                  <div className={`h-1 bg-gradient-to-r ${step.color}`} />
+                  <div className="p-4 sm:p-5">
+                    <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                      {/* Step number + icon */}
+                      <div className="flex items-center gap-3 sm:flex-col sm:items-center sm:w-20 shrink-0">
+                        <div className={`relative w-12 h-12 rounded-xl bg-gradient-to-br ${step.color} text-white flex items-center justify-center shadow-md ring-2 ${step.ring}`}>
+                          <Icon size={22} strokeWidth={2.2} />
+                          <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white text-[10px] font-bold text-navy-700 ring-1 ring-gray-200 flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Body */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <h3 className="text-base font-semibold text-navy-800">{step.title}</h3>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              <span className="font-medium text-gray-700">Who:</span> {step.actor}
+                            </p>
+                          </div>
+                          <Link
+                            to={step.to}
+                            onClick={onClose}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-navy-700 hover:text-navy-900 bg-navy-50 hover:bg-navy-100 px-2.5 py-1 rounded-md transition-colors"
+                          >
+                            Go to module <ArrowRight size={12} />
+                          </Link>
+                        </div>
+
+                        <p className="mt-2 text-sm text-gray-600 leading-relaxed">{step.summary}</p>
+
+                        {/* Status chips */}
+                        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Status flow:</span>
+                          {step.statuses.map((s, i) => (
+                            <span key={s} className="inline-flex items-center gap-1">
+                              <span className="px-2 py-0.5 rounded-md bg-gray-100 text-[11px] font-mono text-gray-700 border border-gray-200">
+                                {s}
+                              </span>
+                              {i < step.statuses.length - 1 && (
+                                <ArrowRight size={10} className="text-gray-300" />
+                              )}
+                            </span>
+                          ))}
+                        </div>
+
+                        {/* Documents */}
+                        <div className="mt-3 rounded-lg bg-gray-50 border border-gray-100 p-3">
+                          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-2">
+                            <FileText size={12} />
+                            Documents
+                          </div>
+                          <ul className="space-y-1.5">
+                            {step.docs.map((d) => (
+                              <li key={d.label} className="flex items-start gap-2 text-sm">
+                                <Download size={14} className="text-navy-600 mt-0.5 shrink-0" />
+                                <div>
+                                  <span className="font-medium text-navy-800">{d.label}</span>
+                                  <span className="text-gray-600"> — {d.detail}</span>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {idx < WORKFLOW_STEPS.length - 1 && (
+                  <div className="flex justify-center py-1.5">
+                    <ArrowDown size={18} className="text-gray-300" />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-5 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900 flex items-start gap-2">
+          <Paperclip size={14} className="mt-0.5 shrink-0" />
+          <span>
+            Tip: every PDF download is gated by your role. If a "Download" button is missing on a row,
+            check with admin — your role may not have read access to that document type.
+          </span>
+        </div>
+      </div>
+    </Modal>
   );
 }

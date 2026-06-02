@@ -7,6 +7,8 @@ import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
+import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import MaterialIssuePdf from '../components/pdf/MaterialIssuePdf';
 import { formatDateTime } from '../utils/formatters';
 
 export default function RequestClearance() {
@@ -126,9 +128,18 @@ export default function RequestClearance() {
                     <td className="px-3 py-2 text-xs font-mono text-gray-700">{r.issueNo || '—'}</td>
                     <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
                     <td className="px-3 py-2">
-                      <Button size="sm" variant="secondary" onClick={() => openRequest(r)}>
-                        {r.status === 'PENDING' ? 'Review' : 'View'}
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => openRequest(r)}>
+                          {r.status === 'PENDING' ? 'Review' : 'View'}
+                        </Button>
+                        {r.issueNo && (
+                          <DownloadPdfButton
+                            document={<MaterialIssuePdf data={r} />}
+                            fileName={`MIV-${r.issueNo}.pdf`}
+                            label="MIV PDF"
+                          />
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -243,6 +254,16 @@ export default function RequestClearance() {
                   {selectedRequest.status === 'REJECTED' ? 'Rejection reason:' : 'Notes:'}
                 </span>{' '}
                 <span>{selectedRequest.clearanceNotes}</span>
+              </div>
+            )}
+
+            {selectedRequest.issueNo && (
+              <div className="flex justify-end pt-2 border-t">
+                <DownloadPdfButton
+                  document={<MaterialIssuePdf data={selectedRequest} />}
+                  fileName={`MIV-${selectedRequest.issueNo}.pdf`}
+                  label="View / Download MIV PDF"
+                />
               </div>
             )}
           </div>
