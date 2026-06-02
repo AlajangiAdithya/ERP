@@ -840,6 +840,12 @@ router.post('/:id/invoices', authenticate, authorize('MANAGER', 'SUPPLY_CHAIN'),
 
     const newDelivered = existing.deliveredQty + qty;
     const newInvoiced = existing.invoicedQty + qty;
+    if (newDelivered > existing.orderQuantity) {
+      const remaining = Math.max(existing.orderQuantity - existing.deliveredQty, 0);
+      return res.status(400).json({
+        error: `Invoice qty exceeds remaining (only ${remaining} ${existing.orderUnit} left of ${existing.orderQuantity}).`,
+      });
+    }
     const fullyDone = newDelivered >= existing.orderQuantity;
 
     const result = await prisma.$transaction(async (tx) => {
@@ -886,7 +892,7 @@ router.post('/:id/invoices', authenticate, authorize('MANAGER', 'SUPPLY_CHAIN'),
 // safety net for admins.
 router.post('/:id/close', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
-    const { reason } = req.body || {};
+    const { reason, force } = req.body || {};
     const existing = await prisma.workOrder.findUnique({
       where: { id: req.params.id },
       include: { closures: true },
@@ -901,12 +907,23 @@ router.post('/:id/close', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), asyn
         error: `Cannot close — ${openCycles.length} closure cycle(s) still open. All cycles must reach PAYMENT_RECEIVED first.`,
       });
     }
+    const shortfall = (existing.orderQuantity || 0) - (existing.deliveredQty || 0);
+    if (shortfall > 0 && !force) {
+      return res.status(400).json({
+        error: `Delivered ${existing.deliveredQty} of ${existing.orderQuantity} ${existing.orderUnit}. Pass { force: true, reason } to short-close.`,
+        shortfall,
+      });
+    }
+    if (shortfall > 0 && !reason) {
+      return res.status(400).json({ error: 'Reason is required when force-closing with shortfall.' });
+    }
+    const closeStamp = `Closed by ${req.user.name || req.user.username || req.user.id} on ${new Date().toISOString()}${shortfall > 0 ? ` (short-close: -${shortfall} ${existing.orderUnit})` : ''}${reason ? `. Reason: ${reason}` : ''}`;
     const updated = await prisma.workOrder.update({
       where: { id: req.params.id },
       data: {
         status: 'CLOSED',
         completedAt: existing.completedAt || new Date(),
-        remarks: reason ? `${existing.remarks ? existing.remarks + '\n' : ''}Closed: ${reason}` : existing.remarks,
+        remarks: `${existing.remarks ? existing.remarks + '\n' : ''}${closeStamp}`,
       },
       include: WO_INCLUDE,
     });
@@ -918,14 +935,35 @@ router.post('/:id/close', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), asyn
 });
 
 // ── POST /api/work-orders/:id/cancel ──
+// Blocked once finance has signed off on any closure cycle — cancelling after
+// an invoice has been sent or payment received would lose audit trail of real
+// customer obligations / revenue.
 router.post('/:id/cancel', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
     const { reason } = req.body || {};
+    const existing = await prisma.workOrder.findUnique({
+      where: { id: req.params.id },
+      include: { closures: { select: { stage: true, cycleNumber: true } } },
+    });
+    if (!existing) return res.status(404).json({ error: 'Work order not found' });
+    if (['CLOSED', 'CANCELLED'].includes(existing.status)) {
+      return res.status(400).json({ error: `Cannot cancel — WO is already ${existing.status}` });
+    }
+    const settled = existing.closures.filter((c) =>
+      ['INVOICE_SENT', 'PAYMENT_RECEIVED'].includes(c.stage),
+    );
+    if (settled.length) {
+      return res.status(400).json({
+        error: `Cannot cancel — ${settled.length} closure cycle(s) past finance sign-off. Resolve through the closure workflow instead.`,
+      });
+    }
     const updated = await prisma.workOrder.update({
       where: { id: req.params.id },
       data: {
         status: 'CANCELLED',
-        remarks: reason ? `${reason}` : 'Cancelled',
+        remarks: reason
+          ? `${existing.remarks ? existing.remarks + '\n' : ''}Cancelled: ${reason}`
+          : (existing.remarks || 'Cancelled'),
       },
       include: WO_INCLUDE,
     });
@@ -1004,8 +1042,10 @@ router.post(
       if (!wo) return res.status(404).json({ error: 'Work order not found' });
       const denied = ensureClosureAccess(wo, req.user);
       if (denied) return res.status(403).json({ error: denied });
-      if (!['UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'CLOSED'].includes(wo.status)) {
-        return res.status(400).json({ error: 'WO must be at least UNIT_ACCEPTED to open a closure cycle' });
+      if (!['UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED'].includes(wo.status)) {
+        return res.status(400).json({
+          error: `Cannot open a closure cycle on a WO in status ${wo.status}`,
+        });
       }
       const alreadyCovered = wo.closures.reduce((s, c) => s + (c.deliveryQty || 0), 0);
       if (alreadyCovered + qty > wo.orderQuantity) {

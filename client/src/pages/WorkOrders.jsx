@@ -4,6 +4,8 @@ import {
   CalendarClock, TrendingUp, ShieldCheck, PauseCircle,
   LayoutGrid, Table as TableIcon,
   FileText, Receipt, ShieldAlert, Upload, AlertTriangle, Timer, Trash2, Check,
+  GitBranch, ArrowRight, ArrowDown, Download, Paperclip, BellRing, Stamp,
+  Banknote, Wallet, FilePlus2, FileCheck2, UserCheck, Truck, RefreshCw,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -101,6 +103,7 @@ export default function WorkOrders() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [view, setView] = useState('table'); // 'table' | 'cards'
+  const [workflowOpen, setWorkflowOpen] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -142,13 +145,20 @@ export default function WorkOrders() {
         eyebrow="Supply Chain"
         icon={ClipboardList}
         actions={
-          canCreate && (
-            <Button onClick={() => setShowCreate(true)}>
-              <Plus size={16} className="mr-1.5" /> Log Supply Order
+          <>
+            <Button variant="secondary" onClick={() => setWorkflowOpen(true)}>
+              <GitBranch size={16} className="mr-1.5" /> View Workflow
             </Button>
-          )
+            {canCreate && (
+              <Button onClick={() => setShowCreate(true)}>
+                <Plus size={16} className="mr-1.5" /> Log Supply Order
+              </Button>
+            )}
+          </>
         }
       />
+
+      {workflowOpen && <WorkOrderWorkflowModal onClose={() => setWorkflowOpen(false)} />}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -690,12 +700,31 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
             />
           )}
           {isCreator && !['CLOSED', 'CANCELLED', 'REJECTED'].includes(wo.status) && (
-            <Button variant="secondary" disabled={busy} onClick={() => handleAction(() => api.post(`/work-orders/${wo.id}/cancel`, { reason: 'Cancelled by user' }))}>
+            <Button variant="secondary" disabled={busy} onClick={() => {
+              const reason = window.prompt('Cancel this WO?\n\nEnter a reason (required):');
+              if (!reason || !reason.trim()) return;
+              handleAction(() => api.post(`/work-orders/${wo.id}/cancel`, { reason: reason.trim() }));
+            }}>
               Cancel WO
             </Button>
           )}
           {isCreator && (wo.status === 'COMPLETED' || wo.status === 'IN_PROGRESS') && wo.status !== 'CLOSED' && (
-            <Button disabled={busy} onClick={() => handleAction(() => api.post(`/work-orders/${wo.id}/close`, {}))}>
+            <Button disabled={busy} onClick={async () => {
+              const shortfall = (wo.orderQuantity || 0) - (wo.deliveredQty || 0);
+              const intro = shortfall > 0
+                ? `Close WO with shortfall of ${shortfall} ${wo.orderUnit}?\n\nReason is required.`
+                : `Close this WO?\n\nReason (optional):`;
+              const reason = window.prompt(intro, '');
+              if (reason === null) return;
+              if (shortfall > 0 && !reason.trim()) {
+                alert('Reason is required for short-close.');
+                return;
+              }
+              handleAction(() => api.post(`/work-orders/${wo.id}/close`, {
+                reason: reason.trim() || undefined,
+                force: shortfall > 0 ? true : undefined,
+              }));
+            }}>
               Close WO
             </Button>
           )}
@@ -1593,5 +1622,413 @@ function HoldControls({ items, setItems, reason, setReason, onSubmit, busy }) {
         <Button onClick={onSubmit} disabled={busy || !items.some((it) => it.docType.trim())}>Send on Hold</Button>
       </div>
     </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Work Order Workflow — plain-English reference chart.
+// Mirrors what Procurement has. Read-only: explains who does what, what files
+// they upload/download, and how the 48h / 24h timers work.
+// ───────────────────────────────────────────────────────────────────────────
+
+const WO_FLOW_STEPS = [
+  {
+    icon: FilePlus2,
+    title: '1. Log the Supply Order',
+    who: 'Supply Chain (or Admin)',
+    what: 'Open the "Log Supply Order" form on this page and fill in the customer order details — customer name, supply order number and date, quantity, delivery date (PDC), drawings, packing, transport, etc.',
+    statusBefore: '—',
+    statusAfter: 'PENDING_ADMIN',
+    uploads: ['Bank Guarantee number/date (optional, can be added later from the BG tab)', 'Insurance details (optional, from the Insurance tab)'],
+    downloads: ['Work Order PDF — auto-generated and printable from the WO row once admin accepts'],
+    color: 'from-sky-500 to-blue-600',
+    ring: 'ring-sky-200',
+  },
+  {
+    icon: ShieldCheck,
+    title: '2. Admin Accepts',
+    who: 'Admin',
+    what: 'Admin opens the WO from the dashboard, picks the unit that will execute the work, and clicks Accept. Without this step the unit cannot see the WO.',
+    statusBefore: 'PENDING_ADMIN',
+    statusAfter: 'ADMIN_ACCEPTED',
+    uploads: ['Acceptance note (optional)'],
+    downloads: ['Admin Acceptance form (visible in the WO detail panel)'],
+    color: 'from-blue-500 to-indigo-600',
+    ring: 'ring-blue-200',
+  },
+  {
+    icon: UserCheck,
+    title: '3. Unit Manager Accepts',
+    who: 'Manager of the assigned unit',
+    what: 'The unit manager reviews the WO and either Accepts (work starts) or Rejects (work goes On Hold). If rejected, Supply Chain re-assigns it to a different unit using the Reassign button.',
+    statusBefore: 'ADMIN_ACCEPTED',
+    statusAfter: 'UNIT_ACCEPTED  (or ON_HOLD if rejected)',
+    uploads: ['Acceptance / rejection note'],
+    downloads: ['—'],
+    color: 'from-indigo-500 to-violet-600',
+    ring: 'ring-indigo-200',
+  },
+  {
+    icon: Truck,
+    title: '4. Deliver in Batches and Log Each Delivery',
+    who: 'Manager (or Supply Chain)',
+    what: 'When the unit ships a batch to the customer, log it under the Invoices tab: invoice number, date and quantity shipped. Each entry adds to the delivered quantity. Once delivered = ordered, the WO flips to COMPLETED automatically.',
+    statusBefore: 'UNIT_ACCEPTED',
+    statusAfter: 'IN_PROGRESS  →  COMPLETED (when fully delivered)',
+    uploads: ['Invoice reference number + date (file upload is part of the closure cycle below)'],
+    downloads: ['Delivery history visible inline on the Invoices tab'],
+    color: 'from-emerald-500 to-green-600',
+    ring: 'ring-emerald-200',
+  },
+  {
+    icon: GitBranch,
+    title: '5. Open a Closure Cycle for the Batch',
+    who: 'Manager (or Admin)',
+    what: 'For every delivered batch, open a new closure cycle from the Closures tab and enter how many units this cycle covers. You can run several cycles in parallel — one per batch.',
+    statusBefore: 'WO is UNIT_ACCEPTED / IN_PROGRESS / COMPLETED',
+    statusAfter: 'Cycle starts at  UNIT_DOCS_PENDING',
+    uploads: ['Delivery note (optional text)'],
+    downloads: ['—'],
+    color: 'from-violet-500 to-purple-600',
+    ring: 'ring-violet-200',
+  },
+  {
+    icon: Upload,
+    title: '6. Upload the 3 Required Docs and Send to QC',
+    who: 'Manager',
+    what: 'Inside the cycle, upload these three files (the system will not let you continue without them). Then click Submit to QC. QC will be notified automatically.',
+    statusBefore: 'UNIT_DOCS_PENDING',
+    statusAfter: 'still UNIT_DOCS_PENDING but now awaiting QC',
+    uploads: [
+      'Work Completion Report  (required)',
+      'Test Report  (required)',
+      'Dispatch Checklist  (required)',
+      'As-Built Drawing  (optional)',
+      'Completion Photos  (optional)',
+    ],
+    downloads: ['Each uploaded doc can be re-downloaded from the cycle panel'],
+    color: 'from-fuchsia-500 to-pink-600',
+    ring: 'ring-fuchsia-200',
+  },
+  {
+    icon: FileCheck2,
+    title: '7. QC Verifies the Batch',
+    who: 'QC (or Admin)',
+    what: 'QC opens the cycle, checks the uploaded docs and the physical work, and clicks QC Verify. The system generates a QC Verification Certificate number automatically. QC can attach a certificate file URL.',
+    statusBefore: 'UNIT_DOCS_PENDING (with docs submitted)',
+    statusAfter: 'QC_VERIFIED',
+    uploads: ['Optional: link to the signed QC certificate file'],
+    downloads: ['QC Verification Certificate PDF — "QC Cert" button on the cycle row'],
+    color: 'from-amber-500 to-orange-500',
+    ring: 'ring-amber-200',
+  },
+  {
+    icon: Stamp,
+    title: '8. Management (L5) Approves',
+    who: 'Only the 3 Level-5 Admins (sureshbabu, rameshbabu, madhubabu)',
+    what: 'One of the L5 admins reviews the QC sign-off and clicks Mgmt Approve. Finance is notified to raise the invoice.',
+    statusBefore: 'QC_VERIFIED',
+    statusAfter: 'MGMT_APPROVED',
+    uploads: ['Approval note (optional)'],
+    downloads: ['—'],
+    color: 'from-orange-500 to-red-500',
+    ring: 'ring-orange-200',
+  },
+  {
+    icon: Banknote,
+    title: '9. Finance Sends the Invoice  →  starts the 48-hour timer',
+    who: 'Finance (or Admin)',
+    what: 'Finance generates and sends the invoice to the customer, then clicks Send Invoice in this app. The system creates an Invoice number, stamps the time, and starts the 48-hour payment timer. Management is notified.',
+    statusBefore: 'MGMT_APPROVED',
+    statusAfter: 'INVOICE_SENT  (48-hour SLA clock starts)',
+    uploads: ['Invoice date', 'Invoice description (optional)', 'Link to the invoice PDF file (optional)'],
+    downloads: ['Invoice PDF — "Invoice" button on the cycle row (visible to Finance / Accounting / L5 only)'],
+    color: 'from-yellow-500 to-amber-600',
+    ring: 'ring-yellow-200',
+  },
+  {
+    icon: Wallet,
+    title: '10. Accounts Confirms Payment Received',
+    who: 'Accounting (or Admin)',
+    what: 'When the customer pays, Accounting clicks Payment Received and adds a note. This stops the 48-hour timer and closes the cycle. Management is notified.',
+    statusBefore: 'INVOICE_SENT',
+    statusAfter: 'PAYMENT_RECEIVED  (cycle is now closed)',
+    uploads: ['Payment note (e.g. UTR / cheque #)'],
+    downloads: ['Invoice PDF still available'],
+    color: 'from-lime-500 to-green-600',
+    ring: 'ring-lime-200',
+  },
+  {
+    icon: CheckCircle2,
+    title: '11. Close the Whole Work Order',
+    who: 'Supply Chain (or Admin)',
+    what: 'Once every cycle has reached Payment Received AND delivered quantity equals ordered quantity, the WO can be closed. If anything is short, the system will warn you and ask for a reason before allowing a "short close".',
+    statusBefore: 'COMPLETED  (with all cycles paid)',
+    statusAfter: 'CLOSED',
+    uploads: ['Reason text (mandatory only when short-closing)'],
+    downloads: ['Final WO PDF reflects CLOSED status'],
+    color: 'from-navy-600 to-slate-800',
+    ring: 'ring-slate-200',
+  },
+];
+
+const WO_HOLD_LOOP = {
+  title: 'If something is wrong: the On-Hold loop',
+  who: 'Anyone in QC / Finance / Admin can put a cycle on hold',
+  body: [
+    'If QC finds the docs are wrong, or Finance sees the batch is not ready for invoicing, they click "Send Back on Hold" and write a checklist of what is missing.',
+    'The cycle moves to ON_HOLD and the Manager gets notified.',
+    'The Manager fixes the issue, re-uploads docs and clicks Resolve Hold. The cycle goes back to "UNIT_DOCS_PENDING" — QC and Mgmt have to approve again.',
+    'A cycle that has already reached INVOICE_SENT cannot be put on hold — at that point any change is handled through Finance / Accounts directly.',
+  ],
+};
+
+const WO_TIMERS = [
+  {
+    icon: Timer,
+    title: '48-hour SLA — Payment Window',
+    color: 'from-yellow-500 to-amber-600',
+    rows: [
+      ['Starts when', 'Finance clicks "Send Invoice" on a closure cycle.'],
+      ['Ends when',   'Accounting clicks "Payment Received" on the same cycle.'],
+      ['Where to see it', 'Each cycle row shows a coloured badge: blue = plenty of time, yellow = under 12h left, red = breached.'],
+      ['If breached',  'The cycle is marked SLA Breached. Management, Finance and Accounting all get an escalation notification automatically.'],
+    ],
+  },
+  {
+    icon: BellRing,
+    title: '24-hour Reminder — Nudge to Accounts',
+    color: 'from-blue-500 to-indigo-600',
+    rows: [
+      ['What it does', 'Every 24 hours while a cycle is sitting at INVOICE_SENT, the system sends a reminder notification to L5 Management, Finance and Accounting with how many hours are left.'],
+      ['How often',   'A background job runs every hour and fires the reminder exactly once per 24h window per cycle.'],
+      ['Who is NOT notified', 'Manager and QC — payment chasing is not their scope.'],
+      ['When it stops', 'As soon as Accounting clicks "Payment Received".'],
+    ],
+  },
+  {
+    icon: RefreshCw,
+    title: 'Background jobs that run on their own',
+    color: 'from-slate-500 to-gray-700',
+    rows: [
+      ['Hourly',     'Checks INVOICE_SENT cycles and fires the 24-hour reminder if due.'],
+      ['Every 30 min', 'Checks if any cycle has crossed its 48-hour deadline and marks it as Breached + sends escalation.'],
+      ['Safe to re-run', 'Both jobs are idempotent — they will never send the same reminder twice in the same window.'],
+    ],
+  },
+];
+
+const WO_FILE_INDEX = {
+  uploads: [
+    { what: 'Bank Guarantee entry (number + valid-upto)', where: 'WO detail → BG tab → "Add BG"' },
+    { what: 'Insurance entry (number + valid-upto)',     where: 'WO detail → Insurance tab → "Add Insurance"' },
+    { what: 'Delivery invoice (qty-wise, doc-only)',     where: 'WO detail → Invoices tab → "Log Invoice"' },
+    { what: 'Closure docs — 3 required + 2 optional',    where: 'WO detail → Closures tab → cycle row → "Upload File"' },
+    { what: 'QC certificate file URL (optional)',        where: 'Closure cycle → "QC Verify" form' },
+    { what: 'Invoice file URL (optional)',                where: 'Closure cycle → "Send Invoice" form' },
+    { what: 'PDC extension request',                       where: 'WO detail → Extensions tab → "Add Extension" (also extends BG)' },
+  ],
+  downloads: [
+    { what: 'Work Order PDF',                where: 'WO detail header → "Download PDF"' },
+    { what: 'QC Verification Certificate',   where: 'Closure cycle row → "QC Cert" button' },
+    { what: 'Customer Invoice PDF',          where: 'Closure cycle row → "Invoice" button (Finance / Accounting / L5 only)' },
+    { what: 'Hold Checklist PDF',            where: 'Closure cycle row → "Hold Checklist" button (only when a hold is open)' },
+    { what: 'Any uploaded closure doc',      where: 'Closure cycle panel → docs list → click filename' },
+  ],
+};
+
+function WorkOrderWorkflowModal({ onClose }) {
+  return (
+    <Modal isOpen onClose={onClose} title="Work Order Workflow & Documents" size="full">
+      <div className="space-y-6">
+        <p className="text-sm text-gray-700 leading-relaxed">
+          This is the full journey of a Work Order, written in plain English. Each step lists
+          <strong> who acts</strong>, <strong>what they need to upload</strong>, <strong>what they can download</strong>,
+          and the status the WO (or closure cycle) is in before and after. The two timers
+          and the on-hold loop are explained at the bottom.
+        </p>
+
+        {/* MAIN CHAIN */}
+        <section>
+          <h2 className="text-xs uppercase tracking-wider font-bold text-navy-700 mb-3">The 11-step journey</h2>
+          <div className="space-y-3">
+            {WO_FLOW_STEPS.map((step, idx) => {
+              const Icon = step.icon;
+              return (
+                <div key={step.title}>
+                  <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                    <div className={`h-1 bg-gradient-to-r ${step.color}`} />
+                    <div className="p-4 sm:p-5">
+                      <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                        {/* Icon + number */}
+                        <div className="flex items-center gap-3 sm:flex-col sm:items-center sm:w-20 shrink-0">
+                          <div className={`relative w-12 h-12 rounded-xl bg-gradient-to-br ${step.color} text-white flex items-center justify-center shadow-md ring-2 ${step.ring}`}>
+                            <Icon size={22} strokeWidth={2.2} />
+                            <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white text-[10px] font-bold text-navy-700 ring-1 ring-gray-200 flex items-center justify-center">
+                              {idx + 1}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Body */}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-base font-semibold text-navy-800">{step.title}</h3>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            <span className="font-medium text-gray-700">Who does it:</span> {step.who}
+                          </p>
+
+                          <p className="mt-2 text-sm text-gray-700 leading-relaxed">{step.what}</p>
+
+                          {/* Status change */}
+                          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="font-semibold uppercase tracking-wider text-gray-400">Status:</span>
+                            <span className="px-2 py-0.5 rounded-md bg-gray-100 font-mono text-gray-700 border border-gray-200">
+                              {step.statusBefore}
+                            </span>
+                            <ArrowRight size={11} className="text-gray-400" />
+                            <span className="px-2 py-0.5 rounded-md bg-green-50 font-mono text-green-800 border border-green-200">
+                              {step.statusAfter}
+                            </span>
+                          </div>
+
+                          {/* Uploads + Downloads side by side */}
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <div className="rounded-lg bg-blue-50/50 border border-blue-100 p-3">
+                              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-blue-700 mb-1.5">
+                                <Upload size={12} /> You upload
+                              </div>
+                              <ul className="space-y-1">
+                                {step.uploads.map((u) => (
+                                  <li key={u} className="text-sm text-navy-800 flex gap-1.5">
+                                    <span className="text-blue-400 mt-0.5">•</span>
+                                    <span>{u}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div className="rounded-lg bg-emerald-50/50 border border-emerald-100 p-3">
+                              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-700 mb-1.5">
+                                <Download size={12} /> You can download
+                              </div>
+                              <ul className="space-y-1">
+                                {step.downloads.map((d) => (
+                                  <li key={d} className="text-sm text-navy-800 flex gap-1.5">
+                                    <span className="text-emerald-400 mt-0.5">•</span>
+                                    <span>{d}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {idx < WO_FLOW_STEPS.length - 1 && (
+                    <div className="flex justify-center py-1.5">
+                      <ArrowDown size={18} className="text-gray-300" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* HOLD LOOP */}
+        <section className="rounded-2xl border border-red-100 bg-red-50/40 p-5">
+          <div className="flex items-center gap-2 mb-2">
+            <PauseCircle size={18} className="text-red-600" />
+            <h2 className="text-base font-semibold text-red-800">{WO_HOLD_LOOP.title}</h2>
+          </div>
+          <p className="text-xs text-red-700 mb-2"><strong>Who:</strong> {WO_HOLD_LOOP.who}</p>
+          <ul className="space-y-1.5">
+            {WO_HOLD_LOOP.body.map((line, i) => (
+              <li key={i} className="text-sm text-gray-800 flex gap-2">
+                <span className="text-red-400 mt-0.5">{i + 1}.</span>
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {/* TIMERS */}
+        <section>
+          <h2 className="text-xs uppercase tracking-wider font-bold text-navy-700 mb-3">How the timers work</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            {WO_TIMERS.map((t) => {
+              const Icon = t.icon;
+              return (
+                <div key={t.title} className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                  <div className={`h-1 bg-gradient-to-r ${t.color}`} />
+                  <div className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${t.color} text-white flex items-center justify-center shadow`}>
+                        <Icon size={18} />
+                      </div>
+                      <h3 className="text-sm font-semibold text-navy-800">{t.title}</h3>
+                    </div>
+                    <dl className="space-y-2">
+                      {t.rows.map(([k, v]) => (
+                        <div key={k}>
+                          <dt className="text-[10px] uppercase tracking-wider font-semibold text-gray-500">{k}</dt>
+                          <dd className="text-sm text-gray-800 leading-snug">{v}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* FILE INDEX */}
+        <section>
+          <h2 className="text-xs uppercase tracking-wider font-bold text-navy-700 mb-3">Where to upload &amp; download (quick index)</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-blue-100 bg-white shadow-sm overflow-hidden">
+              <div className="bg-blue-50 px-4 py-2 flex items-center gap-2 border-b border-blue-100">
+                <Upload size={14} className="text-blue-700" />
+                <span className="text-sm font-semibold text-blue-800">Things you upload</span>
+              </div>
+              <ul className="divide-y divide-gray-100">
+                {WO_FILE_INDEX.uploads.map((row) => (
+                  <li key={row.what} className="p-3 text-sm">
+                    <div className="font-medium text-navy-800">{row.what}</div>
+                    <div className="text-xs text-gray-600 mt-0.5">→ {row.where}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="rounded-2xl border border-emerald-100 bg-white shadow-sm overflow-hidden">
+              <div className="bg-emerald-50 px-4 py-2 flex items-center gap-2 border-b border-emerald-100">
+                <Download size={14} className="text-emerald-700" />
+                <span className="text-sm font-semibold text-emerald-800">Things you can download</span>
+              </div>
+              <ul className="divide-y divide-gray-100">
+                {WO_FILE_INDEX.downloads.map((row) => (
+                  <li key={row.what} className="p-3 text-sm">
+                    <div className="font-medium text-navy-800">{row.what}</div>
+                    <div className="text-xs text-gray-600 mt-0.5">→ {row.where}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900 flex items-start gap-2">
+          <Paperclip size={14} className="mt-0.5 shrink-0" />
+          <span>
+            Tip: some buttons only show up for certain roles. If a "Download" or "Approve" button is
+            missing from a row, it usually means your role is not allowed to act on that step (for
+            example, only L5 admins can do Mgmt-Approve, and only Finance / Accounting / L5 can
+            see invoice and payment fields).
+          </span>
+        </div>
+      </div>
+    </Modal>
   );
 }
