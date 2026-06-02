@@ -15,7 +15,8 @@ const XLSX = require('xlsx');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-const SRC = 'C:/Users/alaja/Downloads/Approved supplier list.xlsx';
+// Repo-relative path so it works the same on the laptop and on EC2.
+const SRC = path.join(__dirname, 'seed-data', 'Approved supplier list.xlsx');
 
 // Sheets to import. Each sheet contains its own block of supplier rows; the
 // "Raw material" sheet has 4 header rows before the data starts, "Consumbles"
