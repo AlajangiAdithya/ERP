@@ -5,7 +5,7 @@ import {
   BarChart3, Settings, Menu, X,
   CheckSquare, ScrollText, Bell,
   Building2, ShieldCheck, Database, HardDrive, Activity, Boxes, Ruler,
-  ClipboardList,
+  ClipboardList, Inbox,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -37,6 +37,7 @@ const buildAllItems = () => {
     { to: '/metrology', icon: Ruler, label: 'Measuring and Monitoring Resources', roles: METROLOGY_VIEW_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING'] },
+    { to: '/closure-inbox', icon: Inbox, label: 'Closure Inbox', roles: ['ADMIN', 'MANAGER', 'QC', 'FINANCE', 'ACCOUNTING'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },
     { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },

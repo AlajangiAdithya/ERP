@@ -96,6 +96,7 @@ const blankFyRecord = () => ({
   certificateNo: '',
   calibratedOn: '',
   dueDate: '',
+  recallDate: '',
   certificateAttachment: '',
 });
 
@@ -288,6 +289,7 @@ export default function CalibrationList({
         certificateNo:          r.certificateNo || '',
         calibratedOn:           toDateInput(r.calibratedOn),
         dueDate:                toDateInput(r.dueDate),
+        recallDate:             toDateInput(r.recallDate),
         certificateAttachment:  r.certificateAttachment || '',
       };
     });
@@ -305,11 +307,11 @@ export default function CalibrationList({
   const buildRecordsPayload = () =>
     FY_COLUMNS
       .map((fy) => ({ fiscalYear: fy, ...fyForms[fy] }))
-      .filter((r) => r.qcVerifiedBy || r.verifiedOn || r.certificateNo || r.calibratedOn || r.dueDate)
+      .filter((r) => r.qcVerifiedBy || r.verifiedOn || r.certificateNo || r.calibratedOn || r.dueDate || r.recallDate)
       .map((r) => {
         const out = { fiscalYear: r.fiscalYear };
         ['qcVerifiedBy', 'certificateNo'].forEach((k) => { out[k] = r[k] || null; });
-        ['verifiedOn', 'calibratedOn', 'dueDate'].forEach((k) => { out[k] = r[k] || null; });
+        ['verifiedOn', 'calibratedOn', 'dueDate', 'recallDate'].forEach((k) => { out[k] = r[k] || null; });
         return out;
       });
 
@@ -615,7 +617,7 @@ export default function CalibrationList({
                     return (
                       <Th
                         key={fy}
-                        colSpan={collapsed ? 1 : 5}
+                        colSpan={collapsed ? 1 : 6}
                         rowSpan={collapsed ? 2 : 1}
                         center
                         groupTone
@@ -644,7 +646,8 @@ export default function CalibrationList({
                       <Th key={`${fy}-vo`}>Verified on</Th>,
                       <Th key={`${fy}-cn`}>Certificate no.</Th>,
                       <Th key={`${fy}-co`}>Calibrated on</Th>,
-                      <Th key={`${fy}-dd`} groupEnd>Due date</Th>,
+                      <Th key={`${fy}-dd`}>Calibration due date</Th>,
+                      <Th key={`${fy}-rd`} groupEnd>Recall date</Th>,
                     ];
                   })}
                 </tr>
@@ -716,7 +719,7 @@ export default function CalibrationList({
                         const due = r.dueDate;
                         const status = dueStatus(due);
                         if (isFyCollapsed(fy)) {
-                          const hasAny = r.qcVerifiedBy || r.verifiedOn || r.certificateNo || r.calibratedOn || r.dueDate;
+                          const hasAny = r.qcVerifiedBy || r.verifiedOn || r.certificateNo || r.calibratedOn || r.dueDate || r.recallDate;
                           return [
                             <Td
                               key={`${fy}-collapsed`}
@@ -770,7 +773,7 @@ export default function CalibrationList({
                             ) : <Dash />}
                           </Td>,
                           <Td key={`${fy}-co`} className="text-gray-600">{r.calibratedOn ? fmtDate(r.calibratedOn) : <Dash />}</Td>,
-                          <Td key={`${fy}-dd`} groupEnd>
+                          <Td key={`${fy}-dd`}>
                             {due ? (
                               <div className="flex flex-col gap-0.5 leading-tight">
                                 <span className="text-gray-800">{fmtDate(due)}</span>
@@ -786,6 +789,9 @@ export default function CalibrationList({
                                 )}
                               </div>
                             ) : <Dash />}
+                          </Td>,
+                          <Td key={`${fy}-rd`} className="text-gray-600" groupEnd>
+                            {r.recallDate ? fmtDate(r.recallDate) : <Dash />}
                           </Td>,
                         ];
                       })}
@@ -957,11 +963,19 @@ export default function CalibrationList({
                       onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], calibratedOn: e.target.value } }))}
                     />
                     <Input
-                      label="Due date"
+                      label="Calibration due date"
                       type="date"
                       value={rec.dueDate}
                       onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], dueDate: e.target.value } }))}
                     />
+                    <Input
+                      label="Recall date"
+                      type="date"
+                      value={rec.recallDate}
+                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], recallDate: e.target.value } }))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Certificate PDF</label>
                       <div className="flex items-center gap-2">

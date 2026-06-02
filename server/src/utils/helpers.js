@@ -74,6 +74,8 @@ const DOC_NUMBER_MAP = {
   PAY: { model: 'paymentRequest',           field: 'paymentNumber' },
   TRF: { model: 'inventoryTransferRequest', field: 'transferNumber' },
   WO:  { model: 'workOrder',                field: 'workOrderNumber' },
+  BILL:{ model: 'workOrderBill',            field: 'billNumber' },
+  WOQC:{ model: 'workOrder',                field: 'qcCertificateNumber' },
 };
 
 const formatDDMMYY = (date = new Date()) => {

@@ -5,6 +5,7 @@ import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import StatsCard from '../components/shared/StatsCard';
 import DashboardHero from '../components/shared/DashboardHero';
+import SlaTicker from '../components/shared/SlaTicker';
 import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
@@ -1717,14 +1718,21 @@ function Loader() {
 export default function Dashboard() {
   const { user } = useAuth();
 
-  if (user?.role === 'ADMIN') return <AdminDashboard />;
-  if (['MANAGER', 'LAB', 'PLANNING'].includes(user?.role)) return <ManagerDashboard />;
-  if (['STORE_MANAGER', 'LOGISTICS'].includes(user?.role)) return <StoreManagerDashboard />;
-  if (user?.role === 'SUPPLY_CHAIN') return <SupplyChainDashboard />;
-  if (user?.role === 'PURCHASE_OFFICER') return <PurchaseOfficerDashboard />;
-  if (['ACCOUNTING', 'FINANCE'].includes(user?.role)) return <AccountingDashboard />;
-  if (user?.role === 'METROLOGY') return <MetrologyDashboard />;
-  if (['QC', 'NDT', 'RND', 'DESIGNS'].includes(user?.role)) return <QCDashboard />;
+  let inner;
+  if (user?.role === 'ADMIN') inner = <AdminDashboard />;
+  else if (['MANAGER', 'LAB', 'PLANNING'].includes(user?.role)) inner = <ManagerDashboard />;
+  else if (['STORE_MANAGER', 'LOGISTICS'].includes(user?.role)) inner = <StoreManagerDashboard />;
+  else if (user?.role === 'SUPPLY_CHAIN') inner = <SupplyChainDashboard />;
+  else if (user?.role === 'PURCHASE_OFFICER') inner = <PurchaseOfficerDashboard />;
+  else if (['ACCOUNTING', 'FINANCE'].includes(user?.role)) inner = <AccountingDashboard />;
+  else if (user?.role === 'METROLOGY') inner = <MetrologyDashboard />;
+  else if (['QC', 'NDT', 'RND', 'DESIGNS'].includes(user?.role)) inner = <QCDashboard />;
+  else inner = <AdminDashboard />;
 
-  return <AdminDashboard />;
+  return (
+    <div className="space-y-4">
+      <SlaTicker />
+      {inner}
+    </div>
+  );
 }

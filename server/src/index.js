@@ -129,10 +129,12 @@ app.use((err, req, res, next) => {
 
 if (require.main === module) {
   const prisma = require('./config/db');
+  const { startSchedulers: startClosureSla } = require('./jobs/closureSla');
   prisma.$queryRaw`SELECT 1`
     .then(() => {
       app.listen(PORT, () => {
         console.log(`RAPS ERP Server running on port ${PORT}`);
+        startClosureSla();
       });
     })
     .catch((err) => {

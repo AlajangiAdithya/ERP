@@ -48,6 +48,15 @@ export default {
         card: '0 1px 2px rgba(16, 36, 82, 0.04), 0 4px 12px rgba(16, 36, 82, 0.06)',
         cardHover: '0 4px 8px rgba(16, 36, 82, 0.08), 0 12px 24px rgba(16, 36, 82, 0.10)',
       },
+      keyframes: {
+        marquee: {
+          '0%':   { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
+      },
+      animation: {
+        marquee: 'marquee 40s linear infinite',
+      },
     },
   },
   plugins: [],

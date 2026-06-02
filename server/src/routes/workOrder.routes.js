@@ -23,13 +23,31 @@ const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
+const { closureDocUpload, publicUrlFor } = require('../middleware/upload');
 const {
   generateSequentialNumber, paginate, applyDateFilter, withDocRetry,
 } = require('../utils/helpers');
 
 const router = express.Router();
 
-const WO_VIEW_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING'];
+// ── Closure workflow constants ──────────────────────────────────────
+// Level-5 management — only these usernames are permitted to sign off the
+// management-approval step of a Work Order closure.
+const L5_USERNAMES = ['sureshbabu', 'rameshbabu', 'madhubabu'];
+
+// 48-hour SLA window that starts when Finance clicks "Mark Customer Contacted".
+const SLA_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+// Required documents the unit head must upload before submitting for QC.
+const REQUIRED_UNIT_DOC_TYPES = [
+  'WORK_COMPLETION_REPORT',
+  'TEST_REPORT',
+  'DISPATCH_CHECKLIST',
+];
+
+
+// FINANCE + QC included so the closure-workflow UI can fetch WO details for their stages.
+const WO_VIEW_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'];
 const WO_STATUSES = [
   'ORDER_REVIEW', 'PENDING_ADMIN', 'ADMIN_ACCEPTED', 'UNIT_ACCEPTED',
   'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'CANCELLED', 'REJECTED', 'ON_HOLD',
@@ -46,6 +64,20 @@ const WO_INCLUDE = {
   deliveryDetailsUpdatedBy:   { select: { id: true, name: true, role: true } },
   extensions:                 { orderBy: { extensionNo: 'asc' } },
   invoices:                   { orderBy: { invoiceDate: 'asc' } },
+  closureDocs:                { orderBy: { uploadedAt: 'asc' }, include: { uploadedBy: { select: { id: true, name: true, role: true } } } },
+  holdRequests:               { orderBy: { raisedAt: 'asc' },   include: {
+    raisedBy:   { select: { id: true, name: true, role: true } },
+    resolvedBy: { select: { id: true, name: true, role: true } },
+  } },
+  bills:                      { orderBy: { createdAt: 'asc' },  include: { createdBy: { select: { id: true, name: true, role: true } } } },
+  unitDocsSubmittedBy:        { select: { id: true, name: true, role: true } },
+  qcVerifiedBy:               { select: { id: true, name: true, role: true } },
+  mgmtApprovedBy:             { select: { id: true, name: true, role: true } },
+  financeReviewedBy:          { select: { id: true, name: true, role: true } },
+  billCreatedBy:              { select: { id: true, name: true, role: true } },
+  pdcClearedBy:               { select: { id: true, name: true, role: true } },
+  customerContactedBy:        { select: { id: true, name: true, role: true } },
+  accountsClosedBy:           { select: { id: true, name: true, role: true } },
 };
 
 // Effective PDC = latest extension if any, else original pdcDate.
@@ -794,5 +826,591 @@ router.put('/:id/delivery-status', authenticate, authorize('MANAGER', 'SUPPLY_CH
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// ════════════════════════════════════════════════════════════════════
+// CLOSURE WORKFLOW
+// Runs after a WO reaches COMPLETED. Unit head submits docs → QC verifies →
+// Mgmt L5 approves → Finance bills (or sends ON_HOLD) → PDC clearance →
+// "Mark Customer Contacted" starts the 48h SLA → Accounts logs receipt.
+// ════════════════════════════════════════════════════════════════════
+
+const isL5 = (user) => user.role === 'ADMIN' && L5_USERNAMES.includes(user.username);
+
+const notifyL5AndStakeholders = async (woNumber, title, message, sentById) => {
+  const rows = [];
+  for (const username of L5_USERNAMES) {
+    const u = await prisma.user.findUnique({ where: { username }, select: { id: true } });
+    if (u) rows.push({ type: 'WO_CLOSURE_UPDATE', title, message, targetUserId: u.id, sentById });
+  }
+  for (const role of ['FINANCE', 'QC', 'ACCOUNTING']) {
+    rows.push({ type: 'WO_CLOSURE_UPDATE', title, message, targetRole: role, sentById });
+  }
+  if (rows.length) await prisma.notification.createMany({ data: rows });
+};
+
+// ── POST /api/work-orders/:id/closure/start — unit head opens the closure ──
+router.post('/:id/closure/start', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (req.user.role === 'MANAGER' && wo.assignedUnitId !== req.user.unitId) {
+      return res.status(403).json({ error: 'Not your unit' });
+    }
+    if (!['COMPLETED', 'CLOSED'].includes(wo.status)) {
+      return res.status(400).json({ error: 'Closure can only start once the WO is COMPLETED' });
+    }
+    if (wo.closureStage !== 'NOT_STARTED') {
+      return res.status(400).json({ error: `Closure already at stage ${wo.closureStage}` });
+    }
+    const updated = await prisma.workOrder.update({
+      where: { id: wo.id },
+      data: { closureStage: 'UNIT_DOCS_PENDING', closureStartedAt: new Date() },
+      include: WO_INCLUDE,
+    });
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Closure start error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/work-orders/:id/closure/docs — unit/QC/finance/accounts upload ──
+router.post(
+  '/:id/closure/docs',
+  authenticate,
+  authorize('MANAGER', 'QC', 'FINANCE', 'ACCOUNTING', 'ADMIN'),
+  closureDocUpload.single('file'),
+  async (req, res) => {
+    try {
+      const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+      if (!wo) return res.status(404).json({ error: 'Work order not found' });
+      if (req.user.role === 'MANAGER' && wo.assignedUnitId !== req.user.unitId) {
+        return res.status(403).json({ error: 'Not your unit' });
+      }
+      const { docType, note } = req.body || {};
+      if (!req.file) return res.status(400).json({ error: 'file is required' });
+      if (!docType) return res.status(400).json({ error: 'docType is required' });
+      const doc = await prisma.workOrderClosureDoc.create({
+        data: {
+          workOrderId: wo.id,
+          docType,
+          fileUrl: publicUrlFor('wo-closure', req.file.filename),
+          fileName: req.file.originalname || req.file.filename,
+          stage: wo.closureStage,
+          uploadedById: req.user.id,
+          note: note || null,
+        },
+        include: { uploadedBy: { select: { id: true, name: true, role: true } } },
+      });
+      res.status(201).json(doc);
+    } catch (error) {
+      console.error('Closure doc upload error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// ── DELETE /api/work-orders/:id/closure/docs/:docId ──
+router.delete(
+  '/:id/closure/docs/:docId',
+  authenticate,
+  authorize('MANAGER', 'QC', 'FINANCE', 'ACCOUNTING', 'ADMIN'),
+  async (req, res) => {
+    try {
+      const doc = await prisma.workOrderClosureDoc.findUnique({ where: { id: req.params.docId } });
+      if (!doc || doc.workOrderId !== req.params.id) return res.status(404).json({ error: 'Doc not found' });
+      // Uploader OR ADMIN can delete; otherwise reject.
+      if (doc.uploadedById !== req.user.id && req.user.role !== 'ADMIN') {
+        return res.status(403).json({ error: 'You can only delete docs you uploaded' });
+      }
+      await prisma.workOrderClosureDoc.delete({ where: { id: doc.id } });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('Closure doc delete error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// ── POST /api/work-orders/:id/closure/submit-to-qc — unit hands over to QC ──
+router.post('/:id/closure/submit-to-qc', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const wo = await prisma.workOrder.findUnique({
+      where: { id: req.params.id },
+      include: { closureDocs: true },
+    });
+    if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (req.user.role === 'MANAGER' && wo.assignedUnitId !== req.user.unitId) {
+      return res.status(403).json({ error: 'Not your unit' });
+    }
+    if (wo.closureStage !== 'UNIT_DOCS_PENDING') {
+      return res.status(400).json({ error: `Closure must be in UNIT_DOCS_PENDING (currently ${wo.closureStage})` });
+    }
+    const present = new Set(wo.closureDocs.map((d) => d.docType));
+    const missing = REQUIRED_UNIT_DOC_TYPES.filter((t) => !present.has(t));
+    if (missing.length) {
+      return res.status(400).json({ error: 'Missing required documents', missing });
+    }
+    const updated = await prisma.workOrder.update({
+      where: { id: wo.id },
+      data: {
+        unitDocsSubmittedAt: new Date(),
+        unitDocsSubmittedById: req.user.id,
+      },
+      include: WO_INCLUDE,
+    });
+    await prisma.notification.create({
+      data: {
+        type: 'WO_CLOSURE_QC_PENDING',
+        title: `WO ${wo.workOrderNumber} — QC verification pending`,
+        message: `${req.user.name} submitted closure docs for WO ${wo.workOrderNumber}. Please verify and issue the QC Verification Certificate.`,
+        targetRole: 'QC',
+        sentById: req.user.id,
+      },
+    });
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Closure submit-to-qc error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/work-orders/:id/closure/qc-verify — QC signs & forwards to Mgmt ──
+router.post('/:id/closure/qc-verify', authenticate, authorize('QC', 'ADMIN'), async (req, res) => {
+  try {
+    const { certificateUrl, note } = req.body || {};
+    const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (wo.closureStage !== 'UNIT_DOCS_PENDING' || !wo.unitDocsSubmittedAt) {
+      return res.status(400).json({ error: 'WO is not awaiting QC verification' });
+    }
+    const certificateNumber = await withDocRetry(() => generateSequentialNumber(prisma, 'WOQC'));
+    const updated = await prisma.workOrder.update({
+      where: { id: wo.id },
+      data: {
+        closureStage: 'QC_VERIFIED',
+        qcVerifiedAt: new Date(),
+        qcVerifiedById: req.user.id,
+        qcCertificateNumber: certificateNumber,
+        qcCertificateUrl: certificateUrl || null,
+      },
+      include: WO_INCLUDE,
+    });
+    // Notify the L5 admins.
+    const rows = [];
+    for (const username of L5_USERNAMES) {
+      const u = await prisma.user.findUnique({ where: { username }, select: { id: true } });
+      if (u) {
+        rows.push({
+          type: 'WO_CLOSURE_MGMT_PENDING',
+          title: `WO ${wo.workOrderNumber} — Mgmt approval needed`,
+          message: `QC ${req.user.name} issued certificate ${certificateNumber} for WO ${wo.workOrderNumber}${note ? `. Note: ${note}` : ''}. Please review and approve.`,
+          targetUserId: u.id,
+          sentById: req.user.id,
+        });
+      }
+    }
+    if (rows.length) await prisma.notification.createMany({ data: rows });
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Closure qc-verify error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/work-orders/:id/closure/mgmt-approve — L5 sign-off ──
+router.post('/:id/closure/mgmt-approve', authenticate, authorize('ADMIN'), async (req, res) => {
+  try {
+    if (!isL5(req.user)) {
+      return res.status(403).json({ error: 'Only Level-5 management can approve closure' });
+    }
+    const { note } = req.body || {};
+    const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (wo.closureStage !== 'QC_VERIFIED') {
+      return res.status(400).json({ error: 'WO is not awaiting management approval' });
+    }
+    const updated = await prisma.workOrder.update({
+      where: { id: wo.id },
+      data: {
+        closureStage: 'MGMT_APPROVED',
+        mgmtApprovedAt: new Date(),
+        mgmtApprovedById: req.user.id,
+        mgmtApprovalNote: note || null,
+      },
+      include: WO_INCLUDE,
+    });
+    await prisma.notification.create({
+      data: {
+        type: 'WO_CLOSURE_FINANCE_PENDING',
+        title: `WO ${wo.workOrderNumber} — Finance review pending`,
+        message: `${req.user.name} approved closure. Please review and generate the bill, or raise a hold.`,
+        targetRole: 'FINANCE',
+        sentById: req.user.id,
+      },
+    });
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Closure mgmt-approve error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/work-orders/:id/closure/finance-bill — generate bill ──
+router.post('/:id/closure/finance-bill', authenticate, authorize('FINANCE', 'ADMIN'), async (req, res) => {
+  try {
+    const { billDate, lineItems, gstAmount, pdcDate, bankGuaranteeNo, remarks, pdfUrl } = req.body || {};
+    if (!Array.isArray(lineItems) || !lineItems.length) {
+      return res.status(400).json({ error: 'lineItems[] is required' });
+    }
+    const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (wo.closureStage !== 'MGMT_APPROVED') {
+      return res.status(400).json({ error: 'WO must be MGMT_APPROVED before billing' });
+    }
+    const cleanItems = lineItems.map((it, idx) => {
+      const qty = Number(it.qty || it.quantity || 0);
+      const rate = Number(it.rate || 0);
+      const amount = it.amount != null ? Number(it.amount) : qty * rate;
+      return {
+        description: String(it.description || '').trim() || `Item ${idx + 1}`,
+        qty, rate, amount,
+      };
+    });
+    const subtotal = cleanItems.reduce((s, it) => s + (it.amount || 0), 0);
+    const gst = Number(gstAmount) || 0;
+    const total = subtotal + gst;
+
+    const billNumber = await withDocRetry(() => generateSequentialNumber(prisma, 'BILL'));
+
+    const [bill, updated] = await prisma.$transaction([
+      prisma.workOrderBill.create({
+        data: {
+          workOrderId: wo.id,
+          billNumber,
+          billDate: billDate ? new Date(billDate) : new Date(),
+          lineItems: cleanItems,
+          subtotal,
+          gstAmount: gst,
+          total,
+          pdcDate: pdcDate ? new Date(pdcDate) : wo.pdcDate,
+          bankGuaranteeNo: bankGuaranteeNo || wo.bankGuaranteeNo || null,
+          remarks: remarks || null,
+          pdfUrl: pdfUrl || null,
+          createdById: req.user.id,
+        },
+      }),
+      prisma.workOrder.update({
+        where: { id: wo.id },
+        data: {
+          closureStage: 'BILL_GENERATED',
+          financeReviewedAt: new Date(),
+          financeReviewedById: req.user.id,
+          billGeneratedAt: new Date(),
+          billNumber,
+          billUrl: pdfUrl || null,
+          billCreatedById: req.user.id,
+        },
+        include: WO_INCLUDE,
+      }),
+    ]);
+
+    await notifyL5AndStakeholders(
+      wo.workOrderNumber,
+      `WO ${wo.workOrderNumber} — Bill ${billNumber} generated`,
+      `${req.user.name} generated bill ${billNumber} for WO ${wo.workOrderNumber} (Total ₹${total.toFixed(2)}). PDC clearance pending.`,
+      req.user.id,
+    );
+
+    res.json({ bill, workOrder: decorate(updated) });
+  } catch (error) {
+    console.error('Closure finance-bill error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/work-orders/:id/closure/finance-hold — Finance flags missing docs ──
+router.post('/:id/closure/finance-hold', authenticate, authorize('FINANCE', 'ADMIN'), async (req, res) => {
+  try {
+    const { missingItems, reason } = req.body || {};
+    if (!Array.isArray(missingItems) || !missingItems.length) {
+      return res.status(400).json({ error: 'missingItems[] is required (each item: { docType, note })' });
+    }
+    const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (!['MGMT_APPROVED', 'FINANCE_REVIEW'].includes(wo.closureStage)) {
+      return res.status(400).json({ error: 'WO is not at the finance-review stage' });
+    }
+    const [hold, updated] = await prisma.$transaction([
+      prisma.workOrderHoldRequest.create({
+        data: {
+          workOrderId: wo.id,
+          raisedById: req.user.id,
+          missingItems,
+          reason: reason || null,
+        },
+        include: { raisedBy: { select: { id: true, name: true, role: true } } },
+      }),
+      prisma.workOrder.update({
+        where: { id: wo.id },
+        data: {
+          closureStage: 'ON_HOLD',
+          financeReviewedAt: new Date(),
+          financeReviewedById: req.user.id,
+        },
+        include: WO_INCLUDE,
+      }),
+    ]);
+    await prisma.notification.create({
+      data: {
+        type: 'WO_CLOSURE_ON_HOLD',
+        title: `WO ${wo.workOrderNumber} — On hold (missing docs)`,
+        message: `${req.user.name} flagged missing items for WO ${wo.workOrderNumber}: ${missingItems.map((m) => m.docType).join(', ')}${reason ? `. Reason: ${reason}` : ''}.`,
+        targetRole: 'MANAGER',
+        sentById: req.user.id,
+      },
+    });
+    res.json({ hold, workOrder: decorate(updated) });
+  } catch (error) {
+    console.error('Closure finance-hold error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/work-orders/:id/closure/resolve-hold — unit re-submits ──
+router.post('/:id/closure/resolve-hold', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const { holdId, note } = req.body || {};
+    if (!holdId) return res.status(400).json({ error: 'holdId is required' });
+    const hold = await prisma.workOrderHoldRequest.findUnique({ where: { id: holdId } });
+    if (!hold || hold.workOrderId !== req.params.id) return res.status(404).json({ error: 'Hold not found' });
+    if (hold.resolvedAt) return res.status(400).json({ error: 'Hold already resolved' });
+    const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (req.user.role === 'MANAGER' && wo.assignedUnitId !== req.user.unitId) {
+      return res.status(403).json({ error: 'Not your unit' });
+    }
+    if (wo.closureStage !== 'ON_HOLD') {
+      return res.status(400).json({ error: 'WO is not on hold' });
+    }
+    const [, updated] = await prisma.$transaction([
+      prisma.workOrderHoldRequest.update({
+        where: { id: hold.id },
+        data: { resolvedAt: new Date(), resolvedById: req.user.id, resolvedNote: note || null },
+      }),
+      prisma.workOrder.update({
+        where: { id: wo.id },
+        data: {
+          // Re-enter the unit-docs stage so QC + Mgmt re-approve the new submission.
+          closureStage: 'UNIT_DOCS_PENDING',
+          unitDocsSubmittedAt: null,
+          unitDocsSubmittedById: null,
+          qcVerifiedAt: null,
+          qcVerifiedById: null,
+          qcCertificateUrl: null,
+          qcCertificateNumber: null,
+          mgmtApprovedAt: null,
+          mgmtApprovedById: null,
+          mgmtApprovalNote: null,
+        },
+        include: WO_INCLUDE,
+      }),
+    ]);
+    await prisma.notification.create({
+      data: {
+        type: 'WO_CLOSURE_HOLD_RESOLVED',
+        title: `WO ${wo.workOrderNumber} — Hold cleared, re-verification needed`,
+        message: `${req.user.name} re-submitted closure docs for WO ${wo.workOrderNumber}. QC + Mgmt re-approval required.`,
+        targetRole: 'QC',
+        sentById: req.user.id,
+      },
+    });
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Closure resolve-hold error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/work-orders/:id/closure/pdc-clear — Finance confirms PDC ──
+router.post('/:id/closure/pdc-clear', authenticate, authorize('FINANCE', 'ADMIN'), async (req, res) => {
+  try {
+    const { note } = req.body || {};
+    const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (wo.closureStage !== 'BILL_GENERATED') {
+      return res.status(400).json({ error: 'WO must be BILL_GENERATED before PDC clearance' });
+    }
+    const updated = await prisma.workOrder.update({
+      where: { id: wo.id },
+      data: {
+        closureStage: 'PDC_CLEARED',
+        pdcClearedAt: new Date(),
+        pdcClearedById: req.user.id,
+        pdcClearanceNote: note || null,
+      },
+      include: WO_INCLUDE,
+    });
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Closure pdc-clear error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/work-orders/:id/closure/mark-contacted — starts the 48h SLA ──
+router.post('/:id/closure/mark-contacted', authenticate, authorize('FINANCE', 'ADMIN'), async (req, res) => {
+  try {
+    const { note } = req.body || {};
+    const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (wo.closureStage !== 'PDC_CLEARED') {
+      return res.status(400).json({ error: 'WO must be PDC_CLEARED before marking customer contacted' });
+    }
+    const now = new Date();
+    const deadline = new Date(now.getTime() + SLA_WINDOW_MS);
+    const updated = await prisma.workOrder.update({
+      where: { id: wo.id },
+      data: {
+        closureStage: 'CUSTOMER_CONTACTED',
+        customerContactedAt: now,
+        customerContactedById: req.user.id,
+        customerContactNote: note || null,
+        slaDeadlineAt: deadline,
+        last24hReminderAt: null,
+        slaBreachedAt: null,
+      },
+      include: WO_INCLUDE,
+    });
+    await notifyL5AndStakeholders(
+      wo.workOrderNumber,
+      `WO ${wo.workOrderNumber} — Customer contacted, 48h SLA started`,
+      `${req.user.name} marked customer contacted at ${now.toLocaleString('en-IN')}. SLA deadline: ${deadline.toLocaleString('en-IN')}.`,
+      req.user.id,
+    );
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Closure mark-contacted error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/work-orders/:id/closure/accounts-log — Accounts logs receipt + closes ──
+router.post('/:id/closure/accounts-log', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (req, res) => {
+  try {
+    const { note, close } = req.body || {};
+    const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (!['CUSTOMER_CONTACTED', 'ACCOUNTS_TRACKING'].includes(wo.closureStage)) {
+      return res.status(400).json({ error: 'WO is not in the accounts-tracking window' });
+    }
+    const data = {
+      closureStage: close ? 'CLOSURE_COMPLETE' : 'ACCOUNTS_TRACKING',
+      accountsReceiptNote: note || wo.accountsReceiptNote,
+    };
+    if (close) {
+      data.accountsClosedAt = new Date();
+      data.accountsClosedById = req.user.id;
+      data.closureCompletedAt = new Date();
+    }
+    const updated = await prisma.workOrder.update({
+      where: { id: wo.id },
+      data,
+      include: WO_INCLUDE,
+    });
+    if (close) {
+      await notifyL5AndStakeholders(
+        wo.workOrderNumber,
+        `WO ${wo.workOrderNumber} — Closure complete`,
+        `${req.user.name} logged receipt and closed WO ${wo.workOrderNumber}.`,
+        req.user.id,
+      );
+    }
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Closure accounts-log error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── GET /api/work-orders/closure/inbox — role-filtered queue ──
+router.get(
+  '/closure/inbox',
+  authenticate,
+  authorize('MANAGER', 'QC', 'FINANCE', 'ACCOUNTING', 'ADMIN'),
+  async (req, res) => {
+    try {
+      const where = {};
+      const role = req.user.role;
+      if (role === 'MANAGER') {
+        where.assignedUnitId = req.user.unitId;
+        where.closureStage = { in: ['UNIT_DOCS_PENDING', 'ON_HOLD'] };
+      } else if (role === 'QC') {
+        where.closureStage = 'UNIT_DOCS_PENDING';
+        where.unitDocsSubmittedAt = { not: null };
+      } else if (role === 'FINANCE') {
+        where.closureStage = { in: ['MGMT_APPROVED', 'BILL_GENERATED'] };
+      } else if (role === 'ACCOUNTING') {
+        where.closureStage = { in: ['CUSTOMER_CONTACTED', 'ACCOUNTS_TRACKING'] };
+      } else if (role === 'ADMIN') {
+        if (isL5(req.user)) {
+          where.closureStage = { in: ['QC_VERIFIED', 'CUSTOMER_CONTACTED'] };
+        }
+        // non-L5 ADMIN sees everything in flight
+        else {
+          where.closureStage = { notIn: ['NOT_STARTED', 'CLOSURE_COMPLETE'] };
+        }
+      }
+      const rows = await prisma.workOrder.findMany({
+        where,
+        include: WO_INCLUDE,
+        orderBy: [{ slaDeadlineAt: 'asc' }, { closureStartedAt: 'asc' }],
+        take: 200,
+      });
+      res.json({ workOrders: rows.map(decorate) });
+    } catch (error) {
+      console.error('Closure inbox error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// ── GET /api/work-orders/closure/sla-feed — ticker feed for L5/FINANCE/QC/ACCOUNTING ──
+router.get(
+  '/closure/sla-feed',
+  authenticate,
+  authorize('ADMIN', 'FINANCE', 'QC', 'ACCOUNTING'),
+  async (req, res) => {
+    try {
+      const rows = await prisma.workOrder.findMany({
+        where: {
+          closureStage: { in: ['CUSTOMER_CONTACTED', 'ACCOUNTS_TRACKING'] },
+          slaDeadlineAt: { not: null },
+        },
+        select: {
+          id: true, workOrderNumber: true, customerName: true,
+          closureStage: true, slaDeadlineAt: true, customerContactedAt: true,
+          last24hReminderAt: true, slaBreachedAt: true,
+        },
+        orderBy: { slaDeadlineAt: 'asc' },
+        take: 50,
+      });
+      const now = Date.now();
+      const feed = rows.map((r) => {
+        const dl = r.slaDeadlineAt ? new Date(r.slaDeadlineAt).getTime() : null;
+        const hoursLeft = dl != null ? Math.round((dl - now) / (1000 * 60 * 60)) : null;
+        return {
+          ...r,
+          hoursLeft,
+          breached: dl != null && now > dl,
+        };
+      });
+      res.json({ feed });
+    } catch (error) {
+      console.error('SLA feed error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
 
 module.exports = router;

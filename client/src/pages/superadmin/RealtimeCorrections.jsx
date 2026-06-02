@@ -4,13 +4,12 @@
 // invisible to other admins.
 
 import { useEffect, useState, useMemo } from 'react';
-import { Database, Edit2, Trash2, Plus, Save, X, RefreshCw, FileText, ExternalLink, Ruler } from 'lucide-react';
+import { Database, Edit2, Trash2, Plus, Save, X, RefreshCw, FileText, ExternalLink } from 'lucide-react';
 import api from '../../api/axios';
 import PageHero from '../../components/shared/PageHero';
-import Metrology from '../Metrology';
 
 export default function RealtimeCorrections() {
-  const [view, setView] = useState('tables'); // 'tables' | 'uploads' | 'mmr'
+  const [view, setView] = useState('tables'); // 'tables' | 'uploads'
   const [tables, setTables] = useState([]);
   const [loadingTables, setLoadingTables] = useState(true);
   const [active, setActive] = useState(null);
@@ -280,12 +279,6 @@ export default function RealtimeCorrections() {
         >
           <FileText size={14} /> Uploads {uploads.length > 0 && <span className="text-xs bg-gray-200 rounded-full px-2">{uploads.length}</span>}
         </button>
-        <button
-          onClick={() => setView('mmr')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px flex items-center gap-2 ${view === 'mmr' ? 'border-purple-600 text-purple-700' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
-        >
-          <Ruler size={14} /> Measuring & Monitoring Resources
-        </button>
       </div>
 
       {error && (
@@ -295,9 +288,7 @@ export default function RealtimeCorrections() {
         </div>
       )}
 
-      {view === 'mmr' ? (
-        <Metrology />
-      ) : view === 'uploads' ? (
+      {view === 'uploads' ? (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">

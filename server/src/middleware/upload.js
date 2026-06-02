@@ -87,6 +87,14 @@ const calibrationCertUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
+// Work Order closure documents — uploaded by unit heads (reports/drawings/
+// photos), QC (certificate), Finance (bill/hold-checklist) and Accounts.
+// Mixed file types: pdf, png/jpg/jpeg, dwg, doc/docx. 15 MB cap.
+const closureDocUpload = multer({
+  storage: makeStorage('wo-closure'),
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
+
 const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
 
 module.exports = {
@@ -99,6 +107,7 @@ module.exports = {
   supplierAssessmentUpload,
   fimGpUpload,
   calibrationCertUpload,
+  closureDocUpload,
   publicUrlFor,
   UPLOAD_ROOT,
 };

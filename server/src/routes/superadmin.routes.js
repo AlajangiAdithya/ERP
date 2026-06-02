@@ -31,6 +31,7 @@ const TABLES = [
   'PurchaseOrderSource', 'PurchaseOrderItemAllocation', 'PaymentRequest', 'QCInspection',
   'QCInspectionItem', 'GatePass', 'GatePassItem', 'InterOfficeNote', 'InventoryTransferRequest',
   'InventoryTransferItem', 'Supplier', 'WorkOrder', 'WorkOrderExtension', 'WorkOrderInvoice', 'Notification',
+  'CalibrationItem', 'CalibrationRecord',
 ];
 
 // Convert PascalCase table name to camelCase Prisma model accessor.

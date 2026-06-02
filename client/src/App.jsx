@@ -27,6 +27,8 @@ import GatePass from './pages/GatePass';
 import InterOfficeNote from './pages/InterOfficeNote';
 import InventoryTransfers from './pages/InventoryTransfers';
 import WorkOrders from './pages/WorkOrders';
+import WorkOrderClosure from './pages/WorkOrderClosure';
+import ClosureInbox from './pages/ClosureInbox';
 import SafetyMonitor from './pages/SafetyMonitor';
 import RealtimeCorrections from './pages/superadmin/RealtimeCorrections';
 import Backups from './pages/superadmin/Backups';
@@ -176,6 +178,15 @@ export default function App() {
                   ACCOUNTING own BG/Insurance + delivery; SAFETY monitors. */}
               <Route path="/work-orders" element={
                 <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING']}><WorkOrders /></PrivateRoute>
+              } />
+
+              {/* Work Order Closure chain — unit docs → QC → Mgmt L5 → Finance → PDC →
+                  Accounts. All chain participants can open a WO closure page. */}
+              <Route path="/work-orders/:id/closure" element={
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'QC', 'FINANCE', 'ACCOUNTING']}><WorkOrderClosure /></PrivateRoute>
+              } />
+              <Route path="/closure-inbox" element={
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'QC', 'FINANCE', 'ACCOUNTING']}><ClosureInbox /></PrivateRoute>
               } />
 
               {/* Safety Monitor */}

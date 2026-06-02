@@ -59,6 +59,19 @@ model User {
   workOrdersDeliveryUpdated  WorkOrder[]                @relation("WorkOrderDeliveryUpdater")
   workOrderExtensionsGranted WorkOrderExtension[]       @relation("WorkOrderExtensionGranter")
   workOrderInvoicesLogged    WorkOrderInvoice[]         @relation("WorkOrderInvoiceCreator")
+  // ── Work Order Closure flow ──
+  woClosureUnitSubmissions   WorkOrder[]                @relation("WOClosureUnitSubmitter")
+  woClosureQCVerified        WorkOrder[]                @relation("WOClosureQCVerifier")
+  woClosureMgmtApproved      WorkOrder[]                @relation("WOClosureMgmtApprover")
+  woClosureFinanceReviewed   WorkOrder[]                @relation("WOClosureFinanceReviewer")
+  woClosureBillsCreated      WorkOrder[]                @relation("WOClosureBillCreator")
+  woClosurePdcCleared        WorkOrder[]                @relation("WOClosurePdcClearer")
+  woClosureContactedCustomer WorkOrder[]                @relation("WOClosureCustomerContacter")
+  woClosureAccountsClosed    WorkOrder[]                @relation("WOClosureAccountsCloser")
+  woClosureDocsUploaded      WorkOrderClosureDoc[]      @relation("WOClosureDocUploader")
+  woHoldsRaised              WorkOrderHoldRequest[]     @relation("WOHoldRaiser")
+  woHoldsResolved            WorkOrderHoldRequest[]     @relation("WOHoldResolver")
+  woBillsCreatedFull         WorkOrderBill[]            @relation("WOBillCreator")
   materialPoolsCreated       MaterialPool[]             @relation("MaterialPoolCreator")
 }
 
@@ -1268,17 +1281,65 @@ model WorkOrder {
   // Set when the unit marks the WO fully delivered. Used for on-time %.
   completedAt DateTime?
 
+  // ── Closure workflow (runs after the WO is COMPLETED) ──
+  // Unit head uploads docs → QC verifies → Mgmt L5 approves → Finance bills
+  // (or sends ON_HOLD with a missing-items checklist) → PDC clearance →
+  // "Mark Customer Contacted" starts the 48h SLA → Accounts logs receipt.
+  closureStage          WorkOrderClosureStage @default(NOT_STARTED)
+  closureStartedAt      DateTime?
+  unitDocsSubmittedAt   DateTime?
+  unitDocsSubmittedById String?
+  unitDocsSubmittedBy   User?                 @relation("WOClosureUnitSubmitter", fields: [unitDocsSubmittedById], references: [id])
+  qcVerifiedAt          DateTime?
+  qcVerifiedById        String?
+  qcVerifiedBy          User?                 @relation("WOClosureQCVerifier", fields: [qcVerifiedById], references: [id])
+  qcCertificateUrl      String?
+  qcCertificateNumber   String?
+  mgmtApprovedAt        DateTime?
+  mgmtApprovedById      String?
+  mgmtApprovedBy        User?                 @relation("WOClosureMgmtApprover", fields: [mgmtApprovedById], references: [id])
+  mgmtApprovalNote      String?
+  financeReviewedAt     DateTime?
+  financeReviewedById   String?
+  financeReviewedBy     User?                 @relation("WOClosureFinanceReviewer", fields: [financeReviewedById], references: [id])
+  billGeneratedAt       DateTime?
+  billNumber            String?               @unique
+  billUrl               String?
+  billCreatedById       String?
+  billCreatedBy         User?                 @relation("WOClosureBillCreator", fields: [billCreatedById], references: [id])
+  pdcClearedAt          DateTime?
+  pdcClearedById        String?
+  pdcClearedBy          User?                 @relation("WOClosurePdcClearer", fields: [pdcClearedById], references: [id])
+  pdcClearanceNote      String?
+  customerContactedAt   DateTime? // ← starts the 48h SLA
+  customerContactedById String?
+  customerContactedBy   User?                 @relation("WOClosureCustomerContacter", fields: [customerContactedById], references: [id])
+  customerContactNote   String?
+  slaDeadlineAt         DateTime? // = customerContactedAt + 48h
+  last24hReminderAt     DateTime?
+  slaBreachedAt         DateTime?
+  accountsClosedAt      DateTime?
+  accountsClosedById    String?
+  accountsClosedBy      User?                 @relation("WOClosureAccountsCloser", fields: [accountsClosedById], references: [id])
+  accountsReceiptNote   String?
+  closureCompletedAt    DateTime?
+
   createdById String
   createdBy   User     @relation("WorkOrderCreator", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  extensions WorkOrderExtension[]
-  invoices   WorkOrderInvoice[]
+  extensions   WorkOrderExtension[]
+  invoices     WorkOrderInvoice[]
+  closureDocs  WorkOrderClosureDoc[]
+  holdRequests WorkOrderHoldRequest[]
+  bills        WorkOrderBill[]
 
   @@index([assignedUnitId])
   @@index([status])
   @@index([pdcDate])
+  @@index([closureStage])
+  @@index([slaDeadlineAt])
 }
 
 // PDC extension log (Extension 1, 2, ...). Latest extension's newPdcDate is the
@@ -1341,6 +1402,86 @@ enum WorkOrderDeliveryStatus {
   DELAYED
 }
 
+// ──── WORK ORDER CLOSURE WORKFLOW ────
+// Runs after the WO reaches COMPLETED. Drives the unit → QC → mgmt → finance
+// → PDC → customer-contact (48h SLA) → accounts close chain.
+enum WorkOrderClosureStage {
+  NOT_STARTED
+  UNIT_DOCS_PENDING
+  QC_VERIFIED
+  MGMT_APPROVED
+  FINANCE_REVIEW
+  ON_HOLD
+  BILL_GENERATED
+  PDC_CLEARED
+  CUSTOMER_CONTACTED
+  ACCOUNTS_TRACKING
+  CLOSURE_COMPLETE
+}
+
+// Individual documents attached during the closure chain. Each row knows
+// which stage it belongs to and which user uploaded it, so the closure
+// page can render an audit-trail of attached evidence.
+model WorkOrderClosureDoc {
+  id           String                @id @default(uuid())
+  workOrderId  String
+  workOrder    WorkOrder             @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  docType      String // WORK_COMPLETION_REPORT, TEST_REPORT, AS_BUILT_DRAWING, DISPATCH_CHECKLIST, COMPLETION_PHOTOS, QC_VERIFICATION_CERTIFICATE, BILL, HOLD_CHECKLIST, CUSTOMER_PDC_ACK, RECEIPT_PROOF
+  fileUrl      String
+  fileName     String
+  stage        WorkOrderClosureStage
+  uploadedAt   DateTime              @default(now())
+  uploadedById String
+  uploadedBy   User                  @relation("WOClosureDocUploader", fields: [uploadedById], references: [id])
+  note         String?
+
+  @@index([workOrderId])
+  @@index([docType])
+}
+
+// Each time Finance sends a closure back on HOLD with a list of missing items.
+// resolvedAt is set when the unit head re-submits the requested artefacts.
+model WorkOrderHoldRequest {
+  id           String    @id @default(uuid())
+  workOrderId  String
+  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  raisedAt     DateTime  @default(now())
+  raisedById   String
+  raisedBy     User      @relation("WOHoldRaiser", fields: [raisedById], references: [id])
+  missingItems Json // [{ docType, note }, ...]
+  reason       String?
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolvedBy   User?     @relation("WOHoldResolver", fields: [resolvedById], references: [id])
+  resolvedNote String?
+
+  @@index([workOrderId])
+}
+
+// Bill generated by Finance during the closure chain. Each WO closure produces
+// exactly one bill, but the model is a table so we get a clean PDF/audit trail
+// and can support future scenarios with multiple bills per WO.
+model WorkOrderBill {
+  id              String    @id @default(uuid())
+  workOrderId     String
+  workOrder       WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  billNumber      String    @unique // RAPS/BILL/<FY>/<N>
+  billDate        DateTime
+  lineItems       Json // [{ description, qty, rate, amount }, ...]
+  subtotal        Float
+  gstAmount       Float     @default(0)
+  total           Float
+  pdcDate         DateTime?
+  bankGuaranteeNo String?
+  remarks         String?
+  pdfUrl          String?
+  createdAt       DateTime  @default(now())
+  createdById     String
+  createdBy       User      @relation("WOBillCreator", fields: [createdById], references: [id])
+
+  @@index([workOrderId])
+}
+
 // ──── METROLOGY / CALIBRATION ITEMS ────
 // One row per piece of equipment that Metrology calibrates. Categorised by
 // equipment kind so the UI can route each list to its dedicated page.
@@ -1393,7 +1534,8 @@ model CalibrationRecord {
   certificateNo         String?
   certificateAttachment String? // public URL to uploaded PDF
   calibratedOn          DateTime?
-  dueDate               DateTime?
+  dueDate               DateTime? // calibration due date
+  recallDate            DateTime? // recall date (separate from calibration due date)
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
 

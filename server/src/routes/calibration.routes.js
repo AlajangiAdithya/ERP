@@ -170,7 +170,7 @@ const sanitizeRecord = (body, { partial = false } = {}) => {
       data[k] = body[k] === null || body[k] === '' ? null : String(body[k]).trim();
     }
   });
-  ['verifiedOn', 'calibratedOn', 'dueDate'].forEach((k) => {
+  ['verifiedOn', 'calibratedOn', 'dueDate', 'recallDate'].forEach((k) => {
     if (body[k] !== undefined) data[k] = parseDate(body[k]);
   });
   return data;
