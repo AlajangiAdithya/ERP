@@ -5,14 +5,14 @@ import {
   BarChart3, Settings, Menu, X,
   CheckSquare, ScrollText, Bell,
   Building2, ShieldCheck, Database, HardDrive, Activity, Boxes, Ruler,
-  ClipboardList, Inbox,
+  ClipboardList, Truck, DoorOpen,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const ALL_ROLES = [
   'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
   'METROLOGY', 'NDT', 'RND', 'SAFETY', 'SUPPLY_CHAIN',
-  'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS',
+  'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS', 'SITE_OFFICE',
 ];
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
@@ -36,8 +36,9 @@ const buildAllItems = () => {
     { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: PROCUREMENT_ROLES },
     { to: '/metrology', icon: Ruler, label: 'Measuring and Monitoring Resources', roles: METROLOGY_VIEW_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
-    { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING'] },
-    { to: '/closure-inbox', icon: Inbox, label: 'Closure Inbox', roles: ['ADMIN', 'MANAGER', 'QC', 'FINANCE', 'ACCOUNTING'] },
+    { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'] },
+    { to: '/gate-pass', icon: DoorOpen, label: 'Gate Pass', roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SITE_OFFICE'] },
+    { to: '/vehicles', icon: Truck, label: 'Vehicles', roles: ['LOGISTICS', 'ADMIN'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },
     { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },

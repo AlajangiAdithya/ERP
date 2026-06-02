@@ -24,11 +24,10 @@ import QCInspections from './pages/QCInspections';
 import Procurement from './pages/Procurement';
 import Monitoring from './pages/Monitoring';
 import GatePass from './pages/GatePass';
+import Vehicles from './pages/Vehicles';
 import InterOfficeNote from './pages/InterOfficeNote';
 import InventoryTransfers from './pages/InventoryTransfers';
 import WorkOrders from './pages/WorkOrders';
-import WorkOrderClosure from './pages/WorkOrderClosure';
-import ClosureInbox from './pages/ClosureInbox';
 import SafetyMonitor from './pages/SafetyMonitor';
 import RealtimeCorrections from './pages/superadmin/RealtimeCorrections';
 import Backups from './pages/superadmin/Backups';
@@ -161,7 +160,10 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY']}><StockMovements /></PrivateRoute>
               } />
               <Route path="/gate-pass" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY']}><GatePass /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE']}><GatePass /></PrivateRoute>
+              } />
+              <Route path="/vehicles" element={
+                <PrivateRoute allowedRoles={['ADMIN', 'LOGISTICS']}><Vehicles /></PrivateRoute>
               } />
               {/* Inventory Transfers — MANAGER + LOGISTICS + SAFETY monitor */}
               <Route path="/inventory-transfers" element={
@@ -173,20 +175,14 @@ export default function App() {
                 <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND']}><InterOfficeNote /></PrivateRoute>
               } />
 
-              {/* Work Orders — SUPPLY_CHAIN drafts → reviews+approves; ADMIN accepts;
-                  assigned unit MANAGER executes (status + remarks); SUPPLY_CHAIN or
-                  ACCOUNTING own BG/Insurance + delivery; SAFETY monitors. */}
+              {/* Work Orders — SUPPLY_CHAIN logs supply orders; ADMIN accepts &
+                  assigns to a unit; that unit's MANAGER executes (status +
+                  remarks); SUPPLY_CHAIN / ACCOUNTING / ADMIN own BG/Insurance
+                  history + delivery details; QC + FINANCE + ACCOUNTING own
+                  the per-batch closure cycles inside the WO detail; SAFETY
+                  monitors. */}
               <Route path="/work-orders" element={
-                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING']}><WorkOrders /></PrivateRoute>
-              } />
-
-              {/* Work Order Closure chain — unit docs → QC → Mgmt L5 → Finance → PDC →
-                  Accounts. All chain participants can open a WO closure page. */}
-              <Route path="/work-orders/:id/closure" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'QC', 'FINANCE', 'ACCOUNTING']}><WorkOrderClosure /></PrivateRoute>
-              } />
-              <Route path="/closure-inbox" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'QC', 'FINANCE', 'ACCOUNTING']}><ClosureInbox /></PrivateRoute>
+                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC']}><WorkOrders /></PrivateRoute>
               } />
 
               {/* Safety Monitor */}

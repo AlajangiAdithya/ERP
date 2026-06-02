@@ -11,7 +11,7 @@ const router = express.Router();
 const VALID_ROLES = [
   'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
   'METROLOGY', 'NDT', 'RND', 'SAFETY', 'SUPPLY_CHAIN',
-  'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS',
+  'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS', 'SITE_OFFICE',
 ];
 
 const createUserSchema = z.object({

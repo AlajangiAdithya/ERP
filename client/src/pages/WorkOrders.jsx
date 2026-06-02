@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
   ClipboardList, Plus, Send, CheckCircle2, Clock, XCircle, Building2,
-  CalendarClock, TrendingUp, ShieldCheck, PauseCircle, FileSearch,
+  CalendarClock, TrendingUp, ShieldCheck, PauseCircle,
   LayoutGrid, Table as TableIcon,
+  FileText, Receipt, ShieldAlert, Upload, AlertTriangle, Timer, Trash2, Check,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -15,9 +16,12 @@ import DateRangeFilter from '../components/shared/DateRangeFilter';
 import StatsCard from '../components/shared/StatsCard';
 import PageHero from '../components/shared/PageHero';
 import { formatDate } from '../utils/formatters';
+import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import InvoicePdf from '../components/pdf/InvoicePdf';
+import QCVerificationCertificatePdf from '../components/pdf/QCVerificationCertificatePdf';
+import HoldChecklistPdf from '../components/pdf/HoldChecklistPdf';
 
 const STATUS_META = {
-  ORDER_REVIEW:   { color: 'gray',   label: 'Order Review',     Icon: FileSearch },
   PENDING_ADMIN:  { color: 'yellow', label: 'Awaiting Admin',   Icon: Clock },
   ADMIN_ACCEPTED: { color: 'blue',   label: 'Admin Accepted',   Icon: ShieldCheck },
   UNIT_ACCEPTED:  { color: 'blue',   label: 'Unit Accepted',    Icon: CheckCircle2 },
@@ -30,9 +34,56 @@ const STATUS_META = {
 };
 
 const STATUS_TABS = [
-  'ALL', 'ORDER_REVIEW', 'PENDING_ADMIN', 'ADMIN_ACCEPTED', 'ON_HOLD',
+  'ALL', 'PENDING_ADMIN', 'ADMIN_ACCEPTED', 'ON_HOLD',
   'UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'CANCELLED', 'REJECTED',
 ];
+
+// Closure cycle stage display + ordering. INVOICE_SENT and PAYMENT_RECEIVED are
+// finance-side and only shown to L5 admins / FINANCE / ACCOUNTING (server-side
+// sanitization nulls them for MANAGER/QC anyway).
+const CYCLE_STAGE_META = {
+  UNIT_DOCS_PENDING: { color: 'gray',   label: 'Unit Docs Pending' },
+  QC_VERIFIED:       { color: 'blue',   label: 'QC Verified' },
+  MGMT_APPROVED:     { color: 'blue',   label: 'Mgmt Approved' },
+  ON_HOLD:           { color: 'red',    label: 'On Hold' },
+  INVOICE_SENT:      { color: 'yellow', label: 'Invoice Sent (SLA)' },
+  PAYMENT_RECEIVED:  { color: 'green',  label: 'Payment Received' },
+};
+
+const UNIT_DOC_TYPES = [
+  { value: 'WORK_COMPLETION_REPORT', label: 'Work Completion Report', required: true },
+  { value: 'TEST_REPORT',            label: 'Test Report',            required: true },
+  { value: 'DISPATCH_CHECKLIST',     label: 'Dispatch Checklist',     required: true },
+  { value: 'AS_BUILT_DRAWING',       label: 'As-Built Drawing',       required: false },
+  { value: 'COMPLETION_PHOTOS',      label: 'Completion Photos',      required: false },
+];
+
+// Roles allowed to see closure invoice / SLA / payment fields. Mirrors the
+// server's FINANCE_HIDDEN_ROLES sanitizer.
+const canSeeFinance = (role) => !['MANAGER', 'QC'].includes(role);
+
+const L5_USERNAMES = new Set(['sureshbabu', 'rameshbabu', 'madhubabu']);
+const isL5 = (user) => user?.role === 'ADMIN' && L5_USERNAMES.has(user?.username);
+
+// Flatten the WO + closure cycle into the shape QCVerificationCertificatePdf
+// expects: top-level WO scope fields plus the cycle's QC + submission audit.
+const qcCertData = (wo, cycle) => ({
+  workOrderNumber: wo.workOrderNumber,
+  supplyOrderNo: wo.supplyOrderNo,
+  customerName: wo.customerName,
+  nomenclature: wo.nomenclature,
+  orderQuantity: cycle.deliveryQty,
+  orderUnit: wo.orderUnit,
+  pdcDate: wo.effectivePdcDate,
+  inspectionAgency: wo.inspectionAgency,
+  qapNo: wo.qapNo,
+  qcCertificateNumber: cycle.qcCertificateNumber,
+  qcVerifiedAt: cycle.qcVerifiedAt,
+  qcVerifiedBy: cycle.qcVerifiedBy,
+  unitDocsSubmittedAt: cycle.unitDocsSubmittedAt,
+  unitDocsSubmittedBy: cycle.unitDocsSubmittedBy,
+  closureDocs: (cycle.docs || []).map((d) => ({ ...d, stage: 'UNIT_DOCS_PENDING' })),
+});
 
 export default function WorkOrders() {
   const { user } = useAuth();
@@ -76,15 +127,18 @@ export default function WorkOrders() {
   }, [canCreate, role]);
 
   const pending = workOrders.filter((w) => w.status === 'PENDING_ADMIN').length;
-  const inReview = workOrders.filter((w) => w.status === 'ORDER_REVIEW').length;
   const inProgress = workOrders.filter((w) => ['UNIT_ACCEPTED', 'IN_PROGRESS', 'ADMIN_ACCEPTED'].includes(w.status)).length;
   const overdue = workOrders.filter((w) => w.overdue).length;
+  const openCycles = workOrders.reduce(
+    (s, w) => s + (w.closures?.filter((c) => c.stage !== 'PAYMENT_RECEIVED').length || 0),
+    0,
+  );
 
   return (
     <div className="space-y-6">
       <PageHero
         title="Work Orders"
-        subtitle="Supply orders → order review → admin approval → unit acceptance → qty-wise delivery."
+        subtitle="Supply orders → admin approval → unit acceptance → qty-wise delivery → per-batch closure cycles."
         eyebrow="Supply Chain"
         icon={ClipboardList}
         actions={
@@ -106,18 +160,18 @@ export default function WorkOrders() {
           color={stats.onTimePercent == null ? 'navy' : stats.onTimePercent >= 90 ? 'green' : stats.onTimePercent >= 70 ? 'yellow' : 'red'}
         />
         <StatsCard
-          title="Order Review"
-          value={inReview}
-          subtitle="Awaiting SC review/approval"
-          icon={FileSearch}
-          color="gray"
-        />
-        <StatsCard
           title="Awaiting Admin"
           value={pending}
-          subtitle="Approved, pending admin"
+          subtitle="Logged, pending admin"
           icon={Clock}
           color="yellow"
+        />
+        <StatsCard
+          title="Open Closure Cycles"
+          value={openCycles}
+          subtitle="Across all WOs"
+          icon={Receipt}
+          color={openCycles > 0 ? 'blue' : 'navy'}
         />
         <StatsCard
           title="In Progress"
@@ -190,7 +244,7 @@ export default function WorkOrders() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="font-mono text-xs text-navy-500">
-                        {w.status === 'ORDER_REVIEW' ? '(WO pending)' : w.workOrderNumber}
+                        {w.workOrderNumber}
                       </span>
                       <Badge color={meta.color}><Icon size={11} className="inline mr-1" />{meta.label}</Badge>
                       {w.overdue && <Badge color="red">Overdue</Badge>}
@@ -262,7 +316,6 @@ function DashboardTable({ workOrders, onOpen }) {
             <tr className="text-left">
               <Th>Supply Order No</Th>
               <Th>SO Date</Th>
-              <Th>Order Reviewed / Approved on</Th>
               <Th>Internal WO No</Th>
               <Th>Admin Approval</Th>
               <Th>Unit Acceptance</Th>
@@ -290,18 +343,7 @@ function DashboardTable({ workOrders, onOpen }) {
                 >
                   <Td className="font-medium text-navy-800">{w.supplyOrderNo}</Td>
                   <Td>{formatDate(w.supplyOrderDate)}</Td>
-                  <Td>
-                    {w.orderReviewedAt && (
-                      <div>R: {formatDate(w.orderReviewedAt)}{w.orderReviewedBy ? ` · ${w.orderReviewedBy.name}` : ''}</div>
-                    )}
-                    {w.orderApprovedAt && (
-                      <div>A: {formatDate(w.orderApprovedAt)}{w.orderApprovedBy ? ` · ${w.orderApprovedBy.name}` : ''}</div>
-                    )}
-                    {!w.orderReviewedAt && !w.orderApprovedAt && <span className="text-navy-400">—</span>}
-                  </Td>
-                  <Td className="font-mono text-[11px]">
-                    {w.status === 'ORDER_REVIEW' ? <span className="text-navy-400">— pending —</span> : w.workOrderNumber}
-                  </Td>
+                  <Td className="font-mono text-[11px]">{w.workOrderNumber}</Td>
                   <Td>
                     {w.adminAcceptedAt ? (
                       <div>
@@ -412,7 +454,7 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
   };
 
   return (
-    <Modal isOpen onClose={onClose} title="Log Supply Order (→ Order Review)" size="xl">
+    <Modal isOpen onClose={onClose} title="Log Supply Order (→ Awaiting Admin)" size="xl">
       <form onSubmit={submit} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
@@ -478,7 +520,7 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
 
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={submitting}>{submitting ? 'Submitting...' : 'Submit for Review'}</Button>
+          <Button type="submit" disabled={submitting}>{submitting ? 'Submitting...' : 'Submit to Admin'}</Button>
         </div>
       </form>
     </Modal>
@@ -550,7 +592,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={wo.status === 'ORDER_REVIEW' ? `Supply Order ${wo.supplyOrderNo}` : `Work Order ${wo.workOrderNumber}`} size="xl">
+    <Modal isOpen onClose={onClose} title={`Work Order ${wo.workOrderNumber}`} size="xl">
       <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
@@ -563,23 +605,29 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
         </div>
 
         <div className="border-b flex gap-2 flex-wrap">
-          {['overview', 'extensions', 'invoices', 'delivery', 'remarks'].map((s) => (
+          {['overview', 'bg-insurance', 'extensions', 'invoices', 'closures', 'delivery', 'remarks'].map((s) => (
             <button
               key={s}
               onClick={() => setSection(s)}
               className={`px-3 py-2 text-xs uppercase tracking-wider font-semibold ${section === s ? 'border-b-2 border-navy-700 text-navy-800' : 'text-navy-400'}`}
             >
-              {s === 'extensions' ? `Extensions (${wo.extensions.length})` : s === 'invoices' ? `Invoices (${wo.invoices.length})` : s}
+              {s === 'extensions' ? `Extensions (${wo.extensions.length})`
+                : s === 'invoices' ? `Invoices (${wo.invoices.length})`
+                : s === 'closures' ? `Closures (${(wo.closures || []).length})`
+                : s === 'bg-insurance' ? 'BG / Insurance'
+                : s}
             </button>
           ))}
         </div>
 
-        {section === 'overview' && (
-          <OverviewTab
+        {section === 'overview' && <OverviewTab wo={wo} />}
+        {section === 'bg-insurance' && (
+          <BgInsuranceTab
             wo={wo}
-            canEditBgInsurance={canEditBgInsurance}
+            canEdit={canEditBgInsurance}
             busy={busy}
-            onSaveBg={(payload) => handleAction(() => api.patch(`/work-orders/${wo.id}`, payload))}
+            onAddBg={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/bg-entries`, payload))}
+            onAddInsurance={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/insurance-entries`, payload))}
           />
         )}
         {section === 'extensions' && (
@@ -593,6 +641,14 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
         )}
         {section === 'invoices' && (
           <InvoicesTab wo={wo} canLog={isUnitManager || isSupplyChain} busy={busy} onAdd={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/invoices`, payload))} />
+        )}
+        {section === 'closures' && (
+          <ClosuresTab
+            wo={wo}
+            currentUser={currentUser}
+            busy={busy}
+            onAction={handleAction}
+          />
         )}
         {section === 'delivery' && (
           <DeliveryDetailsTab
@@ -613,14 +669,6 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
 
         {/* Action footer */}
         <div className="border-t pt-3 flex flex-wrap justify-end gap-2">
-          {isSupplyChain && wo.status === 'ORDER_REVIEW' && (
-            <OrderReviewControls
-              wo={wo}
-              busy={busy}
-              onReview={(note) => handleAction(() => api.post(`/work-orders/${wo.id}/review`, { note }))}
-              onApprove={(note) => handleAction(() => api.post(`/work-orders/${wo.id}/approve`, { note }))}
-            />
-          )}
           {isAdmin && wo.status === 'PENDING_ADMIN' && (
             <AdminAcceptControls
               wo={wo} units={units} busy={busy}
@@ -658,13 +706,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
   );
 }
 
-function OverviewTab({ wo, canEditBgInsurance, busy, onSaveBg }) {
-  const [bgForm, setBgForm] = useState({
-    bankGuaranteeNo: wo.bankGuaranteeNo || '',
-    bankGuaranteeDate: wo.bankGuaranteeDate ? wo.bankGuaranteeDate.slice(0, 10) : '',
-    insuranceNo: wo.insuranceNo || '',
-    insuranceDate: wo.insuranceDate ? wo.insuranceDate.slice(0, 10) : '',
-  });
+function OverviewTab({ wo }) {
   const Row = ({ label, value }) => (
     <div className="grid grid-cols-3 gap-2 text-sm py-1.5 border-b border-navy-50">
       <div className="text-navy-500">{label}</div>
@@ -672,68 +714,174 @@ function OverviewTab({ wo, canEditBgInsurance, busy, onSaveBg }) {
     </div>
   );
 
-  const saveBg = (e) => {
+  return (
+    <div className="space-y-1">
+      <Row label="Supply Order No / Date" value={`${wo.supplyOrderNo}, Dt. ${formatDate(wo.supplyOrderDate)}`} />
+      <Row label="Nomenclature" value={wo.nomenclature} />
+      <Row label="Description" value={wo.supplyOrderDescription} />
+      <Row label="Customer" value={wo.customerName} />
+      <Row label="Customer Contact" value={wo.customerContact} />
+      <Row label="Order Quantity" value={`${wo.orderQuantity} ${wo.orderUnit}`} />
+      <Row label="PDC (effective)" value={`${formatDate(wo.effectivePdcDate)}${wo.extensions.length ? ` (after ${wo.extensions.length} extension${wo.extensions.length > 1 ? 's' : ''})` : ''}`} />
+      <Row label="Original PDC" value={formatDate(wo.pdcDate)} />
+      <Row label="Delivery Clause" value={wo.deliveryClause} />
+      <Row label="Delivered / Invoiced" value={`${wo.deliveredQty} / ${wo.invoicedQty} ${wo.orderUnit}`} />
+      <Row label="Assigned Unit" value={wo.assignedUnit ? `${wo.assignedUnit.name} (${wo.assignedUnit.code})` : null} />
+      <Row label="FIM Details" value={wo.fimDetails} />
+      <Row label="Inspection Agency" value={wo.inspectionAgency} />
+      <Row label="QAP No" value={wo.qapNo} />
+      <Row label="Drawings Details" value={wo.drawingsDetails} />
+      <Row label="Process Drawings" value={wo.processDrawingsDetails} />
+      <Row label="Tooling" value={wo.toolingScope} />
+      <Row label="Packing" value={wo.packingDetails} />
+      <Row label="Transportation" value={wo.transportationDetails} />
+      <Row label="Major works at site" value={wo.majorWorksAtSite} />
+      <Row label="Project Co-Ordinator" value={wo.projectCoordinator} />
+      <Row label="Order Terms & Conditions / Scope" value={wo.orderTermsAndScope} />
+      <Row label="Other Information" value={wo.otherInformation} />
+      <Row label="Created by" value={wo.createdBy ? `${wo.createdBy.name} (${formatDate(wo.createdAt)})` : null} />
+      <Row label="Admin acceptance" value={wo.adminAcceptedBy ? `${wo.adminAcceptedBy.name} (${formatDate(wo.adminAcceptedAt)})${wo.adminAcceptanceNote ? `\n${wo.adminAcceptanceNote}` : ''}` : null} />
+      <Row label="Unit acceptance" value={wo.unitAcceptedBy ? `${wo.unitAcceptedBy.name} (${formatDate(wo.unitAcceptedAt)})${wo.unitAcceptanceNote ? `\n${wo.unitAcceptanceNote}` : ''}` : null} />
+      {wo.completedAt && <Row label="Completed at" value={`${formatDate(wo.completedAt)}${wo.onTime != null ? ` — ${wo.onTime ? 'On time' : 'Late'}` : ''}`} />}
+    </div>
+  );
+}
+
+// ── BG / Insurance — append-only history ──
+// Newest entry is the active value (server mirrors it back onto the WO).
+// Visible to all; editable by SUPPLY_CHAIN / ACCOUNTING / ADMIN.
+function BgInsuranceTab({ wo, canEdit, busy, onAddBg, onAddInsurance }) {
+  const [bgForm, setBgForm] = useState({ bgNo: '', bgDate: '', validUpto: '', note: '' });
+  const [insForm, setInsForm] = useState({ insuranceNo: '', insuranceDate: '', validUpto: '', note: '' });
+
+  const submitBg = (e) => {
     e.preventDefault();
-    onSaveBg({
-      bankGuaranteeNo: bgForm.bankGuaranteeNo,
-      bankGuaranteeDate: bgForm.bankGuaranteeDate || null,
-      insuranceNo: bgForm.insuranceNo,
-      insuranceDate: bgForm.insuranceDate || null,
+    if (!bgForm.bgNo.trim()) return;
+    onAddBg({
+      bgNo: bgForm.bgNo.trim(),
+      bgDate: bgForm.bgDate || null,
+      validUpto: bgForm.validUpto || null,
+      note: bgForm.note || null,
     });
+    setBgForm({ bgNo: '', bgDate: '', validUpto: '', note: '' });
   };
 
+  const submitIns = (e) => {
+    e.preventDefault();
+    if (!insForm.insuranceNo.trim()) return;
+    onAddInsurance({
+      insuranceNo: insForm.insuranceNo.trim(),
+      insuranceDate: insForm.insuranceDate || null,
+      validUpto: insForm.validUpto || null,
+      note: insForm.note || null,
+    });
+    setInsForm({ insuranceNo: '', insuranceDate: '', validUpto: '', note: '' });
+  };
+
+  const bgEntries = wo.bgEntries || [];
+  const insEntries = wo.insuranceEntries || [];
+
   return (
-    <div className="space-y-3">
-      <div className="space-y-1">
-        <Row label="Supply Order No / Date" value={`${wo.supplyOrderNo}, Dt. ${formatDate(wo.supplyOrderDate)}`} />
-        <Row label="Nomenclature" value={wo.nomenclature} />
-        <Row label="Description" value={wo.supplyOrderDescription} />
-        <Row label="Customer" value={wo.customerName} />
-        <Row label="Customer Contact" value={wo.customerContact} />
-        <Row label="Order Quantity" value={`${wo.orderQuantity} ${wo.orderUnit}`} />
-        <Row label="PDC (effective)" value={`${formatDate(wo.effectivePdcDate)}${wo.extensions.length ? ` (after ${wo.extensions.length} extension${wo.extensions.length > 1 ? 's' : ''})` : ''}`} />
-        <Row label="Original PDC" value={formatDate(wo.pdcDate)} />
-        <Row label="Delivery Clause" value={wo.deliveryClause} />
-        <Row label="Delivered / Invoiced" value={`${wo.deliveredQty} / ${wo.invoicedQty} ${wo.orderUnit} (₹${wo.invoicedAmount.toLocaleString()})`} />
-        <Row label="Assigned Unit" value={wo.assignedUnit ? `${wo.assignedUnit.name} (${wo.assignedUnit.code})` : null} />
-        <Row label="FIM Details" value={wo.fimDetails} />
-        <Row label="Inspection Agency" value={wo.inspectionAgency} />
-        <Row label="QAP No" value={wo.qapNo} />
-        <Row label="Drawings Details" value={wo.drawingsDetails} />
-        <Row label="Process Drawings" value={wo.processDrawingsDetails} />
-        <Row label="Tooling" value={wo.toolingScope} />
-        <Row label="Packing" value={wo.packingDetails} />
-        <Row label="Transportation" value={wo.transportationDetails} />
-        <Row label="Major works at site" value={wo.majorWorksAtSite} />
-        <Row label="Project Co-Ordinator" value={wo.projectCoordinator} />
-        <Row label="Order Terms & Conditions / Scope" value={wo.orderTermsAndScope} />
-        <Row label="Other Information" value={wo.otherInformation} />
-        <Row label="Created by" value={wo.createdBy ? `${wo.createdBy.name} (${formatDate(wo.createdAt)})` : null} />
-        <Row label="Order reviewed" value={wo.orderReviewedBy ? `${wo.orderReviewedBy.name} (${formatDate(wo.orderReviewedAt)})${wo.orderReviewNote ? `\n${wo.orderReviewNote}` : ''}` : null} />
-        <Row label="Order approved" value={wo.orderApprovedBy ? `${wo.orderApprovedBy.name} (${formatDate(wo.orderApprovedAt)})${wo.orderApprovalNote ? `\n${wo.orderApprovalNote}` : ''}` : null} />
-        <Row label="Admin acceptance" value={wo.adminAcceptedBy ? `${wo.adminAcceptedBy.name} (${formatDate(wo.adminAcceptedAt)})${wo.adminAcceptanceNote ? `\n${wo.adminAcceptanceNote}` : ''}` : null} />
-        <Row label="Unit acceptance" value={wo.unitAcceptedBy ? `${wo.unitAcceptedBy.name} (${formatDate(wo.unitAcceptedAt)})${wo.unitAcceptanceNote ? `\n${wo.unitAcceptanceNote}` : ''}` : null} />
-        {wo.completedAt && <Row label="Completed at" value={`${formatDate(wo.completedAt)}${wo.onTime != null ? ` — ${wo.onTime ? 'On time' : 'Late'}` : ''}`} />}
+    <div className="space-y-6">
+      {/* Bank Guarantee */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Bank Guarantee — history</p>
+          {bgEntries[0] && (
+            <Badge color="green">Active: {bgEntries[0].bgNo}</Badge>
+          )}
+        </div>
+        {bgEntries.length === 0 ? (
+          <p className="text-sm text-navy-500">No BG entries yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-navy-50 text-navy-700">
+                <tr>
+                  <th className="text-left px-2 py-1.5">BG No</th>
+                  <th className="text-left px-2 py-1.5">BG Date</th>
+                  <th className="text-left px-2 py-1.5">Valid Upto</th>
+                  <th className="text-left px-2 py-1.5">Added</th>
+                  <th className="text-left px-2 py-1.5">Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bgEntries.map((e, i) => (
+                  <tr key={e.id} className={`border-b border-navy-50 ${i === 0 ? 'bg-green-50/40' : ''}`}>
+                    <td className="px-2 py-1.5 font-mono text-xs">{e.bgNo}{i === 0 && <span className="ml-1 text-[10px] text-green-700">(active)</span>}</td>
+                    <td className="px-2 py-1.5">{e.bgDate ? formatDate(e.bgDate) : '—'}</td>
+                    <td className="px-2 py-1.5">{e.validUpto ? formatDate(e.validUpto) : '—'}</td>
+                    <td className="px-2 py-1.5 text-navy-600">{e.addedBy?.name || '—'} · {formatDate(e.addedAt)}</td>
+                    <td className="px-2 py-1.5 text-navy-600">{e.note || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {canEdit && (
+          <form onSubmit={submitBg} className="border-t pt-3 space-y-2">
+            <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Append BG entry (becomes active)</p>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <Input label="BG No *" value={bgForm.bgNo} onChange={(e) => setBgForm({ ...bgForm, bgNo: e.target.value })} required />
+              <Input label="BG Date" type="date" value={bgForm.bgDate} onChange={(e) => setBgForm({ ...bgForm, bgDate: e.target.value })} />
+              <Input label="Valid Upto" type="date" value={bgForm.validUpto} onChange={(e) => setBgForm({ ...bgForm, validUpto: e.target.value })} />
+              <Input label="Note" value={bgForm.note} onChange={(e) => setBgForm({ ...bgForm, note: e.target.value })} />
+            </div>
+            <Button type="submit" disabled={busy || !bgForm.bgNo.trim()}>Add BG Entry</Button>
+          </form>
+        )}
       </div>
 
-      {/* Bank Guarantee & Insurance — editable by SC + Accounting */}
-      {canEditBgInsurance ? (
-        <form onSubmit={saveBg} className="border-t pt-3 space-y-2">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Bank Guarantee & Insurance (SC / Accounts)</p>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <Input label="BG No" value={bgForm.bankGuaranteeNo} onChange={(e) => setBgForm({ ...bgForm, bankGuaranteeNo: e.target.value })} />
-            <Input label="BG Date" type="date" value={bgForm.bankGuaranteeDate} onChange={(e) => setBgForm({ ...bgForm, bankGuaranteeDate: e.target.value })} />
-            <Input label="Insurance No" value={bgForm.insuranceNo} onChange={(e) => setBgForm({ ...bgForm, insuranceNo: e.target.value })} />
-            <Input label="Insurance Date" type="date" value={bgForm.insuranceDate} onChange={(e) => setBgForm({ ...bgForm, insuranceDate: e.target.value })} />
-          </div>
-          <Button type="submit" disabled={busy}>Save BG / Insurance</Button>
-        </form>
-      ) : (
-        <div className="space-y-1 border-t pt-3">
-          <Row label="Bank Guarantee" value={wo.bankGuaranteeNo ? `${wo.bankGuaranteeNo}${wo.bankGuaranteeDate ? `, Dt. ${formatDate(wo.bankGuaranteeDate)}` : ''}` : null} />
-          <Row label="Insurance" value={wo.insuranceNo ? `${wo.insuranceNo}${wo.insuranceDate ? `, Dt. ${formatDate(wo.insuranceDate)}` : ''}` : null} />
+      {/* Insurance */}
+      <div className="space-y-2 border-t pt-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Insurance — history</p>
+          {insEntries[0] && (
+            <Badge color="green">Active: {insEntries[0].insuranceNo}</Badge>
+          )}
         </div>
-      )}
+        {insEntries.length === 0 ? (
+          <p className="text-sm text-navy-500">No insurance entries yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-navy-50 text-navy-700">
+                <tr>
+                  <th className="text-left px-2 py-1.5">Insurance No</th>
+                  <th className="text-left px-2 py-1.5">Date</th>
+                  <th className="text-left px-2 py-1.5">Valid Upto</th>
+                  <th className="text-left px-2 py-1.5">Added</th>
+                  <th className="text-left px-2 py-1.5">Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {insEntries.map((e, i) => (
+                  <tr key={e.id} className={`border-b border-navy-50 ${i === 0 ? 'bg-green-50/40' : ''}`}>
+                    <td className="px-2 py-1.5 font-mono text-xs">{e.insuranceNo}{i === 0 && <span className="ml-1 text-[10px] text-green-700">(active)</span>}</td>
+                    <td className="px-2 py-1.5">{e.insuranceDate ? formatDate(e.insuranceDate) : '—'}</td>
+                    <td className="px-2 py-1.5">{e.validUpto ? formatDate(e.validUpto) : '—'}</td>
+                    <td className="px-2 py-1.5 text-navy-600">{e.addedBy?.name || '—'} · {formatDate(e.addedAt)}</td>
+                    <td className="px-2 py-1.5 text-navy-600">{e.note || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {canEdit && (
+          <form onSubmit={submitIns} className="border-t pt-3 space-y-2">
+            <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Append Insurance entry (becomes active)</p>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <Input label="Insurance No *" value={insForm.insuranceNo} onChange={(e) => setInsForm({ ...insForm, insuranceNo: e.target.value })} required />
+              <Input label="Insurance Date" type="date" value={insForm.insuranceDate} onChange={(e) => setInsForm({ ...insForm, insuranceDate: e.target.value })} />
+              <Input label="Valid Upto" type="date" value={insForm.validUpto} onChange={(e) => setInsForm({ ...insForm, validUpto: e.target.value })} />
+              <Input label="Note" value={insForm.note} onChange={(e) => setInsForm({ ...insForm, note: e.target.value })} />
+            </div>
+            <Button type="submit" disabled={busy || !insForm.insuranceNo.trim()}>Add Insurance Entry</Button>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
@@ -875,7 +1023,7 @@ function RemarksTab({ wo, canEdit, busy, onSave }) {
 }
 
 function InvoicesTab({ wo, canLog, busy, onAdd }) {
-  const [form, setForm] = useState({ invoiceNo: '', invoiceDate: '', quantity: '', amount: '', remarks: '' });
+  const [form, setForm] = useState({ invoiceNo: '', invoiceDate: '', quantity: '', remarks: '' });
   const remaining = Math.max(0, wo.orderQuantity - wo.deliveredQty);
 
   const submit = (e) => {
@@ -884,9 +1032,8 @@ function InvoicesTab({ wo, canLog, busy, onAdd }) {
     onAdd({
       ...form,
       quantity: Number(form.quantity),
-      amount: form.amount ? Number(form.amount) : null,
     });
-    setForm({ invoiceNo: '', invoiceDate: '', quantity: '', amount: '', remarks: '' });
+    setForm({ invoiceNo: '', invoiceDate: '', quantity: '', remarks: '' });
   };
 
   return (
@@ -907,7 +1054,7 @@ function InvoicesTab({ wo, canLog, busy, onAdd }) {
       </div>
 
       {wo.invoices.length === 0 ? (
-        <p className="text-sm text-navy-500">No invoices logged yet.</p>
+        <p className="text-sm text-navy-500">No delivery invoices logged yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -916,7 +1063,6 @@ function InvoicesTab({ wo, canLog, busy, onAdd }) {
                 <th className="text-left px-2 py-1.5">Invoice No</th>
                 <th className="text-left px-2 py-1.5">Date</th>
                 <th className="text-right px-2 py-1.5">Qty</th>
-                <th className="text-right px-2 py-1.5">Amount</th>
                 <th className="text-left px-2 py-1.5">Remarks</th>
               </tr>
             </thead>
@@ -926,7 +1072,6 @@ function InvoicesTab({ wo, canLog, busy, onAdd }) {
                   <td className="px-2 py-1.5 font-mono text-xs">{inv.invoiceNo}</td>
                   <td className="px-2 py-1.5">{formatDate(inv.invoiceDate)}</td>
                   <td className="px-2 py-1.5 text-right">{inv.quantity}</td>
-                  <td className="px-2 py-1.5 text-right">{inv.amount != null ? `₹${inv.amount.toLocaleString()}` : '—'}</td>
                   <td className="px-2 py-1.5 text-navy-600">{inv.remarks || '—'}</td>
                 </tr>
               ))}
@@ -937,49 +1082,15 @@ function InvoicesTab({ wo, canLog, busy, onAdd }) {
 
       {canLog && remaining > 0 && (
         <form onSubmit={submit} className="border-t pt-3 space-y-2">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Log Invoice (qty-wise)</p>
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Log Delivery Invoice (qty-wise, no amount)</p>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
             <Input label="Invoice No *" value={form.invoiceNo} onChange={(e) => setForm({ ...form, invoiceNo: e.target.value })} required />
             <Input label="Invoice Date *" type="date" value={form.invoiceDate} onChange={(e) => setForm({ ...form, invoiceDate: e.target.value })} required />
             <Input label="Quantity *" type="number" step="any" min="0.01" max={remaining} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} required />
-            <Input label="Amount (₹)" type="number" step="any" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
             <Input label="Remarks" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
           </div>
           <Button type="submit" disabled={busy}>Log Invoice</Button>
         </form>
-      )}
-    </div>
-  );
-}
-
-function OrderReviewControls({ wo, busy, onReview, onApprove }) {
-  const [note, setNote] = useState('');
-  const reviewed = !!wo.orderReviewedAt;
-  return (
-    <div className="w-full space-y-2 border-t pt-3">
-      <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">
-        Order Review &amp; Approval (Supply Chain)
-      </p>
-      <Textarea
-        label={reviewed ? 'Approval note' : 'Review note'}
-        rows={2}
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder={reviewed ? 'Notes on approval...' : 'Review form notes — what was checked'}
-      />
-      <div className="flex justify-end gap-2">
-        {!reviewed && (
-          <Button disabled={busy} onClick={() => onReview(note)}>Mark Reviewed</Button>
-        )}
-        {reviewed && (
-          <Button disabled={busy} onClick={() => onApprove(note)}>Approve &amp; Send to Admin</Button>
-        )}
-      </div>
-      {reviewed && (
-        <p className="text-xs text-green-700">
-          Review done by {wo.orderReviewedBy?.name || '—'} on {formatDate(wo.orderReviewedAt)}.
-          Approve to generate the internal Work Order and notify admin.
-        </p>
       )}
     </div>
   );
@@ -1049,6 +1160,437 @@ function ReassignControl({ wo, units, busy, onReassign }) {
         <Button disabled={busy || !assignedUnitId} onClick={() => onReassign({ assignedUnitId, note })}>
           Reassign &amp; Send to Unit
         </Button>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Closure cycles — per delivery batch.
+// Finance / payment / SLA fields are sanitized server-side for MANAGER + QC,
+// but UI also gates them with canSeeFinance for clarity.
+// ────────────────────────────────────────────────────────────────────
+function ClosuresTab({ wo, currentUser, busy, onAction }) {
+  const role = currentUser?.role;
+  const isUnitManager = role === 'MANAGER' && currentUser.unitId === wo.assignedUnitId;
+  const isAdmin = role === 'ADMIN';
+  const canOpenCycle = isUnitManager || isAdmin;
+  const showFinance = canSeeFinance(role);
+
+  const closures = wo.closures || [];
+  const alreadyCovered = closures.reduce((s, c) => s + (c.deliveryQty || 0), 0);
+  const remaining = Math.max(0, wo.orderQuantity - alreadyCovered);
+  const canStartCycle = canOpenCycle
+    && remaining > 0
+    && ['UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED'].includes(wo.status);
+
+  const [openForm, setOpenForm] = useState({ deliveryQty: '', deliveryNote: '', deliveredAt: '' });
+
+  const submitOpen = (e) => {
+    e.preventDefault();
+    if (!openForm.deliveryQty) return;
+    onAction(() => api.post(`/work-orders/${wo.id}/closures`, {
+      deliveryQty: Number(openForm.deliveryQty),
+      deliveryNote: openForm.deliveryNote || null,
+      deliveredAt: openForm.deliveredAt || null,
+    }));
+    setOpenForm({ deliveryQty: '', deliveryNote: '', deliveredAt: '' });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-2 text-sm">
+        <div className="p-3 bg-navy-50 rounded-md">
+          <p className="text-xs text-navy-500">WO Qty</p>
+          <p className="font-bold text-navy-800">{wo.orderQuantity} {wo.orderUnit}</p>
+        </div>
+        <div className="p-3 bg-blue-50 rounded-md">
+          <p className="text-xs text-blue-700">In closure cycles</p>
+          <p className="font-bold text-blue-800">{alreadyCovered} {wo.orderUnit}</p>
+        </div>
+        <div className="p-3 bg-yellow-50 rounded-md">
+          <p className="text-xs text-yellow-700">Awaiting cycle</p>
+          <p className="font-bold text-yellow-800">{remaining} {wo.orderUnit}</p>
+        </div>
+      </div>
+
+      {!showFinance && (
+        <p className="text-[11px] text-navy-500 italic">
+          Invoice and payment details are restricted to Finance, Accounts and Level-5 management.
+        </p>
+      )}
+
+      {closures.length === 0 ? (
+        <p className="text-sm text-navy-500">No closure cycles opened yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {closures.map((c) => (
+            <ClosureCycleCard
+              key={c.id}
+              wo={wo}
+              cycle={c}
+              currentUser={currentUser}
+              busy={busy}
+              onAction={onAction}
+            />
+          ))}
+        </div>
+      )}
+
+      {canStartCycle && (
+        <form onSubmit={submitOpen} className="border-t pt-3 space-y-2">
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Open new closure cycle (delivery batch)</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <Input
+              label={`Batch Qty * (max ${remaining})`}
+              type="number"
+              step="any"
+              min="0.01"
+              max={remaining}
+              value={openForm.deliveryQty}
+              onChange={(e) => setOpenForm({ ...openForm, deliveryQty: e.target.value })}
+              required
+            />
+            <Input
+              label="Delivered On"
+              type="date"
+              value={openForm.deliveredAt}
+              onChange={(e) => setOpenForm({ ...openForm, deliveredAt: e.target.value })}
+            />
+            <Input
+              label="Batch Note"
+              value={openForm.deliveryNote}
+              onChange={(e) => setOpenForm({ ...openForm, deliveryNote: e.target.value })}
+              placeholder="e.g. Lot-2 of 5"
+            />
+          </div>
+          <Button type="submit" disabled={busy || !openForm.deliveryQty}>Open Cycle</Button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
+  const role = currentUser?.role;
+  const isUnitManager = role === 'MANAGER' && currentUser.unitId === wo.assignedUnitId;
+  const isAdmin = role === 'ADMIN';
+  const isQc = role === 'QC';
+  const isFinance = role === 'FINANCE';
+  const isAccounting = role === 'ACCOUNTING';
+  const l5 = isL5(currentUser);
+  const showFinance = canSeeFinance(role);
+
+  const meta = CYCLE_STAGE_META[cycle.stage] || { color: 'gray', label: cycle.stage };
+  const docs = cycle.docs || [];
+  const docTypes = new Set(docs.map((d) => d.docType));
+  const missingRequired = UNIT_DOC_TYPES.filter((d) => d.required && !docTypes.has(d.value));
+
+  const openHold = (cycle.holdRequests || []).find((h) => !h.resolvedAt);
+
+  const [docType, setDocType] = useState(UNIT_DOC_TYPES[0].value);
+  const [docFile, setDocFile] = useState(null);
+  const [docNote, setDocNote] = useState('');
+  const [qcNote, setQcNote] = useState('');
+  const [qcCertUrl, setQcCertUrl] = useState('');
+  const [mgmtNote, setMgmtNote] = useState('');
+  const [invForm, setInvForm] = useState({ invoiceDate: '', description: '', invoiceFileUrl: '' });
+  const [payNote, setPayNote] = useState('');
+  const [holdItems, setHoldItems] = useState([{ docType: '', note: '' }]);
+  const [holdReason, setHoldReason] = useState('');
+  const [resolveNote, setResolveNote] = useState('');
+
+  // SLA chip — only meaningful while INVOICE_SENT
+  const hoursLeft = cycle.slaDeadlineAt
+    ? Math.round((new Date(cycle.slaDeadlineAt).getTime() - Date.now()) / (1000 * 60 * 60))
+    : null;
+  const breached = cycle.stage === 'INVOICE_SENT' && hoursLeft != null && hoursLeft <= 0;
+
+  const canUploadDoc = isUnitManager || isAdmin || (isQc && cycle.stage === 'UNIT_DOCS_PENDING')
+    || (isFinance && ['MGMT_APPROVED', 'INVOICE_SENT'].includes(cycle.stage))
+    || (isAccounting && cycle.stage === 'INVOICE_SENT');
+
+  const uploadDoc = (e) => {
+    e.preventDefault();
+    if (!docFile || !docType) return;
+    const fd = new FormData();
+    fd.append('file', docFile);
+    fd.append('docType', docType);
+    if (docNote) fd.append('note', docNote);
+    onAction(() => api.post(
+      `/work-orders/${wo.id}/closures/${cycle.id}/docs`,
+      fd,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ));
+    setDocFile(null);
+    setDocNote('');
+  };
+
+  const deleteDoc = (docId) => {
+    if (!confirm('Delete this document?')) return;
+    onAction(() => api.delete(`/work-orders/${wo.id}/closures/${cycle.id}/docs/${docId}`));
+  };
+
+  const submitToQc = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/submit-to-qc`));
+  const qcVerify = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/qc-verify`, {
+    certificateUrl: qcCertUrl || null,
+    note: qcNote || null,
+  }));
+  const mgmtApprove = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/mgmt-approve`, { note: mgmtNote || null }));
+  const sendInvoice = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/send-invoice`, {
+    invoiceDate: invForm.invoiceDate || null,
+    description: invForm.description || null,
+    invoiceFileUrl: invForm.invoiceFileUrl || null,
+  }));
+  const paymentReceived = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/payment-received`, { note: payNote || null }));
+  const holdCycle = () => {
+    const cleaned = holdItems.filter((h) => h.docType.trim());
+    if (!cleaned.length) return;
+    onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/hold`, {
+      missingItems: cleaned,
+      reason: holdReason || null,
+    }));
+  };
+  const resolveHold = () => {
+    if (!openHold) return;
+    onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/resolve-hold`, {
+      holdId: openHold.id,
+      note: resolveNote || null,
+    }));
+  };
+
+  return (
+    <div className="border border-navy-100 rounded-lg p-4 space-y-3 bg-white">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-semibold text-navy-800">Cycle #{cycle.cycleNumber}</span>
+          <Badge color={meta.color}>{meta.label}</Badge>
+          <span className="text-xs text-navy-500">{cycle.deliveryQty} {wo.orderUnit}</span>
+          {cycle.deliveredAt && <span className="text-xs text-navy-400">Delivered {formatDate(cycle.deliveredAt)}</span>}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {showFinance && cycle.stage === 'INVOICE_SENT' && hoursLeft != null && (
+            <Badge color={breached ? 'red' : hoursLeft <= 12 ? 'yellow' : 'blue'}>
+              {breached
+                ? <><AlertTriangle size={11} className="inline mr-1" />Breached {Math.abs(hoursLeft)}h</>
+                : <><Timer size={11} className="inline mr-1" />{hoursLeft}h left</>}
+            </Badge>
+          )}
+          {cycle.qcVerifiedAt && (
+            <DownloadPdfButton
+              document={<QCVerificationCertificatePdf data={qcCertData(wo, cycle)} />}
+              fileName={`${cycle.qcCertificateNumber || wo.workOrderNumber}-QC.pdf`}
+              label="QC Cert"
+              className="!py-1 !px-2"
+            />
+          )}
+          {showFinance && cycle.invoiceSentAt && (
+            <DownloadPdfButton
+              document={<InvoicePdf data={{ ...cycle, workOrder: wo }} />}
+              fileName={`${cycle.invoiceNumber || wo.workOrderNumber}-INV.pdf`}
+              label="Invoice"
+              className="!py-1 !px-2"
+            />
+          )}
+          {openHold && (
+            <DownloadPdfButton
+              document={<HoldChecklistPdf data={{ ...openHold, workOrder: wo }} />}
+              fileName={`hold-${wo.workOrderNumber}-c${cycle.cycleNumber}.pdf`}
+              label="Hold Checklist"
+              className="!py-1 !px-2"
+            />
+          )}
+        </div>
+      </div>
+
+      {cycle.deliveryNote && <p className="text-xs text-navy-600">{cycle.deliveryNote}</p>}
+
+      {/* Audit chain */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[11px] text-navy-600">
+        <div>Opened by: {cycle.openedBy?.name || '—'}</div>
+        {cycle.unitDocsSubmittedBy && <div>Docs submitted: {cycle.unitDocsSubmittedBy.name} ({formatDate(cycle.unitDocsSubmittedAt)})</div>}
+        {cycle.qcVerifiedBy && <div>QC verified: {cycle.qcVerifiedBy.name} ({formatDate(cycle.qcVerifiedAt)}) {cycle.qcCertificateNumber && <span className="text-navy-400 font-mono">[{cycle.qcCertificateNumber}]</span>}</div>}
+        {cycle.mgmtApprovedBy && <div>Mgmt approved: {cycle.mgmtApprovedBy.name} ({formatDate(cycle.mgmtApprovedAt)})</div>}
+        {showFinance && cycle.invoiceSentBy && <div>Invoice sent: {cycle.invoiceSentBy.name} ({formatDate(cycle.invoiceSentAt)}) {cycle.invoiceNumber && <span className="text-navy-400 font-mono">[{cycle.invoiceNumber}]</span>}</div>}
+        {showFinance && cycle.paymentReceivedBy && <div>Payment received: {cycle.paymentReceivedBy.name} ({formatDate(cycle.paymentReceivedAt)})</div>}
+      </div>
+
+      {/* Open hold banner */}
+      {openHold && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded text-xs space-y-1">
+          <div className="flex items-center gap-1 font-semibold text-red-800">
+            <ShieldAlert size={12} /> On hold — raised by {openHold.raisedBy?.name} ({formatDate(openHold.raisedAt)})
+          </div>
+          {openHold.reason && <p className="text-red-700">Reason: {openHold.reason}</p>}
+          {Array.isArray(openHold.missingItems) && openHold.missingItems.length > 0 && (
+            <ul className="list-disc list-inside text-red-700">
+              {openHold.missingItems.map((m, i) => (
+                <li key={i}>{m.docType}{m.note ? ` — ${m.note}` : ''}</li>
+              ))}
+            </ul>
+          )}
+          {(isUnitManager || isAdmin) && (
+            <div className="flex gap-2 items-end mt-2">
+              <div className="flex-1">
+                <Input label="Resolution note (after re-uploading missing docs)" value={resolveNote} onChange={(e) => setResolveNote(e.target.value)} />
+              </div>
+              <Button disabled={busy} onClick={resolveHold}>Resolve Hold</Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Documents */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Documents ({docs.length})</p>
+          {cycle.qcCertificateUrl && (
+            <a href={cycle.qcCertificateUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-700 hover:underline inline-flex items-center gap-1">
+              <FileText size={11} /> QC Certificate
+            </a>
+          )}
+        </div>
+        {docs.length === 0 ? (
+          <p className="text-xs text-navy-400">No docs uploaded.</p>
+        ) : (
+          <ul className="text-xs space-y-1">
+            {docs.map((d) => (
+              <li key={d.id} className="flex items-center justify-between border border-navy-100 rounded px-2 py-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText size={11} className="text-navy-500 flex-shrink-0" />
+                  <span className="font-mono text-[10px] text-navy-500 flex-shrink-0">{d.docType}</span>
+                  <a href={d.fileUrl} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline truncate">{d.fileName}</a>
+                  <span className="text-navy-400 flex-shrink-0">· {d.uploadedBy?.name || '—'}</span>
+                </div>
+                {(d.uploadedById === currentUser?.id || isAdmin) && (
+                  <button onClick={() => deleteDoc(d.id)} className="text-red-500 hover:text-red-700 flex-shrink-0">
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {canUploadDoc && (
+          <form onSubmit={uploadDoc} className="grid grid-cols-1 sm:grid-cols-[1fr_2fr_2fr_auto] gap-2 items-end pt-1">
+            <Select label="Doc Type" value={docType} onChange={(e) => setDocType(e.target.value)}>
+              {UNIT_DOC_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}{d.required ? ' *' : ''}</option>)}
+            </Select>
+            <Input label="File" type="file" onChange={(e) => setDocFile(e.target.files?.[0] || null)} />
+            <Input label="Note" value={docNote} onChange={(e) => setDocNote(e.target.value)} />
+            <Button type="submit" disabled={busy || !docFile}><Upload size={12} className="mr-1" />Upload</Button>
+          </form>
+        )}
+      </div>
+
+      {/* Stage-specific actions */}
+      {cycle.stage === 'UNIT_DOCS_PENDING' && (isUnitManager || isAdmin) && (
+        <div className="border-t pt-3 space-y-2">
+          {missingRequired.length > 0 ? (
+            <p className="text-xs text-red-600">
+              Missing required docs: {missingRequired.map((d) => d.label).join(', ')}
+            </p>
+          ) : (
+            <Button onClick={submitToQc} disabled={busy}><Check size={12} className="mr-1" />Submit to QC</Button>
+          )}
+        </div>
+      )}
+
+      {cycle.stage === 'UNIT_DOCS_PENDING' && cycle.unitDocsSubmittedAt && (isQc || isAdmin) && (
+        <div className="border-t pt-3 space-y-2">
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">QC Verification</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <Input label="Certificate URL (optional, paste link if PDF lives elsewhere)" value={qcCertUrl} onChange={(e) => setQcCertUrl(e.target.value)} />
+            <Input label="Note" value={qcNote} onChange={(e) => setQcNote(e.target.value)} />
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={qcVerify} disabled={busy}>Issue Certificate & Verify</Button>
+            <HoldControls items={holdItems} setItems={setHoldItems} reason={holdReason} setReason={setHoldReason} onSubmit={holdCycle} busy={busy} />
+          </div>
+        </div>
+      )}
+
+      {cycle.stage === 'QC_VERIFIED' && l5 && (
+        <div className="border-t pt-3 space-y-2">
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Level-5 Approval</p>
+          <Input label="Approval Note" value={mgmtNote} onChange={(e) => setMgmtNote(e.target.value)} />
+          <div className="flex gap-2">
+            <Button onClick={mgmtApprove} disabled={busy}>Approve & Send to Finance</Button>
+          </div>
+        </div>
+      )}
+      {cycle.stage === 'QC_VERIFIED' && isAdmin && !l5 && (
+        <p className="text-[11px] text-navy-500 italic border-t pt-2">
+          Awaiting Level-5 management sign-off (sureshbabu / rameshbabu / madhubabu).
+        </p>
+      )}
+
+      {cycle.stage === 'MGMT_APPROVED' && (isFinance || isAdmin) && (
+        <div className="border-t pt-3 space-y-2">
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Send Invoice (starts 48h SLA — no amount)</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <Input label="Invoice Date" type="date" value={invForm.invoiceDate} onChange={(e) => setInvForm({ ...invForm, invoiceDate: e.target.value })} />
+            <Input label="Description (scope)" value={invForm.description} onChange={(e) => setInvForm({ ...invForm, description: e.target.value })} />
+            <Input label="Invoice File URL (optional)" value={invForm.invoiceFileUrl} onChange={(e) => setInvForm({ ...invForm, invoiceFileUrl: e.target.value })} />
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={sendInvoice} disabled={busy}><Receipt size={12} className="mr-1" />Send Invoice & Start SLA</Button>
+            <HoldControls items={holdItems} setItems={setHoldItems} reason={holdReason} setReason={setHoldReason} onSubmit={holdCycle} busy={busy} />
+          </div>
+        </div>
+      )}
+
+      {cycle.stage === 'INVOICE_SENT' && (isAccounting || isAdmin) && (
+        <div className="border-t pt-3 space-y-2">
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Confirm Payment Received</p>
+          <Input label="Note" value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="UTR / payment reference, customer ack" />
+          <Button onClick={paymentReceived} disabled={busy}>
+            <Check size={12} className="mr-1" /> Payment Received — Close Cycle
+          </Button>
+        </div>
+      )}
+
+      {cycle.stage === 'PAYMENT_RECEIVED' && (
+        <div className="border-t pt-2">
+          <Badge color="green"><Check size={11} className="inline mr-1" />Cycle closed</Badge>
+          {showFinance && cycle.paymentNote && <p className="text-xs text-navy-600 mt-1">Note: {cycle.paymentNote}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HoldControls({ items, setItems, reason, setReason, onSubmit, busy }) {
+  const [open, setOpen] = useState(false);
+  const setItem = (i, k, v) => setItems(items.map((it, idx) => (idx === i ? { ...it, [k]: v } : it)));
+  const addRow = () => setItems([...items, { docType: '', note: '' }]);
+  const removeRow = (i) => setItems(items.filter((_, idx) => idx !== i));
+
+  if (!open) {
+    return (
+      <Button variant="secondary" onClick={() => setOpen(true)} disabled={busy}>
+        <ShieldAlert size={12} className="mr-1" /> Send Back on Hold
+      </Button>
+    );
+  }
+  return (
+    <div className="w-full space-y-2 p-3 bg-red-50 rounded">
+      <p className="text-xs uppercase tracking-wider font-semibold text-red-700">Send back with missing-items checklist</p>
+      {items.map((it, i) => (
+        <div key={i} className="grid grid-cols-[1fr_2fr_auto] gap-2 items-end">
+          <Input label="Doc Type" value={it.docType} onChange={(e) => setItem(i, 'docType', e.target.value)} placeholder="e.g. TEST_REPORT" />
+          <Input label="Note" value={it.note} onChange={(e) => setItem(i, 'note', e.target.value)} />
+          <Button variant="secondary" onClick={() => removeRow(i)} disabled={items.length === 1}>Remove</Button>
+        </div>
+      ))}
+      <div className="flex gap-2">
+        <Button variant="secondary" onClick={addRow}>+ Add Row</Button>
+      </div>
+      <Input label="Overall Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
+      <div className="flex gap-2 justify-end">
+        <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
+        <Button onClick={onSubmit} disabled={busy || !items.some((it) => it.docType.trim())}>Send on Hold</Button>
       </div>
     </div>
   );

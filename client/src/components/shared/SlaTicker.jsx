@@ -4,13 +4,10 @@ import { AlertTriangle, Timer, Bell } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 
-const TICKER_ROLES = ['ADMIN', 'FINANCE', 'QC', 'ACCOUNTING'];
+// SLA ticker — finance/accounts/L5 admin chase invoice payments.
+// QC and MANAGER deliberately excluded: this is payment-side scope only.
+const TICKER_ROLES = ['ADMIN', 'FINANCE', 'ACCOUNTING'];
 const POLL_MS = 30 * 1000;
-
-const STAGE_LABEL = {
-  CUSTOMER_CONTACTED: 'pending customer payment',
-  ACCOUNTS_TRACKING: 'pending accounts close-out',
-};
 
 function hoursLeft(deadlineAt) {
   if (!deadlineAt) return null;
@@ -56,9 +53,6 @@ export default function SlaTicker() {
         <span className="text-[11px] text-amber-700">
           {items.length} active • {breachedCount > 0 ? `${breachedCount} breached` : 'on track'}
         </span>
-        <Link to="/closure-inbox" className="ml-auto text-[11px] font-medium text-navy-700 hover:text-navy-900 underline">
-          Open inbox →
-        </Link>
       </div>
 
       <div className="relative overflow-hidden group">
@@ -72,14 +66,16 @@ export default function SlaTicker() {
                 : it.hoursLeft != null && it.hoursLeft <= 24
                   ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
                   : 'bg-blue-100 text-blue-800 border-blue-300';
+            const wo = it.workOrder || {};
             return (
               <Link
                 key={`${it.id}-${i}`}
-                to={`/work-orders/${it.id}/closure`}
+                to={`/work-orders/${wo.id}/closure`}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium ${cls} hover:scale-105 transition-transform`}
               >
                 {breached ? <AlertTriangle size={11} /> : <Timer size={11} />}
-                <span className="font-mono">{it.workOrderNumber}</span>
+                <span className="font-mono">{wo.workOrderNumber}</span>
+                <span className="opacity-70">cycle #{it.cycleNumber}</span>
                 <span>•</span>
                 <span>
                   {breached
@@ -87,8 +83,8 @@ export default function SlaTicker() {
                     : `${it.hoursLeft}h left`}
                 </span>
                 <span>•</span>
-                <span>{STAGE_LABEL[it.closureStage] || it.closureStage}</span>
-                {it.customerName && <span className="text-[10px] opacity-75">({it.customerName})</span>}
+                <span>awaiting payment</span>
+                {wo.customerName && <span className="text-[10px] opacity-75">({wo.customerName})</span>}
               </Link>
             );
           })}

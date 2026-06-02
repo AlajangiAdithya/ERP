@@ -52,27 +52,31 @@ model User {
   transferRequestsCreated    InventoryTransferRequest[] @relation("TransferRequester")
   transferRequestsApproved   InventoryTransferRequest[] @relation("TransferApprover")
   workOrdersCreated          WorkOrder[]                @relation("WorkOrderCreator")
-  workOrdersReviewed         WorkOrder[]                @relation("WorkOrderReviewer")
-  workOrdersApproved         WorkOrder[]                @relation("WorkOrderApprover")
   workOrdersAdminAccepted    WorkOrder[]                @relation("WorkOrderAdminAcceptor")
   workOrdersUnitAccepted     WorkOrder[]                @relation("WorkOrderUnitAcceptor")
   workOrdersDeliveryUpdated  WorkOrder[]                @relation("WorkOrderDeliveryUpdater")
   workOrderExtensionsGranted WorkOrderExtension[]       @relation("WorkOrderExtensionGranter")
   workOrderInvoicesLogged    WorkOrderInvoice[]         @relation("WorkOrderInvoiceCreator")
-  // ── Work Order Closure flow ──
-  woClosureUnitSubmissions   WorkOrder[]                @relation("WOClosureUnitSubmitter")
-  woClosureQCVerified        WorkOrder[]                @relation("WOClosureQCVerifier")
-  woClosureMgmtApproved      WorkOrder[]                @relation("WOClosureMgmtApprover")
-  woClosureFinanceReviewed   WorkOrder[]                @relation("WOClosureFinanceReviewer")
-  woClosureBillsCreated      WorkOrder[]                @relation("WOClosureBillCreator")
-  woClosurePdcCleared        WorkOrder[]                @relation("WOClosurePdcClearer")
-  woClosureContactedCustomer WorkOrder[]                @relation("WOClosureCustomerContacter")
-  woClosureAccountsClosed    WorkOrder[]                @relation("WOClosureAccountsCloser")
+  // ── Work Order Closure flow (per delivery batch) ──
+  woClosuresOpened           WorkOrderClosure[]         @relation("WOClosureOpener")
+  woClosuresUnitSubmitted    WorkOrderClosure[]         @relation("WOClosureUnitSubmitter")
+  woClosuresQCVerified       WorkOrderClosure[]         @relation("WOClosureQCVerifier")
+  woClosuresMgmtApproved     WorkOrderClosure[]         @relation("WOClosureMgmtApprover")
+  woClosuresInvoiceSent      WorkOrderClosure[]         @relation("WOClosureInvoiceSender")
+  woClosuresPaymentLogged    WorkOrderClosure[]         @relation("WOClosurePaymentLogger")
   woClosureDocsUploaded      WorkOrderClosureDoc[]      @relation("WOClosureDocUploader")
   woHoldsRaised              WorkOrderHoldRequest[]     @relation("WOHoldRaiser")
   woHoldsResolved            WorkOrderHoldRequest[]     @relation("WOHoldResolver")
-  woBillsCreatedFull         WorkOrderBill[]            @relation("WOBillCreator")
+  woBgEntriesAdded           WorkOrderBgEntry[]         @relation("WOBgEntryAdder")
+  woInsuranceEntriesAdded    WorkOrderInsuranceEntry[]  @relation("WOInsuranceEntryAdder")
   materialPoolsCreated       MaterialPool[]             @relation("MaterialPoolCreator")
+
+  // ── Gate Pass v2 (Local Job / Outside) relations ──
+  vehiclesCreated            Vehicle[]                  @relation("VehicleCreator")
+  gatePassesRequested        GatePass[]                 @relation("GatePassRequestedBy")
+  gatePassesLogistics        GatePass[]                 @relation("GatePassLogistics")
+  gatePassesSiteOfficeAck    GatePass[]                 @relation("GatePassSiteOfficeAck")
+  gatePassesLocalReturned    GatePass[]                 @relation("GatePassLocalReturnedBy")
 }
 
 model Session {
@@ -101,6 +105,9 @@ enum Role {
   FINANCE
   PLANNING
   LOGISTICS
+  // Receives OUTSIDE gate passes at the destination site (e.g., Hyderabad office).
+  // Acknowledges arrival with reached-date; this closes the gate pass.
+  SITE_OFFICE
   // Hidden owner-only role — never appears in UI lists, dashboards, notification
   // broadcasts, approval chains. Has Real-time Corrections + Backups + Audit pages.
   SUPERADMIN
@@ -972,6 +979,35 @@ model GatePass {
   gpRequisitionNo      String?
   passType             GatePassType? // Dominant / legacy type (per-item overrides)
   direction            GatePassDirection  @default(OUTWARD) // INWARD = customer → us, OUTWARD = us → customer/site
+  // OUTWARD only. LOCAL_JOB = sent to an external vendor for job-work (returnable / non-returnable);
+  // OUTSIDE = sent to one of our other sites (e.g., Hyderabad office). Null for INWARD/legacy rows.
+  kind                 GatePassKind?
+  // Local Job Work Register (RAPS/JL-JW) header fields.
+  jobWorkNo            String? // JW NO
+  vendorDetails        String? // VENDOR DETAILS
+  requestedById        String?
+  requestedBy          User?              @relation("GatePassRequestedBy", fields: [requestedById], references: [id])
+  // OUTSIDE only: destination office label (e.g., "Hyderabad"). Free-text for now;
+  // wire to a Site/Unit FK when more sites are added.
+  destinationOffice    String?
+  // Logistics step (both LOCAL_JOB and OUTSIDE).
+  assignedVehicleId    String?
+  assignedVehicle      Vehicle?           @relation("GatePassVehicle", fields: [assignedVehicleId], references: [id])
+  logisticsById        String?
+  logisticsBy          User?              @relation("GatePassLogistics", fields: [logisticsById], references: [id])
+  logisticsAt          DateTime?
+  dispatchedAt         DateTime?
+  // OUTSIDE only: PDF signed by driver, uploaded by logistics on dispatch.
+  signedDeliveryPdfUrl String?
+  // OUTSIDE only: site office (e.g., Hyd) acknowledges arrival.
+  siteOfficeAckById    String?
+  siteOfficeAckBy      User?              @relation("GatePassSiteOfficeAck", fields: [siteOfficeAckById], references: [id])
+  siteOfficeAckAt      DateTime?
+  reachedDate          DateTime?
+  // LOCAL_JOB returnable: stores acknowledges return.
+  localReturnedAt      DateTime?
+  localReturnedById    String?
+  localReturnedBy      User?              @relation("GatePassLocalReturnedBy", fields: [localReturnedById], references: [id])
   date                 DateTime           @default(now())
   siteName             String? // Site (header)
   partyName            String? // Auto-derived from items.dispatchedTo (legacy column)
@@ -1075,6 +1111,11 @@ enum GatePassDirection {
   OUTWARD
 }
 
+enum GatePassKind {
+  LOCAL_JOB // sent to an external vendor for job-work; returnable or non-returnable
+  OUTSIDE   // sent to one of our other sites (Hyderabad office, etc.)
+}
+
 enum InwardKind {
   STORES
   DIRECT_TO_UNIT
@@ -1089,9 +1130,13 @@ enum GatePassStatus {
   DRAFT
   PENDING_STORE
   PENDING_ACCOUNTS
+  PENDING_STORE_REVIEW // OUTWARD v2: stores final review after accounts (OUTSIDE) or after approve (LOCAL_JOB)
+  PENDING_LOGISTICS    // OUTWARD v2: logistics assigns vehicle (+ uploads signed PDF on dispatch for OUTSIDE)
+  IN_TRANSIT           // OUTWARD v2: dispatched, awaiting acknowledgement
+  PENDING_RETURN       // OUTWARD v2 LOCAL_JOB returnable: awaiting stores to ack return
   PENDING_APPROVAL
-  PENDING_ACCEPTANCE // INWARD-only: customer's material arrived, awaiting stores to inward into products
-  ACCEPTED // INWARD-only: stores has inwarded items into products list
+  PENDING_ACCEPTANCE   // INWARD-only: customer's material arrived, awaiting stores to inward into products
+  ACCEPTED             // INWARD-only: stores has inwarded items into products list
   APPROVED
   RETURNED
   CLOSED
@@ -1186,6 +1231,39 @@ enum TransferStatus {
   TRANSFERRED
 }
 
+// ──── VEHICLE REGISTER (logistics) ────
+// Pool of vehicles used to dispatch OUTWARD gate passes (Local Job + Outside).
+// Each gate pass references one vehicle; the vehicle's trip history is the set
+// of gate passes assigned to it.
+model Vehicle {
+  id               String     @id @default(uuid())
+  regNumber        String     @unique // KA01AB1234
+  vehicleType      String? // truck / van / pickup / car / bike
+  make             String?
+  model            String?
+  capacityKg       Float?
+  ownerType        String? // OWNED | HIRED
+  driverName       String?
+  driverPhone      String?
+  insuranceExpiry  DateTime?
+  pucExpiry        DateTime?
+  fitnessExpiry    DateTime?
+  rcUrl            String? // optional RC scan
+  status           VehicleStatus @default(ACTIVE)
+  notes            String?
+  createdById      String
+  createdBy        User       @relation("VehicleCreator", fields: [createdById], references: [id])
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  gatePasses       GatePass[] @relation("GatePassVehicle")
+}
+
+enum VehicleStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
 // ──── WORK ORDERS (SUPPLY_CHAIN drafts → ADMIN accepts → UNIT executes) ────
 // Doc No: RAPS/WO/01. Mirrors the printable Work Order form (ION header).
 // SUPPLY_CHAIN records the customer's external Supply Order + drafts a Work Order.
@@ -1238,11 +1316,11 @@ model WorkOrder {
   orderTermsAndScope     String?
   remarks                String?
 
-  // ── Bank Guarantee ──
+  // ── Bank Guarantee (latest values; full history in WorkOrderBgEntry) ──
   bankGuaranteeNo   String?
   bankGuaranteeDate DateTime?
 
-  // ── Insurance ──
+  // ── Insurance (latest values; full history in WorkOrderInsuranceEntry) ──
   insuranceNo   String?
   insuranceDate DateTime?
 
@@ -1254,92 +1332,37 @@ model WorkOrder {
   unitAcceptedBy     User?     @relation("WorkOrderUnitAcceptor", fields: [unitAcceptedById], references: [id])
   unitAcceptanceNote String?
 
-  // ── Order review + approval (Supply Chain — first step in the flow) ──
-  orderReviewedAt   DateTime?
-  orderReviewedById String?
-  orderReviewedBy   User?     @relation("WorkOrderReviewer", fields: [orderReviewedById], references: [id])
-  orderReviewNote   String?
-  orderApprovedAt   DateTime?
-  orderApprovedById String?
-  orderApprovedBy   User?     @relation("WorkOrderApprover", fields: [orderApprovedById], references: [id])
-  orderApprovalNote String?
-
   // ── Admin acceptance (acceptance form sent to admins) ──
   adminAcceptedAt     DateTime?
   adminAcceptedById   String?
   adminAcceptedBy     User?     @relation("WorkOrderAdminAcceptor", fields: [adminAcceptedById], references: [id])
   adminAcceptanceNote String?
 
-  status         WorkOrderStatus         @default(ORDER_REVIEW)
+  status         WorkOrderStatus         @default(PENDING_ADMIN)
   deliveryStatus WorkOrderDeliveryStatus @default(NOT_STARTED)
 
-  // Aggregated qty trackers (kept in sync from invoices).
-  deliveredQty   Float @default(0)
-  invoicedQty    Float @default(0)
-  invoicedAmount Float @default(0)
+  // Aggregated qty trackers (kept in sync from invoices). No monetary tracking
+  // — invoices are doc-only references; payment is confirmed in closure cycles.
+  deliveredQty Float @default(0)
+  invoicedQty  Float @default(0)
 
   // Set when the unit marks the WO fully delivered. Used for on-time %.
   completedAt DateTime?
-
-  // ── Closure workflow (runs after the WO is COMPLETED) ──
-  // Unit head uploads docs → QC verifies → Mgmt L5 approves → Finance bills
-  // (or sends ON_HOLD with a missing-items checklist) → PDC clearance →
-  // "Mark Customer Contacted" starts the 48h SLA → Accounts logs receipt.
-  closureStage          WorkOrderClosureStage @default(NOT_STARTED)
-  closureStartedAt      DateTime?
-  unitDocsSubmittedAt   DateTime?
-  unitDocsSubmittedById String?
-  unitDocsSubmittedBy   User?                 @relation("WOClosureUnitSubmitter", fields: [unitDocsSubmittedById], references: [id])
-  qcVerifiedAt          DateTime?
-  qcVerifiedById        String?
-  qcVerifiedBy          User?                 @relation("WOClosureQCVerifier", fields: [qcVerifiedById], references: [id])
-  qcCertificateUrl      String?
-  qcCertificateNumber   String?
-  mgmtApprovedAt        DateTime?
-  mgmtApprovedById      String?
-  mgmtApprovedBy        User?                 @relation("WOClosureMgmtApprover", fields: [mgmtApprovedById], references: [id])
-  mgmtApprovalNote      String?
-  financeReviewedAt     DateTime?
-  financeReviewedById   String?
-  financeReviewedBy     User?                 @relation("WOClosureFinanceReviewer", fields: [financeReviewedById], references: [id])
-  billGeneratedAt       DateTime?
-  billNumber            String?               @unique
-  billUrl               String?
-  billCreatedById       String?
-  billCreatedBy         User?                 @relation("WOClosureBillCreator", fields: [billCreatedById], references: [id])
-  pdcClearedAt          DateTime?
-  pdcClearedById        String?
-  pdcClearedBy          User?                 @relation("WOClosurePdcClearer", fields: [pdcClearedById], references: [id])
-  pdcClearanceNote      String?
-  customerContactedAt   DateTime? // ← starts the 48h SLA
-  customerContactedById String?
-  customerContactedBy   User?                 @relation("WOClosureCustomerContacter", fields: [customerContactedById], references: [id])
-  customerContactNote   String?
-  slaDeadlineAt         DateTime? // = customerContactedAt + 48h
-  last24hReminderAt     DateTime?
-  slaBreachedAt         DateTime?
-  accountsClosedAt      DateTime?
-  accountsClosedById    String?
-  accountsClosedBy      User?                 @relation("WOClosureAccountsCloser", fields: [accountsClosedById], references: [id])
-  accountsReceiptNote   String?
-  closureCompletedAt    DateTime?
 
   createdById String
   createdBy   User     @relation("WorkOrderCreator", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  extensions   WorkOrderExtension[]
-  invoices     WorkOrderInvoice[]
-  closureDocs  WorkOrderClosureDoc[]
-  holdRequests WorkOrderHoldRequest[]
-  bills        WorkOrderBill[]
+  extensions       WorkOrderExtension[]
+  invoices         WorkOrderInvoice[]
+  closures         WorkOrderClosure[]
+  bgEntries        WorkOrderBgEntry[]
+  insuranceEntries WorkOrderInsuranceEntry[]
 
   @@index([assignedUnitId])
   @@index([status])
   @@index([pdcDate])
-  @@index([closureStage])
-  @@index([slaDeadlineAt])
 }
 
 // PDC extension log (Extension 1, 2, ...). Latest extension's newPdcDate is the
@@ -1364,7 +1387,7 @@ model WorkOrderExtension {
   @@index([workOrderId])
 }
 
-// Per-invoice qty + amount log (qty-wise invoice tracking).
+// Per-invoice qty log (qty-wise invoice tracking — no monetary amount).
 model WorkOrderInvoice {
   id          String    @id @default(uuid())
   workOrderId String
@@ -1372,7 +1395,6 @@ model WorkOrderInvoice {
   invoiceNo   String
   invoiceDate DateTime
   quantity    Float
-  amount      Float?
   remarks     String?
   createdById String?
   createdBy   User?     @relation("WorkOrderInvoiceCreator", fields: [createdById], references: [id])
@@ -1381,9 +1403,44 @@ model WorkOrderInvoice {
   @@index([workOrderId])
 }
 
+// Bank Guarantee history. Each row = one BG ever attached to this WO. Newest = active.
+model WorkOrderBgEntry {
+  id           String    @id @default(uuid())
+  workOrderId  String
+  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  bgNo         String
+  bgDate       DateTime?
+  validUpto    DateTime?
+  fileUrl      String?
+  fileName     String?
+  note         String?
+  addedAt      DateTime  @default(now())
+  addedById    String?
+  addedBy      User?     @relation("WOBgEntryAdder", fields: [addedById], references: [id])
+
+  @@index([workOrderId])
+}
+
+// Insurance history. Each row = one insurance policy ever attached to this WO.
+model WorkOrderInsuranceEntry {
+  id           String    @id @default(uuid())
+  workOrderId  String
+  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  insuranceNo  String
+  insuranceDate DateTime?
+  validUpto    DateTime?
+  fileUrl      String?
+  fileName     String?
+  note         String?
+  addedAt      DateTime  @default(now())
+  addedById    String?
+  addedBy      User?     @relation("WOInsuranceEntryAdder", fields: [addedById], references: [id])
+
+  @@index([workOrderId])
+}
+
 enum WorkOrderStatus {
-  ORDER_REVIEW // Supply Chain drafted from the customer SO; awaiting in-house review+approval
-  PENDING_ADMIN // approved by Supply Chain; awaiting admin acceptance
+  PENDING_ADMIN // Supply Chain logged from customer SO; awaiting admin acceptance
   ADMIN_ACCEPTED // admin accepted; awaiting unit acceptance
   UNIT_ACCEPTED // unit acknowledged; execution begins
   IN_PROGRESS // ≥1 invoice logged
@@ -1403,30 +1460,85 @@ enum WorkOrderDeliveryStatus {
 }
 
 // ──── WORK ORDER CLOSURE WORKFLOW ────
-// Runs after the WO reaches COMPLETED. Drives the unit → QC → mgmt → finance
-// → PDC → customer-contact (48h SLA) → accounts close chain.
+// Per delivery batch. A WO can have many closures running in parallel: the unit
+// head finishes a batch → opens a closure → docs → QC → ADMIN (L5) → FINANCE
+// sends invoice (starts 48h SLA) → ACCOUNTS confirms payment → CLOSED.
 enum WorkOrderClosureStage {
-  NOT_STARTED
   UNIT_DOCS_PENDING
   QC_VERIFIED
   MGMT_APPROVED
-  FINANCE_REVIEW
   ON_HOLD
-  BILL_GENERATED
-  PDC_CLEARED
-  CUSTOMER_CONTACTED
-  ACCOUNTS_TRACKING
-  CLOSURE_COMPLETE
+  INVOICE_SENT // ← Finance has sent docs+invoice; 48h SLA running
+  PAYMENT_RECEIVED // ← Accounts confirmed; cycle CLOSED
 }
 
-// Individual documents attached during the closure chain. Each row knows
-// which stage it belongs to and which user uploaded it, so the closure
-// page can render an audit-trail of attached evidence.
+// One closure cycle per delivery batch. Multiple may be open per WO at once.
+model WorkOrderClosure {
+  id            String    @id @default(uuid())
+  workOrderId   String
+  workOrder     WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  cycleNumber   Int // 1, 2, 3 … (sequential within a WO)
+  stage         WorkOrderClosureStage @default(UNIT_DOCS_PENDING)
+  deliveryQty   Float // qty covered by this batch
+  deliveryNote  String?
+  deliveredAt   DateTime  @default(now()) // when unit marked the batch delivered
+  openedById    String? // unit user who triggered the cycle
+  openedBy      User?     @relation("WOClosureOpener", fields: [openedById], references: [id])
+
+  // Unit submission
+  unitDocsSubmittedAt   DateTime?
+  unitDocsSubmittedById String?
+  unitDocsSubmittedBy   User?     @relation("WOClosureUnitSubmitter", fields: [unitDocsSubmittedById], references: [id])
+
+  // QC verification
+  qcVerifiedAt        DateTime?
+  qcVerifiedById      String?
+  qcVerifiedBy        User?     @relation("WOClosureQCVerifier", fields: [qcVerifiedById], references: [id])
+  qcCertificateUrl    String?
+  qcCertificateNumber String?
+
+  // Mgmt L5 approval (sureshbabu / rameshbabu / madhubabu)
+  mgmtApprovedAt   DateTime?
+  mgmtApprovedById String?
+  mgmtApprovedBy   User?     @relation("WOClosureMgmtApprover", fields: [mgmtApprovedById], references: [id])
+  mgmtApprovalNote String?
+
+  // Finance — invoice + send
+  invoiceNumber      String?   @unique // sequential per FY
+  invoiceDate        DateTime?
+  invoiceDescription String? // free-text scope description (no amount)
+  invoiceFileUrl     String? // uploaded invoice doc OR generated PDF
+  invoiceSentAt      DateTime? // ← starts the 48h SLA
+  invoiceSentById    String?
+  invoiceSentBy      User?     @relation("WOClosureInvoiceSender", fields: [invoiceSentById], references: [id])
+  slaDeadlineAt      DateTime? // = invoiceSentAt + 48h
+  last24hReminderAt  DateTime?
+  slaBreachedAt      DateTime?
+
+  // Accounts — payment confirmation closes the cycle
+  paymentReceivedAt   DateTime?
+  paymentReceivedById String?
+  paymentReceivedBy   User?     @relation("WOClosurePaymentLogger", fields: [paymentReceivedById], references: [id])
+  paymentNote         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  docs         WorkOrderClosureDoc[]
+  holdRequests WorkOrderHoldRequest[]
+
+  @@unique([workOrderId, cycleNumber])
+  @@index([workOrderId])
+  @@index([stage])
+  @@index([slaDeadlineAt])
+}
+
+// Individual documents attached during a closure cycle.
 model WorkOrderClosureDoc {
   id           String                @id @default(uuid())
-  workOrderId  String
-  workOrder    WorkOrder             @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  docType      String // WORK_COMPLETION_REPORT, TEST_REPORT, AS_BUILT_DRAWING, DISPATCH_CHECKLIST, COMPLETION_PHOTOS, QC_VERIFICATION_CERTIFICATE, BILL, HOLD_CHECKLIST, CUSTOMER_PDC_ACK, RECEIPT_PROOF
+  closureId    String
+  closure      WorkOrderClosure      @relation(fields: [closureId], references: [id], onDelete: Cascade)
+  docType      String // WORK_COMPLETION_REPORT, TEST_REPORT, AS_BUILT_DRAWING, DISPATCH_CHECKLIST, COMPLETION_PHOTOS, QC_VERIFICATION_CERTIFICATE, INVOICE, HOLD_CHECKLIST, RECEIPT_PROOF
   fileUrl      String
   fileName     String
   stage        WorkOrderClosureStage
@@ -1435,51 +1547,26 @@ model WorkOrderClosureDoc {
   uploadedBy   User                  @relation("WOClosureDocUploader", fields: [uploadedById], references: [id])
   note         String?
 
-  @@index([workOrderId])
+  @@index([closureId])
   @@index([docType])
 }
 
-// Each time Finance sends a closure back on HOLD with a list of missing items.
-// resolvedAt is set when the unit head re-submits the requested artefacts.
+// Each time QC/Finance/Admin sends a cycle back on HOLD with missing items.
 model WorkOrderHoldRequest {
-  id           String    @id @default(uuid())
-  workOrderId  String
-  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  raisedAt     DateTime  @default(now())
+  id           String           @id @default(uuid())
+  closureId    String
+  closure      WorkOrderClosure @relation(fields: [closureId], references: [id], onDelete: Cascade)
+  raisedAt     DateTime         @default(now())
   raisedById   String
-  raisedBy     User      @relation("WOHoldRaiser", fields: [raisedById], references: [id])
+  raisedBy     User             @relation("WOHoldRaiser", fields: [raisedById], references: [id])
   missingItems Json // [{ docType, note }, ...]
   reason       String?
   resolvedAt   DateTime?
   resolvedById String?
-  resolvedBy   User?     @relation("WOHoldResolver", fields: [resolvedById], references: [id])
+  resolvedBy   User?            @relation("WOHoldResolver", fields: [resolvedById], references: [id])
   resolvedNote String?
 
-  @@index([workOrderId])
-}
-
-// Bill generated by Finance during the closure chain. Each WO closure produces
-// exactly one bill, but the model is a table so we get a clean PDF/audit trail
-// and can support future scenarios with multiple bills per WO.
-model WorkOrderBill {
-  id              String    @id @default(uuid())
-  workOrderId     String
-  workOrder       WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  billNumber      String    @unique // RAPS/BILL/<FY>/<N>
-  billDate        DateTime
-  lineItems       Json // [{ description, qty, rate, amount }, ...]
-  subtotal        Float
-  gstAmount       Float     @default(0)
-  total           Float
-  pdcDate         DateTime?
-  bankGuaranteeNo String?
-  remarks         String?
-  pdfUrl          String?
-  createdAt       DateTime  @default(now())
-  createdById     String
-  createdBy       User      @relation("WOBillCreator", fields: [createdById], references: [id])
-
-  @@index([workOrderId])
+  @@index([closureId])
 }
 
 // ──── METROLOGY / CALIBRATION ITEMS ────

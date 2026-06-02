@@ -30,6 +30,12 @@ const GP_DOC_TYPES = ['ORIGINAL', 'DUPLICATE'];
 
 const USER_SELECT = { select: { id: true, name: true, role: true } };
 const UNIT_SELECT = { select: { id: true, name: true, code: true } };
+const VEHICLE_SELECT = {
+  select: {
+    id: true, regNumber: true, vehicleType: true, make: true, model: true,
+    driverName: true, driverPhone: true, status: true,
+  },
+};
 const GATEPASS_INCLUDE = {
   createdBy: USER_SELECT,
   siteIncharge: USER_SELECT,
@@ -38,6 +44,12 @@ const GATEPASS_INCLUDE = {
   finalApprover: USER_SELECT,
   destinationUnit: UNIT_SELECT,
   collectedBy: USER_SELECT,
+  // Gate Pass v2 relations
+  requestedBy: USER_SELECT,
+  assignedVehicle: VEHICLE_SELECT,
+  logisticsBy: USER_SELECT,
+  siteOfficeAckBy: USER_SELECT,
+  localReturnedBy: USER_SELECT,
   items: {
     include: {
       sourceInwardGatePassItem: {
@@ -64,9 +76,11 @@ const DIRECTIONS = ['INWARD', 'OUTWARD'];
 const INWARD_KINDS = ['STORES', 'DIRECT_TO_UNIT'];
 const ALL_STATUSES = [
   'DRAFT', 'PENDING_STORE', 'PENDING_ACCOUNTS', 'PENDING_APPROVAL',
+  'PENDING_STORE_REVIEW', 'PENDING_LOGISTICS', 'IN_TRANSIT', 'PENDING_RETURN',
   'PENDING_ACCEPTANCE', 'ACCEPTED',
   'APPROVED', 'RETURNED', 'CLOSED', 'REJECTED', 'OPEN',
 ];
+const KINDS = ['LOCAL_JOB', 'OUTSIDE'];
 
 const toDate = (v) => (v ? new Date(v) : null);
 
@@ -152,6 +166,12 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
       customerGpDocType: rawDocType,
       vehicleNo: rawVehicleNo, driverName: rawDriverName,
       gpRequisitionNo: rawGpRequisitionNo,
+      // Gate Pass v2 (OUTWARD) — kind-aware fields
+      kind: rawKind,
+      jobWorkNo: rawJobWorkNo,
+      vendorDetails: rawVendorDetails,
+      requestedById: rawRequestedById,
+      destinationOffice: rawDestinationOffice,
     } = req.body;
 
     const customerGpDocType = GP_DOC_TYPES.includes(rawDocType) ? rawDocType : null;
@@ -159,6 +179,14 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
 
     const direction = DIRECTIONS.includes(rawDirection) ? rawDirection : 'OUTWARD';
     const isInward = direction === 'INWARD';
+
+    // Gate Pass v2: OUTWARD now requires a `kind` (LOCAL_JOB | OUTSIDE).
+    // Legacy OUTWARD callers (FIM return via /fim-batches/:id/send-out) skip this and
+    // create rows with kind=null — those flow through the legacy approve path.
+    const kind = !isInward && KINDS.includes(rawKind) ? rawKind : null;
+    if (!isInward && kind === 'OUTSIDE' && !rawDestinationOffice?.trim()) {
+      return res.status(400).json({ error: 'Destination office is required for OUTSIDE gate passes' });
+    }
 
     // INWARD FIM is recorded by Stores Manager (or Admin) only — unit managers can't.
     if (isInward && !['STORE_MANAGER', 'ADMIN'].includes(req.user.role)) {
@@ -260,6 +288,12 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
           gpRequisitionNo: isInward ? (rawGpRequisitionNo?.trim() || null) : null,
           passType: primaryType,
           direction,
+          // OUTWARD v2 kind + headers
+          kind,
+          jobWorkNo: !isInward && kind === 'LOCAL_JOB' ? (rawJobWorkNo?.trim() || null) : null,
+          vendorDetails: !isInward && kind === 'LOCAL_JOB' ? (rawVendorDetails?.trim() || null) : null,
+          requestedById: !isInward && rawRequestedById ? rawRequestedById : null,
+          destinationOffice: !isInward && kind === 'OUTSIDE' ? rawDestinationOffice.trim() : null,
           siteName: siteName?.trim() || null,
           partyName: derivedPartyName,
           customerName: isInward ? customerName.trim() : null,
@@ -277,8 +311,10 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
           remarks: remarks?.trim() || null,
           status: initialStatus,
           createdById: req.user.id,
-          siteInchargeById: isInward ? null : req.user.id,
-          siteInchargeAt: isInward ? null : new Date(),
+          // Site Incharge sign no longer auto-set for v2 OUTWARD; the creator's
+          // signature is captured separately via /store-approve / review steps.
+          siteInchargeById: (isInward || kind) ? null : req.user.id,
+          siteInchargeAt: (isInward || kind) ? null : new Date(),
           items: {
             create: items.map((it) => ({
               description: it.description.trim(),
@@ -439,16 +475,29 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
   }
 });
 
-// PUT /api/gatepasses/:id/store-approve — Store Incharge arranges vehicle and forwards to Accounts
+// ──────────────────────────────────────────────────────────────────────────────
+// OUTWARD v2 — Local Job / Outside dual flow
+//
+// LOCAL_JOB: PENDING_STORE → (store-approve) → PENDING_STORE_REVIEW → (store-review)
+//            → PENDING_LOGISTICS → (logistics-assign+dispatch) → IN_TRANSIT
+//            → (stores-ack-arrival) → CLOSED  [returnable acks on RETURN; non-returnable acks on REACH]
+//
+// OUTSIDE:   PENDING_STORE → (store-approve) → PENDING_ACCOUNTS → (accounts-invoice)
+//            → PENDING_STORE_REVIEW → (store-review) → PENDING_LOGISTICS
+//            → (logistics-assign+dispatch w/ signed PDF) → IN_TRANSIT
+//            → (site-office-ack) → CLOSED
+//
+// Legacy OUTWARD rows (kind=null, e.g. FIM /send-out) use the original
+// PENDING_STORE → PENDING_ACCOUNTS → APPROVED path retained below.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// PUT /api/gatepasses/:id/store-approve
+// Stores reviews items + approves. For OUTSIDE, routes to PENDING_ACCOUNTS for invoice entry.
+// For LOCAL_JOB, routes to PENDING_STORE_REVIEW (skipping accounts). Legacy (kind=null)
+// keeps the old behaviour: vehicleNo/driverName required, routes to PENDING_ACCOUNTS.
 router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
-    const { driverName, vehicleNo } = req.body || {};
-    if (!driverName || !driverName.trim()) {
-      return res.status(400).json({ error: 'Driver name is required' });
-    }
-    if (!vehicleNo || !vehicleNo.trim()) {
-      return res.status(400).json({ error: 'Vehicle number is required' });
-    }
+    const { driverName, vehicleNo, remarks } = req.body || {};
 
     const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
@@ -456,15 +505,26 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
       return res.status(400).json({ error: 'Gate pass is not awaiting Store Incharge approval' });
     }
 
+    const isLegacy = !existing.kind;
+    if (isLegacy) {
+      if (!driverName?.trim()) return res.status(400).json({ error: 'Driver name is required' });
+      if (!vehicleNo?.trim()) return res.status(400).json({ error: 'Vehicle number is required' });
+    }
+
+    const nextStatus = isLegacy
+      ? 'PENDING_ACCOUNTS'
+      : (existing.kind === 'OUTSIDE' ? 'PENDING_ACCOUNTS' : 'PENDING_STORE_REVIEW');
+
     const now = new Date();
     const updated = await prisma.gatePass.update({
       where: { id: req.params.id },
       data: {
-        status: 'PENDING_ACCOUNTS',
-        driverName: driverName.trim(),
-        vehicleNo: vehicleNo.trim(),
+        status: nextStatus,
+        driverName: isLegacy ? driverName.trim() : existing.driverName,
+        vehicleNo: isLegacy ? vehicleNo.trim() : existing.vehicleNo,
         storeInchargeById: req.user.id,
         storeInchargeAt: now,
+        remarks: remarks?.trim() || existing.remarks,
       },
       include: GATEPASS_INCLUDE,
     });
@@ -475,22 +535,18 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
         action: 'STORE_INCHARGE_APPROVAL',
         entity: 'GatePass',
         entityId: updated.id,
-        details: {
-          passNumber: updated.passNumber,
-          driverName: updated.driverName,
-          vehicleNo: updated.vehicleNo,
-          from: 'PENDING_STORE',
-          to: 'PENDING_ACCOUNTS',
-        },
+        details: { passNumber: updated.passNumber, from: 'PENDING_STORE', to: nextStatus, kind: updated.kind },
         ipAddress: req.ip,
       },
     });
 
     await notify({
       type: 'GATE_PASS_STAGE',
-      title: `Gate Pass ${updated.passNumber}: vehicle arranged`,
-      message: `${req.user.name} arranged driver ${updated.driverName} / vehicle ${updated.vehicleNo}. Awaiting Accounts for payment.`,
-      targetRole: 'ACCOUNTING',
+      title: `Gate Pass ${updated.passNumber}: stores approved`,
+      message: nextStatus === 'PENDING_ACCOUNTS'
+        ? `${req.user.name} approved stores stage. Awaiting Accounts to add invoice details.`
+        : `${req.user.name} approved stores stage. Awaiting Stores final review.`,
+      targetRole: nextStatus === 'PENDING_ACCOUNTS' ? 'ACCOUNTING' : 'STORE_MANAGER',
       sentById: req.user.id,
     });
 
@@ -501,11 +557,355 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
   }
 });
 
-// PUT /api/gatepasses/:id/accounts-approve — Accounts gives final approval (closes the workflow)
+// PUT /api/gatepasses/:id/accounts-invoice
+// OUTSIDE only: Accounts attaches invoice / DC numbers and forwards to Stores for final review.
+// (Replaces the old /accounts-approve for v2; legacy rows still use /accounts-approve below.)
+router.put('/:id/accounts-invoice', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
+  try {
+    const { invoiceNo, dcNo, remarks } = req.body || {};
+
+    const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
+    if (existing.kind !== 'OUTSIDE') {
+      return res.status(400).json({ error: 'Invoice step applies to OUTSIDE gate passes only' });
+    }
+    if (existing.status !== 'PENDING_ACCOUNTS') {
+      return res.status(400).json({ error: 'Gate pass is not awaiting Accounts' });
+    }
+    if (!invoiceNo?.trim() && !dcNo?.trim()) {
+      return res.status(400).json({ error: 'Invoice No or DC No is required' });
+    }
+
+    const now = new Date();
+    const updated = await prisma.gatePass.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'PENDING_STORE_REVIEW',
+        invoiceNo: invoiceNo?.trim() || existing.invoiceNo,
+        dcNo: dcNo?.trim() || existing.dcNo,
+        remarks: remarks?.trim() || existing.remarks,
+        accountsById: req.user.id,
+        accountsAt: now,
+      },
+      include: GATEPASS_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'ACCOUNTS_INVOICE',
+        entity: 'GatePass',
+        entityId: updated.id,
+        details: { passNumber: updated.passNumber, invoiceNo: updated.invoiceNo, dcNo: updated.dcNo },
+        ipAddress: req.ip,
+      },
+    });
+
+    await notify({
+      type: 'GATE_PASS_STAGE',
+      title: `Gate Pass ${updated.passNumber}: invoice added`,
+      message: `${req.user.name} (Accounts) added invoice details. Awaiting Stores final review.`,
+      targetRole: 'STORE_MANAGER',
+      sentById: req.user.id,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Accounts invoice error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/gatepasses/:id/store-review
+// Stores final review (both LOCAL_JOB and OUTSIDE). Forwards to Logistics for vehicle assignment.
+router.put('/:id/store-review', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const { remarks } = req.body || {};
+    const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
+    if (!existing.kind) return res.status(400).json({ error: 'Only v2 (LOCAL_JOB/OUTSIDE) gate passes use store-review' });
+    if (existing.status !== 'PENDING_STORE_REVIEW') {
+      return res.status(400).json({ error: 'Gate pass is not awaiting Stores review' });
+    }
+
+    const updated = await prisma.gatePass.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'PENDING_LOGISTICS',
+        remarks: remarks?.trim() || existing.remarks,
+      },
+      include: GATEPASS_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'STORE_REVIEW',
+        entity: 'GatePass',
+        entityId: updated.id,
+        details: { passNumber: updated.passNumber, kind: updated.kind },
+        ipAddress: req.ip,
+      },
+    });
+
+    await notify({
+      type: 'GATE_PASS_STAGE',
+      title: `Gate Pass ${updated.passNumber}: ready for logistics`,
+      message: `${req.user.name} completed stores review. Logistics, please assign a vehicle.`,
+      targetRole: 'LOGISTICS',
+      sentById: req.user.id,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Store review error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/gatepasses/:id/logistics-assign
+// Logistics assigns a vehicle from the vehicle register.
+router.put('/:id/logistics-assign', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
+  try {
+    const { vehicleId } = req.body || {};
+    if (!vehicleId) return res.status(400).json({ error: 'vehicleId is required' });
+
+    const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
+    if (!existing.kind) return res.status(400).json({ error: 'Only v2 (LOCAL_JOB/OUTSIDE) gate passes use logistics assignment' });
+    if (existing.status !== 'PENDING_LOGISTICS') {
+      return res.status(400).json({ error: 'Gate pass is not awaiting Logistics' });
+    }
+
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } });
+    if (!vehicle) return res.status(400).json({ error: 'Vehicle not found' });
+    if (vehicle.status !== 'ACTIVE') return res.status(400).json({ error: 'Vehicle is not ACTIVE' });
+
+    const updated = await prisma.gatePass.update({
+      where: { id: req.params.id },
+      data: {
+        assignedVehicleId: vehicle.id,
+        logisticsById: req.user.id,
+        logisticsAt: new Date(),
+        vehicleNo: vehicle.regNumber,
+        driverName: vehicle.driverName,
+      },
+      include: GATEPASS_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'LOGISTICS_ASSIGN_VEHICLE',
+        entity: 'GatePass',
+        entityId: updated.id,
+        details: { passNumber: updated.passNumber, vehicleId: vehicle.id, regNumber: vehicle.regNumber },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Logistics assign error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/gatepasses/:id/logistics-dispatch
+// Logistics confirms dispatch. For OUTSIDE, requires the driver-signed PDF upload.
+// Multipart: field `signedPdf` (PDF). Body fields: remarks.
+router.post('/:id/logistics-dispatch', authenticate, authorize('LOGISTICS', 'ADMIN'),
+  (req, res, next) => {
+    const contentType = req.headers['content-type'] || '';
+    if (!contentType.startsWith('multipart/form-data')) return next();
+    fimGpUpload.single('signedPdf')(req, res, (err) => {
+      if (err) return res.status(400).json({ error: err.message || 'Signed PDF upload failed' });
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const { remarks } = req.body || {};
+      const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
+      if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
+      if (!existing.kind) return res.status(400).json({ error: 'Only v2 gate passes use logistics-dispatch' });
+      if (existing.status !== 'PENDING_LOGISTICS') {
+        return res.status(400).json({ error: 'Gate pass is not awaiting Logistics dispatch' });
+      }
+      if (!existing.assignedVehicleId) {
+        return res.status(400).json({ error: 'Assign a vehicle before dispatching' });
+      }
+      if (existing.kind === 'OUTSIDE' && !req.file) {
+        return res.status(400).json({ error: 'Driver-signed delivery PDF is required for OUTSIDE dispatch' });
+      }
+
+      const signedPdfUrl = req.file ? publicUrlFor('fim-gp', req.file.filename) : null;
+
+      const updated = await prisma.gatePass.update({
+        where: { id: req.params.id },
+        data: {
+          status: 'IN_TRANSIT',
+          dispatchedAt: new Date(),
+          signedDeliveryPdfUrl: signedPdfUrl || existing.signedDeliveryPdfUrl,
+          remarks: remarks?.trim() || existing.remarks,
+        },
+        include: GATEPASS_INCLUDE,
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'LOGISTICS_DISPATCH',
+          entity: 'GatePass',
+          entityId: updated.id,
+          details: { passNumber: updated.passNumber, kind: updated.kind, hasSignedPdf: !!signedPdfUrl },
+          ipAddress: req.ip,
+        },
+      });
+
+      // Notify the right party for arrival ack.
+      if (updated.kind === 'OUTSIDE') {
+        await notify({
+          type: 'GATE_PASS_STAGE',
+          title: `Gate Pass ${updated.passNumber}: in transit to ${updated.destinationOffice}`,
+          message: `${req.user.name} dispatched vehicle ${updated.vehicleNo || ''}. Site office, please acknowledge arrival with reached date.`,
+          targetRole: 'SITE_OFFICE',
+          sentById: req.user.id,
+        });
+      } else {
+        await notify({
+          type: 'GATE_PASS_STAGE',
+          title: `Gate Pass ${updated.passNumber}: in transit`,
+          message: `${req.user.name} dispatched vehicle ${updated.vehicleNo || ''}. Stores, please acknowledge ${updated.passType === 'RETURNABLE' ? 'return' : 'arrival'} when applicable.`,
+          targetRole: 'STORE_MANAGER',
+          sentById: req.user.id,
+        });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error('Logistics dispatch error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// PUT /api/gatepasses/:id/site-office-ack
+// OUTSIDE only: site office (e.g., Hyderabad) acknowledges arrival with the reached date.
+// Closes the gate pass.
+router.put('/:id/site-office-ack', authenticate, authorize('SITE_OFFICE', 'ADMIN'), async (req, res) => {
+  try {
+    const { reachedDate, remarks } = req.body || {};
+    if (!reachedDate) return res.status(400).json({ error: 'reachedDate is required' });
+
+    const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
+    if (existing.kind !== 'OUTSIDE') return res.status(400).json({ error: 'Site office ack applies to OUTSIDE only' });
+    if (existing.status !== 'IN_TRANSIT') return res.status(400).json({ error: 'Gate pass is not in transit' });
+
+    const now = new Date();
+    const updated = await prisma.gatePass.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'CLOSED',
+        reachedDate: new Date(reachedDate),
+        siteOfficeAckById: req.user.id,
+        siteOfficeAckAt: now,
+        remarks: remarks?.trim() || existing.remarks,
+        approvedById: req.user.id,
+        approvedAt: now,
+      },
+      include: GATEPASS_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'SITE_OFFICE_ACK',
+        entity: 'GatePass',
+        entityId: updated.id,
+        details: { passNumber: updated.passNumber, reachedDate: updated.reachedDate },
+        ipAddress: req.ip,
+      },
+    });
+
+    await notify({
+      type: 'GATE_PASS_APPROVED',
+      title: `Gate Pass ${updated.passNumber}: arrived`,
+      message: `${req.user.name} confirmed arrival on ${new Date(reachedDate).toLocaleDateString()}. Gate pass closed.`,
+      targetUserId: updated.createdById,
+      sentById: req.user.id,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Site office ack error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/gatepasses/:id/stores-ack
+// LOCAL_JOB only: Stores acknowledges either return (RETURNABLE) or arrival (NON_RETURNABLE).
+// Closes the gate pass.
+router.put('/:id/stores-ack', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const { remarks } = req.body || {};
+
+    const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
+    if (existing.kind !== 'LOCAL_JOB') return res.status(400).json({ error: 'Stores ack applies to LOCAL_JOB only' });
+    if (existing.status !== 'IN_TRANSIT') return res.status(400).json({ error: 'Gate pass is not in transit' });
+
+    const now = new Date();
+    const isReturnable = existing.passType === 'RETURNABLE';
+    const updated = await prisma.gatePass.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'CLOSED',
+        localReturnedAt: isReturnable ? now : existing.localReturnedAt,
+        localReturnedById: req.user.id,
+        actualReturnDate: isReturnable ? now : existing.actualReturnDate,
+        remarks: remarks?.trim() || existing.remarks,
+        approvedById: req.user.id,
+        approvedAt: now,
+      },
+      include: GATEPASS_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: isReturnable ? 'LOCAL_JOB_RETURN_ACK' : 'LOCAL_JOB_ARRIVAL_ACK',
+        entity: 'GatePass',
+        entityId: updated.id,
+        details: { passNumber: updated.passNumber, passType: updated.passType },
+        ipAddress: req.ip,
+      },
+    });
+
+    await notify({
+      type: 'GATE_PASS_APPROVED',
+      title: `Gate Pass ${updated.passNumber}: closed`,
+      message: `${req.user.name} acknowledged ${isReturnable ? 'return' : 'arrival'}. Gate pass closed.`,
+      targetUserId: updated.createdById,
+      sentById: req.user.id,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Stores ack error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/gatepasses/:id/accounts-approve — LEGACY (kind=null OUTWARD rows, e.g. FIM /send-out)
 router.put('/:id/accounts-approve', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
   try {
     const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
+    if (existing.kind) {
+      return res.status(400).json({ error: 'Use /accounts-invoice for v2 OUTSIDE gate passes' });
+    }
     if (existing.status !== 'PENDING_ACCOUNTS') {
       return res.status(400).json({ error: 'Gate pass is not awaiting Accounts approval' });
     }
@@ -560,7 +960,9 @@ router.put('/:id/reject', authenticate, async (req, res) => {
 
     const stageRole = {
       PENDING_STORE: ['STORE_MANAGER', 'ADMIN'],
-      PENDING_ACCOUNTS: ['ACCOUNTING', 'ADMIN'],
+      PENDING_ACCOUNTS: ['ACCOUNTING', 'FINANCE', 'ADMIN'],
+      PENDING_STORE_REVIEW: ['STORE_MANAGER', 'ADMIN'],
+      PENDING_LOGISTICS: ['LOGISTICS', 'ADMIN'],
     }[existing.status];
 
     if (!stageRole) return res.status(400).json({ error: 'Gate pass cannot be rejected at this stage' });
