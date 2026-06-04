@@ -13,15 +13,23 @@ const { buildCoverageSummary, cancelLeftoverPRItems } = require('../utils/prClos
 const router = express.Router();
 
 // Roles that can create/manage their own purchase requests (same privileges as MANAGER).
-// Restricted to: Unit Managers, Designs, R&D.
-const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC'];
+const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'PLANNING'];
+// Subset that should only see PRs they themselves raised. STORE_MANAGER is
+// intentionally excluded — they also receive goods against everyone's PRs, so
+// they keep full chain visibility like ADMIN.
+const OWN_ONLY_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'PLANNING'];
 // Reserved for monitor-only roles (none currently — SAFETY removed from PR chain).
 const MONITOR_ROLES = [];
-// Full chain visibility: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
+// Full chain visibility: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING'];
+// Roles that are globally-scoped (have no unit assignment) and must supply a unitId when creating a PR.
+const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'PLANNING'];
 
 const createSchema = z.object({
   notes: z.string().optional(),
+  // Optional — global-role requesters (STORE_MANAGER, DESIGNS, PLANNING) must
+  // specify which unit they are filing the PR for; unit-bound roles ignore this.
+  unitId: z.string().uuid().optional().nullable(),
   items: z.array(z.object({
     productName: z.string().min(1),
     productUnit: z.string().min(1).default('pcs'),
@@ -52,7 +60,7 @@ const createSchema = z.object({
 router.post(
   '/upload-spec',
   authenticate,
-  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC'),
+  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'PLANNING'),
   (req, res) => {
     prSpecsUpload.single('file')(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
@@ -75,15 +83,13 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
     applyDateFilter(where, { fromDate, toDate });
 
     // Role-based filtering — requester roles see only their own
-    if (REQUESTER_ROLES.includes(req.user.role)) {
+    if (OWN_ONLY_ROLES.includes(req.user.role)) {
       where.managerId = req.user.id;
     } else if (req.user.role === 'PURCHASE_OFFICER') {
       // PO sees approved and beyond
       where.status = { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE'] };
     } else if (req.user.role === 'ACCOUNTING') {
       where.status = { in: ['QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED'] };
-    } else if (req.user.role === 'QC') {
-      where.status = { in: ['GOODS_ARRIVED', 'QC_PASSED'] };
     }
     // ADMIN and STORE_MANAGER see all
 
@@ -391,14 +397,12 @@ router.get('/unit-dashboard', authenticate, async (req, res) => {
 router.get('/dashboard-stats', authenticate, async (req, res) => {
   try {
     const where = {};
-    if (REQUESTER_ROLES.includes(req.user.role)) {
+    if (OWN_ONLY_ROLES.includes(req.user.role)) {
       where.managerId = req.user.id;
     } else if (req.user.role === 'PURCHASE_OFFICER') {
       where.status = { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE'] };
     } else if (req.user.role === 'ACCOUNTING') {
       where.status = { in: ['QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED'] };
-    } else if (req.user.role === 'QC') {
-      where.status = { in: ['GOODS_ARRIVED', 'QC_PASSED'] };
     }
 
     const groups = await prisma.purchaseRequest.groupBy({
@@ -568,7 +572,7 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
     if (!request) return res.status(404).json({ error: 'Purchase request not found' });
 
     // Requester roles can only view their own
-    if (REQUESTER_ROLES.includes(req.user.role) && request.managerId !== req.user.id) {
+    if (OWN_ONLY_ROLES.includes(req.user.role) && request.managerId !== req.user.id) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -581,12 +585,20 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
 });
 
 // POST /api/purchase-requests — Requester creates.
-router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC'), async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'PLANNING'), async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
 
-    if (!req.user.unitId) {
-      return res.status(400).json({ error: 'You must be assigned to a unit to create purchase requests' });
+    // Unit-bound roles (MANAGER, RND, QC) file PRs against their own unit.
+    // Global roles (STORE_MANAGER, DESIGNS, PLANNING) must pick a unit in the payload.
+    let unitId = req.user.unitId || null;
+    if (!unitId) {
+      if (!data.unitId) {
+        return res.status(400).json({ error: 'Please select the unit this purchase request is for' });
+      }
+      const unit = await prisma.unit.findUnique({ where: { id: data.unitId }, select: { id: true } });
+      if (!unit) return res.status(400).json({ error: 'Selected unit does not exist' });
+      unitId = unit.id;
     }
 
     // Resolve productId for each item BEFORE the transactional create:
@@ -642,7 +654,7 @@ router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MAN
           data: {
             requestNumber,
             managerId: req.user.id,
-            unitId: req.user.unitId,
+            unitId,
             notes: data.notes || null,
             items: {
               create: itemsResolved.map(item => ({
@@ -691,7 +703,7 @@ router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MAN
         entityId: request.id,
         details: {
           requestNumber,
-          unit: req.user.unit?.code,
+          unit: request.unit?.code,
           itemCount: data.items.length,
         },
         ipAddress: req.ip,
@@ -699,11 +711,12 @@ router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MAN
     });
 
     // Notify admins
+    const unitLabel = request.unit?.name || request.unit?.code || 'No unit';
     await prisma.notification.create({
       data: {
         type: 'NEW_PURCHASE_REQUEST',
         title: `New Purchase Request: ${requestNumber}`,
-        message: `${req.user.name} (${req.user.unit?.name}) has submitted a purchase request with ${data.items.length} item(s) for admin approval.`,
+        message: `${req.user.name} (${unitLabel}) has submitted a purchase request with ${data.items.length} item(s) for admin approval.`,
         targetRole: 'ADMIN',
         sentById: req.user.id,
       },
@@ -715,6 +728,145 @@ router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MAN
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
     }
     console.error('Create purchase request error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/purchase-requests/:id — Requester edits their own PR while it is
+// still PENDING_ADMIN. Items are fully replaced; productIds are re-resolved
+// just like create so newly added rows still get a Product link.
+router.put('/:id', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'PLANNING', 'ADMIN'), async (req, res) => {
+  try {
+    const data = createSchema.parse(req.body);
+
+    const request = await prisma.purchaseRequest.findUnique({
+      where: { id: req.params.id },
+      include: { unit: { select: { id: true, name: true, code: true } } },
+    });
+    if (!request) return res.status(404).json({ error: 'Purchase request not found' });
+
+    if (req.user.role !== 'ADMIN' && request.managerId !== req.user.id) {
+      return res.status(403).json({ error: 'You can only edit your own requests' });
+    }
+    if (request.status !== 'PENDING_ADMIN') {
+      return res.status(400).json({ error: 'Only pending requests can be edited' });
+    }
+
+    // Re-resolve each item's productId — same rules as create so new rows are
+    // linked to a Product (existing match by name, else NRE product created).
+    const itemsResolved = [];
+    for (const item of data.items) {
+      const matType = normalizeMaterialType(item.materialType);
+      let productId = item.productId || null;
+      if (!productId) {
+        const existing = await prisma.product.findFirst({
+          where: { name: { equals: item.productName, mode: 'insensitive' }, isActive: true },
+          select: { id: true },
+        });
+        if (existing) {
+          productId = existing.id;
+        } else {
+          let createdProduct = null;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              const sku = await generateProductSku(prisma, matType);
+              createdProduct = await prisma.product.create({
+                data: {
+                  name: item.productName,
+                  sku,
+                  unit: item.productUnit || 'pcs',
+                  category: matType,
+                  currentStock: 0,
+                  isActive: true,
+                },
+              });
+              break;
+            } catch (err) {
+              if (!isUniqueViolation(err) || attempt === 4) throw err;
+            }
+          }
+          productId = createdProduct.id;
+        }
+      }
+      itemsResolved.push({ ...item, productId, materialType: matType });
+    }
+
+    // Swap items in a transaction so a partial failure can't leave the PR with
+    // an empty items list. Safe to delete + recreate because PENDING_ADMIN PRs
+    // have no quotations, POs or pool memberships referencing their items yet.
+    await prisma.$transaction(async (tx) => {
+      await tx.purchaseRequestItem.deleteMany({ where: { requestId: request.id } });
+      await tx.purchaseRequest.update({
+        where: { id: request.id },
+        data: {
+          notes: data.notes || null,
+          items: {
+            create: itemsResolved.map(item => ({
+              productName: item.productName,
+              productUnit: item.productUnit || 'pcs',
+              productId: item.productId,
+              requestedQty: item.requestedQty,
+              materialType: item.materialType,
+              materialSpecification: item.materialSpecification || null,
+              specAttachmentUrl: item.specAttachmentUrl || null,
+              specAttachmentName: item.specAttachmentName || null,
+              qapNo: item.qapNo || null,
+              drawingNo: item.drawingNo || null,
+              materialRequiredFor: item.materialRequiredFor || null,
+              internalWorkOrder: item.internalWorkOrder || null,
+              purpose: item.purpose || null,
+              sourceOfSupply: item.sourceOfSupply || null,
+              scopeOfWork: item.scopeOfWork || null,
+              inspectionType: item.inspectionType || null,
+              requiredByDate: item.requiredByDate ? new Date(item.requiredByDate) : null,
+              itemRemarks: item.itemRemarks || null,
+            })),
+          },
+        },
+      });
+    });
+
+    const updated = await prisma.purchaseRequest.findUnique({
+      where: { id: request.id },
+      include: {
+        manager: { select: { id: true, name: true } },
+        unit: { select: { id: true, name: true, code: true } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true, category: true } } } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'EDIT',
+        entity: 'PurchaseRequest',
+        entityId: request.id,
+        details: {
+          requestNumber: request.requestNumber,
+          itemCount: data.items.length,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    // Quietly tell admins the PR they may already be reviewing has changed.
+    const unitLabel = updated.unit?.name || updated.unit?.code || 'No unit';
+    await prisma.notification.create({
+      data: {
+        type: 'NEW_PURCHASE_REQUEST',
+        title: `Purchase Request ${updated.requestNumber} updated`,
+        message: `${req.user.name} (${unitLabel}) updated PR ${updated.requestNumber} — please review the latest version.`,
+        targetRole: 'ADMIN',
+        sentById: req.user.id,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid input', details: error.errors });
+    }
+    console.error('Edit purchase request error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -990,7 +1142,7 @@ router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), 
 });
 
 // PUT /api/purchase-requests/:id/cancel — Requester cancels own pending request
-router.put('/:id/cancel', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC'), async (req, res) => {
+router.put('/:id/cancel', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'PLANNING'), async (req, res) => {
   try {
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: req.params.id },
@@ -1036,7 +1188,7 @@ router.put('/:id/cancel', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', '
 // own PR. Allowed in any non-terminal state. Any still-live items are flipped
 // to CANCELLED (which also prunes their pending quotations) and the PR is
 // forced to COMPLETED so downstream queues stop tracking it.
-router.post('/:id/close', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+router.post('/:id/close', authenticate, authorize('MANAGER', 'ADMIN', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'PLANNING'), async (req, res) => {
   try {
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
 
@@ -1046,7 +1198,7 @@ router.post('/:id/close', authenticate, authorize('MANAGER', 'ADMIN'), async (re
     });
     if (!request) return res.status(404).json({ error: 'Purchase request not found' });
 
-    if (req.user.role === 'MANAGER' && request.managerId !== req.user.id) {
+    if (req.user.role !== 'ADMIN' && request.managerId !== req.user.id) {
       return res.status(403).json({ error: 'You can only close your own requests' });
     }
 

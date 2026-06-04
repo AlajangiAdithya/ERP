@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw, GitMerge, Unlink, Upload, Lock, Paperclip } from 'lucide-react';
+import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw, GitMerge, Unlink, Upload, Lock, Paperclip, Pencil } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -73,9 +73,13 @@ const quotationStatusLabel = (s) => ({
   CANCELLED: 'Cancelled',
 }[s] || s);
 
-// ─── Manager: Create New Request (paper-table format) ───
-function CreateRequestModal({ isOpen, onClose, onCreated, prefillItems = null, prefillNotes = '' }) {
+// ─── Manager: Create or Edit Request (paper-table format) ───
+// Dual-mode form: when `requestToEdit` is provided, the modal pre-loads its
+// items + notes and submits a PUT instead of POST. Edit is gated server-side
+// to PENDING_ADMIN PRs owned by the current user (or admin).
+function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefillNotes = '', requestToEdit = null }) {
   const { user } = useAuth();
+  const isEdit = !!requestToEdit;
   const emptyItem = {
     productName: '', productUnit: 'kg', requestedQty: '',
     materialType: '', materialSpecification: '', qapNo: '', drawingNo: '',
@@ -85,23 +89,57 @@ function CreateRequestModal({ isOpen, onClose, onCreated, prefillItems = null, p
     // Optional confidential spec PDF — uploaded ahead of submit; URL/name carried here.
     specAttachmentUrl: '', specAttachmentName: '',
   };
+  const itemFromExisting = (i) => ({
+    productName: i.productName || '',
+    productUnit: i.productUnit || 'pcs',
+    requestedQty: i.requestedQty != null ? String(i.requestedQty) : '',
+    materialType: i.materialType || '',
+    materialSpecification: i.materialSpecification || '',
+    qapNo: i.qapNo || '',
+    drawingNo: i.drawingNo || '',
+    materialRequiredFor: i.materialRequiredFor || '',
+    internalWorkOrder: i.internalWorkOrder || '',
+    purpose: i.purpose || '',
+    sourceOfSupply: i.sourceOfSupply || '',
+    scopeOfWork: i.scopeOfWork || '',
+    inspectionType: i.inspectionType || '',
+    requiredByDate: i.requiredByDate ? new Date(i.requiredByDate).toISOString().split('T')[0] : '',
+    itemRemarks: i.itemRemarks || '',
+    specAttachmentUrl: i.specAttachmentUrl || '',
+    specAttachmentName: i.specAttachmentName || '',
+  });
   const [items, setItems] = useState([{ ...emptyItem }]);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   // Per-item upload state — keyed by row index; tracks {uploading, error} so the
   // UI can show a spinner / error inline without blocking other rows.
   const [specUpload, setSpecUpload] = useState({});
+  // Global-role requesters (STORE_MANAGER, DESIGNS, PLANNING) have no unit
+  // assignment and must pick which unit the PR belongs to before submitting.
+  // In edit mode the unit is locked to the original PR's unit.
+  const requiresUnitPick = !isEdit && !user?.unitId;
+  const [units, setUnits] = useState([]);
+  const [unitId, setUnitId] = useState('');
 
   useEffect(() => {
     if (isOpen) {
-      if (prefillItems && prefillItems.length > 0) {
+      if (isEdit && requestToEdit.items?.length > 0) {
+        setItems(requestToEdit.items.map(itemFromExisting));
+        setNotes(requestToEdit.notes || '');
+      } else if (prefillItems && prefillItems.length > 0) {
         setItems(prefillItems.map(p => ({ ...emptyItem, ...p })));
+        setNotes(prefillNotes || '');
       } else {
         setItems([{ ...emptyItem }]);
+        setNotes(prefillNotes || '');
       }
-      setNotes(prefillNotes || '');
+      setUnitId('');
+      setSpecUpload({});
+      if (requiresUnitPick && units.length === 0) {
+        api.get('/units').then(({ data }) => setUnits(Array.isArray(data) ? data : [])).catch(() => setUnits([]));
+      }
     }
-  }, [isOpen, prefillItems, prefillNotes]);
+  }, [isOpen, prefillItems, prefillNotes, requestToEdit]);
 
   // "Fabric" materials get a 2-month default required-by date (overridable).
   const fabricDefaultDate = () => {
@@ -171,10 +209,12 @@ function CreateRequestModal({ isOpen, onClose, onCreated, prefillItems = null, p
   const submit = async () => {
     const validItems = items.filter(i => i.productName.trim());
     if (validItems.length === 0) return alert('Enter at least one material description');
+    if (requiresUnitPick && !unitId) return alert('Please select the unit this PR is for');
     setSaving(true);
     try {
       const payload = {
         notes: notes || undefined,
+        unitId: requiresUnitPick ? unitId : undefined,
         items: validItems.map(i => ({
           productName: i.productName.trim(),
           productUnit: i.productUnit || 'pcs',
@@ -195,11 +235,15 @@ function CreateRequestModal({ isOpen, onClose, onCreated, prefillItems = null, p
           specAttachmentName: i.specAttachmentName || undefined,
         })),
       };
-      await api.post('/purchase-requests', payload);
+      if (isEdit) {
+        await api.put(`/purchase-requests/${requestToEdit.id}`, payload);
+      } else {
+        await api.post('/purchase-requests', payload);
+      }
       onClose();
-      onCreated();
+      onSaved();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create request');
+      alert(err.response?.data?.error || (isEdit ? 'Failed to update request' : 'Failed to create request'));
     }
     setSaving(false);
   };
@@ -215,7 +259,7 @@ function CreateRequestModal({ isOpen, onClose, onCreated, prefillItems = null, p
   const headerCell = "border border-gray-400 bg-gray-200 px-2 py-1 text-xs font-bold text-center";
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="New Purchase Requisition Form" size="full">
+    <Modal isOpen={isOpen} onClose={onClose} title={isEdit ? `Edit Purchase Requisition — ${requestToEdit.requestNumber}` : 'New Purchase Requisition Form'} size="full">
       <div className="space-y-3">
         {/* Paper form header */}
         <div className="border border-gray-400 bg-gray-50 p-3 text-center">
@@ -223,27 +267,60 @@ function CreateRequestModal({ isOpen, onClose, onCreated, prefillItems = null, p
           <div className="text-[10px] text-gray-500 mt-0.5">Form No: RAPS/PRF • Rev. 02 • Date: 31/08/2024</div>
         </div>
 
+        {isEdit && (
+          <div className="border border-blue-300 bg-blue-50 px-3 py-2 rounded text-[11px] text-blue-900">
+            You're editing a PR that is still <strong>Pending Admin</strong>. Once admin approves it,
+            the request can no longer be edited.
+          </div>
+        )}
+
         {/* Header fields in 2-col grid, paper style */}
         <table className="w-full border-collapse text-xs">
           <tbody>
             <tr>
               <td className={labelCell} style={{ width: '15%' }}>PR No.</td>
               <td className={dataCell} style={{ width: '35%' }}>
-                <span className="px-2 py-1 text-xs text-gray-500 italic">Auto-generated on submit</span>
+                <span className="px-2 py-1 text-xs text-gray-700">
+                  {isEdit ? requestToEdit.requestNumber : <span className="text-gray-500 italic">Auto-generated on submit</span>}
+                </span>
               </td>
               <td className={labelCell} style={{ width: '15%' }}>Date</td>
               <td className={dataCell} style={{ width: '35%' }}>
-                <span className="px-2 py-1 text-xs text-gray-700">{today}</span>
+                <span className="px-2 py-1 text-xs text-gray-700">
+                  {isEdit && requestToEdit.createdAt
+                    ? new Date(requestToEdit.createdAt).toISOString().split('T')[0]
+                    : today}
+                </span>
               </td>
             </tr>
             <tr>
               <td className={labelCell}>Unit</td>
               <td className={dataCell}>
-                <span className="px-2 py-1 text-xs text-gray-700">{user?.unit?.name || user?.unit?.code || '—'}</span>
+                {isEdit ? (
+                  <span className="px-2 py-1 text-xs text-gray-700">
+                    {requestToEdit.unit?.name || requestToEdit.unit?.code || '—'}
+                  </span>
+                ) : requiresUnitPick ? (
+                  <select
+                    className={cellSelect}
+                    value={unitId}
+                    onChange={(e) => setUnitId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select unit…</option>
+                    {units.map(u => (
+                      <option key={u.id} value={u.id}>{u.name} ({u.code})</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="px-2 py-1 text-xs text-gray-700">{user?.unit?.name || user?.unit?.code || '—'}</span>
+                )}
               </td>
               <td className={labelCell}>Indenter</td>
               <td className={dataCell}>
-                <span className="px-2 py-1 text-xs text-gray-700">{user?.name || '—'}</span>
+                <span className="px-2 py-1 text-xs text-gray-700">
+                  {isEdit ? (requestToEdit.manager?.name || '—') : (user?.name || '—')}
+                </span>
               </td>
             </tr>
           </tbody>
@@ -522,7 +599,11 @@ function CreateRequestModal({ isOpen, onClose, onCreated, prefillItems = null, p
         <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={saving || items.every(i => !i.productName.trim())}>
-            {saving ? 'Submitting...' : `Submit Request (${items.filter(i => i.productName.trim()).length} material${items.filter(i => i.productName.trim()).length === 1 ? '' : 's'})`}
+            {saving
+              ? (isEdit ? 'Saving...' : 'Submitting...')
+              : isEdit
+                ? `Save Changes (${items.filter(i => i.productName.trim()).length} material${items.filter(i => i.productName.trim()).length === 1 ? '' : 's'})`
+                : `Submit Request (${items.filter(i => i.productName.trim()).length} material${items.filter(i => i.productName.trim()).length === 1 ? '' : 's'})`}
           </Button>
         </div>
       </div>
@@ -937,10 +1018,11 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
   const [closing, setClosing] = useState(false);
 
   const canCloseThisPR =
-    user?.role === 'MANAGER' &&
     request &&
-    request.managerId === user.id &&
-    !['COMPLETED', 'REJECTED'].includes(request.status);
+    !['COMPLETED', 'REJECTED'].includes(request.status) &&
+    (user?.role === 'ADMIN' ||
+      (['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'PLANNING'].includes(user?.role) &&
+        request.managerId === user.id));
 
   const submitClose = async () => {
     setClosing(true);
@@ -1369,7 +1451,7 @@ function PoolPickerModal({ anchorItem, onClose, onPooled }) {
                 </tr>
               </thead>
               <tbody>
-                {candidates.map(c => {
+                {candidates.map((c, i) => {
                   const qty = c.adminApprovedQty != null ? c.adminApprovedQty : c.requestedQty;
                   return (
                     <tr key={c.id} className={`border-t border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
@@ -1410,6 +1492,7 @@ export default function PurchaseRequests() {
   const [selectedForReview, setSelectedForReview] = useState(null);
   const [selectedForPurchase, setSelectedForPurchase] = useState(null);
   const [selectedForDetail, setSelectedForDetail] = useState(null);
+  const [selectedForEdit, setSelectedForEdit] = useState(null);
   const [tab, setTab] = useState('ALL');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -1627,9 +1710,9 @@ export default function PurchaseRequests() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRequests.map(r => {
+                {filteredRequests.map((r, i) => {
                   // Earliest Required By date across items
-                  const requiredDates = r.items.map(i => i.requiredByDate).filter(Boolean);
+                  const requiredDates = r.items.map(it => it.requiredByDate).filter(Boolean);
                   const earliestRequired = requiredDates.length > 0
                     ? requiredDates.reduce((a, b) => (new Date(a) < new Date(b) ? a : b))
                     : null;
@@ -1671,7 +1754,12 @@ export default function PurchaseRequests() {
                               <ShoppingCart size={14} className="mr-1" /> Update
                             </Button>
                           )}
-                          {isManager && r.status === 'PENDING_ADMIN' && (
+                          {isManager && r.status === 'PENDING_ADMIN' && r.managerId === user.id && (
+                            <Button size="sm" variant="secondary" onClick={() => setSelectedForEdit(r)}>
+                              <Pencil size={14} className="mr-1" /> Edit
+                            </Button>
+                          )}
+                          {isManager && r.status === 'PENDING_ADMIN' && r.managerId === user.id && (
                             <Button size="sm" variant="danger" onClick={() => cancelRequest(r.id)}>Cancel</Button>
                           )}
                         </div>
@@ -1686,12 +1774,18 @@ export default function PurchaseRequests() {
       </Card>
 
       {/* Modals */}
-      <CreateRequestModal
+      <RequestFormModal
         isOpen={showCreate}
         onClose={() => { setShowCreate(false); setCreatePrefill({ items: null, notes: '' }); }}
-        onCreated={() => { fetchRequests(); fetchLowStock(); setSelectedLowStock(new Set()); }}
+        onSaved={() => { fetchRequests(); fetchLowStock(); setSelectedLowStock(new Set()); }}
         prefillItems={createPrefill.items}
         prefillNotes={createPrefill.notes}
+      />
+      <RequestFormModal
+        isOpen={!!selectedForEdit}
+        onClose={() => setSelectedForEdit(null)}
+        onSaved={() => { setSelectedForEdit(null); fetchRequests(); }}
+        requestToEdit={selectedForEdit}
       />
       <AdminReviewModal request={selectedForReview} onClose={() => setSelectedForReview(null)} onUpdated={fetchRequests} />
       <RecordPurchaseModal request={selectedForPurchase} onClose={() => setSelectedForPurchase(null)} onUpdated={fetchRequests} />

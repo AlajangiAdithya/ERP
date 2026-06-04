@@ -95,7 +95,7 @@ export function NotificationProvider({ children }) {
         if (!alive) return;
 
         const notifications = data.notifications || [];
-        setUnreadCount(data.total ?? notifications.length);
+        setUnreadCount(data.unreadCount ?? data.total ?? notifications.length);
 
         const currentIds = new Set(notifications.map(n => n.id));
         if (firstFetchRef.current) {

@@ -14,7 +14,7 @@ const router = express.Router();
 // POST /api/inventory/inward — Core inward entry flow
 router.post('/inward', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async (req, res) => {
   try {
-    const { productId, quantity, batchNumber, notes } = req.body;
+    const { productId, quantity, batchNumber, notes, unitId } = req.body;
     const qty = parseFloat(quantity);
 
     if (!productId || !qty || qty <= 0) {
@@ -24,8 +24,15 @@ router.post('/inward', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async 
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
-    // Owning unit is the inward-doer's unit (per-unit ownership tracking).
-    const owningUnitId = req.user.unitId || null;
+    // Owning unit: prefer explicit body unitId (STORE_MANAGER/ADMIN have no unit
+    // of their own and must pick which unit owns the stock); otherwise the
+    // requester's own unit. Validate when provided.
+    let owningUnitId = unitId || req.user.unitId || null;
+    if (unitId) {
+      const targetUnit = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true } });
+      if (!targetUnit) return res.status(400).json({ error: 'Selected unit does not exist' });
+      owningUnitId = targetUnit.id;
+    }
 
     const result = await prisma.$transaction(async (tx) => {
       const updatedProduct = await tx.product.update({
@@ -169,11 +176,17 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
       quantity: z.number().positive(),
       batchNumber: z.string().optional(),
       notes: z.string().optional(),
+      unitId: z.string().uuid().optional().nullable(),
     });
     const data = schema.parse(req.body);
 
     const matType = normalizeMaterialType(data.materialType || data.category);
-    const owningUnitId = req.user.unitId || null;
+    let owningUnitId = data.unitId || req.user.unitId || null;
+    if (data.unitId) {
+      const targetUnit = await prisma.unit.findUnique({ where: { id: data.unitId }, select: { id: true } });
+      if (!targetUnit) return res.status(400).json({ error: 'Selected unit does not exist' });
+      owningUnitId = targetUnit.id;
+    }
 
     let result = null;
     for (let attempt = 0; attempt < 5; attempt++) {

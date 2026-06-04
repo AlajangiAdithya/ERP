@@ -17,8 +17,8 @@ const {
 const router = express.Router();
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
-// Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts (+ ADMIN).
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
+// Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING'];
 
 // Quotation read access — narrower than CHAIN_ROLES. Supplier prices are
 // finance-sensitive: only Admin, Purchase Officer, and Stores need them.

@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
 
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING'];
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING'];
 
 // Every authenticated role gets Products visibility — stock data is universal.
 const ALL_ROLES = [

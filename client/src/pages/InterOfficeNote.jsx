@@ -138,7 +138,7 @@ export default function InterOfficeNote() {
                 </tr>
               </thead>
               <tbody>
-                {ions.map(n => {
+                {ions.map((n, i) => {
                   const roleBucket = n.recipientRole === 'METROLOGY' ? 'Metrology'
                     : n.recipientRole === 'NDT' ? 'NDT'
                     : n.recipientRole ? n.recipientRole.charAt(0) + n.recipientRole.slice(1).toLowerCase()
