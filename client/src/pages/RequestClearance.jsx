@@ -132,13 +132,11 @@ export default function RequestClearance() {
                         <Button size="sm" variant="secondary" onClick={() => openRequest(r)}>
                           {r.status === 'PENDING' ? 'Review' : 'View'}
                         </Button>
-                        {r.issueNo && (
-                          <DownloadPdfButton
-                            document={<MaterialIssuePdf data={r} />}
-                            fileName={`MIV-${r.issueNo}.pdf`}
-                            label="MIV PDF"
-                          />
-                        )}
+                        <DownloadPdfButton
+                          document={<MaterialIssuePdf data={r} />}
+                          fileName={`MIV-${r.issueNo || r.requestNumber}.pdf`}
+                          label="MIV PDF"
+                        />
                       </div>
                     </td>
                   </tr>
@@ -257,15 +255,13 @@ export default function RequestClearance() {
               </div>
             )}
 
-            {selectedRequest.issueNo && (
-              <div className="flex justify-end pt-2 border-t">
-                <DownloadPdfButton
-                  document={<MaterialIssuePdf data={selectedRequest} />}
-                  fileName={`MIV-${selectedRequest.issueNo}.pdf`}
-                  label="View / Download MIV PDF"
-                />
-              </div>
-            )}
+            <div className="flex justify-end pt-2 border-t">
+              <DownloadPdfButton
+                document={<MaterialIssuePdf data={selectedRequest} />}
+                fileName={`MIV-${selectedRequest.issueNo || selectedRequest.requestNumber}.pdf`}
+                label="View / Download MIV PDF"
+              />
+            </div>
           </div>
         )}
       </Modal>

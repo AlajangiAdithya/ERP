@@ -10,6 +10,8 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import SearchBar from '../components/shared/SearchBar';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
+import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import MaterialIssuePdf from '../components/pdf/MaterialIssuePdf';
 import { formatDateTime } from '../utils/formatters';
 
 export default function MyRequests() {
@@ -147,6 +149,11 @@ export default function MyRequests() {
                     <td className="px-3 py-2">
                       <div className="flex gap-2">
                         <Button size="sm" variant="secondary" onClick={() => setShowDetail(r)}>View</Button>
+                        <DownloadPdfButton
+                          document={<MaterialIssuePdf data={r} />}
+                          fileName={`MIV-${r.issueNo || r.requestNumber}.pdf`}
+                          label="MIV PDF"
+                        />
                         {r.status === 'PENDING' && (
                           <Button size="sm" variant="danger" onClick={() => cancelRequest(r.id)}>Cancel</Button>
                         )}
@@ -310,6 +317,11 @@ export default function MyRequests() {
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
+              <DownloadPdfButton
+                document={<MaterialIssuePdf data={showDetail} />}
+                fileName={`MIV-${showDetail.issueNo || showDetail.requestNumber}.pdf`}
+                label="Download MIV PDF"
+              />
               {showDetail.status === 'PENDING' && (
                 <Button variant="danger" onClick={() => cancelRequest(showDetail.id)}>Cancel Request</Button>
               )}

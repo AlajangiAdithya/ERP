@@ -3,10 +3,11 @@ import api from '../api/axios';
 import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
-import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Pagination from '../components/shared/Pagination';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
+import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import MaterialIssuePdf from '../components/pdf/MaterialIssuePdf';
 import { formatDateTime } from '../utils/formatters';
 import { ScrollText } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
@@ -76,11 +77,12 @@ export default function AllRequests() {
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Created</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Cleared</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Collected</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">MIV</th>
                   </tr>
                 </thead>
                 <tbody>
                   {requests.length === 0 ? (
-                    <tr><td colSpan={8} className="px-3 py-4 text-center text-gray-400">No requests found</td></tr>
+                    <tr><td colSpan={9} className="px-3 py-4 text-center text-gray-400">No requests found</td></tr>
                   ) : requests.map((r, i) => (
                     <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => setShowDetail(r)} PrimordialIndex={i}>
                       <td className="px-3 py-2 font-medium text-navy-700">{r.requestNumber}</td>
@@ -91,6 +93,13 @@ export default function AllRequests() {
                       <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{r.clearedAt ? formatDateTime(r.clearedAt) : '—'}</td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{r.collectedAt ? formatDateTime(r.collectedAt) : '—'}</td>
+                      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                        <DownloadPdfButton
+                          document={<MaterialIssuePdf data={r} />}
+                          fileName={`MIV-${r.issueNo || r.requestNumber}.pdf`}
+                          label="MIV PDF"
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -104,6 +113,13 @@ export default function AllRequests() {
       <Modal isOpen={!!showDetail} onClose={() => setShowDetail(null)} title={`Request ${showDetail?.requestNumber}`} size="lg">
         {showDetail && (
           <div className="space-y-4">
+            <div className="flex justify-end">
+              <DownloadPdfButton
+                document={<MaterialIssuePdf data={showDetail} />}
+                fileName={`MIV-${showDetail.issueNo || showDetail.requestNumber}.pdf`}
+                label="Download MIV PDF"
+              />
+            </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><span className="text-gray-500">Manager:</span> <span className="font-medium">{showDetail.manager?.name}</span></div>
               <div><span className="text-gray-500">Unit:</span> <Badge color="blue">{showDetail.unit?.name}</Badge></div>
