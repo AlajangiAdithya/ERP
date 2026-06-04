@@ -36,6 +36,23 @@ const resultLabel = (r) => ({
 // Short date only
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
 
+// Material Category for QC inspection is sourced from the PR items' materialType
+// (set by the unit manager and finalised by admin on approval). Aggregates across
+// all source PRs of a union PO so multi-PR pools show every distinct category.
+function derivePRMaterialCategory(order) {
+  if (!order) return '';
+  const prs = order.isUnion
+    ? (order.sourceRequests || []).map((s) => s.purchaseRequest).filter(Boolean)
+    : (order.purchaseRequest ? [order.purchaseRequest] : []);
+  const types = new Set();
+  for (const pr of prs) {
+    for (const it of (pr.items || [])) {
+      if (it.materialType) types.add(it.materialType);
+    }
+  }
+  return Array.from(types).join(' / ');
+}
+
 // ─── Shared: PR/PO Info Header (read-only) ───
 function OrderInfoHeader({ order, inspection, qcView = false }) {
   if (!order) return null;
@@ -739,7 +756,11 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
       setReportNo(inspection.reportNo || '');
       setReportDate(inspection.reportDate?.slice(0, 10) || new Date().toISOString().slice(0, 10));
       setMaterialDescription(inspection.materialDescription || '');
-      setMaterialCategory(inspection.materialCategory || '');
+      // Material Category is always sourced from the PR (unit manager's selection
+      // is the source of truth). Fall back to whatever was previously saved only
+      // if the PR has no materialType yet (legacy PRs).
+      const prCategory = derivePRMaterialCategory(inspection.purchaseOrder);
+      setMaterialCategory(prCategory || inspection.materialCategory || '');
       setDocumentTypes({ testReport: false, coc: false, coa: false, thirdParty: false, dimInspAtSupplier: false, dimInspAtRapsInward: false, ...(inspection.documentTypes || {}) });
       setInspectionLocation(inspection.inspectionLocation || '');
       setReportReferenceNo(inspection.reportReferenceNo || '');
@@ -992,15 +1013,10 @@ function FillReportModal({ inspection, onClose, onUpdated }) {
           <div className="grid grid-cols-2 gap-3 mt-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Material Category</label>
-              <div className="flex flex-wrap gap-3 text-xs pt-2">
-                {['Raw Materials', 'Consumables', 'Tooling & Fixtures', 'FIM'].map(c => (
-                  <label key={c} className="flex items-center gap-1">
-                    <input type="radio" name="materialCategory" checked={materialCategory === c}
-                      onChange={() => setMaterialCategory(c)} />
-                    {c}
-                  </label>
-                ))}
+              <div className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-50 text-gray-800">
+                {materialCategory || <span className="italic text-gray-400">Not set on PR</span>}
               </div>
+              <p className="text-[10px] text-gray-500 mt-1">Inherited from PR — set by the unit manager on the purchase request.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Documents Verified</label>
