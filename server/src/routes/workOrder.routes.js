@@ -9,17 +9,20 @@
 // Closure flow (one cycle per delivery batch; multiple cycles can run per WO):
 //   Unit head opens a closure cycle for the delivered batch → uploads docs →
 //   QC verifies (issues QC Verification Certificate) → ADMIN (L5) approves →
-//   FINANCE sends invoice (no amount) → 48h SLA starts →
+//   FINANCE sends invoice + delivery challan to customer → 48h SLA starts →
+//   FINANCE acks customer-signed receipt (stops 48h SLA, starts 45-day window) →
 //   ACCOUNTS confirms payment received → cycle CLOSED.
 //
 // Field-level permissions:
 //   - Bank Guarantee + Insurance       : append-only history (BgEntry / InsuranceEntry)
-//     editable by ACCOUNTING / SUPPLY_CHAIN / ADMIN
-//   - Delivery Details                 : SUPPLY_CHAIN / ACCOUNTING / ADMIN
-//   - PDC extensions                   : SUPPLY_CHAIN + assigned-unit MANAGER
+//     editable by SUPPLY_CHAIN / ADMIN only (Accounts may view, not modify)
+//   - Delivery Details                 : SUPPLY_CHAIN / ADMIN / ACCOUNTING
+//   - PDC date and PDC extensions      : SUPPLY_CHAIN / ADMIN only
 //     • Every PDC extension MUST also extend the BG (bankGuaranteeExtendedUpto)
+//     • New WOs default BG date = PDC + 2 months when none supplied
+//   - 3-month PDC alert                : ADMIN-only acknowledgement with remark
 //   - Remarks                          : any role with view access
-//   - Closure financial fields (invoice, send, payment, SLA, breach):
+//   - Closure financial fields (invoice, send, delivery-ack, payment, SLA, breach):
 //     hidden from MANAGER / QC; visible only to ADMIN(L5) / FINANCE / ACCOUNTING.
 // ──────────────────────────────────────────────────────────────
 
@@ -40,6 +43,23 @@ const L5_USERNAMES = ['sureshbabu', 'rameshbabu', 'madhubabu'];
 
 // 48-hour SLA window that starts when Finance sends the invoice.
 const SLA_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+// 45-day payment window that starts when Finance acks customer delivery receipt.
+const PAYMENT_WINDOW_MS = 45 * 24 * 60 * 60 * 1000;
+
+// 90-day threshold for the admin "3-month before PDC" alert (red blinking button).
+const PDC_ALERT_DAYS = 90;
+
+// Default Bank Guarantee validity offset when a WO is created without a BG date:
+// BG date = PDC date + 2 months.
+const DEFAULT_BG_OFFSET_DAYS = 60;
+
+// Add `days` (calendar days) to a Date and return a new Date.
+const addDays = (date, days) => {
+  const out = new Date(date);
+  out.setDate(out.getDate() + days);
+  return out;
+};
 
 // Required docs the unit head must upload before submitting a cycle to QC.
 const REQUIRED_UNIT_DOC_TYPES = [
@@ -68,6 +88,7 @@ const CLOSURE_INCLUDE = {
   qcVerifiedBy:        USER_SELECT,
   mgmtApprovedBy:      USER_SELECT,
   invoiceSentBy:       USER_SELECT,
+  deliveryAckBy:       USER_SELECT,
   paymentReceivedBy:   USER_SELECT,
   docs: {
     orderBy: { uploadedAt: 'asc' },
@@ -77,6 +98,10 @@ const CLOSURE_INCLUDE = {
     orderBy: { raisedAt: 'asc' },
     include: { raisedBy: USER_SELECT, resolvedBy: USER_SELECT },
   },
+  weeklyFollowups: {
+    orderBy: { weekNumber: 'asc' },
+    include: { contactedBy: USER_SELECT },
+  },
 };
 
 const WO_INCLUDE = {
@@ -85,6 +110,7 @@ const WO_INCLUDE = {
   adminAcceptedBy:          USER_SELECT,
   unitAcceptedBy:           USER_SELECT,
   deliveryDetailsUpdatedBy: USER_SELECT,
+  pdc3MonthAckBy:           USER_SELECT,
   extensions:               { orderBy: { extensionNo: 'asc' }, include: { grantedBy: USER_SELECT } },
   invoices:                 { orderBy: { invoiceDate: 'asc' }, include: { createdBy: USER_SELECT } },
   closures: {
@@ -111,6 +137,15 @@ const sanitizeClosuresFor = (closures, user) => {
     slaDeadlineAt: null,
     last24hReminderAt: null,
     slaBreachedAt: null,
+    deliveryAckAt: null,
+    deliveryAckById: null,
+    deliveryAckBy: null,
+    deliveryAckNote: null,
+    deliveryAckSignedUrl: null,
+    paymentDueAt: null,
+    paymentDelayedAt: null,
+    lastWeeklyReminderAt: null,
+    weeklyFollowups: [],
     paymentReceivedAt: null,
     paymentReceivedById: null,
     paymentReceivedBy: null,
@@ -136,6 +171,14 @@ const decorate = (wo, user) => {
     ? Math.ceil((new Date(pdc) - new Date()) / (1000 * 60 * 60 * 24))
     : null;
   const overdue = !isCompleted && pdc && new Date() > new Date(pdc);
+  // 3-month-to-PDC alert state. Active when within the 90-day window, WO is
+  // still live, and admin has not yet acknowledged. Cleared automatically once
+  // ack is recorded — re-arms only if a future PDC extension pushes PDC back
+  // beyond 90 days and then back inside again (admin would need to ack again
+  // only if we reset the ack-fields; current behaviour keeps the ack sticky).
+  const inAlertWindow = daysToPdc != null && daysToPdc > 0 && daysToPdc <= PDC_ALERT_DAYS;
+  const woClosed = ['CLOSED', 'CANCELLED', 'REJECTED'].includes(wo.status);
+  const pdc3MonthAlertActive = inAlertWindow && !woClosed && !wo.pdc3MonthAckAt;
   const closures = sanitizeClosuresFor(wo.closures, user);
   return {
     ...wo,
@@ -144,6 +187,7 @@ const decorate = (wo, user) => {
     onTime,
     daysToPdc,
     overdue,
+    pdc3MonthAlertActive,
   };
 };
 
@@ -227,8 +271,8 @@ router.get('/', authenticate, authorize(...WO_VIEW_ROLES), async (req, res) => {
 });
 
 // ── GET /api/work-orders/closure/sla-feed — ticker feed ────────────
-// Returns open SLA cycles (INVOICE_SENT, awaiting payment). Visible to roles
-// who actually own the payment-follow-up chain.
+// Returns open SLA cycles (INVOICE_SENT, awaiting delivery ack). Visible to
+// roles who actually own the delivery-follow-up chain.
 router.get(
   '/closure/sla-feed',
   authenticate,
@@ -263,6 +307,60 @@ router.get(
       res.json({ feed });
     } catch (error) {
       console.error('SLA feed error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// ── GET /api/work-orders/closure/payment-feed — 45-day window feed ──
+// Returns open cycles in DELIVERY_ACKNOWLEDGED stage (45-day payment window).
+// Accounting + Admin use this for follow-ups; Finance gets visibility too.
+router.get(
+  '/closure/payment-feed',
+  authenticate,
+  authorize('ADMIN', 'FINANCE', 'ACCOUNTING'),
+  async (req, res) => {
+    try {
+      const rows = await prisma.workOrderClosure.findMany({
+        where: {
+          stage: 'DELIVERY_ACKNOWLEDGED',
+          paymentDueAt: { not: null },
+        },
+        select: {
+          id: true,
+          cycleNumber: true,
+          stage: true,
+          deliveryAckAt: true,
+          paymentDueAt: true,
+          paymentDelayedAt: true,
+          lastWeeklyReminderAt: true,
+          invoiceNumber: true,
+          workOrder: { select: { id: true, workOrderNumber: true, customerName: true } },
+          weeklyFollowups: {
+            orderBy: { weekNumber: 'desc' },
+            take: 1,
+            select: { weekNumber: true, contactedAt: true },
+          },
+        },
+        orderBy: { paymentDueAt: 'asc' },
+        take: 50,
+      });
+      const now = Date.now();
+      const feed = rows.map((r) => {
+        const due = r.paymentDueAt ? new Date(r.paymentDueAt).getTime() : null;
+        const daysLeft = due != null ? Math.ceil((due - now) / (1000 * 60 * 60 * 24)) : null;
+        const lastFollowup = r.weeklyFollowups?.[0] || null;
+        return {
+          ...r,
+          daysLeft,
+          delayed: due != null && now > due,
+          lastFollowupWeek: lastFollowup?.weekNumber || 0,
+          lastFollowupAt: lastFollowup?.contactedAt || null,
+        };
+      });
+      res.json({ feed });
+    } catch (error) {
+      console.error('Payment feed error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   },
@@ -305,6 +403,13 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
       if (!unit) return res.status(400).json({ error: 'Assigned unit not found' });
     }
 
+    const pdcDate = new Date(body.pdcDate);
+    // Default BG date to PDC + 2 months when the SC user did not supply one.
+    // (BG runs alongside the order and is normally 2 months past PDC.)
+    const bgDate = body.bankGuaranteeDate
+      ? new Date(body.bankGuaranteeDate)
+      : (body.bankGuaranteeNo ? addDays(pdcDate, DEFAULT_BG_OFFSET_DAYS) : null);
+
     const created = await withDocRetry(async () => {
       const workOrderNumber = await generateSequentialNumber(prisma, 'WO');
       return prisma.workOrder.create({
@@ -319,7 +424,7 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
           customerContact: body.customerContact || null,
           orderQuantity: Number(body.orderQuantity),
           orderUnit: body.orderUnit || 'Nos',
-          pdcDate: new Date(body.pdcDate),
+          pdcDate,
           deliveryClause: body.deliveryClause || null,
           fimDetails: body.fimDetails || null,
           inspectionAgency: body.inspectionAgency || null,
@@ -335,7 +440,7 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
           orderTermsAndScope: body.orderTermsAndScope || null,
           remarks: body.remarks || null,
           bankGuaranteeNo: body.bankGuaranteeNo || null,
-          bankGuaranteeDate: body.bankGuaranteeDate ? new Date(body.bankGuaranteeDate) : null,
+          bankGuaranteeDate: bgDate,
           insuranceNo: body.insuranceNo || null,
           insuranceDate: body.insuranceDate ? new Date(body.insuranceDate) : null,
           assignedUnitId,
@@ -446,9 +551,9 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (re
 });
 
 // ── BG / Insurance history ──────────────────────────────────────────
-// Append-only — newest entry becomes the active value on the WO. Anyone in
-// SUPPLY_CHAIN / ACCOUNTING / ADMIN can add (Accounts maintain these).
-const BG_INS_ROLES = ['SUPPLY_CHAIN', 'ACCOUNTING', 'ADMIN'];
+// Append-only — newest entry becomes the active value on the WO.
+// Only SUPPLY_CHAIN (and ADMIN as override) may modify; Accounts can view.
+const BG_INS_ROLES = ['SUPPLY_CHAIN', 'ADMIN'];
 
 router.post('/:id/bg-entries', authenticate, authorize(...BG_INS_ROLES), async (req, res) => {
   try {
@@ -695,9 +800,11 @@ router.post('/:id/reassign', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), a
 });
 
 // ── POST /api/work-orders/:id/extensions — log a PDC extension ────────
-// Open to SUPPLY_CHAIN and the concerned unit MANAGER. PDC extension MUST
-// carry a bankGuaranteeExtendedUpto date — the BG always extends with the PDC.
-router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN', 'MANAGER'), async (req, res) => {
+// Open ONLY to SUPPLY_CHAIN (and ADMIN as override). Per workflow rules,
+// the unit manager can no longer change PDC — only Supply Chain owns the date.
+// PDC extension MUST carry a bankGuaranteeExtendedUpto date — the BG always
+// extends with the PDC.
+router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
     const {
       newPdcDate, reason, bankGuaranteeExtendedUpto,
@@ -715,9 +822,6 @@ router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN', 'MANAGER'
       include: { extensions: { orderBy: { extensionNo: 'desc' }, take: 1 } },
     });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
-    if (req.user.role === 'MANAGER' && existing.assignedUnitId !== req.user.unitId) {
-      return res.status(403).json({ error: 'Not your unit' });
-    }
     if (['CANCELLED', 'REJECTED'].includes(existing.status)) {
       return res.status(400).json({ error: 'Cannot extend a cancelled/rejected work order' });
     }
@@ -745,13 +849,10 @@ router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN', 'MANAGER'
 });
 
 // ── PATCH /api/work-orders/:id/extensions/:extId — update extension fields ─
-router.patch('/:id/extensions/:extId', authenticate, authorize('SUPPLY_CHAIN', 'MANAGER'), async (req, res) => {
+router.patch('/:id/extensions/:extId', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
     const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
     if (!wo) return res.status(404).json({ error: 'Work order not found' });
-    if (req.user.role === 'MANAGER' && wo.assignedUnitId !== req.user.unitId) {
-      return res.status(403).json({ error: 'Not your unit' });
-    }
     const body = req.body || {};
     const data = {};
     if (body.requestLetterStatus !== undefined) data.requestLetterStatus = body.requestLetterStatus || null;
@@ -1000,6 +1101,49 @@ router.put('/:id/delivery-status', authenticate, authorize('MANAGER', 'SUPPLY_CH
 });
 
 // ════════════════════════════════════════════════════════════════════
+// 3-MONTH PDC ALERT — admin-only acknowledgement
+//
+// Admins see a red blinking button on any WO whose effective PDC is ≤ 90 days
+// away (handled in the decorator). They click it, enter a remark and call this
+// endpoint to silence the alert. The ack is sticky — the WO remembers who
+// cleared it, when, and the remark. Re-opening only happens if the PDC gets
+// pushed beyond 90 days and slides back in (very rare; would need a manual
+// re-arm — not auto-handled here).
+// ════════════════════════════════════════════════════════════════════
+
+router.post(
+  '/:id/pdc-alert/acknowledge',
+  authenticate,
+  authorize('ADMIN'),
+  async (req, res) => {
+    try {
+      const { note } = req.body || {};
+      if (!note || !String(note).trim()) {
+        return res.status(400).json({ error: 'Acknowledgement remark is required' });
+      }
+      const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+      if (!existing) return res.status(404).json({ error: 'Work order not found' });
+      if (existing.pdc3MonthAckAt) {
+        return res.status(400).json({ error: '3-month PDC alert already acknowledged' });
+      }
+      const updated = await prisma.workOrder.update({
+        where: { id: req.params.id },
+        data: {
+          pdc3MonthAckAt: new Date(),
+          pdc3MonthAckById: req.user.id,
+          pdc3MonthAckNote: String(note).trim(),
+        },
+        include: WO_INCLUDE,
+      });
+      res.json(decorate(updated, req.user));
+    } catch (error) {
+      console.error('Acknowledge PDC alert error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// ════════════════════════════════════════════════════════════════════
 // PER-BATCH CLOSURE WORKFLOW
 //
 // Each closure cycle is one delivery batch. A WO can have many cycles
@@ -1007,8 +1151,9 @@ router.put('/:id/delivery-status', authenticate, authorize('MANAGER', 'SUPPLY_CH
 // 3 units, each with its own QC → Mgmt → Finance → Accounts chain).
 //
 // Stages: UNIT_DOCS_PENDING → QC_VERIFIED → MGMT_APPROVED →
-//         INVOICE_SENT (48h SLA) → PAYMENT_RECEIVED (cycle CLOSED)
-//         (any stage can be sent back to ON_HOLD by QC/Finance)
+//         INVOICE_SENT (48h SLA) → DELIVERY_ACKNOWLEDGED (45-day pay window) →
+//         PAYMENT_RECEIVED (cycle CLOSED)
+//         (any pre-INVOICE stage can be sent back to ON_HOLD by QC/Finance)
 // ════════════════════════════════════════════════════════════════════
 
 // Helper: fetch a closure cycle by id, scoped to the WO id from the route.
@@ -1273,8 +1418,12 @@ router.post(
   },
 );
 
-// ── POST .../send-invoice — Finance attaches invoice + starts 48h SLA ──
-// One-step: generates invoice number, stamps invoiceSentAt, sets slaDeadlineAt.
+// ── POST .../send-invoice — Finance marks invoice + delivery challan sent ──
+// Starts the 48-hour delivery-ack SLA. Finance dispatches the invoice +
+// delivery challan to the customer and clicks "These are sent" — the system
+// generates an invoice number, stamps invoiceSentAt and sets slaDeadlineAt.
+// The 48h clock is closed when Finance acks the customer-signed receipt
+// (POST /delivery-ack), NOT when payment lands.
 router.post(
   '/:id/closures/:closureId/send-invoice',
   authenticate,
@@ -1311,12 +1460,114 @@ router.post(
       });
       await notifyL5Finance(
         `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — Invoice ${invoiceNumber} sent (48h SLA)`,
-        `${req.user.name} sent invoice ${invoiceNumber} to ${closure.workOrder.customerName}. Awaiting payment confirmation — SLA deadline: ${deadline.toLocaleString('en-IN')}.`,
+        `${req.user.name} sent invoice ${invoiceNumber} + delivery challan to ${closure.workOrder.customerName}. Awaiting customer signed receipt — 48h deadline: ${deadline.toLocaleString('en-IN')}.`,
         req.user.id,
       );
       res.json(updated);
     } catch (error) {
       console.error('Closure send-invoice error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// ── POST .../delivery-ack — Finance confirms customer-signed receipt ──
+// Customer signs the delivery paper and sends it back; Finance clicks the
+// Delivery Ack button. This closes the 48h SLA and opens the 45-day payment
+// window monitored by Accounts.
+router.post(
+  '/:id/closures/:closureId/delivery-ack',
+  authenticate,
+  authorize('FINANCE', 'ADMIN'),
+  async (req, res) => {
+    try {
+      const { note, signedDocUrl } = req.body || {};
+      const closure = await prisma.workOrderClosure.findUnique({
+        where: { id: req.params.closureId },
+        include: { workOrder: true },
+      });
+      if (!closure || closure.workOrderId !== req.params.id) {
+        return res.status(404).json({ error: 'Closure cycle not found' });
+      }
+      if (closure.stage !== 'INVOICE_SENT') {
+        return res.status(400).json({ error: 'Cycle must be INVOICE_SENT before acking delivery' });
+      }
+      const now = new Date();
+      const paymentDue = new Date(now.getTime() + PAYMENT_WINDOW_MS);
+      const updated = await prisma.workOrderClosure.update({
+        where: { id: closure.id },
+        data: {
+          stage: 'DELIVERY_ACKNOWLEDGED',
+          deliveryAckAt: now,
+          deliveryAckById: req.user.id,
+          deliveryAckNote: note || null,
+          deliveryAckSignedUrl: signedDocUrl || null,
+          paymentDueAt: paymentDue,
+          paymentDelayedAt: null,
+          lastWeeklyReminderAt: null,
+        },
+        include: CLOSURE_INCLUDE,
+      });
+      await notifyL5Finance(
+        `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — Delivery acknowledged (45-day pay window)`,
+        `${req.user.name} confirmed customer receipt of invoice ${closure.invoiceNumber || '(no number)'} + delivery challan. 45-day payment window starts now — due by ${paymentDue.toLocaleString('en-IN')}.`,
+        req.user.id,
+      );
+      res.json(updated);
+    } catch (error) {
+      console.error('Closure delivery-ack error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// ── POST .../weekly-followup — Accounts logs a weekly customer follow-up ──
+// During the 45-day payment window, Accounts/Admin see a flashing weekly
+// reminder. They contact the customer, write down what was said, and submit
+// here to silence this week's reminder and start the clock on the next week.
+router.post(
+  '/:id/closures/:closureId/weekly-followup',
+  authenticate,
+  authorize('ACCOUNTING', 'ADMIN'),
+  async (req, res) => {
+    try {
+      const { customerResponse, note } = req.body || {};
+      if ((!customerResponse || !String(customerResponse).trim())
+          && (!note || !String(note).trim())) {
+        return res.status(400).json({ error: 'Either customerResponse or note is required' });
+      }
+      const closure = await prisma.workOrderClosure.findUnique({
+        where: { id: req.params.closureId },
+        include: { workOrder: true, weeklyFollowups: { orderBy: { weekNumber: 'desc' }, take: 1 } },
+      });
+      if (!closure || closure.workOrderId !== req.params.id) {
+        return res.status(404).json({ error: 'Closure cycle not found' });
+      }
+      if (closure.stage !== 'DELIVERY_ACKNOWLEDGED') {
+        return res.status(400).json({
+          error: 'Weekly follow-ups only apply during the 45-day payment window (DELIVERY_ACKNOWLEDGED)',
+        });
+      }
+      const nextWeek = (closure.weeklyFollowups[0]?.weekNumber || 0) + 1;
+      const now = new Date();
+      const followup = await prisma.workOrderClosureWeeklyFollowup.create({
+        data: {
+          closureId: closure.id,
+          weekNumber: nextWeek,
+          contactedAt: now,
+          contactedById: req.user.id,
+          customerResponse: customerResponse || null,
+          note: note || null,
+        },
+        include: { contactedBy: USER_SELECT },
+      });
+      await prisma.workOrderClosure.update({
+        where: { id: closure.id },
+        data: { lastWeeklyReminderAt: now },
+      });
+      res.status(201).json(followup);
+    } catch (error) {
+      console.error('Closure weekly-followup error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   },
@@ -1438,9 +1689,11 @@ router.post(
 );
 
 // ── POST .../payment-received — Accounts closes the cycle ──
-// This is the ONLY way to close a cycle. Setting stage = PAYMENT_RECEIVED
-// stops the SLA clock. WO itself doesn't auto-close — admin uses /close once
-// every cycle is settled.
+// This is the ONLY way to close a cycle. Payment can only be logged AFTER
+// Finance has acknowledged customer delivery (stage = DELIVERY_ACKNOWLEDGED),
+// since that's when the 45-day payment clock starts. Setting stage =
+// PAYMENT_RECEIVED stops both the 45-day window and the weekly reminder loop.
+// WO itself doesn't auto-close — admin uses /close once every cycle is settled.
 router.post(
   '/:id/closures/:closureId/payment-received',
   authenticate,
@@ -1453,8 +1706,10 @@ router.post(
         include: { workOrder: true },
       });
       if (!closure || closure.workOrderId !== req.params.id) return res.status(404).json({ error: 'Closure cycle not found' });
-      if (closure.stage !== 'INVOICE_SENT') {
-        return res.status(400).json({ error: 'Cycle is not awaiting payment' });
+      if (closure.stage !== 'DELIVERY_ACKNOWLEDGED') {
+        return res.status(400).json({
+          error: 'Payment can only be logged after Finance acknowledges customer delivery',
+        });
       }
       const updated = await prisma.workOrderClosure.update({
         where: { id: closure.id },

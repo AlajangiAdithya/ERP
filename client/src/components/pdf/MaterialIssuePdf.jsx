@@ -102,12 +102,6 @@ export default function MaterialIssuePdf({ data }) {
           { label: 'Collected', value: r.collectedAt ? formatDateTime(r.collectedAt) : null },
         ]} />
 
-        <View style={styles.sigRow}>
-          <View style={styles.sigBox}><Text>Requested By (Manager)</Text></View>
-          <View style={styles.sigBox}><Text>Issued By (Stores)</Text></View>
-          <View style={styles.sigBox}><Text>Received By</Text></View>
-        </View>
-
         <Text style={styles.footer} fixed>
           Generated {formatDateTime(new Date())}  RAPS ERP  MIV {r.issueNo || r.requestNumber || ''}
         </Text>

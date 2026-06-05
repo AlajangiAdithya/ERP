@@ -1,21 +1,28 @@
 // ────────────────────────────────────────────────────────────────
-// Work Order Closure — 48h SLA scheduler (per-cycle).
+// Work Order Closure schedulers (per-cycle + per-WO).
 //
-// Closure cycles live in WorkOrderClosure. The SLA window starts when Finance
-// sends the invoice (stage = INVOICE_SENT) and ends 48h later. Accounts then
-// has to confirm payment received (stage = PAYMENT_RECEIVED), which closes
-// the cycle and stops the clock.
+// Closure cycles live in WorkOrderClosure. Three timers run during the lifecycle:
+//   • 48h SLA (stage = INVOICE_SENT) — Finance must get the signed delivery
+//     paper back and acknowledge it before this expires.
+//   • 45-day payment window (stage = DELIVERY_ACKNOWLEDGED) — Accounts must
+//     collect payment before paymentDueAt or the cycle is "delayed".
+//   • Weekly follow-up reminder during DELIVERY_ACKNOWLEDGED — admins/accounts
+//     contact the customer once a week and log the conversation.
 //
-// Two scheduled jobs:
-//   1. run24hReminder() — hourly. For every cycle still in INVOICE_SENT with
-//      an open deadline, if more than 24 hours have passed since the last
-//      reminder (or no reminder yet), notify L5 + FINANCE + ACCOUNTING with
-//      hours remaining.
-//   2. runSlaBreachCheck() — every 30 min. For every cycle whose slaDeadlineAt
-//      has passed while still in INVOICE_SENT, mark slaBreachedAt and fire an
-//      escalation notification to L5 + FINANCE + ACCOUNTING.
+// And on the WorkOrder itself:
+//   • 3-month PDC alert — fires once when the PDC date is <= 90 days away.
+//     Admin acknowledges with a note and the alert stops.
 //
-// Both jobs are idempotent — re-running within the cron window is safe.
+// Scheduled jobs:
+//   1. run24hReminder()       — hourly. 48h SLA pre-expiry reminder.
+//   2. runSlaBreachCheck()    — every 30 min. 48h SLA breach flag.
+//   3. runPaymentBreachCheck()— every 30 min. 45-day payment window breach.
+//   4. runWeeklyFollowupNotify() — hourly. Tells Accounts to do this week's
+//      customer follow-up if the previous one is >= 7 days old.
+//   5. runPdcAlertNotify()    — daily. Fires the 3-month PDC alert to admins
+//      once per WO when it enters the alert window.
+//
+// All jobs are idempotent — re-running within the cron window is safe.
 // QC and MANAGER are deliberately NOT notified: payment/SLA is finance/admin scope.
 // ────────────────────────────────────────────────────────────────
 
@@ -24,6 +31,8 @@ const prisma = require('../config/db');
 
 const L5_USERNAMES = ['sureshbabu', 'rameshbabu', 'madhubabu'];
 const REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
+const WEEKLY_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 7d
+const PDC_ALERT_DAYS = 90;
 const FINANCE_ROLES = ['FINANCE', 'ACCOUNTING'];
 
 const SYSTEM_USER_ID = null; // notifications without a sender — system-generated
@@ -124,8 +133,132 @@ async function runSlaBreachCheck(now = new Date()) {
   return { breached: breached.length };
 }
 
+// 45-day payment window — flag delayed once when due date passes.
+async function runPaymentBreachCheck(now = new Date()) {
+  const delayed = await prisma.workOrderClosure.findMany({
+    where: {
+      stage: 'DELIVERY_ACKNOWLEDGED',
+      paymentDueAt: { lt: now },
+      paymentDelayedAt: null,
+    },
+    select: {
+      id: true,
+      cycleNumber: true,
+      paymentDueAt: true,
+      invoiceNumber: true,
+      workOrder: { select: { workOrderNumber: true, customerName: true } },
+    },
+  });
+  if (!delayed.length) return { delayed: 0 };
+
+  const l5Ids = await fetchL5Ids();
+
+  for (const c of delayed) {
+    const title = `WO ${c.workOrder.workOrderNumber} cycle #${c.cycleNumber} — Payment DELAYED (45d window expired)`;
+    const message = `45-day payment window expired on ${new Date(c.paymentDueAt).toLocaleString('en-IN')} for invoice ${c.invoiceNumber || '(no number)'}, customer ${c.workOrder.customerName}. Escalate collection.`;
+    const rows = [];
+    for (const userId of l5Ids) {
+      rows.push({ type: 'WO_CLOSURE_PAYMENT_DELAYED', title, message, targetUserId: userId, sentById: SYSTEM_USER_ID });
+    }
+    for (const role of FINANCE_ROLES) {
+      rows.push({ type: 'WO_CLOSURE_PAYMENT_DELAYED', title, message, targetRole: role, sentById: SYSTEM_USER_ID });
+    }
+    rows.push({ type: 'WO_CLOSURE_PAYMENT_DELAYED', title, message, targetRole: 'ADMIN', sentById: SYSTEM_USER_ID });
+    if (rows.length) await prisma.notification.createMany({ data: rows });
+    await prisma.workOrderClosure.update({
+      where: { id: c.id },
+      data: { paymentDelayedAt: now },
+    });
+  }
+  return { delayed: delayed.length };
+}
+
+// Weekly customer-contact reminder during the 45-day window.
+// Fires when no follow-up has happened in the past 7 days (either
+// lastWeeklyReminderAt is null/old, or the cycle just entered the stage).
+async function runWeeklyFollowupNotify(now = new Date()) {
+  const cutoff = new Date(now.getTime() - WEEKLY_INTERVAL_MS);
+  const candidates = await prisma.workOrderClosure.findMany({
+    where: {
+      stage: 'DELIVERY_ACKNOWLEDGED',
+      OR: [
+        { lastWeeklyReminderAt: null, deliveryAckAt: { lt: cutoff } },
+        { lastWeeklyReminderAt: { lt: cutoff } },
+      ],
+    },
+    select: {
+      id: true,
+      cycleNumber: true,
+      paymentDueAt: true,
+      invoiceNumber: true,
+      workOrder: { select: { workOrderNumber: true, customerName: true } },
+    },
+  });
+  if (!candidates.length) return { notified: 0 };
+
+  for (const c of candidates) {
+    const daysLeft = c.paymentDueAt
+      ? Math.ceil((new Date(c.paymentDueAt).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+    const title = `WO ${c.workOrder.workOrderNumber} cycle #${c.cycleNumber} — Weekly customer follow-up due`;
+    const tail = daysLeft != null
+      ? (daysLeft >= 0 ? `${daysLeft} day(s) left in 45-day window.` : `Payment window expired ${Math.abs(daysLeft)} day(s) ago.`)
+      : '';
+    const message = `Contact ${c.workOrder.customerName} about invoice ${c.invoiceNumber || '(no number)'} and log the response. ${tail}`.trim();
+    const rows = [
+      { type: 'WO_CLOSURE_WEEKLY_FOLLOWUP', title, message, targetRole: 'ACCOUNTING', sentById: SYSTEM_USER_ID },
+      { type: 'WO_CLOSURE_WEEKLY_FOLLOWUP', title, message, targetRole: 'ADMIN', sentById: SYSTEM_USER_ID },
+    ];
+    await prisma.notification.createMany({ data: rows });
+    await prisma.workOrderClosure.update({
+      where: { id: c.id },
+      data: { lastWeeklyReminderAt: now },
+    });
+  }
+  return { notified: candidates.length };
+}
+
+// 3-month PDC alert — fires once per WO when PDC date enters the alert window.
+// Admin clears it via the acknowledgement endpoint (pdc3MonthAckAt set).
+async function runPdcAlertNotify(now = new Date()) {
+  const alertCutoff = new Date(now.getTime() + PDC_ALERT_DAYS * 24 * 60 * 60 * 1000);
+  const candidates = await prisma.workOrder.findMany({
+    where: {
+      pdcDate: { not: null, gt: now, lte: alertCutoff },
+      pdc3MonthAckAt: null,
+      status: { notIn: ['CLOSED', 'CANCELLED', 'REJECTED'] },
+    },
+    select: {
+      id: true,
+      workOrderNumber: true,
+      customerName: true,
+      pdcDate: true,
+      pdc3MonthAlertNotifiedAt: true,
+    },
+  });
+  if (!candidates.length) return { alerted: 0 };
+
+  let alerted = 0;
+  for (const wo of candidates) {
+    if (wo.pdc3MonthAlertNotifiedAt) continue; // one-shot
+    const daysLeft = Math.ceil((new Date(wo.pdcDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const title = `WO ${wo.workOrderNumber} — PDC due in ${daysLeft} day(s)`;
+    const message = `PDC for ${wo.customerName} expires on ${new Date(wo.pdcDate).toLocaleDateString('en-IN')}. Acknowledge from the Work Order to stop the alert.`;
+    const rows = [
+      { type: 'WO_PDC_3MONTH_ALERT', title, message, targetRole: 'ADMIN', sentById: SYSTEM_USER_ID },
+    ];
+    await prisma.notification.createMany({ data: rows });
+    await prisma.workOrder.update({
+      where: { id: wo.id },
+      data: { pdc3MonthAlertNotifiedAt: now },
+    });
+    alerted += 1;
+  }
+  return { alerted };
+}
+
 function startSchedulers() {
-  // Hourly at minute 5 — offset from the breach job at the half-hour.
+  // Hourly at minute 5 — 48h SLA reminder.
   cron.schedule('5 * * * *', async () => {
     try {
       const out = await run24hReminder();
@@ -135,7 +268,7 @@ function startSchedulers() {
     }
   });
 
-  // Every 30 minutes.
+  // Every 30 minutes — 48h SLA breach.
   cron.schedule('*/30 * * * *', async () => {
     try {
       const out = await runSlaBreachCheck();
@@ -145,7 +278,44 @@ function startSchedulers() {
     }
   });
 
-  console.log('[closureSla] schedulers started: 24h reminder (hourly) + SLA breach (30 min)');
+  // Every 30 minutes at :15 — 45-day payment breach.
+  cron.schedule('15,45 * * * *', async () => {
+    try {
+      const out = await runPaymentBreachCheck();
+      if (out.delayed) console.log(`[closureSla] payment delayed flagged on ${out.delayed} cycle(s)`);
+    } catch (err) {
+      console.error('[closureSla] payment breach check failed:', err.message);
+    }
+  });
+
+  // Hourly at minute 20 — weekly follow-up nudge.
+  cron.schedule('20 * * * *', async () => {
+    try {
+      const out = await runWeeklyFollowupNotify();
+      if (out.notified) console.log(`[closureSla] weekly follow-up notified on ${out.notified} cycle(s)`);
+    } catch (err) {
+      console.error('[closureSla] weekly follow-up notify failed:', err.message);
+    }
+  });
+
+  // Daily at 09:10 IST-ish — 3-month PDC alert.
+  cron.schedule('10 9 * * *', async () => {
+    try {
+      const out = await runPdcAlertNotify();
+      if (out.alerted) console.log(`[closureSla] PDC 3-month alert fired for ${out.alerted} WO(s)`);
+    } catch (err) {
+      console.error('[closureSla] PDC alert notify failed:', err.message);
+    }
+  });
+
+  console.log('[closureSla] schedulers started: 48h SLA + 45d payment + weekly follow-up + PDC alert');
 }
 
-module.exports = { startSchedulers, run24hReminder, runSlaBreachCheck };
+module.exports = {
+  startSchedulers,
+  run24hReminder,
+  runSlaBreachCheck,
+  runPaymentBreachCheck,
+  runWeeklyFollowupNotify,
+  runPdcAlertNotify,
+};

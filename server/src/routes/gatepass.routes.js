@@ -169,6 +169,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
       // Gate Pass v2 (OUTWARD) — kind-aware fields
       kind: rawKind,
       jobWorkNo: rawJobWorkNo,
+      jobWorkDate: rawJobWorkDate,
       vendorDetails: rawVendorDetails,
       requestedById: rawRequestedById,
       destinationOffice: rawDestinationOffice,
@@ -291,6 +292,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS'
           // OUTWARD v2 kind + headers
           kind,
           jobWorkNo: !isInward && kind === 'LOCAL_JOB' ? (rawJobWorkNo?.trim() || null) : null,
+          jobWorkDate: !isInward && kind === 'LOCAL_JOB' ? (toDate(rawJobWorkDate) || null) : null,
           vendorDetails: !isInward && kind === 'LOCAL_JOB' ? (rawVendorDetails?.trim() || null) : null,
           requestedById: !isInward && rawRequestedById ? rawRequestedById : null,
           destinationOffice: !isInward && kind === 'OUTSIDE' ? rawDestinationOffice.trim() : null,

@@ -63,7 +63,7 @@ const PASS_TYPE_LABEL = {
 const blankItem = () => ({
   description: '', quantity: 1, unit: 'pcs',
   dispatchedTo: '', itemPurpose: '', probableReturnDate: '',
-  itemPassType: 'RETURNABLE', gatePassDetails: '', transportation: '',
+  itemPassType: 'RETURNABLE',
   contactPersonDetails: '',
 });
 
@@ -313,6 +313,7 @@ function CreateGatePassModal({ onClose, onCreated }) {
   const [siteName, setSiteName] = useState('');
   const [destinationOffice, setDestinationOffice] = useState('');
   const [jobWorkNo, setJobWorkNo] = useState('');
+  const [jobWorkDate, setJobWorkDate] = useState('');
   const [vendorDetails, setVendorDetails] = useState('');
   const [remarks, setRemarks] = useState('');
   const [items, setItems] = useState([blankItem()]);
@@ -346,6 +347,7 @@ function CreateGatePassModal({ onClose, onCreated }) {
         siteName: siteName.trim() || undefined,
         destinationOffice: kind === 'OUTSIDE' ? destinationOffice.trim() : undefined,
         jobWorkNo: kind === 'LOCAL_JOB' ? (jobWorkNo.trim() || undefined) : undefined,
+        jobWorkDate: kind === 'LOCAL_JOB' ? (jobWorkDate || undefined) : undefined,
         vendorDetails: kind === 'LOCAL_JOB' ? (vendorDetails.trim() || undefined) : undefined,
         remarks: remarks.trim() || undefined,
         items: items.map(i => ({
@@ -356,8 +358,6 @@ function CreateGatePassModal({ onClose, onCreated }) {
           itemPurpose: i.itemPurpose?.trim() || null,
           probableReturnDate: i.probableReturnDate || null,
           itemPassType: i.itemPassType === 'DELIVERY_CHALLAN' ? 'NON_RETURNABLE' : (i.itemPassType || null),
-          gatePassDetails: i.gatePassDetails?.trim() || null,
-          transportation: i.transportation?.trim() || null,
           contactPersonDetails: i.contactPersonDetails?.trim() || null,
         })),
       });
@@ -399,7 +399,7 @@ function CreateGatePassModal({ onClose, onCreated }) {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <Input label="Site / Unit" value={siteName} onChange={e => setSiteName(e.target.value)} placeholder="Site or unit" />
           {kind === 'OUTSIDE' && (
             <Input
@@ -412,10 +412,16 @@ function CreateGatePassModal({ onClose, onCreated }) {
           {kind === 'LOCAL_JOB' && (
             <>
               <Input
-                label="Job Work No."
+                label="Job Work / RAPS PO Order No."
                 value={jobWorkNo}
                 onChange={e => setJobWorkNo(e.target.value)}
-                placeholder="e.g. JW/2026/001"
+                placeholder="e.g. JW/2026/001 or RAPS/PO/2026/001"
+              />
+              <Input
+                type="date"
+                label="Date"
+                value={jobWorkDate}
+                onChange={e => setJobWorkDate(e.target.value)}
               />
               <Input
                 label="Vendor Details"
@@ -428,7 +434,7 @@ function CreateGatePassModal({ onClose, onCreated }) {
         </div>
 
         <p className="text-xs text-gray-500">
-          Pass No. and Date are auto-generated. The Store Incharge will approve, then Logistics assigns the vehicle.
+          Pass No. and Date are auto-generated. Pass details and Transport are filled by Logistics on dispatch / acknowledgement. The Store Incharge will approve first, then Logistics assigns the vehicle.
         </p>
 
         <div>
@@ -438,19 +444,17 @@ function CreateGatePassModal({ onClose, onCreated }) {
           </div>
 
           <div className="border border-gray-200 rounded-md overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: 1280 }}>
+            <table className="w-full text-sm" style={{ minWidth: 1040 }}>
               <colgroup>
                 <col style={{ width: '36px' }} />
-                <col style={{ width: '180px' }} />
+                <col style={{ width: '200px' }} />
                 <col style={{ width: '80px' }} />
                 <col style={{ width: '80px' }} />
-                <col style={{ width: '150px' }} />
-                <col style={{ width: '150px' }} />
+                <col style={{ width: '160px' }} />
+                <col style={{ width: '160px' }} />
                 <col style={{ width: '150px' }} />
                 <col style={{ width: '140px' }} />
-                <col style={{ width: '150px' }} />
-                <col style={{ width: '120px' }} />
-                <col style={{ width: '160px' }} />
+                <col style={{ width: '180px' }} />
                 <col style={{ width: '40px' }} />
               </colgroup>
               <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
@@ -463,8 +467,6 @@ function CreateGatePassModal({ onClose, onCreated }) {
                   <th className="px-3 py-2.5 font-medium">Purpose</th>
                   <th className="px-3 py-2.5 font-medium">Probable return</th>
                   <th className="px-3 py-2.5 font-medium">Pass type</th>
-                  <th className="px-3 py-2.5 font-medium">Pass details</th>
-                  <th className="px-3 py-2.5 font-medium">Transport</th>
                   <th className="px-3 py-2.5 font-medium">Remarks / Contact</th>
                   <th className="px-2 py-2.5"></th>
                 </tr>
@@ -507,14 +509,6 @@ function CreateGatePassModal({ onClose, onCreated }) {
                     </td>
                     <td className="px-2 py-2">
                       <input className={cellInput}
-                        value={it.gatePassDetails} onChange={e => updateItem(idx, 'gatePassDetails', e.target.value)} />
-                    </td>
-                    <td className="px-2 py-2">
-                      <input className={cellInput}
-                        value={it.transportation} onChange={e => updateItem(idx, 'transportation', e.target.value)} />
-                    </td>
-                    <td className="px-2 py-2">
-                      <input className={cellInput}
                         value={it.contactPersonDetails} onChange={e => updateItem(idx, 'contactPersonDetails', e.target.value)} />
                     </td>
                     <td className="px-2 py-2 text-center">
@@ -528,6 +522,10 @@ function CreateGatePassModal({ onClose, onCreated }) {
               </tbody>
             </table>
           </div>
+
+          <p className="text-xs text-gray-500 mt-2">
+            Pass details are auto-generated by the system. Transport details are added by Logistics along with delivery acknowledgement. Remarks can be added by anyone.
+          </p>
         </div>
 
         <Textarea label="Remarks" value={remarks} onChange={e => setRemarks(e.target.value)} rows={2} />
@@ -610,7 +608,8 @@ function DetailModal({ gatePass: initial, onClose, onAction }) {
           <Field label="Date" value={formatDate(g.date)} />
           <Field label="Site / Unit" value={g.siteName} />
           {isOutside && <Field label="Destination Office" value={g.destinationOffice} icon={MapPin} />}
-          {isLocalJob && <Field label="Job Work No." value={g.jobWorkNo} icon={FileText} />}
+          {isLocalJob && <Field label="Job Work / RAPS PO Order No." value={g.jobWorkNo} icon={FileText} />}
+          {isLocalJob && <Field label="JW / PO Date" value={g.jobWorkDate ? formatDate(g.jobWorkDate) : ''} />}
           {isLocalJob && <Field label="Vendor" value={g.vendorDetails} icon={Building2} />}
           <Field label="Dispatched-to (summary)" value={g.partyName} />
           {(g.assignedVehicle || g.vehicleNo) && (

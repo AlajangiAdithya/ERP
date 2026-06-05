@@ -63,12 +63,15 @@ model User {
   woClosuresQCVerified       WorkOrderClosure[]         @relation("WOClosureQCVerifier")
   woClosuresMgmtApproved     WorkOrderClosure[]         @relation("WOClosureMgmtApprover")
   woClosuresInvoiceSent      WorkOrderClosure[]         @relation("WOClosureInvoiceSender")
+  woClosuresDeliveryAcked    WorkOrderClosure[]         @relation("WOClosureDeliveryAcker")
   woClosuresPaymentLogged    WorkOrderClosure[]         @relation("WOClosurePaymentLogger")
   woClosureDocsUploaded      WorkOrderClosureDoc[]      @relation("WOClosureDocUploader")
   woHoldsRaised              WorkOrderHoldRequest[]     @relation("WOHoldRaiser")
   woHoldsResolved            WorkOrderHoldRequest[]     @relation("WOHoldResolver")
   woBgEntriesAdded           WorkOrderBgEntry[]         @relation("WOBgEntryAdder")
   woInsuranceEntriesAdded    WorkOrderInsuranceEntry[]  @relation("WOInsuranceEntryAdder")
+  woPdcAlertsAcknowledged    WorkOrder[]                @relation("WorkOrderPdcAlertAcker")
+  woClosureWeeklyFollowups   WorkOrderClosureWeeklyFollowup[] @relation("WOClosureWeeklyFollowupContact")
   materialPoolsCreated       MaterialPool[]             @relation("MaterialPoolCreator")
 
   // ── Gate Pass v2 (Local Job / Outside) relations ──
@@ -983,7 +986,8 @@ model GatePass {
   // OUTSIDE = sent to one of our other sites (e.g., Hyderabad office). Null for INWARD/legacy rows.
   kind                 GatePassKind?
   // Local Job Work Register (RAPS/JL-JW) header fields.
-  jobWorkNo            String? // JW NO
+  jobWorkNo            String? // JW NO / RAPS PO Order No.
+  jobWorkDate          DateTime? // Date against the JW / RAPS PO order
   vendorDetails        String? // VENDOR DETAILS
   requestedById        String?
   requestedBy          User?              @relation("GatePassRequestedBy", fields: [requestedById], references: [id])
@@ -1354,6 +1358,16 @@ model WorkOrder {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // ── 3-month PDC alert (admin-only acknowledge) ──
+  // When effective PDC is ≤ 90 days away, admins see a red blinking button
+  // until they acknowledge it with a remark. One-shot per WO (resets if a PDC
+  // extension pushes PDC out beyond 90 days again — handled at decorate time).
+  pdc3MonthAckAt           DateTime?
+  pdc3MonthAckById         String?
+  pdc3MonthAckBy           User?     @relation("WorkOrderPdcAlertAcker", fields: [pdc3MonthAckById], references: [id])
+  pdc3MonthAckNote         String?
+  pdc3MonthAlertNotifiedAt DateTime? // stamped by the daily cron once the alert fires, to keep it one-shot
+
   extensions       WorkOrderExtension[]
   invoices         WorkOrderInvoice[]
   closures         WorkOrderClosure[]
@@ -1468,7 +1482,8 @@ enum WorkOrderClosureStage {
   QC_VERIFIED
   MGMT_APPROVED
   ON_HOLD
-  INVOICE_SENT // ← Finance has sent docs+invoice; 48h SLA running
+  INVOICE_SENT // ← Finance sent invoice + delivery challan to customer; 48h SLA running
+  DELIVERY_ACKNOWLEDGED // ← Customer signed receipt; Finance acked. 48h SLA stops, 45-day payment window starts
   PAYMENT_RECEIVED // ← Accounts confirmed; cycle CLOSED
 }
 
@@ -1515,6 +1530,19 @@ model WorkOrderClosure {
   last24hReminderAt  DateTime?
   slaBreachedAt      DateTime?
 
+  // Finance delivery acknowledgement — stops 48h SLA and starts 45-day payment window
+  deliveryAckAt        DateTime?
+  deliveryAckById      String?
+  deliveryAckBy        User?     @relation("WOClosureDeliveryAcker", fields: [deliveryAckById], references: [id])
+  deliveryAckNote      String?
+  deliveryAckSignedUrl String? // optional URL to the customer-signed receipt scan
+
+  // 45-day payment window (starts at deliveryAckAt). Accounts monitor and
+  // log weekly customer follow-ups until payment is received.
+  paymentDueAt         DateTime? // = deliveryAckAt + 45 days
+  paymentDelayedAt    DateTime? // set by background job when paymentDueAt has passed without payment
+  lastWeeklyReminderAt DateTime?
+
   // Accounts — payment confirmation closes the cycle
   paymentReceivedAt   DateTime?
   paymentReceivedById String?
@@ -1524,13 +1552,15 @@ model WorkOrderClosure {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  docs         WorkOrderClosureDoc[]
-  holdRequests WorkOrderHoldRequest[]
+  docs            WorkOrderClosureDoc[]
+  holdRequests    WorkOrderHoldRequest[]
+  weeklyFollowups WorkOrderClosureWeeklyFollowup[]
 
   @@unique([workOrderId, cycleNumber])
   @@index([workOrderId])
   @@index([stage])
   @@index([slaDeadlineAt])
+  @@index([paymentDueAt])
 }
 
 // Individual documents attached during a closure cycle.
@@ -1565,6 +1595,25 @@ model WorkOrderHoldRequest {
   resolvedById String?
   resolvedBy   User?            @relation("WOHoldResolver", fields: [resolvedById], references: [id])
   resolvedNote String?
+
+  @@index([closureId])
+}
+
+// Weekly follow-up record raised inside the 45-day post-delivery payment window.
+// Accounts/Admin click the flashing weekly reminder, contact the customer, then
+// log the response + remark here. A new entry is created for each week the
+// cycle remains in DELIVERY_ACKNOWLEDGED stage.
+model WorkOrderClosureWeeklyFollowup {
+  id               String           @id @default(uuid())
+  closureId        String
+  closure          WorkOrderClosure @relation(fields: [closureId], references: [id], onDelete: Cascade)
+  weekNumber       Int // 1, 2, 3 … (sequential within a cycle)
+  contactedAt      DateTime         @default(now())
+  contactedById    String
+  contactedBy      User             @relation("WOClosureWeeklyFollowupContact", fields: [contactedById], references: [id])
+  customerResponse String? // what the customer said
+  note             String? // internal remark
+  createdAt        DateTime         @default(now())
 
   @@index([closureId])
 }
