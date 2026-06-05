@@ -186,7 +186,7 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
     const request = await prisma.productRequest.findUnique({
       where: { id: req.params.id },
       include: {
-        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } } } },
         manager: { select: { id: true, name: true, role: true } },
         unit: { select: { id: true, name: true, code: true } },
       },
@@ -197,27 +197,40 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
       return res.status(400).json({ error: 'Only pending requests can be approved' });
     }
 
-    // Pre-check: every item must have enough stock in the requesting unit's
-    // bucket. If not, the SM has to ask the unit to raise a transfer first.
+    // Pre-check: each item is fulfilled from (a) the requesting unit's own bucket
+    // and/or (b) the unassigned pool — stock in Product.currentStock not held by
+    // any unit's ProductUnitStock. Stock assigned to a *different* unit is off-limits.
     const stockShortages = [];
+    const availabilityByItem = {};
     for (const ri of request.items) {
       if (ri.quantity <= 0) continue;
-      const pus = await prisma.productUnitStock.findUnique({
-        where: { productId_unitId: { productId: ri.productId, unitId: request.unitId } },
-      });
-      const have = pus?.quantity || 0;
-      if (have < ri.quantity - 0.001) {
+      const [ownBucket, allBuckets] = await Promise.all([
+        prisma.productUnitStock.findUnique({
+          where: { productId_unitId: { productId: ri.productId, unitId: request.unitId } },
+        }),
+        prisma.productUnitStock.findMany({
+          where: { productId: ri.productId },
+          select: { quantity: true },
+        }),
+      ]);
+      const ownQty = ownBucket?.quantity || 0;
+      const assignedTotal = allBuckets.reduce((s, b) => s + b.quantity, 0);
+      const unassignedQty = Math.max(0, (ri.product?.currentStock || 0) - assignedTotal);
+      const available = ownQty + unassignedQty;
+      availabilityByItem[ri.id] = { ownQty, unassignedQty };
+      if (available < ri.quantity - 0.001) {
         stockShortages.push({
           product: ri.product?.name || 'Unknown',
           sku: ri.product?.sku,
           requested: ri.quantity,
-          available: have,
+          availableInYourUnit: ownQty,
+          availableUnassigned: unassignedQty,
         });
       }
     }
     if (stockShortages.length > 0) {
       return res.status(400).json({
-        error: 'Your unit does not have enough stock for one or more items. Raise an Inventory Transfer Request from a unit that holds the stock.',
+        error: 'Not enough stock available to your unit (own + unassigned) for one or more items. Raise an Inventory Transfer Request from a unit that holds the stock.',
         shortages: stockShortages,
       });
     }
@@ -266,10 +279,17 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
           data: { currentStock: { decrement: take } },
         });
 
-        await tx.productUnitStock.update({
-          where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
-          data: { quantity: { decrement: take } },
-        });
+        // Draw from the unit's own bucket first, then from the unassigned pool.
+        const ownQty = availabilityByItem[item.id]?.ownQty || 0;
+        const fromOwn = Math.min(ownQty, take);
+        if (fromOwn > 0) {
+          await tx.productUnitStock.update({
+            where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
+            data: { quantity: { decrement: fromOwn } },
+          });
+        }
+        // Remainder (take - fromOwn) comes from the unassigned pool — only
+        // Product.currentStock is decremented (already done above), no PUS row to update.
 
         await tx.stockMovement.create({
           data: {
