@@ -34,6 +34,7 @@ const { closureDocUpload, publicUrlFor } = require('../middleware/upload');
 const {
   generateSequentialNumber, paginate, applyDateFilter, withDocRetry,
 } = require('../utils/helpers');
+const { syncAlarmsForWO } = require('../services/workOrderAlarms');
 
 const router = express.Router();
 
@@ -119,6 +120,18 @@ const WO_INCLUDE = {
   },
   bgEntries:        { orderBy: { addedAt: 'desc' }, include: { addedBy: USER_SELECT } },
   insuranceEntries: { orderBy: { addedAt: 'desc' }, include: { addedBy: USER_SELECT } },
+  alarms: {
+    where: { status: { in: ['ACTIVE', 'ACKNOWLEDGED'] } },
+    orderBy: [{ severity: 'desc' }, { createdAt: 'desc' }],
+    include: {
+      acknowledgedBy: USER_SELECT,
+      resolvedBy:     USER_SELECT,
+      notes: {
+        orderBy: { createdAt: 'asc' },
+        include: { author: USER_SELECT },
+      },
+    },
+  },
 };
 
 // Strip closure financial fields for MANAGER/QC (only L5/FINANCE/ACCOUNTING see them).
@@ -131,12 +144,17 @@ const sanitizeClosuresFor = (closures, user) => {
     invoiceDate: null,
     invoiceDescription: null,
     invoiceFileUrl: null,
+    deliveryChallanNumber: null,
     invoiceSentAt: null,
     invoiceSentById: null,
     invoiceSentBy: null,
     slaDeadlineAt: null,
     last24hReminderAt: null,
     slaBreachedAt: null,
+    invoiceAckReceived: false,
+    invoiceAckAt: null,
+    dcAckReceived: false,
+    dcAckAt: null,
     deliveryAckAt: null,
     deliveryAckById: null,
     deliveryAckBy: null,
@@ -226,6 +244,13 @@ const ensureClosureAccess = (wo, user) => {
     return 'Not your unit';
   }
   return null;
+};
+
+// Fire-and-forget alarm refresh after a state change. Errors are logged but
+// never propagate — the user-facing request has already responded by then.
+const refreshAlarms = (woId) => {
+  if (!woId) return;
+  syncAlarmsForWO(woId).catch((e) => console.error(`alarm sync failed for ${woId}:`, e.message));
 };
 
 // ── GET /api/work-orders ──────────────────────────────────────
@@ -426,6 +451,7 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
           orderUnit: body.orderUnit || 'Nos',
           pdcDate,
           deliveryClause: body.deliveryClause || null,
+          lotsExpected: body.lotsExpected ? Math.max(1, Number(body.lotsExpected)) : null,
           fimDetails: body.fimDetails || null,
           inspectionAgency: body.inspectionAgency || null,
           qapNo: body.qapNo || null,
@@ -489,6 +515,7 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
     // Re-fetch to include the newly created BG/Insurance entries.
     const full = await prisma.workOrder.findUnique({ where: { id: created.id }, include: WO_INCLUDE });
     res.status(201).json(decorate(full, req.user));
+    refreshAlarms(created.id);
   } catch (error) {
     console.error('Create work order error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -526,6 +553,9 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (re
     if (body.orderQuantity !== undefined) data.orderQuantity = Number(body.orderQuantity);
     if (body.supplyOrderDate) data.supplyOrderDate = new Date(body.supplyOrderDate);
     if (body.pdcDate) data.pdcDate = new Date(body.pdcDate);
+    if (body.lotsExpected !== undefined) {
+      data.lotsExpected = body.lotsExpected ? Math.max(1, Number(body.lotsExpected)) : null;
+    }
     if (body.assignedUnitId !== undefined) {
       if (body.assignedUnitId) {
         const u = await prisma.unit.findUnique({ where: { id: body.assignedUnitId } });
@@ -544,6 +574,7 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (re
       include: WO_INCLUDE,
     });
     res.json(decorate(updated, req.user));
+    refreshAlarms(req.params.id);
   } catch (error) {
     console.error('Update work order error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -584,6 +615,7 @@ router.post('/:id/bg-entries', authenticate, authorize(...BG_INS_ROLES), async (
       },
     });
     res.status(201).json(entry);
+    refreshAlarms(req.params.id);
   } catch (error) {
     console.error('Add BG entry error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -1212,6 +1244,7 @@ router.post(
         include: CLOSURE_INCLUDE,
       });
       res.status(201).json(closure);
+      refreshAlarms(wo.id);
     } catch (error) {
       console.error('Open closure cycle error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -1315,6 +1348,7 @@ router.post(
         },
       });
       res.json(updated);
+      refreshAlarms(req.params.id);
     } catch (error) {
       console.error('Closure submit-to-qc error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -1365,6 +1399,7 @@ router.post(
       }
       if (rows.length) await prisma.notification.createMany({ data: rows });
       res.json(updated);
+      refreshAlarms(req.params.id);
     } catch (error) {
       console.error('Closure qc-verify error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -1411,6 +1446,7 @@ router.post(
         },
       });
       res.json(updated);
+      refreshAlarms(req.params.id);
     } catch (error) {
       console.error('Closure mgmt-approve error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -1418,19 +1454,22 @@ router.post(
   },
 );
 
-// ── POST .../send-invoice — Finance marks invoice + delivery challan sent ──
-// Starts the 48-hour delivery-ack SLA. Finance dispatches the invoice +
-// delivery challan to the customer and clicks "These are sent" — the system
-// generates an invoice number, stamps invoiceSentAt and sets slaDeadlineAt.
-// The 48h clock is closed when Finance acks the customer-signed receipt
-// (POST /delivery-ack), NOT when payment lands.
+// ── POST .../send-invoice — Finance records invoice # + DC # and dispatches ──
+// Finance enters BOTH the invoice number and the delivery challan number
+// (no file upload — these are physical docs sent to the customer). Clicking
+// "Invoice & DC Sent" stamps invoiceSentAt and starts the 48h ack SLA.
 router.post(
   '/:id/closures/:closureId/send-invoice',
   authenticate,
   authorize('FINANCE', 'ADMIN'),
   async (req, res) => {
     try {
-      const { invoiceDate, description, invoiceFileUrl } = req.body || {};
+      const { invoiceNumber, deliveryChallanNumber, invoiceDate, description } = req.body || {};
+      const invNo = invoiceNumber && String(invoiceNumber).trim();
+      const dcNo = deliveryChallanNumber && String(deliveryChallanNumber).trim();
+      if (!invNo) return res.status(400).json({ error: 'invoiceNumber is required' });
+      if (!dcNo) return res.status(400).json({ error: 'deliveryChallanNumber is required' });
+
       const closure = await prisma.workOrderClosure.findUnique({
         where: { id: req.params.closureId },
         include: { workOrder: true },
@@ -1439,17 +1478,24 @@ router.post(
       if (closure.stage !== 'MGMT_APPROVED') {
         return res.status(400).json({ error: 'Cycle must be MGMT_APPROVED before sending invoice' });
       }
-      const invoiceNumber = await withDocRetry(() => generateSequentialNumber(prisma, 'INV'));
+
+      // Surface duplicate invoice # cleanly (unique index would otherwise 500).
+      const dup = await prisma.workOrderClosure.findFirst({
+        where: { invoiceNumber: invNo, NOT: { id: closure.id } },
+        select: { id: true },
+      });
+      if (dup) return res.status(409).json({ error: `Invoice number ${invNo} is already used on another closure` });
+
       const now = new Date();
       const deadline = new Date(now.getTime() + SLA_WINDOW_MS);
       const updated = await prisma.workOrderClosure.update({
         where: { id: closure.id },
         data: {
           stage: 'INVOICE_SENT',
-          invoiceNumber,
+          invoiceNumber: invNo,
+          deliveryChallanNumber: dcNo,
           invoiceDate: invoiceDate ? new Date(invoiceDate) : now,
           invoiceDescription: description || null,
-          invoiceFileUrl: invoiceFileUrl || null,
           invoiceSentAt: now,
           invoiceSentById: req.user.id,
           slaDeadlineAt: deadline,
@@ -1459,11 +1505,12 @@ router.post(
         include: CLOSURE_INCLUDE,
       });
       await notifyL5Finance(
-        `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — Invoice ${invoiceNumber} sent (48h SLA)`,
-        `${req.user.name} sent invoice ${invoiceNumber} + delivery challan to ${closure.workOrder.customerName}. Awaiting customer signed receipt — 48h deadline: ${deadline.toLocaleString('en-IN')}.`,
+        `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — Invoice ${invNo} + DC ${dcNo} sent (48h SLA)`,
+        `${req.user.name} dispatched invoice ${invNo} & DC ${dcNo} to ${closure.workOrder.customerName}. Awaiting both signed acks — 48h deadline: ${deadline.toLocaleString('en-IN')}.`,
         req.user.id,
       );
       res.json(updated);
+      refreshAlarms(req.params.id);
     } catch (error) {
       console.error('Closure send-invoice error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -1471,10 +1518,51 @@ router.post(
   },
 );
 
+// ── POST .../mark-invoice-ack / .../mark-dc-ack — tick the two ack boxes ──
+// Finance ticks each independently as the signed copy comes back. Both must be
+// true before /delivery-ack will succeed. Idempotent — re-ticking is a no-op.
+const buildAckRoute = (which) => async (req, res) => {
+  try {
+    const closure = await prisma.workOrderClosure.findUnique({
+      where: { id: req.params.closureId },
+      include: { workOrder: true },
+    });
+    if (!closure || closure.workOrderId !== req.params.id) {
+      return res.status(404).json({ error: 'Closure cycle not found' });
+    }
+    if (closure.stage !== 'INVOICE_SENT') {
+      return res.status(400).json({ error: 'Cycle must be INVOICE_SENT to record acks' });
+    }
+    const now = new Date();
+    const data = which === 'invoice'
+      ? (closure.invoiceAckReceived ? {} : { invoiceAckReceived: true, invoiceAckAt: now })
+      : (closure.dcAckReceived      ? {} : { dcAckReceived: true,      dcAckAt: now });
+    const updated = Object.keys(data).length
+      ? await prisma.workOrderClosure.update({
+          where: { id: closure.id }, data, include: CLOSURE_INCLUDE,
+        })
+      : closure;
+    res.json(updated);
+    refreshAlarms(req.params.id);
+  } catch (error) {
+    console.error(`Closure mark-${which}-ack error:`, error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+router.post(
+  '/:id/closures/:closureId/mark-invoice-ack',
+  authenticate, authorize('FINANCE', 'ADMIN'),
+  buildAckRoute('invoice'),
+);
+router.post(
+  '/:id/closures/:closureId/mark-dc-ack',
+  authenticate, authorize('FINANCE', 'ADMIN'),
+  buildAckRoute('dc'),
+);
+
 // ── POST .../delivery-ack — Finance confirms customer-signed receipt ──
-// Customer signs the delivery paper and sends it back; Finance clicks the
-// Delivery Ack button. This closes the 48h SLA and opens the 45-day payment
-// window monitored by Accounts.
+// Requires BOTH invoiceAckReceived AND dcAckReceived to be true. Closes the
+// 48h SLA and opens the 45-day payment window monitored by Accounts.
 router.post(
   '/:id/closures/:closureId/delivery-ack',
   authenticate,
@@ -1491,6 +1579,13 @@ router.post(
       }
       if (closure.stage !== 'INVOICE_SENT') {
         return res.status(400).json({ error: 'Cycle must be INVOICE_SENT before acking delivery' });
+      }
+      if (!closure.invoiceAckReceived || !closure.dcAckReceived) {
+        return res.status(400).json({
+          error: 'Tick both Invoice-Ack and DC-Ack received before confirming delivery',
+          invoiceAckReceived: closure.invoiceAckReceived,
+          dcAckReceived: closure.dcAckReceived,
+        });
       }
       const now = new Date();
       const paymentDue = new Date(now.getTime() + PAYMENT_WINDOW_MS);
@@ -1510,10 +1605,11 @@ router.post(
       });
       await notifyL5Finance(
         `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — Delivery acknowledged (45-day pay window)`,
-        `${req.user.name} confirmed customer receipt of invoice ${closure.invoiceNumber || '(no number)'} + delivery challan. 45-day payment window starts now — due by ${paymentDue.toLocaleString('en-IN')}.`,
+        `${req.user.name} confirmed customer receipt of invoice ${closure.invoiceNumber || '(no number)'} + DC ${closure.deliveryChallanNumber || '(no number)'}. 45-day payment window starts now — due by ${paymentDue.toLocaleString('en-IN')}.`,
         req.user.id,
       );
       res.json(updated);
+      refreshAlarms(req.params.id);
     } catch (error) {
       console.error('Closure delivery-ack error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -1618,6 +1714,7 @@ router.post(
         },
       });
       res.json({ hold, closure: updated });
+      refreshAlarms(req.params.id);
     } catch (error) {
       console.error('Closure hold error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -1681,8 +1778,160 @@ router.post(
         },
       });
       res.json(updated);
+      refreshAlarms(req.params.id);
     } catch (error) {
       console.error('Closure resolve-hold error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// ────────────────────────────────────────────────────────────────────
+// ALARMS — list / sync / append note / acknowledge / resolve
+// Each transition stores a remark in WorkOrderAlarmNote so the timeline
+// is preserved. ACTIVE/ACKNOWLEDGED → RESOLVED is one-way from the UI;
+// the engine may re-create a fresh ACTIVE row if the trigger re-fires.
+// ────────────────────────────────────────────────────────────────────
+
+const ALARM_INCLUDE = {
+  acknowledgedBy: USER_SELECT,
+  resolvedBy:     USER_SELECT,
+  notes: {
+    orderBy: { createdAt: 'asc' },
+    include: { author: USER_SELECT },
+  },
+};
+
+// GET /api/work-orders/:id/alarms — list (default: active+ack'd; ?includeResolved=1 to see history)
+router.get(
+  '/:id/alarms',
+  authenticate,
+  authorize(...WO_VIEW_ROLES),
+  async (req, res) => {
+    try {
+      const includeResolved = req.query.includeResolved === '1' || req.query.includeResolved === 'true';
+      const rows = await prisma.workOrderAlarm.findMany({
+        where: {
+          workOrderId: req.params.id,
+          ...(includeResolved ? {} : { status: { in: ['ACTIVE', 'ACKNOWLEDGED'] } }),
+        },
+        orderBy: [{ severity: 'desc' }, { createdAt: 'desc' }],
+        include: ALARM_INCLUDE,
+      });
+      res.json({ alarms: rows });
+    } catch (error) {
+      console.error('List alarms error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// POST /api/work-orders/:id/alarms/sync — recompute alarms for this WO
+router.post(
+  '/:id/alarms/sync',
+  authenticate,
+  authorize('ADMIN', 'SUPPLY_CHAIN', 'FINANCE', 'ACCOUNTING'),
+  async (req, res) => {
+    try {
+      const result = await syncAlarmsForWO(req.params.id);
+      res.json(result);
+    } catch (error) {
+      console.error('Sync alarms error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// POST /api/work-orders/:id/alarms/:alarmId/notes — append a remark
+router.post(
+  '/:id/alarms/:alarmId/notes',
+  authenticate,
+  authorize(...WO_VIEW_ROLES),
+  async (req, res) => {
+    try {
+      const { body } = req.body || {};
+      if (!body || !String(body).trim()) return res.status(400).json({ error: 'body is required' });
+      const alarm = await prisma.workOrderAlarm.findUnique({ where: { id: req.params.alarmId } });
+      if (!alarm || alarm.workOrderId !== req.params.id) return res.status(404).json({ error: 'Alarm not found' });
+      const note = await prisma.workOrderAlarmNote.create({
+        data: { alarmId: alarm.id, authorId: req.user.id, body: String(body).trim(), kind: 'COMMENT' },
+        include: { author: USER_SELECT },
+      });
+      res.status(201).json(note);
+    } catch (error) {
+      console.error('Add alarm note error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// POST /api/work-orders/:id/alarms/:alarmId/acknowledge — ack with remark
+router.post(
+  '/:id/alarms/:alarmId/acknowledge',
+  authenticate,
+  authorize(...WO_VIEW_ROLES),
+  async (req, res) => {
+    try {
+      const { remark } = req.body || {};
+      const alarm = await prisma.workOrderAlarm.findUnique({ where: { id: req.params.alarmId } });
+      if (!alarm || alarm.workOrderId !== req.params.id) return res.status(404).json({ error: 'Alarm not found' });
+      if (alarm.status !== 'ACTIVE') return res.status(400).json({ error: `Alarm is ${alarm.status}` });
+      const updated = await prisma.workOrderAlarm.update({
+        where: { id: alarm.id },
+        data: {
+          status: 'ACKNOWLEDGED',
+          acknowledgedAt: new Date(),
+          acknowledgedById: req.user.id,
+          ackRemark: remark || null,
+          notes: {
+            create: {
+              authorId: req.user.id,
+              body: remark ? `Acknowledged: ${remark}` : 'Acknowledged.',
+              kind: 'ACK',
+            },
+          },
+        },
+        include: ALARM_INCLUDE,
+      });
+      res.json(updated);
+    } catch (error) {
+      console.error('Acknowledge alarm error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
+// POST /api/work-orders/:id/alarms/:alarmId/resolve — manual resolve with remark
+router.post(
+  '/:id/alarms/:alarmId/resolve',
+  authenticate,
+  authorize(...WO_VIEW_ROLES),
+  async (req, res) => {
+    try {
+      const { remark } = req.body || {};
+      const alarm = await prisma.workOrderAlarm.findUnique({ where: { id: req.params.alarmId } });
+      if (!alarm || alarm.workOrderId !== req.params.id) return res.status(404).json({ error: 'Alarm not found' });
+      if (alarm.status === 'RESOLVED') return res.status(400).json({ error: 'Alarm already resolved' });
+      const updated = await prisma.workOrderAlarm.update({
+        where: { id: alarm.id },
+        data: {
+          status: 'RESOLVED',
+          resolvedAt: new Date(),
+          resolvedById: req.user.id,
+          resolveRemark: remark || null,
+          notes: {
+            create: {
+              authorId: req.user.id,
+              body: remark ? `Resolved: ${remark}` : 'Resolved.',
+              kind: 'RESOLVE',
+            },
+          },
+        },
+        include: ALARM_INCLUDE,
+      });
+      res.json(updated);
+    } catch (error) {
+      console.error('Resolve alarm error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   },
@@ -1727,6 +1976,7 @@ router.post(
         req.user.id,
       );
       res.json(updated);
+      refreshAlarms(req.params.id);
     } catch (error) {
       console.error('Closure payment-received error:', error);
       res.status(500).json({ error: 'Internal server error' });

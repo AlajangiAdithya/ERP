@@ -28,6 +28,7 @@
 
 const cron = require('node-cron');
 const prisma = require('../config/db');
+const { syncAllAlarms } = require('../services/workOrderAlarms');
 
 const L5_USERNAMES = ['sureshbabu', 'rameshbabu', 'madhubabu'];
 const REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -308,7 +309,19 @@ function startSchedulers() {
     }
   });
 
-  console.log('[closureSla] schedulers started: 48h SLA + 45d payment + weekly follow-up + PDC alert');
+  // Every 10 minutes — recompute WO alarms across all live WOs.
+  cron.schedule('*/10 * * * *', async () => {
+    try {
+      const out = await syncAllAlarms();
+      if (out.created || out.resolved) {
+        console.log(`[closureSla] alarms: +${out.created} new, -${out.resolved} resolved across ${out.processed} WO(s)`);
+      }
+    } catch (err) {
+      console.error('[closureSla] alarm sync failed:', err.message);
+    }
+  });
+
+  console.log('[closureSla] schedulers started: 48h SLA + 45d payment + weekly follow-up + PDC alert + alarms');
 }
 
 module.exports = {

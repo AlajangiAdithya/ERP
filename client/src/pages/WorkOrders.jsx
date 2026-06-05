@@ -177,7 +177,7 @@ export default function WorkOrders() {
           color="yellow"
         />
         <StatsCard
-          title="Open Closure Cycles"
+          title="Open Lots"
           value={openCycles}
           subtitle="Across all WOs"
           icon={Receipt}
@@ -319,114 +319,216 @@ export default function WorkOrders() {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Dashboard table — matches the client-specified column list.
+// Dashboard — wide row-cards. Every WO renders as a full-width card
+// showing ALL of the client-specified columns (no horizontal scroll)
+// plus a creative alarm strip at the bottom of each row.
 // ────────────────────────────────────────────────────────────────────
+const ALARM_SEVERITY_META = {
+  CRITICAL: {
+    pill:    'bg-red-600 text-white border-red-700 shadow-md shadow-red-200 animate-pulse',
+    chip:    'bg-red-50 text-red-700 border-red-300',
+    dot:     'bg-red-600',
+    Icon:    AlertTriangle,
+    label:   'Critical',
+  },
+  WARNING: {
+    pill:    'bg-amber-500 text-white border-amber-600 shadow-sm shadow-amber-200',
+    chip:    'bg-amber-50 text-amber-800 border-amber-300',
+    dot:     'bg-amber-500',
+    Icon:    BellRing,
+    label:   'Warning',
+  },
+  INFO: {
+    pill:    'bg-sky-500 text-white border-sky-600',
+    chip:    'bg-sky-50 text-sky-800 border-sky-300',
+    dot:     'bg-sky-500',
+    Icon:    Timer,
+    label:   'Info',
+  },
+};
+
 function DashboardTable({ workOrders, onOpen }) {
   const lastExt = (w) => (w.extensions?.length ? w.extensions[w.extensions.length - 1] : null);
+
   return (
-    <Card className="p-0 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs min-w-[1800px]">
-          <thead className="bg-navy-50 text-navy-700 sticky top-0">
-            <tr className="text-left">
-              <Th>Supply Order No</Th>
-              <Th>SO Date</Th>
-              <Th>Internal WO No</Th>
-              <Th>Admin Approval</Th>
-              <Th>Unit Acceptance</Th>
-              <Th>Nomenclature</Th>
-              <Th>Order Qty</Th>
-              <Th>PDC</Th>
-              <Th>Bank Guarantee (No · Date)</Th>
-              <Th>Insurance (No · Date)</Th>
-              <Th>PDC Extension (Req · PRC)</Th>
-              <Th>BG Extended Upto</Th>
-              <Th>Delivery Details</Th>
-              <Th>Remarks</Th>
-              <Th>Status</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {workOrders.map((w, i) => {
-              const ext = lastExt(w);
-              const meta = STATUS_META[w.status] || { color: 'gray', label: w.status };
-              return (
-                <tr
-                  key={w.id}
-                  className={`border-t border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`}
-                  onClick={() => onOpen(w)}
-                >
-                  <Td className="font-medium text-navy-800">{w.supplyOrderNo}</Td>
-                  <Td>{formatDate(w.supplyOrderDate)}</Td>
-                  <Td className="font-mono text-[11px]">{w.workOrderNumber}</Td>
-                  <Td>
-                    {w.adminAcceptedAt ? (
-                      <div>
-                        <div>{formatDate(w.adminAcceptedAt)}</div>
-                        {w.adminAcceptedBy && <div className="text-navy-500">{w.adminAcceptedBy.name}</div>}
-                      </div>
-                    ) : <span className="text-navy-400">—</span>}
-                  </Td>
-                  <Td>
-                    {w.unitAcceptedAt ? (
-                      <div>
-                        <div>{formatDate(w.unitAcceptedAt)}</div>
-                        {w.unitAcceptedBy && <div className="text-navy-500">{w.unitAcceptedBy.name}</div>}
-                        {w.assignedUnit && <div className="text-navy-400">{w.assignedUnit.code}</div>}
-                      </div>
-                    ) : <span className="text-navy-400">—</span>}
-                  </Td>
-                  <Td>{w.nomenclature || <span className="text-navy-400">—</span>}</Td>
-                  <Td>{w.orderQuantity} {w.orderUnit}</Td>
-                  <Td>
-                    <div>{formatDate(w.effectivePdcDate)}</div>
-                    {w.extensions?.length > 0 && (
-                      <div className="text-navy-400">{w.extensions.length} ext</div>
-                    )}
-                  </Td>
-                  <Td>
-                    {w.bankGuaranteeNo
-                      ? <>{w.bankGuaranteeNo}{w.bankGuaranteeDate ? ` · ${formatDate(w.bankGuaranteeDate)}` : ''}</>
-                      : <span className="text-navy-400">—</span>}
-                  </Td>
-                  <Td>
-                    {w.insuranceNo
-                      ? <>{w.insuranceNo}{w.insuranceDate ? ` · ${formatDate(w.insuranceDate)}` : ''}</>
-                      : <span className="text-navy-400">—</span>}
-                  </Td>
-                  <Td>
-                    {ext ? (
-                      <div>
-                        <div>Req: {ext.requestLetterStatus || '—'}</div>
-                        <div>PRC: {ext.prcStatus || '—'}</div>
-                      </div>
-                    ) : <span className="text-navy-400">—</span>}
-                  </Td>
-                  <Td>{ext?.bankGuaranteeExtendedUpto ? formatDate(ext.bankGuaranteeExtendedUpto) : <span className="text-navy-400">—</span>}</Td>
-                  <Td className="max-w-[200px] truncate" title={w.deliveryDetails || ''}>
-                    {w.deliveryDetails || <span className="text-navy-400">—</span>}
-                  </Td>
-                  <Td className="max-w-[200px] truncate" title={w.remarks || ''}>
-                    {w.remarks || <span className="text-navy-400">—</span>}
-                  </Td>
-                  <Td>
-                    <Badge color={meta.color}>{meta.label}</Badge>
-                  </Td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+    <div className="space-y-3">
+      {workOrders.map((w) => {
+        const ext = lastExt(w);
+        const meta = STATUS_META[w.status] || { color: 'gray', label: w.status, Icon: ClipboardList };
+        const Icon = meta.Icon;
+        const deliveredPct = w.orderQuantity > 0
+          ? Math.min(100, Math.round((w.deliveredQty / w.orderQuantity) * 100))
+          : 0;
+        const lotsSent = w.closures?.length || 0;
+        const lotsExpected = w.lotsExpected || null;
+        const lotPct = lotsExpected ? Math.min(100, Math.round((lotsSent / lotsExpected) * 100)) : null;
+        const activeAlarms = (w.alarms || []).filter((a) => a.status === 'ACTIVE' || a.status === 'ACKNOWLEDGED');
+        const critCount = activeAlarms.filter((a) => a.severity === 'CRITICAL').length;
+        const warnCount = activeAlarms.filter((a) => a.severity === 'WARNING').length;
+        const accentBorder =
+          critCount > 0 ? 'border-l-red-600'
+          : warnCount > 0 ? 'border-l-amber-500'
+          : w.overdue ? 'border-l-red-500'
+          : w.status === 'COMPLETED' || w.status === 'CLOSED' ? 'border-l-green-500'
+          : 'border-l-navy-400';
+
+        return (
+          <Card
+            key={w.id}
+            className={`p-0 cursor-pointer hover:shadow-lg transition border-l-4 ${accentBorder}`}
+            onClick={() => onOpen(w)}
+          >
+            {/* Header strip — identity + status flags */}
+            <div className="px-4 py-2.5 bg-gradient-to-r from-navy-50 to-white border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <Badge color={meta.color}><Icon size={11} className="inline mr-1" />{meta.label}</Badge>
+                <span className="font-semibold text-navy-900 truncate max-w-xs">{w.customerName}</span>
+                <span className="text-navy-300">·</span>
+                <span className="font-mono text-[11px] text-navy-600">{w.workOrderNumber}</span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {w.overdue && <Badge color="red">Overdue</Badge>}
+                {w.onTime === true && <Badge color="green">On-Time</Badge>}
+                {w.onTime === false && <Badge color="red">Late</Badge>}
+                {w.pdc3MonthAlertActive && (
+                  <span className="text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-600 text-white animate-pulse">
+                    <AlertTriangle size={11} /> PDC ≤ 3m
+                  </span>
+                )}
+                {activeAlarms.length > 0 && (
+                  <span className="text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-navy-900 text-white">
+                    <BellRing size={11} /> {activeAlarms.length} alarm{activeAlarms.length === 1 ? '' : 's'}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Main grid — all 15 client-required fields, evenly distributed */}
+            <div className="px-4 py-3 grid grid-cols-12 gap-3 text-xs">
+              <Field label="Supply Order" className="col-span-2">
+                <div className="font-medium text-navy-800">{w.supplyOrderNo}</div>
+                <div className="text-navy-500">{formatDate(w.supplyOrderDate)}</div>
+              </Field>
+              <Field label="Nomenclature" className="col-span-2">
+                <div className="text-navy-800 line-clamp-2" title={w.nomenclature || ''}>
+                  {w.nomenclature || <span className="text-navy-400">—</span>}
+                </div>
+                <div className="text-navy-500 mt-0.5">Qty: <span className="font-semibold text-navy-800">{w.orderQuantity}</span> {w.orderUnit}</div>
+              </Field>
+              <Field label="PDC" className="col-span-2">
+                <div className="text-navy-800 font-medium">{formatDate(w.effectivePdcDate)}</div>
+                <div className="text-navy-500">
+                  {w.extensions?.length > 0 ? `${w.extensions.length} ext` : 'original'}
+                  {ext?.bankGuaranteeExtendedUpto && ` · BG→${formatDate(ext.bankGuaranteeExtendedUpto)}`}
+                </div>
+                {ext && (
+                  <div className="text-[10px] text-navy-500">
+                    Req:{ext.requestLetterStatus || '—'} · PRC:{ext.prcStatus || '—'}
+                  </div>
+                )}
+              </Field>
+              <Field label="Approvals" className="col-span-2">
+                <div className="flex items-center gap-1">
+                  <ShieldCheck size={11} className="text-navy-500" />
+                  <span className="text-navy-700">Adm:</span>
+                  {w.adminAcceptedAt ? (
+                    <span className="text-navy-800">{formatDate(w.adminAcceptedAt)}</span>
+                  ) : <span className="text-navy-400">pending</span>}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Building2 size={11} className="text-navy-500" />
+                  <span className="text-navy-700">Unit:</span>
+                  {w.unitAcceptedAt ? (
+                    <span className="text-navy-800">
+                      {formatDate(w.unitAcceptedAt)}
+                      {w.assignedUnit && <span className="text-navy-500"> · {w.assignedUnit.code}</span>}
+                    </span>
+                  ) : <span className="text-navy-400">{w.assignedUnit ? w.assignedUnit.code : 'pending'}</span>}
+                </div>
+              </Field>
+              <Field label="Bank Guarantee" className="col-span-2">
+                {w.bankGuaranteeNo ? (
+                  <>
+                    <div className="font-mono text-[11px] text-navy-800 truncate" title={w.bankGuaranteeNo}>{w.bankGuaranteeNo}</div>
+                    <div className="text-navy-500">{w.bankGuaranteeDate ? formatDate(w.bankGuaranteeDate) : '—'}</div>
+                  </>
+                ) : <span className="text-navy-400">—</span>}
+              </Field>
+              <Field label="Insurance" className="col-span-2">
+                {w.insuranceNo ? (
+                  <>
+                    <div className="font-mono text-[11px] text-navy-800 truncate" title={w.insuranceNo}>{w.insuranceNo}</div>
+                    <div className="text-navy-500">{w.insuranceDate ? formatDate(w.insuranceDate) : '—'}</div>
+                  </>
+                ) : <span className="text-navy-400">—</span>}
+              </Field>
+
+              {/* Row 2: lots progress + delivery + remarks */}
+              <Field label="Lot Progress" className="col-span-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-navy-800">
+                    {lotsExpected ? `${lotsSent} / ${lotsExpected}` : `${lotsSent}`}
+                  </span>
+                  <span className="text-navy-500">lots {lotsExpected ? 'sent' : 'sent (open-ended)'}</span>
+                </div>
+                <div className="w-full h-1.5 bg-navy-100 rounded-full mt-1 overflow-hidden">
+                  <div
+                    className={`h-full ${lotPct === 100 ? 'bg-green-500' : 'bg-blue-500'}`}
+                    style={{ width: `${lotPct != null ? lotPct : deliveredPct}%` }}
+                  />
+                </div>
+                <div className="text-[10px] text-navy-500 mt-0.5">Qty {w.deliveredQty}/{w.orderQuantity} ({deliveredPct}%)</div>
+              </Field>
+              <Field label="Delivery Details" className="col-span-5">
+                <div className="text-navy-700 line-clamp-2" title={w.deliveryDetails || ''}>
+                  {w.deliveryDetails || <span className="text-navy-400">—</span>}
+                </div>
+              </Field>
+              <Field label="Remarks" className="col-span-4">
+                <div className="text-navy-700 line-clamp-2" title={w.remarks || ''}>
+                  {w.remarks || <span className="text-navy-400">—</span>}
+                </div>
+              </Field>
+            </div>
+
+            {/* Alarms strip — creative pulse chips at the bottom */}
+            {activeAlarms.length > 0 && (
+              <div className="px-4 py-2 border-t border-gray-100 bg-gradient-to-r from-rose-50/50 via-amber-50/50 to-white flex flex-wrap items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider font-semibold text-navy-600 inline-flex items-center gap-1">
+                  <BellRing size={11} /> Live Alarms
+                </span>
+                {activeAlarms.slice(0, 6).map((a) => {
+                  const sev = ALARM_SEVERITY_META[a.severity] || ALARM_SEVERITY_META.INFO;
+                  const SevIcon = sev.Icon;
+                  return (
+                    <span
+                      key={a.id}
+                      className={`text-[10px] inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${sev.pill}`}
+                      title={a.triggerContext || a.title}
+                    >
+                      <SevIcon size={10} />
+                      {a.title}
+                      {a.status === 'ACKNOWLEDGED' && <Check size={10} className="opacity-80" />}
+                    </span>
+                  );
+                })}
+                {activeAlarms.length > 6 && (
+                  <span className="text-[10px] text-navy-500">+{activeAlarms.length - 6} more</span>
+                )}
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
   );
 }
 
-const Th = ({ children }) => (
-  <th className="px-2.5 py-2 text-[11px] uppercase tracking-wider font-semibold whitespace-nowrap">{children}</th>
-);
-const Td = ({ children, className = '' }) => (
-  <td className={`px-2.5 py-2 align-top text-navy-700 ${className}`}>{children}</td>
+const Field = ({ label, children, className = '' }) => (
+  <div className={`min-w-0 ${className}`}>
+    <div className="text-[10px] uppercase tracking-wider text-navy-400 font-semibold mb-0.5">{label}</div>
+    <div className="text-xs text-navy-700 leading-tight">{children}</div>
+  </div>
 );
 
 // ────────────────────────────────────────────────────────────────────
@@ -436,7 +538,7 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
   const [form, setForm] = useState({
     supplyOrderNo: '', supplyOrderDate: '', supplyOrderDescription: '', nomenclature: '',
     customerName: '', customerContact: '',
-    orderQuantity: '', orderUnit: 'Nos', pdcDate: '', deliveryClause: '',
+    orderQuantity: '', orderUnit: 'Nos', pdcDate: '', deliveryClause: '', lotsExpected: '',
     fimDetails: '', inspectionAgency: '', qapNo: '',
     drawingsDetails: '', processDrawingsDetails: '',
     toolingScope: '', packingDetails: '', transportationDetails: '',
@@ -458,6 +560,7 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
     try {
       const payload = { ...form };
       payload.orderQuantity = Number(form.orderQuantity);
+      payload.lotsExpected = form.lotsExpected ? Number(form.lotsExpected) : null;
       if (!payload.assignedUnitId) delete payload.assignedUnitId;
       await api.post('/work-orders', payload);
       onCreated();
@@ -491,10 +594,11 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
         </Section>
 
         <Section title="Order & Delivery">
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
             <Input label="Order Quantity *" type="number" step="any" value={form.orderQuantity} onChange={(e) => setField('orderQuantity', e.target.value)} required />
             <Input label="Unit (UOM)" value={form.orderUnit} onChange={(e) => setField('orderUnit', e.target.value)} />
             <Input label="PDC Date *" type="date" value={form.pdcDate} onChange={(e) => setField('pdcDate', e.target.value)} required />
+            <Input label="No. of Lots Expected" type="number" min="1" value={form.lotsExpected} onChange={(e) => setField('lotsExpected', e.target.value)} placeholder="e.g. 3 (leave blank for 1)" />
             <Input label="Delivery Clause" value={form.deliveryClause} onChange={(e) => setField('deliveryClause', e.target.value)} placeholder="Prorata / On or before / In lots" />
           </div>
         </Section>
@@ -699,19 +803,27 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
         </div>
 
         <div className="border-b flex gap-2 flex-wrap">
-          {['overview', 'bg-insurance', 'extensions', 'invoices', 'closures', 'delivery', 'remarks'].map((s) => (
-            <button
-              key={s}
-              onClick={() => setSection(s)}
-              className={`px-3 py-2 text-xs uppercase tracking-wider font-semibold ${section === s ? 'border-b-2 border-navy-700 text-navy-800' : 'text-navy-400'}`}
-            >
-              {s === 'extensions' ? `Extensions (${wo.extensions.length})`
-                : s === 'invoices' ? `Invoices (${wo.invoices.length})`
-                : s === 'closures' ? `Closures (${(wo.closures || []).length})`
-                : s === 'bg-insurance' ? 'BG / Insurance'
-                : s}
-            </button>
-          ))}
+          {['overview', 'bg-insurance', 'extensions', 'invoices', 'closures', 'delivery', 'remarks', 'alarms'].map((s) => {
+            const activeAlarmCount = (wo.alarms || []).filter((a) => a.status === 'ACTIVE').length;
+            const isAlarms = s === 'alarms';
+            return (
+              <button
+                key={s}
+                onClick={() => setSection(s)}
+                className={`px-3 py-2 text-xs uppercase tracking-wider font-semibold inline-flex items-center gap-1.5 ${section === s ? 'border-b-2 border-navy-700 text-navy-800' : 'text-navy-400'} ${isAlarms && activeAlarmCount > 0 ? 'text-red-600' : ''}`}
+              >
+                {s === 'extensions' ? `Extensions (${wo.extensions.length})`
+                  : s === 'invoices' ? `Invoices (${wo.invoices.length})`
+                  : s === 'closures' ? `Closures (${(wo.closures || []).length})`
+                  : s === 'bg-insurance' ? 'BG / Insurance'
+                  : s === 'alarms' ? (
+                    <>Alarms {activeAlarmCount > 0 && (
+                      <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-red-600 text-white text-[10px] animate-pulse">{activeAlarmCount}</span>
+                    )}</>
+                  ) : s}
+              </button>
+            );
+          })}
         </div>
 
         {section === 'overview' && <OverviewTab wo={wo} />}
@@ -758,6 +870,17 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
             canEdit={canEditRemarks}
             busy={busy}
             onSave={(remarks) => handleAction(() => api.patch(`/work-orders/${wo.id}/remarks`, { remarks }))}
+          />
+        )}
+        {section === 'alarms' && (
+          <AlarmsTab
+            wo={wo}
+            currentUser={currentUser}
+            busy={busy}
+            onSync={() => handleAction(() => api.post(`/work-orders/${wo.id}/alarms/sync`))}
+            onAck={(alarmId, remark) => handleAction(() => api.post(`/work-orders/${wo.id}/alarms/${alarmId}/acknowledge`, { remark }))}
+            onResolve={(alarmId, remark) => handleAction(() => api.post(`/work-orders/${wo.id}/alarms/${alarmId}/resolve`, { remark }))}
+            onAddNote={(alarmId, body) => handleAction(() => api.post(`/work-orders/${wo.id}/alarms/${alarmId}/notes`, { body }))}
           />
         )}
 
@@ -1135,6 +1258,239 @@ function RemarksTab({ wo, canEdit, busy, onSave }) {
   );
 }
 
+// ────────────────────────────────────────────────────────────────────
+// Alarms tab — live + acknowledged alarms with a per-alarm remark
+// thread. Acknowledge & resolve each take a remark that is stored on
+// the alarm row AND appended to the immutable note thread, so the full
+// audit history is always visible.
+// ────────────────────────────────────────────────────────────────────
+function AlarmsTab({ wo, currentUser, busy, onSync, onAck, onResolve, onAddNote }) {
+  const alarms = wo.alarms || [];
+  const active = alarms.filter((a) => a.status === 'ACTIVE');
+  const ackd   = alarms.filter((a) => a.status === 'ACKNOWLEDGED');
+  const isMgmt = ['ADMIN', 'FINANCE', 'ACCOUNTING'].includes(currentUser?.role);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-navy-800">
+            {active.length} active · {ackd.length} acknowledged
+          </p>
+          <p className="text-[11px] text-navy-500">
+            Alarms recompute automatically every 10 minutes. Every action below stores a remark in the audit trail.
+          </p>
+        </div>
+        <Button variant="secondary" disabled={busy} onClick={onSync}>
+          <RefreshCw size={14} className="inline mr-1" /> Recompute now
+        </Button>
+      </div>
+
+      {alarms.length === 0 ? (
+        <div className="p-6 text-center bg-green-50 border border-green-200 rounded-md">
+          <CheckCircle2 className="mx-auto text-green-600 mb-2" size={28} />
+          <p className="text-sm font-medium text-green-800">No live alarms — this WO is clean.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {alarms.map((a) => (
+            <AlarmCard
+              key={a.id}
+              wo={wo}
+              alarm={a}
+              canManage={isMgmt}
+              busy={busy}
+              onAck={(remark) => onAck(a.id, remark)}
+              onResolve={(remark) => onResolve(a.id, remark)}
+              onAddNote={(body) => onAddNote(a.id, body)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AlarmCard({ wo, alarm, canManage, busy, onAck, onResolve, onAddNote }) {
+  const sev = ALARM_SEVERITY_META[alarm.severity] || ALARM_SEVERITY_META.INFO;
+  const SevIcon = sev.Icon;
+  const [ackRemark, setAckRemark] = useState('');
+  const [resolveRemark, setResolveRemark] = useState('');
+  const [noteBody, setNoteBody] = useState('');
+  const [expand, setExpand] = useState(true);
+  const closure = alarm.closureId
+    ? (wo.closures || []).find((c) => c.id === alarm.closureId)
+    : null;
+
+  const submitAck = () => {
+    if (!ackRemark.trim()) { alert('A remark is required when acknowledging an alarm.'); return; }
+    onAck(ackRemark.trim());
+    setAckRemark('');
+  };
+  const submitResolve = () => {
+    if (!resolveRemark.trim()) { alert('A remark is required when resolving an alarm.'); return; }
+    onResolve(resolveRemark.trim());
+    setResolveRemark('');
+  };
+  const submitNote = () => {
+    if (!noteBody.trim()) return;
+    onAddNote(noteBody.trim());
+    setNoteBody('');
+  };
+
+  return (
+    <div className={`border rounded-lg overflow-hidden ${sev.chip}`}>
+      <button
+        type="button"
+        onClick={() => setExpand((v) => !v)}
+        className="w-full flex items-start gap-3 px-3 py-2.5 text-left hover:bg-white/40 transition"
+      >
+        <span className={`mt-0.5 w-2 h-2 rounded-full ${sev.dot} ${alarm.status === 'ACTIVE' ? 'animate-pulse' : ''}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <SevIcon size={14} />
+            <span className="font-semibold text-sm">{alarm.title}</span>
+            <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/60 border border-current/20">
+              {alarm.type.replace(/_/g, ' ')}
+            </span>
+            <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded ${alarm.status === 'ACTIVE' ? 'bg-white text-current border border-current/30' : 'bg-current/20'}`}>
+              {alarm.status}
+            </span>
+            {closure && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/60 border border-current/20">
+                Lot #{closure.cycleNumber}
+              </span>
+            )}
+          </div>
+          {alarm.triggerContext && (
+            <p className="text-[11px] text-current/80 mt-0.5">{alarm.triggerContext}</p>
+          )}
+          <p className="text-[10px] text-current/60 mt-0.5">
+            Raised {formatDate(alarm.createdAt)}
+            {alarm.acknowledgedAt && ` · ack'd ${formatDate(alarm.acknowledgedAt)}${alarm.acknowledgedBy ? ` by ${alarm.acknowledgedBy.name}` : ''}`}
+          </p>
+        </div>
+        <ArrowDown size={14} className={`mt-1 transition-transform ${expand ? 'rotate-180' : ''}`} />
+      </button>
+
+      {expand && (
+        <div className="px-3 pb-3 pt-1 bg-white/70 space-y-3">
+          {/* Ack/resolve stored remarks */}
+          {alarm.ackRemark && (
+            <div className="text-[11px] p-2 rounded border border-amber-200 bg-amber-50">
+              <span className="font-semibold text-amber-800">Ack remark:</span>{' '}
+              <span className="text-amber-900">{alarm.ackRemark}</span>
+            </div>
+          )}
+          {alarm.resolveRemark && (
+            <div className="text-[11px] p-2 rounded border border-green-200 bg-green-50">
+              <span className="font-semibold text-green-800">Resolve remark:</span>{' '}
+              <span className="text-green-900">{alarm.resolveRemark}</span>
+            </div>
+          )}
+
+          {/* Notes thread — every remark is captured here */}
+          <div>
+            <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-500 mb-1">
+              Remark thread ({alarm.notes?.length || 0})
+            </p>
+            {alarm.notes?.length ? (
+              <ul className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                {alarm.notes.map((n) => (
+                  <li key={n.id} className={`text-[11px] p-2 rounded border ${n.kind === 'SYSTEM' ? 'bg-navy-50 border-navy-200' : n.kind === 'ACK' ? 'bg-amber-50 border-amber-200' : n.kind === 'RESOLVE' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+                    <div className="flex items-center gap-1 text-[10px] text-navy-500 mb-0.5">
+                      <UserCheck size={10} />
+                      <span className="font-semibold">{n.author?.name || 'System'}</span>
+                      <span>·</span>
+                      <span>{formatDate(n.createdAt)}</span>
+                      {n.kind && <span className="ml-1 px-1 rounded bg-navy-100 text-navy-600 text-[9px] uppercase">{n.kind}</span>}
+                    </div>
+                    <div className="text-navy-800 whitespace-pre-wrap">{n.body}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[11px] text-navy-400 italic">No remarks yet.</p>
+            )}
+            <div className="flex gap-1.5 mt-2">
+              <Input
+                value={noteBody}
+                onChange={(e) => setNoteBody(e.target.value)}
+                placeholder="Add a remark to this alarm…"
+                className="flex-1"
+              />
+              <Button variant="secondary" disabled={busy || !noteBody.trim()} onClick={submitNote}>
+                <FilePlus2 size={14} />
+              </Button>
+            </div>
+          </div>
+
+          {/* Ack + resolve actions */}
+          {canManage && alarm.status === 'ACTIVE' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-current/10 pt-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider font-semibold text-amber-700 mb-1">Acknowledge</p>
+                <Textarea
+                  rows={2}
+                  value={ackRemark}
+                  onChange={(e) => setAckRemark(e.target.value)}
+                  placeholder="Why are you acknowledging this? (required)"
+                />
+                <Button
+                  className="mt-1.5 w-full bg-amber-600 hover:bg-amber-700 text-white"
+                  disabled={busy || !ackRemark.trim()}
+                  onClick={submitAck}
+                >
+                  <Check size={14} className="inline mr-1" /> Acknowledge
+                </Button>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider font-semibold text-green-700 mb-1">Resolve</p>
+                <Textarea
+                  rows={2}
+                  value={resolveRemark}
+                  onChange={(e) => setResolveRemark(e.target.value)}
+                  placeholder="Action taken to resolve this (required)"
+                />
+                <Button
+                  className="mt-1.5 w-full bg-green-600 hover:bg-green-700 text-white"
+                  disabled={busy || !resolveRemark.trim()}
+                  onClick={submitResolve}
+                >
+                  <CheckCircle2 size={14} className="inline mr-1" /> Resolve
+                </Button>
+              </div>
+            </div>
+          )}
+          {canManage && alarm.status === 'ACKNOWLEDGED' && (
+            <div className="border-t border-current/10 pt-3">
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-green-700 mb-1">Resolve</p>
+              <Textarea
+                rows={2}
+                value={resolveRemark}
+                onChange={(e) => setResolveRemark(e.target.value)}
+                placeholder="Action taken to resolve this (required)"
+              />
+              <Button
+                className="mt-1.5 bg-green-600 hover:bg-green-700 text-white"
+                disabled={busy || !resolveRemark.trim()}
+                onClick={submitResolve}
+              >
+                <CheckCircle2 size={14} className="inline mr-1" /> Resolve
+              </Button>
+            </div>
+          )}
+          {!canManage && alarm.status === 'ACTIVE' && (
+            <p className="text-[11px] text-navy-500 italic border-t border-current/10 pt-2">
+              Only Admin, Finance and Accounting can acknowledge or resolve alarms — you can still add remarks above.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InvoicesTab({ wo, canLog, busy, onAdd }) {
   const [form, setForm] = useState({ invoiceNo: '', invoiceDate: '', quantity: '', remarks: '' });
   const remaining = Math.max(0, wo.orderQuantity - wo.deliveredQty);
@@ -1310,20 +1666,31 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
     setOpenForm({ deliveryQty: '', deliveryNote: '', deliveredAt: '' });
   };
 
+  const lotsSent = closures.length;
+  const lotsExpected = wo.lotsExpected || null;
+  const nextLotNo = lotsSent + 1;
+  const lotProgress = lotsExpected
+    ? `Lot ${lotsSent} of ${lotsExpected} sent`
+    : `${lotsSent} lot${lotsSent === 1 ? '' : 's'} sent`;
+
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-2 text-sm">
+      <div className="grid grid-cols-4 gap-2 text-sm">
         <div className="p-3 bg-navy-50 rounded-md">
           <p className="text-xs text-navy-500">WO Qty</p>
           <p className="font-bold text-navy-800">{wo.orderQuantity} {wo.orderUnit}</p>
         </div>
         <div className="p-3 bg-blue-50 rounded-md">
-          <p className="text-xs text-blue-700">In closure cycles</p>
+          <p className="text-xs text-blue-700">Delivered in lots</p>
           <p className="font-bold text-blue-800">{alreadyCovered} {wo.orderUnit}</p>
         </div>
         <div className="p-3 bg-yellow-50 rounded-md">
-          <p className="text-xs text-yellow-700">Awaiting cycle</p>
+          <p className="text-xs text-yellow-700">Qty remaining</p>
           <p className="font-bold text-yellow-800">{remaining} {wo.orderUnit}</p>
+        </div>
+        <div className={`p-3 rounded-md ${lotsExpected && lotsSent >= lotsExpected ? 'bg-green-50' : 'bg-purple-50'}`}>
+          <p className={`text-xs ${lotsExpected && lotsSent >= lotsExpected ? 'text-green-700' : 'text-purple-700'}`}>Lot progress</p>
+          <p className={`font-bold ${lotsExpected && lotsSent >= lotsExpected ? 'text-green-800' : 'text-purple-800'}`}>{lotProgress}</p>
         </div>
       </div>
 
@@ -1334,7 +1701,7 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
       )}
 
       {closures.length === 0 ? (
-        <p className="text-sm text-navy-500">No closure cycles opened yet.</p>
+        <p className="text-sm text-navy-500">No lots sent yet.</p>
       ) : (
         <div className="space-y-3">
           {closures.map((c) => (
@@ -1352,10 +1719,12 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
 
       {canStartCycle && (
         <form onSubmit={submitOpen} className="border-t pt-3 space-y-2">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Open new closure cycle (delivery batch)</p>
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">
+            Mark Lot {nextLotNo}{lotsExpected ? ` of ${lotsExpected}` : ''} ready → send to QC
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
-              label={`Batch Qty * (max ${remaining})`}
+              label={`Lot Qty * (max ${remaining})`}
               type="number"
               step="any"
               min="0.01"
@@ -1371,13 +1740,15 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
               onChange={(e) => setOpenForm({ ...openForm, deliveredAt: e.target.value })}
             />
             <Input
-              label="Batch Note"
+              label="Lot Note"
               value={openForm.deliveryNote}
               onChange={(e) => setOpenForm({ ...openForm, deliveryNote: e.target.value })}
-              placeholder="e.g. Lot-2 of 5"
+              placeholder={`e.g. Lot ${nextLotNo}${lotsExpected ? ` of ${lotsExpected}` : ''}`}
             />
           </div>
-          <Button type="submit" disabled={busy || !openForm.deliveryQty}>Open Cycle</Button>
+          <Button type="submit" disabled={busy || !openForm.deliveryQty}>
+            Lot {nextLotNo} Ready
+          </Button>
         </form>
       )}
     </div>
@@ -1407,9 +1778,10 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
   const [qcNote, setQcNote] = useState('');
   const [qcCertUrl, setQcCertUrl] = useState('');
   const [mgmtNote, setMgmtNote] = useState('');
-  const [invForm, setInvForm] = useState({ invoiceDate: '', description: '', invoiceFileUrl: '' });
+  const [invForm, setInvForm] = useState({ invoiceNumber: '', deliveryChallanNumber: '', invoiceDate: '', description: '' });
   const [payNote, setPayNote] = useState('');
   const [deliveryAckForm, setDeliveryAckForm] = useState({ note: '', signedUrl: '' });
+  const [ackBusy, setAckBusy] = useState(null);
   const [followupForm, setFollowupForm] = useState({ customerResponse: '', note: '' });
   const [holdItems, setHoldItems] = useState([{ docType: '', note: '' }]);
   const [holdReason, setHoldReason] = useState('');
@@ -1465,11 +1837,23 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
     note: qcNote || null,
   }));
   const mgmtApprove = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/mgmt-approve`, { note: mgmtNote || null }));
-  const sendInvoice = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/send-invoice`, {
-    invoiceDate: invForm.invoiceDate || null,
-    description: invForm.description || null,
-    invoiceFileUrl: invForm.invoiceFileUrl || null,
-  }));
+  const sendInvoice = () => {
+    if (!invForm.invoiceNumber.trim() || !invForm.deliveryChallanNumber.trim()) return;
+    onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/send-invoice`, {
+      invoiceNumber: invForm.invoiceNumber.trim(),
+      deliveryChallanNumber: invForm.deliveryChallanNumber.trim(),
+      invoiceDate: invForm.invoiceDate || null,
+      description: invForm.description || null,
+    }));
+  };
+  const toggleAck = async (which) => {
+    setAckBusy(which);
+    try {
+      await onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/mark-${which}-ack`));
+    } finally {
+      setAckBusy(null);
+    }
+  };
   const paymentReceived = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/payment-received`, { note: payNote || null }));
   const deliveryAck = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/delivery-ack`, {
     note: deliveryAckForm.note || null,
@@ -1500,7 +1884,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-navy-800">Cycle #{cycle.cycleNumber}</span>
+          <span className="font-semibold text-navy-800">Lot #{cycle.cycleNumber}</span>
           <Badge color={meta.color}>{meta.label}</Badge>
           <span className="text-xs text-navy-500">{cycle.deliveryQty} {wo.orderUnit}</span>
           {cycle.deliveredAt && <span className="text-xs text-navy-400">Delivered {formatDate(cycle.deliveredAt)}</span>}
@@ -1673,14 +2057,20 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
 
       {cycle.stage === 'MGMT_APPROVED' && (isFinance || isAdmin) && (
         <div className="border-t pt-3 space-y-2">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Send Invoice (starts 48h SLA — no amount)</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Record Invoice & Delivery Challan (starts 48h SLA — no amount)</p>
+          <p className="text-[11px] text-navy-500">
+            Enter the physical invoice number and delivery challan number being dispatched to the customer. No file upload — these are physical documents tracked by number only.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+            <Input label="Invoice Number *" value={invForm.invoiceNumber} onChange={(e) => setInvForm({ ...invForm, invoiceNumber: e.target.value })} placeholder="e.g. INV/26-27/0042" required />
+            <Input label="Delivery Challan No *" value={invForm.deliveryChallanNumber} onChange={(e) => setInvForm({ ...invForm, deliveryChallanNumber: e.target.value })} placeholder="e.g. DC/26-27/0042" required />
             <Input label="Invoice Date" type="date" value={invForm.invoiceDate} onChange={(e) => setInvForm({ ...invForm, invoiceDate: e.target.value })} />
             <Input label="Description (scope)" value={invForm.description} onChange={(e) => setInvForm({ ...invForm, description: e.target.value })} />
-            <Input label="Invoice File URL (optional)" value={invForm.invoiceFileUrl} onChange={(e) => setInvForm({ ...invForm, invoiceFileUrl: e.target.value })} />
           </div>
           <div className="flex gap-2">
-            <Button onClick={sendInvoice} disabled={busy}><Receipt size={12} className="mr-1" />Send Invoice & Start SLA</Button>
+            <Button onClick={sendInvoice} disabled={busy || !invForm.invoiceNumber.trim() || !invForm.deliveryChallanNumber.trim()}>
+              <Receipt size={12} className="mr-1" />Invoice & DC Sent — Start 48h SLA
+            </Button>
             <HoldControls items={holdItems} setItems={setHoldItems} reason={holdReason} setReason={setHoldReason} onSubmit={holdCycle} busy={busy} />
           </div>
         </div>
@@ -1690,15 +2080,54 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
         <div className="border-t pt-3 space-y-2">
           <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Customer Delivery Acknowledgement</p>
           <p className="text-[11px] text-navy-500">
-            Once the signed delivery paper is received back from the customer, ack here to stop the 48h SLA clock and start the 45-day payment window.
+            Tick both boxes once the signed copies come back. Both required before "Acknowledge Delivery" can stop the 48h SLA and open the 45-day payment window.
           </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 bg-navy-50 rounded">
+            <label className={`flex items-center gap-2 p-2 rounded border cursor-pointer ${cycle.invoiceAckReceived ? 'bg-green-50 border-green-300' : 'bg-white border-navy-200'} ${ackBusy === 'invoice' ? 'opacity-50' : ''}`}>
+              <input
+                type="checkbox"
+                checked={!!cycle.invoiceAckReceived}
+                disabled={!!cycle.invoiceAckReceived || busy}
+                onChange={() => toggleAck('invoice')}
+                className="w-4 h-4"
+              />
+              <div className="flex-1">
+                <div className="font-semibold text-sm text-navy-800">Invoice signed-copy received</div>
+                {cycle.invoiceAckReceived && cycle.invoiceAckAt && (
+                  <div className="text-[11px] text-navy-500">Ticked {formatDate(cycle.invoiceAckAt)}</div>
+                )}
+                {cycle.invoiceNumber && <div className="text-[10px] font-mono text-navy-400">#{cycle.invoiceNumber}</div>}
+              </div>
+              {cycle.invoiceAckReceived && <Check size={16} className="text-green-600" />}
+            </label>
+            <label className={`flex items-center gap-2 p-2 rounded border cursor-pointer ${cycle.dcAckReceived ? 'bg-green-50 border-green-300' : 'bg-white border-navy-200'} ${ackBusy === 'dc' ? 'opacity-50' : ''}`}>
+              <input
+                type="checkbox"
+                checked={!!cycle.dcAckReceived}
+                disabled={!!cycle.dcAckReceived || busy}
+                onChange={() => toggleAck('dc')}
+                className="w-4 h-4"
+              />
+              <div className="flex-1">
+                <div className="font-semibold text-sm text-navy-800">DC signed-copy received</div>
+                {cycle.dcAckReceived && cycle.dcAckAt && (
+                  <div className="text-[11px] text-navy-500">Ticked {formatDate(cycle.dcAckAt)}</div>
+                )}
+                {cycle.deliveryChallanNumber && <div className="text-[10px] font-mono text-navy-400">#{cycle.deliveryChallanNumber}</div>}
+              </div>
+              {cycle.dcAckReceived && <Check size={16} className="text-green-600" />}
+            </label>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <Input label="Signed paper URL (optional)" value={deliveryAckForm.signedUrl} onChange={(e) => setDeliveryAckForm({ ...deliveryAckForm, signedUrl: e.target.value })} />
             <Input label="Ack note" value={deliveryAckForm.note} onChange={(e) => setDeliveryAckForm({ ...deliveryAckForm, note: e.target.value })} placeholder="Who confirmed, date received, etc." />
           </div>
-          <Button onClick={deliveryAck} disabled={busy}>
-            <Truck size={12} className="mr-1" /> Delivery Ack — Start 45-day Payment Window
+          <Button onClick={deliveryAck} disabled={busy || !cycle.invoiceAckReceived || !cycle.dcAckReceived}>
+            <Truck size={12} className="mr-1" /> Acknowledge Delivery — Start 45-day Payment Window
           </Button>
+          {(!cycle.invoiceAckReceived || !cycle.dcAckReceived) && (
+            <p className="text-[11px] text-navy-500 italic">Tick both boxes above to enable.</p>
+          )}
         </div>
       )}
 

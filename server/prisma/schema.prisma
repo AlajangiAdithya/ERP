@@ -72,6 +72,9 @@ model User {
   woInsuranceEntriesAdded    WorkOrderInsuranceEntry[]  @relation("WOInsuranceEntryAdder")
   woPdcAlertsAcknowledged    WorkOrder[]                @relation("WorkOrderPdcAlertAcker")
   woClosureWeeklyFollowups   WorkOrderClosureWeeklyFollowup[] @relation("WOClosureWeeklyFollowupContact")
+  woAlarmsAcknowledged       WorkOrderAlarm[]           @relation("WOAlarmAcker")
+  woAlarmsResolved           WorkOrderAlarm[]           @relation("WOAlarmResolver")
+  woAlarmNotes               WorkOrderAlarmNote[]       @relation("WOAlarmNoteAuthor")
   materialPoolsCreated       MaterialPool[]             @relation("MaterialPoolCreator")
 
   // ── Gate Pass v2 (Local Job / Outside) relations ──
@@ -1298,6 +1301,10 @@ model WorkOrder {
   orderUnit      String   @default("Nos")
   pdcDate        DateTime // Primary delivery commitment date
   deliveryClause String?
+  // Supply Chain declares up-front how many delivery lots this WO will be split
+  // into (1 = single shot, N = batch deliveries). Drives "Lot X of N sent"
+  // progress badge and gates "Open Lot" once that many lots have been opened.
+  lotsExpected   Int?
 
   // Delivery progress notes (filled by Supply Chain or Accounts).
   deliveryDetails            String?
@@ -1373,6 +1380,7 @@ model WorkOrder {
   closures         WorkOrderClosure[]
   bgEntries        WorkOrderBgEntry[]
   insuranceEntries WorkOrderInsuranceEntry[]
+  alarms           WorkOrderAlarm[]
 
   @@index([assignedUnitId])
   @@index([status])
@@ -1518,19 +1526,25 @@ model WorkOrderClosure {
   mgmtApprovedBy   User?     @relation("WOClosureMgmtApprover", fields: [mgmtApprovedById], references: [id])
   mgmtApprovalNote String?
 
-  // Finance — invoice + send
-  invoiceNumber      String?   @unique // sequential per FY
-  invoiceDate        DateTime?
-  invoiceDescription String? // free-text scope description (no amount)
-  invoiceFileUrl     String? // uploaded invoice doc OR generated PDF
-  invoiceSentAt      DateTime? // ← starts the 48h SLA
-  invoiceSentById    String?
-  invoiceSentBy      User?     @relation("WOClosureInvoiceSender", fields: [invoiceSentById], references: [id])
-  slaDeadlineAt      DateTime? // = invoiceSentAt + 48h
-  last24hReminderAt  DateTime?
-  slaBreachedAt      DateTime?
+  // Finance — invoice + delivery challan (numbers entered manually, no upload)
+  invoiceNumber          String?   @unique // entered by Finance
+  deliveryChallanNumber  String?   // entered by Finance
+  invoiceDate            DateTime?
+  invoiceDescription     String? // free-text scope description (no amount)
+  invoiceFileUrl         String? // deprecated; kept for back-compat with old rows
+  invoiceSentAt          DateTime? // ← starts the 48h SLA (both numbers entered)
+  invoiceSentById        String?
+  invoiceSentBy          User?     @relation("WOClosureInvoiceSender", fields: [invoiceSentById], references: [id])
+  slaDeadlineAt          DateTime? // = invoiceSentAt + 48h
+  last24hReminderAt      DateTime?
+  slaBreachedAt          DateTime?
 
-  // Finance delivery acknowledgement — stops 48h SLA and starts 45-day payment window
+  // Finance delivery acknowledgement — stops 48h SLA and starts 45-day payment
+  // window. Both ack flags must be set true before deliveryAckAt is stamped.
+  invoiceAckReceived   Boolean   @default(false)
+  invoiceAckAt         DateTime?
+  dcAckReceived        Boolean   @default(false)
+  dcAckAt              DateTime?
   deliveryAckAt        DateTime?
   deliveryAckById      String?
   deliveryAckBy        User?     @relation("WOClosureDeliveryAcker", fields: [deliveryAckById], references: [id])
@@ -1597,6 +1611,88 @@ model WorkOrderHoldRequest {
   resolvedNote String?
 
   @@index([closureId])
+}
+
+// ──── WORK ORDER ALARMS ────
+// Operational alerts surfaced on the WO row (and the WO detail page). A daily
+// cron computes which alarm types apply (PDC near/overdue, lot stuck at QC,
+// 48h SLA breach, payment due/overdue, BG expiring, lot on hold) and inserts
+// new ACTIVE rows. Users can append remarks at any time (WorkOrderAlarmNote)
+// and acknowledge/resolve to clear the badge. Each transition stores its own
+// remark — full audit trail preserved.
+enum WorkOrderAlarmType {
+  PDC_NEAR           // PDC within 90 days
+  PDC_OVERDUE        // PDC passed, WO not completed
+  LOT_QC_PENDING     // Lot stuck at UNIT_DOCS_PENDING > 7 days
+  LOT_ON_HOLD        // Lot in ON_HOLD stage
+  SLA_BREACH_48H     // Invoice sent > 48h, no delivery ack
+  PAYMENT_DUE_SOON   // ≤ 7 days remaining on 45-day window
+  PAYMENT_OVERDUE    // 45 days passed, no payment
+  BG_EXPIRING        // Bank Guarantee valid-upto ≤ 30 days
+}
+
+enum WorkOrderAlarmSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum WorkOrderAlarmStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model WorkOrderAlarm {
+  id             String                @id @default(uuid())
+  workOrderId    String
+  workOrder      WorkOrder             @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  closureId      String? // optional — alarms tied to a specific lot/cycle
+  type           WorkOrderAlarmType
+  severity       WorkOrderAlarmSeverity
+  status         WorkOrderAlarmStatus  @default(ACTIVE)
+  title          String
+  // Initial trigger context (computed when the alarm fires).
+  triggerContext String?
+
+  createdAt      DateTime              @default(now())
+
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  acknowledgedBy   User?                @relation("WOAlarmAcker", fields: [acknowledgedById], references: [id])
+  ackRemark        String?
+
+  resolvedAt    DateTime?
+  resolvedById  String?
+  resolvedBy    User?                  @relation("WOAlarmResolver", fields: [resolvedById], references: [id])
+  resolveRemark String?
+
+  notes WorkOrderAlarmNote[]
+
+  // Prevent duplicate ACTIVE alarms of the same kind for the same scope.
+  // closureId is part of the key so per-lot alarms can coexist with WO-level.
+  @@unique([workOrderId, closureId, type, status])
+  @@index([workOrderId])
+  @@index([status])
+  @@index([type])
+}
+
+// Append-only note thread per alarm. Stores every comment/remark with author +
+// timestamp. The acknowledge/resolve remark is also mirrored here so the
+// timeline is complete in one query.
+model WorkOrderAlarmNote {
+  id        String         @id @default(uuid())
+  alarmId   String
+  alarm     WorkOrderAlarm @relation(fields: [alarmId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User           @relation("WOAlarmNoteAuthor", fields: [authorId], references: [id])
+  body      String
+  // Optional marker for system-generated rows (e.g. "Acknowledged", "Resolved")
+  // vs. plain user comments.
+  kind      String?        // COMMENT | ACK | RESOLVE | SYSTEM
+  createdAt DateTime       @default(now())
+
+  @@index([alarmId])
 }
 
 // Weekly follow-up record raised inside the 45-day post-delivery payment window.
