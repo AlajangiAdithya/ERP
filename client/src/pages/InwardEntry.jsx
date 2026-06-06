@@ -12,6 +12,7 @@ import { formatDate, formatDateTime } from '../utils/formatters';
 import InwardPdf from '../components/pdf/InwardPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import PageHero from '../components/shared/PageHero';
+import { checkFileSize } from '../utils/fileGuard';
 
 // Stores does the actual inward work. Manager / QC / Designs / R&D get a
 // read-only view so they can trace what's pending and what has already
@@ -114,11 +115,16 @@ function FromPOMode({ onSuccess, refreshKey, canEdit }) {
     const statuses = view === 'pending' ? PO_PENDING_STATUSES : PO_INWARDED_STATUSES;
     // Fetch each status bucket in parallel and merge — the list endpoint takes
     // a single status, so we just hit it once per status the user wants to see.
-    Promise.all(
+    // allSettled so a single failing status bucket doesn't blank the whole list.
+    Promise.allSettled(
       statuses.map((s) => api.get('/purchase-orders', { params: { status: s, limit: 100 } })),
     )
       .then((results) => {
-        const merged = results.flatMap((r) => r.data.orders || []);
+        const merged = results.flatMap((r) => {
+          if (r.status === 'fulfilled') return r.value.data.orders || [];
+          console.warn('[InwardEntry] status bucket fetch failed', r.reason?.message);
+          return [];
+        });
         // De-dupe by id in case the same order appears in overlapping buckets.
         const byId = new Map();
         for (const o of merged) byId.set(o.id, o);
@@ -288,23 +294,10 @@ function POInwardForm({ order, onCancel, onComplete, canEdit }) {
   };
 
   const submit = async () => {
+    // Inward qty is locked to QC-accepted (auto-prefilled from QC report).
+    // Stores Incharge can only confirm the entry — they cannot alter the qty.
     if (items.some(i => !i.receivedQty || parseFloat(i.receivedQty) <= 0)) {
-      return alert('Enter received quantity for all items');
-    }
-    if (items.some(i => parseFloat(i.receivedQty) > i.quantity)) {
-      return alert('Received qty cannot exceed ordered qty for any item');
-    }
-    // Per-lot cap: can't inward more of a given item than actually arrived in this lot
-    for (const i of items) {
-      if (i.arrivedQty != null && parseFloat(i.receivedQty) > i.arrivedQty + 0.001) {
-        return alert(`${i.productName}: received qty (${i.receivedQty}) exceeds lot arrived qty (${i.arrivedQty}).`);
-      }
-    }
-    if (qcAccepted != null) {
-      const totalReceiving = items.reduce((s, i) => s + parseFloat(i.receivedQty || 0), 0);
-      if (totalReceiving > qcAccepted + 0.001) {
-        return alert(`Total inward qty (${totalReceiving}) cannot exceed QC-accepted qty (${qcAccepted}). Only QC-accepted material can be entered into stores.`);
-      }
+      return alert('QC has not finalised an accepted quantity for this lot yet — cannot inward.');
     }
     setSaving(true);
     try {
@@ -416,8 +409,8 @@ function POInwardForm({ order, onCancel, onComplete, canEdit }) {
           Accepted <strong>{qcAccepted}</strong>,{' '}
           Rejected <strong>{latestInspection.qtyRejected ?? 0}</strong>.
           {qcAccepted < (lotArrivedQty ?? qcOrdered)
-            ? ' Only the QC-accepted quantity has been pre-filled below for inward entry.'
-            : ' Full arrived quantity accepted by QC.'}
+            ? ' Inward quantity is locked to the QC-accepted total — Stores Incharge cannot alter it.'
+            : ' Full arrived quantity accepted by QC. Inward quantity is locked to this total.'}
         </div>
       )}
 
@@ -428,7 +421,7 @@ function POInwardForm({ order, onCancel, onComplete, canEdit }) {
               <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Product</th>
               <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Ordered</th>
               <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Arrived (Lot {lotNumber ?? '—'})</th>
-              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Received *</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Received (locked — QC accepted)</th>
               <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Batch No (locked)</th>
             </tr>
           </thead>
@@ -441,10 +434,9 @@ function POInwardForm({ order, onCancel, onComplete, canEdit }) {
                   {it.arrivedQty != null ? `${it.arrivedQty} ${it.productUnit}` : '—'}
                 </td>
                 <td className="px-3 py-2">
-                  <input type="number" value={it.receivedQty} min="0" step="any"
-                    disabled={!canEdit}
-                    onChange={(e) => updateItem(idx, 'receivedQty', e.target.value)}
-                    className="w-24 px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100 disabled:text-gray-600" />
+                  <span className="inline-block min-w-[3rem] px-2 py-1 bg-gray-100 border border-gray-200 rounded text-sm font-semibold text-gray-800">
+                    {it.receivedQty || 0}
+                  </span>
                   <span className="ml-1 text-xs text-gray-500">{it.productUnit}</span>
                 </td>
                 <td className="px-3 py-2 font-mono text-xs text-amber-800 font-semibold">
@@ -1001,7 +993,11 @@ function RecordInwardModal({ onClose, onCreated }) {
               <input
                 type="file"
                 accept="application/pdf"
-                onChange={e => setCustomerGpPdf(e.target.files?.[0] || null)}
+                onChange={e => {
+                  const f = e.target.files?.[0] || null;
+                  if (f && !checkFileSize(f)) { e.target.value = ''; return; }
+                  setCustomerGpPdf(f);
+                }}
                 className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800"
               />
               {customerGpPdf && (

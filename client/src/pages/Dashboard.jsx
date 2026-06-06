@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock } from 'lucide-react';
+import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock, Truck, DoorOpen, MapPin, Send, ShieldCheck, ScrollText, Inbox, ArrowRight, Calendar, Eye, FileSearch, CreditCard, BarChart3, ArrowLeftRight, FlaskConical, History } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -10,7 +10,7 @@ import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
-import { formatDateTime } from '../utils/formatters';
+import { formatDate, formatDateTime } from '../utils/formatters';
 import { useNavigate } from 'react-router-dom';
 
 const greet = (user, roleLabel) => {
@@ -456,21 +456,27 @@ function ManagerDashboard() {
     pr: { total: 0, pending: 0, active: 0, completed: 0 },
     po: { total: 0, active: 0, completed: 0 },
   });
+  const [ions, setIons] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const isLab = user?.role === 'LAB';
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const results = await Promise.allSettled([
+      const tasks = [
         api.get('/products', { params: { limit: 50 } }),
         api.get('/requests', { params: { limit: 10 } }),
         api.get('/purchase-requests', { params: { limit: 20 } }),
         api.get('/purchase-requests/unit-dashboard'),
-      ]);
+      ];
+      if (isLab) tasks.push(api.get('/ion', { params: { limit: 20 } }));
+
+      const results = await Promise.allSettled(tasks);
 
       if (cancelled) return;
 
-      const [prodRes, reqRes, prRes, unitRes] = results;
+      const [prodRes, reqRes, prRes, unitRes, ionRes] = results;
       if (prodRes.status === 'fulfilled') {
         setProducts(prodRes.value.data.products || []);
         setTotalProducts(prodRes.value.data.total || 0);
@@ -480,19 +486,20 @@ function ManagerDashboard() {
         setPurchaseRequests(prRes.value.data.requests || []);
       }
       if (unitRes.status === 'fulfilled') setUnitStats(unitRes.value.data);
+      if (ionRes && ionRes.status === 'fulfilled') setIons(ionRes.value.data.ions || []);
       setLoading(false);
     };
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [isLab]);
 
   if (loading) return <Loader />;
 
   return (
     <div className="space-y-6">
       <DashboardHero
-        title={greet(user, { MANAGER: 'Manager', LAB: 'Lab' }[user?.role] || 'Manager')}
-        subtitle="MIV and purchase activity for your unit"
+        title={greet(user, { MANAGER: 'Manager', LAB: 'Lab', PLANNING: 'Planning' }[user?.role] || 'Manager')}
+        subtitle={isLab ? 'ION inbox, MIV and purchase activity for your unit' : 'MIV and purchase activity for your unit'}
         actions={
           <>
             <InProgressButton />
@@ -614,6 +621,64 @@ function ManagerDashboard() {
           </table>
         </div>
       </Card>
+
+      {/* ION pending — LAB only */}
+      {isLab && (
+        <Card>
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-purple-50 text-purple-700 ring-1 ring-purple-100">
+                <FlaskConical size={15} />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-800">
+                  Inter-Office Notes
+                  <span className="ml-2 text-xs font-normal text-gray-500">({ions.filter(i => i.status !== 'COLLECTED').length} open)</span>
+                </h3>
+                <p className="text-[11px] text-gray-500 mt-0.5">Lab samples and tests requested across units</p>
+              </div>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => navigate('/ion')}>Open ION</Button>
+          </div>
+          {ions.length === 0 ? (
+            <div className="text-center py-8">
+              <div className="w-12 h-12 mx-auto rounded-full bg-gray-50 ring-1 ring-gray-100 flex items-center justify-center mb-2">
+                <FlaskConical size={22} className="text-gray-400" />
+              </div>
+              <p className="text-sm text-gray-600">No ION requests right now.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50/60">
+                    <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">ION #</th>
+                    <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">From</th>
+                    <th className="px-3 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Items</th>
+                    <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Raised</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ions.slice(0, 10).map((i, idx) => (
+                    <tr key={i.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/ion')}>
+                      <td className="px-3 py-2.5 font-medium text-navy-700">{i.ionNumber || i.id?.slice(0, 6)}</td>
+                      <td className="px-3 py-2.5 text-gray-600">{i.createdBy?.name || '—'}</td>
+                      <td className="px-3 py-2.5 text-center text-gray-600">{i.items?.length || 0}</td>
+                      <td className="px-3 py-2.5">
+                        <Badge color={i.status === 'COLLECTED' ? 'green' : i.status === 'WAITING' ? 'yellow' : 'blue'}>
+                          {i.status}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2.5 text-gray-500 text-xs">{formatDateTime(i.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Recent MIV Requests */}
       {requests.length > 0 && (
@@ -842,6 +907,308 @@ function StoreManagerDashboard() {
         products={lowStock}
         loading={false}
       />
+    </div>
+  );
+}
+
+const GP_KIND_LABEL = { LOCAL_JOB: 'Local Job', OUTSIDE: 'Outside' };
+const GP_KIND_COLOR = { LOCAL_JOB: 'purple', OUTSIDE: 'blue' };
+
+function LogisticsDashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [pendingLogistics, setPendingLogistics] = useState([]);
+  const [inTransit, setInTransit] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const results = await Promise.allSettled([
+        api.get('/gatepasses', { params: { direction: 'OUTWARD', status: 'PENDING_LOGISTICS', limit: 50 } }),
+        api.get('/gatepasses', { params: { direction: 'OUTWARD', status: 'IN_TRANSIT', limit: 50 } }),
+        api.get('/vehicles'),
+      ]);
+      if (cancelled) return;
+      const [pendRes, transitRes, vehRes] = results;
+      if (pendRes.status === 'fulfilled') setPendingLogistics(pendRes.value.data.gatePasses || []);
+      if (transitRes.status === 'fulfilled') setInTransit(transitRes.value.data.gatePasses || []);
+      if (vehRes.status === 'fulfilled') setVehicles(vehRes.value.data.vehicles || []);
+      setLoading(false);
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <Loader />;
+
+  const activeVehicles = vehicles.filter(v => v.status === 'ACTIVE').length;
+  const maintenanceVehicles = vehicles.filter(v => v.status === 'MAINTENANCE').length;
+  const today = new Date();
+  const in30Days = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const expiringDocs = vehicles.filter(v => {
+    const dates = [v.insuranceExpiry, v.pucExpiry, v.fitnessExpiry].filter(Boolean).map(d => new Date(d));
+    return dates.some(d => d <= in30Days);
+  }).length;
+
+  return (
+    <div className="space-y-6">
+      <DashboardHero
+        title={greet(user, 'Logistics')}
+        subtitle="Vehicle assignments, gate-pass dispatch, and fleet status"
+        eyebrow="Logistics Control"
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => navigate('/vehicles')}>
+              <Truck size={16} className="mr-1" /> Vehicles
+            </Button>
+            <Button onClick={() => navigate('/gate-pass')}>
+              <DoorOpen size={16} className="mr-1" /> Gate Pass
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard
+          title="Pending Logistics"
+          value={pendingLogistics.length}
+          subtitle="Awaiting vehicle / dispatch"
+          icon={ClipboardList}
+          color="yellow"
+          onClick={() => navigate('/gate-pass')}
+        />
+        <StatsCard
+          title="In Transit"
+          value={inTransit.length}
+          subtitle="Dispatched, awaiting ack"
+          icon={Send}
+          color="blue"
+          onClick={() => navigate('/gate-pass')}
+        />
+        <StatsCard
+          title="Active Vehicles"
+          value={activeVehicles}
+          subtitle={`${vehicles.length} total in register`}
+          icon={Truck}
+          color="green"
+          onClick={() => navigate('/vehicles')}
+        />
+        <StatsCard
+          title="Docs Expiring"
+          value={expiringDocs}
+          subtitle="Insurance / PUC / fitness ≤ 30d"
+          icon={AlertTriangle}
+          color={expiringDocs > 0 ? 'red' : 'navy'}
+          onClick={() => navigate('/vehicles')}
+        />
+      </div>
+
+      <Card>
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-yellow-50 text-yellow-700 ring-1 ring-yellow-100">
+              <ClipboardList size={15} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">
+                Pending Logistics Action
+                <span className="ml-2 text-xs font-normal text-gray-500">({pendingLogistics.length})</span>
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">Gate passes ready for vehicle assignment and dispatch</p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>Open Gate Pass</Button>
+        </div>
+        {pendingLogistics.length === 0 ? (
+          <div className="text-center py-8">
+            <div className="w-12 h-12 mx-auto rounded-full bg-green-50 ring-1 ring-green-100 flex items-center justify-center mb-2">
+              <CheckCircle size={22} className="text-green-600" />
+            </div>
+            <p className="text-sm text-gray-600">Nothing waiting for logistics right now.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50/60">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Pass #</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Kind</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Destination</th>
+                  <th className="px-3 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Items</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Vehicle</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Raised</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingLogistics.map((g, i) => (
+                  <tr
+                    key={g.id}
+                    className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`}
+                    onClick={() => navigate('/gate-pass')}
+                  >
+                    <td className="px-3 py-2.5 font-medium text-navy-700">{g.passNumber}</td>
+                    <td className="px-3 py-2.5">
+                      {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-600">{g.destinationOffice || g.partyName || '—'}</td>
+                    <td className="px-3 py-2.5 text-center text-gray-500">{g.items?.length || 0}</td>
+                    <td className="px-3 py-2.5 text-gray-600">
+                      {g.assignedVehicle ? (
+                        <span className="text-xs font-mono">{g.assignedVehicle.regNumber}</span>
+                      ) : (
+                        <Badge color="yellow">Not assigned</Badge>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-500 text-xs">{formatDateTime(g.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 ring-1 ring-blue-100">
+              <Send size={15} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">
+                In Transit
+                <span className="ml-2 text-xs font-normal text-gray-500">({inTransit.length})</span>
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">Dispatched and awaiting site acknowledgement</p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>View All</Button>
+        </div>
+        {inTransit.length === 0 ? (
+          <div className="text-center py-8">
+            <Send size={32} className="mx-auto text-gray-300 mb-2" />
+            <p className="text-sm text-gray-500">No gate passes in transit.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50/60">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Pass #</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Kind</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Vehicle</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Destination</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Dispatched</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inTransit.map((g, i) => (
+                  <tr
+                    key={g.id}
+                    className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`}
+                    onClick={() => navigate('/gate-pass')}
+                  >
+                    <td className="px-3 py-2.5 font-medium text-navy-700">{g.passNumber}</td>
+                    <td className="px-3 py-2.5">
+                      {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 font-mono text-xs text-gray-700">
+                      {g.assignedVehicle?.regNumber || g.vehicleNo || '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-600">
+                      <span className="inline-flex items-center gap-1">
+                        <MapPin size={11} className="text-gray-400" />
+                        {g.destinationOffice || g.partyName || '—'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-500 text-xs">
+                      {g.dispatchedAt ? formatDateTime(g.dispatchedAt) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-green-50 text-green-700 ring-1 ring-green-100">
+              <Truck size={15} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">
+                Vehicle Fleet
+                <span className="ml-2 text-xs font-normal text-gray-500">({vehicles.length})</span>
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">Active vehicles and document expiry status</p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/vehicles')}>Manage Fleet</Button>
+        </div>
+        {vehicles.length === 0 ? (
+          <div className="text-center py-8">
+            <Truck size={32} className="mx-auto text-gray-300 mb-2" />
+            <p className="text-sm text-gray-600 font-medium">No vehicles registered yet</p>
+            <p className="text-xs text-gray-400 mt-1">Add your first vehicle from the Vehicles page.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50/60">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Reg #</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Type</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Driver</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Insurance</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vehicles.slice(0, 10).map((v, i) => {
+                  const insExp = v.insuranceExpiry ? new Date(v.insuranceExpiry) : null;
+                  const insSoon = insExp && insExp <= in30Days;
+                  return (
+                    <tr
+                      key={v.id}
+                      className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`}
+                      onClick={() => navigate('/vehicles')}
+                    >
+                      <td className="px-3 py-2.5 font-mono font-medium text-navy-700">{v.regNumber}</td>
+                      <td className="px-3 py-2.5 text-gray-600">{v.vehicleType || '—'}</td>
+                      <td className="px-3 py-2.5 text-gray-600">{v.driverName || '—'}</td>
+                      <td className="px-3 py-2.5 text-xs">
+                        {insExp ? (
+                          <span className={insSoon ? 'text-red-600 font-semibold' : 'text-gray-500'}>
+                            {formatDate(insExp)}
+                          </span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Badge color={v.status === 'ACTIVE' ? 'green' : v.status === 'MAINTENANCE' ? 'yellow' : 'gray'}>
+                          {v.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {maintenanceVehicles > 0 && (
+              <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-100">
+                <AlertTriangle size={13} className="text-amber-600 flex-shrink-0" />
+                <p className="text-xs text-amber-800">
+                  {maintenanceVehicles} vehicle{maintenanceVehicles === 1 ? '' : 's'} currently in maintenance.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
@@ -1707,6 +2074,548 @@ function SupplyChainDashboard() {
   );
 }
 
+// ──────────────────────────────────────────────────────────────────
+// Site Office Dashboard — incoming gate-pass acknowledgements
+// SITE_OFFICE acks IN_TRANSIT outward gate passes that have reached
+// the destination site (Customer / Sub-contractor / Outside party).
+// ──────────────────────────────────────────────────────────────────
+function SiteOfficeDashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [inTransit, setInTransit] = useState([]);
+  const [recentlyClosed, setRecentlyClosed] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const results = await Promise.allSettled([
+        api.get('/gatepasses', { params: { direction: 'OUTWARD', status: 'IN_TRANSIT', limit: 50 } }),
+        api.get('/gatepasses', { params: { direction: 'OUTWARD', status: 'CLOSED', limit: 10 } }),
+      ]);
+      if (cancelled) return;
+      const [transitRes, closedRes] = results;
+      if (transitRes.status === 'fulfilled') setInTransit(transitRes.value.data.gatePasses || []);
+      if (closedRes.status === 'fulfilled') setRecentlyClosed(closedRes.value.data.gatePasses || []);
+      setLoading(false);
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <Loader />;
+
+  const now = new Date();
+  const startOfWeek = new Date(now.getTime() - 7 * 86400000);
+  const closedThisWeek = recentlyClosed.filter(g => g.acknowledgedAt && new Date(g.acknowledgedAt) >= startOfWeek).length;
+
+  const hoursSince = (d) => d ? Math.floor((now - new Date(d)) / 3600000) : 0;
+  const urgentCount = inTransit.filter(g => hoursSince(g.dispatchedAt) >= 24).length;
+  const urgencyBadge = (hours) => {
+    if (hours >= 48) return <Badge color="red">{hours}h waiting</Badge>;
+    if (hours >= 24) return <Badge color="yellow">{hours}h waiting</Badge>;
+    return <Badge color="blue">{hours}h ago</Badge>;
+  };
+
+  return (
+    <div className="space-y-6">
+      <DashboardHero
+        title={greet(user, 'Site Office')}
+        subtitle="Acknowledge incoming gate passes and confirm receipt of materials"
+        eyebrow="Site Office Inbox"
+        actions={
+          <Button onClick={() => navigate('/gate-pass')}>
+            <DoorOpen size={16} className="mr-1" /> Open Gate Pass
+          </Button>
+        }
+      />
+
+      {urgentCount > 0 && (
+        <div className="rounded-2xl border border-red-200 bg-gradient-to-r from-red-50 to-orange-50 px-5 py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-red-100 text-red-700 ring-1 ring-red-200">
+              <AlertTriangle size={18} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-red-900">{urgentCount} gate pass{urgentCount === 1 ? '' : 'es'} need urgent attention</p>
+              <p className="text-xs text-red-700/80 mt-0.5">In transit for over 24 hours — please verify receipt or escalate.</p>
+            </div>
+          </div>
+          <Button size="sm" onClick={() => navigate('/gate-pass')}>Review now <ArrowRight size={14} className="ml-1" /></Button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard
+          title="Awaiting Acknowledgement"
+          value={inTransit.length}
+          subtitle={inTransit.length === 0 ? 'Inbox clear ✓' : 'In transit — need ack'}
+          icon={Inbox}
+          color={inTransit.length > 0 ? 'red' : 'green'}
+          onClick={() => navigate('/gate-pass')}
+        />
+        <StatsCard
+          title="Urgent (>24h)"
+          value={urgentCount}
+          subtitle="Overdue acknowledgements"
+          icon={Clock}
+          color={urgentCount > 0 ? 'red' : 'navy'}
+          onClick={() => navigate('/gate-pass')}
+        />
+        <StatsCard
+          title="Acked This Week"
+          value={closedThisWeek}
+          subtitle="Confirmed in last 7 days"
+          icon={CheckCircle}
+          color="green"
+          onClick={() => navigate('/gate-pass')}
+        />
+        <StatsCard
+          title="Recently Closed"
+          value={recentlyClosed.length}
+          subtitle="Last 10 acknowledgements"
+          icon={ClipboardCheck}
+          color="navy"
+          onClick={() => navigate('/gate-pass')}
+        />
+      </div>
+
+      <Card>
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-red-50 text-red-700 ring-1 ring-red-100">
+              <Inbox size={15} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">Awaiting My Acknowledgement</h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">Dispatched gate passes that need your sign-off</p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>Open Gate Pass</Button>
+        </div>
+        {inTransit.length === 0 ? (
+          <div className="text-center py-10">
+            <div className="w-14 h-14 mx-auto rounded-full bg-green-50 ring-1 ring-green-100 flex items-center justify-center mb-3">
+              <CheckCircle size={26} className="text-green-600" />
+            </div>
+            <p className="text-sm font-medium text-gray-700">All caught up!</p>
+            <p className="text-xs text-gray-500 mt-1">No incoming gate passes need acknowledgement right now.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50/60">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Pass #</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Kind</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">From</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Destination</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Vehicle</th>
+                  <th className="px-3 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Items</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Waiting</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inTransit.map((g, i) => {
+                  const hrs = hoursSince(g.dispatchedAt);
+                  return (
+                    <tr
+                      key={g.id}
+                      className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`}
+                      onClick={() => navigate('/gate-pass')}
+                    >
+                      <td className="px-3 py-2.5 font-medium text-navy-700">{g.passNumber}</td>
+                      <td className="px-3 py-2.5">
+                        {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-gray-600">{g.unit?.name || g.unit?.code || '—'}</td>
+                      <td className="px-3 py-2.5 text-gray-600">
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin size={11} className="text-gray-400" />
+                          {g.destinationOffice || g.partyName || '—'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-xs text-gray-700">
+                        {g.assignedVehicle?.regNumber || g.vehicleNo || '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-center text-gray-500">{g.items?.length || 0}</td>
+                      <td className="px-3 py-2.5">
+                        {g.dispatchedAt ? urgencyBadge(hrs) : <span className="text-xs text-gray-400">—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-green-50 text-green-700 ring-1 ring-green-100">
+              <History size={15} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">Recently Acknowledged</h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">Your last 10 confirmations</p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>View All</Button>
+        </div>
+        {recentlyClosed.length === 0 ? (
+          <div className="text-center py-8">
+            <Clock size={32} className="mx-auto text-gray-300 mb-2" />
+            <p className="text-sm text-gray-500">No closed gate passes yet.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50/60">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Pass #</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Kind</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Destination</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Acked</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentlyClosed.map((g, i) => (
+                  <tr
+                    key={g.id}
+                    className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`}
+                    onClick={() => navigate('/gate-pass')}
+                  >
+                    <td className="px-3 py-2.5 font-medium text-navy-700">{g.passNumber}</td>
+                    <td className="px-3 py-2.5">
+                      {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-600">{g.destinationOffice || g.partyName || '—'}</td>
+                    <td className="px-3 py-2.5 text-gray-500 text-xs">
+                      {g.acknowledgedAt ? formatDateTime(g.acknowledgedAt) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Safety Dashboard — read-only oversight across workflows
+// SAFETY monitors MIVs, work orders, low stock, and procurement
+// activity. Links to the Safety Monitor for deeper drill-down.
+// ──────────────────────────────────────────────────────────────────
+function SafetyDashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [mivPending, setMivPending] = useState([]);
+  const [workOrders, setWorkOrders] = useState([]);
+  const [lowStock, setLowStock] = useState([]);
+  const [prStats, setPrStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const results = await Promise.allSettled([
+        api.get('/requests', { params: { status: 'PENDING', limit: 10 } }),
+        api.get('/work-orders', { params: { limit: 50 } }),
+        api.get('/alerts/low-stock'),
+        api.get('/purchase-requests/dashboard-stats'),
+      ]);
+      if (cancelled) return;
+      const [mivRes, woRes, lowRes, prRes] = results;
+      if (mivRes.status === 'fulfilled') setMivPending(mivRes.value.data.requests || []);
+      if (woRes.status === 'fulfilled') setWorkOrders(woRes.value.data.workOrders || []);
+      if (lowRes.status === 'fulfilled') setLowStock(lowRes.value.data || []);
+      if (prRes.status === 'fulfilled') setPrStats(prRes.value.data);
+      setLoading(false);
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <Loader />;
+
+  const openWorkOrders = workOrders.filter(w => !['COMPLETED', 'CLOSED', 'REJECTED'].includes(w.status));
+  const overdueWO = workOrders.filter(w => w.overdue).length;
+  const criticalLowStock = lowStock.filter(p => p.stockStatus === 'Out of Stock' || p.stockStatus === 'Critical').length;
+
+  const oversightTiles = [
+    { to: '/purchase-requests', label: 'Purchase Requests', icon: ShoppingCart, color: 'from-blue-500 to-blue-600' },
+    { to: '/quotations',        label: 'Quotations',        icon: FileSearch,   color: 'from-purple-500 to-purple-600' },
+    { to: '/purchase-orders',   label: 'Purchase Orders',   icon: Truck,        color: 'from-indigo-500 to-indigo-600' },
+    { to: '/payment-requests',  label: 'Payments',          icon: CreditCard,   color: 'from-emerald-500 to-emerald-600' },
+    { to: '/qc-inspections',    label: 'QC Inspections',    icon: ClipboardCheck, color: 'from-amber-500 to-amber-600' },
+    { to: '/gate-pass',         label: 'Gate Passes',       icon: DoorOpen,     color: 'from-cyan-500 to-cyan-600' },
+    { to: '/inventory-transfers', label: 'Transfers',       icon: ArrowLeftRight, color: 'from-pink-500 to-pink-600' },
+    { to: '/work-orders',       label: 'Work Orders',       icon: ClipboardList, color: 'from-orange-500 to-orange-600' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <DashboardHero
+        title={greet(user, 'Safety')}
+        subtitle="Cross-workflow oversight — MIVs, work orders, procurement, and stock"
+        eyebrow="Safety Oversight"
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => navigate('/safety')}>
+              <ShieldCheck size={16} className="mr-1" /> Safety Monitor
+            </Button>
+            <Button onClick={() => navigate('/all-requests')}>
+              <ScrollText size={16} className="mr-1" /> All MIV Requests
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard
+          title="Pending MIVs"
+          value={mivPending.length}
+          subtitle="Awaiting clearance"
+          icon={ClipboardList}
+          color="yellow"
+          onClick={() => navigate('/all-requests')}
+        />
+        <StatsCard
+          title="Open Work Orders"
+          value={openWorkOrders.length}
+          subtitle={overdueWO > 0 ? `${overdueWO} overdue` : 'All on schedule'}
+          icon={Activity}
+          color={overdueWO > 0 ? 'red' : 'blue'}
+          onClick={() => navigate('/work-orders')}
+        />
+        <StatsCard
+          title="Critical Low Stock"
+          value={criticalLowStock}
+          subtitle={`${lowStock.length} total below min`}
+          icon={AlertTriangle}
+          color={criticalLowStock > 0 ? 'red' : 'green'}
+          onClick={() => navigate('/monitoring')}
+        />
+        <StatsCard
+          title="Active POs"
+          value={prStats ? (prStats.inProgress || 0) : '—'}
+          subtitle="Procurement in motion"
+          icon={ShoppingCart}
+          color="navy"
+          onClick={() => navigate('/purchase-orders')}
+        />
+      </div>
+
+      {/* Quick-access oversight tiles */}
+      <Card>
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100">
+              <Eye size={15} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">Workflow Oversight</h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">Jump into any workflow for read-only inspection</p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/safety')}>Full Monitor</Button>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {oversightTiles.map((tile) => {
+            const Icon = tile.icon;
+            return (
+              <button
+                key={tile.to}
+                onClick={() => navigate(tile.to)}
+                className="group relative overflow-hidden rounded-xl border border-gray-200 bg-white p-3 hover:shadow-md hover:border-navy-200 transition-all duration-150 text-left"
+              >
+                <div className={`absolute -right-6 -top-6 w-16 h-16 rounded-full bg-gradient-to-br ${tile.color} opacity-10 group-hover:opacity-20 blur-xl transition-opacity`} />
+                <div className={`relative inline-flex p-2 rounded-lg bg-gradient-to-br ${tile.color} text-white shadow-sm`}>
+                  <Icon size={16} strokeWidth={2.2} />
+                </div>
+                <p className="relative text-xs font-semibold text-gray-700 mt-2">{tile.label}</p>
+                <p className="relative text-[10px] text-gray-400 mt-0.5 group-hover:text-navy-600 transition-colors">View →</p>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-yellow-50 text-yellow-700 ring-1 ring-yellow-100">
+              <ClipboardList size={15} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">
+                Pending MIV Requests
+                <span className="ml-2 text-xs font-normal text-gray-500">({mivPending.length})</span>
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">Material issue requests awaiting store clearance</p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/all-requests')}>View All</Button>
+        </div>
+        {mivPending.length === 0 ? (
+          <div className="text-center py-8">
+            <div className="w-12 h-12 mx-auto rounded-full bg-green-50 ring-1 ring-green-100 flex items-center justify-center mb-2">
+              <CheckCircle size={22} className="text-green-600" />
+            </div>
+            <p className="text-sm text-gray-600">No pending MIV requests.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50/60">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Request #</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Manager</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Unit</th>
+                  <th className="px-3 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Items</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Raised</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mivPending.map((r, i) => (
+                  <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/all-requests')}>
+                    <td className="px-3 py-2.5 font-medium text-navy-700">{r.requestNumber}</td>
+                    <td className="px-3 py-2.5 text-gray-600">{r.manager?.name || '—'}</td>
+                    <td className="px-3 py-2.5"><Badge color="blue">{r.unit?.code || '—'}</Badge></td>
+                    <td className="px-3 py-2.5 text-center text-gray-600">{r.items?.length || 0}</td>
+                    <td className="px-3 py-2.5 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 ring-1 ring-blue-100">
+              <Activity size={15} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">
+                Open Work Orders
+                <span className="ml-2 text-xs font-normal text-gray-500">({openWorkOrders.length})</span>
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">Active supply-chain orders with PDC tracking</p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/work-orders')}>View All</Button>
+        </div>
+        {openWorkOrders.length === 0 ? (
+          <div className="text-center py-8">
+            <div className="w-12 h-12 mx-auto rounded-full bg-gray-50 ring-1 ring-gray-100 flex items-center justify-center mb-2">
+              <Activity size={22} className="text-gray-400" />
+            </div>
+            <p className="text-sm text-gray-600">No open work orders.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {openWorkOrders.slice(0, 8).map((w) => {
+              const deliveredPct = w.orderQuantity > 0 ? Math.round((w.deliveredQty / w.orderQuantity) * 100) : 0;
+              return (
+                <div
+                  key={w.id}
+                  onClick={() => navigate('/work-orders')}
+                  className="group border border-gray-100 rounded-xl p-3 hover:shadow-sm hover:border-navy-200 cursor-pointer transition-all"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs font-semibold text-navy-700">{w.workOrderNumber}</span>
+                        <Badge color={
+                          w.status === 'COMPLETED' ? 'green' :
+                          w.status === 'PENDING_ADMIN' ? 'yellow' :
+                          w.status === 'REJECTED' ? 'red' : 'blue'
+                        }>{w.status.replace('_', ' ')}</Badge>
+                        {w.overdue && <Badge color="red">Overdue</Badge>}
+                      </div>
+                      <p className="text-sm text-navy-800 truncate mt-1">{w.customerName || '—'} <span className="text-gray-400">•</span> SO {w.supplyOrderNo || '—'}</p>
+                    </div>
+                    <div className="text-right text-xs flex-shrink-0">
+                      <p className="text-gray-500 flex items-center justify-end gap-1">
+                        <Calendar size={10} />
+                        {w.effectivePdcDate ? formatDate(w.effectivePdcDate) : '—'}
+                      </p>
+                      <p className="font-semibold text-navy-700 mt-0.5">{w.deliveredQty}/{w.orderQuantity} <span className="text-gray-400 font-normal">({deliveredPct}%)</span></p>
+                    </div>
+                  </div>
+                  {w.orderQuantity > 0 && (
+                    <div className="mt-2 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          deliveredPct === 100 ? 'bg-green-500' :
+                          w.overdue ? 'bg-red-500' :
+                          deliveredPct >= 70 ? 'bg-blue-500' : 'bg-amber-400'
+                        }`}
+                        style={{ width: `${Math.min(deliveredPct, 100)}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      {criticalLowStock > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-red-50 text-red-700 ring-1 ring-red-100">
+                <AlertTriangle size={15} />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-800">Critical Stock Alerts</h3>
+                <p className="text-[11px] text-gray-500 mt-0.5">Products at zero or critical stock level</p>
+              </div>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => navigate('/monitoring')}>Open Monitoring</Button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50/60">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Product</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">SKU</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Stock</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lowStock.filter(p => p.stockStatus === 'Out of Stock' || p.stockStatus === 'Critical').slice(0, 10).map((p, i) => (
+                  <tr key={p.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                    <td className="px-3 py-2.5 font-medium text-gray-700">{p.name}</td>
+                    <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">{p.sku}</td>
+                    <td className="px-3 py-2.5">
+                      <span className={`font-semibold ${Number(p.currentStock) === 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                        {p.currentStock} {p.unit}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5"><Badge color="red">{p.stockStatus}</Badge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 function Loader() {
   return (
     <div className="flex items-center justify-center h-64">
@@ -1721,7 +2630,10 @@ export default function Dashboard() {
   let inner;
   if (user?.role === 'ADMIN') inner = <AdminDashboard />;
   else if (['MANAGER', 'LAB', 'PLANNING'].includes(user?.role)) inner = <ManagerDashboard />;
-  else if (['STORE_MANAGER', 'LOGISTICS'].includes(user?.role)) inner = <StoreManagerDashboard />;
+  else if (user?.role === 'LOGISTICS') inner = <LogisticsDashboard />;
+  else if (user?.role === 'SITE_OFFICE') inner = <SiteOfficeDashboard />;
+  else if (user?.role === 'SAFETY') inner = <SafetyDashboard />;
+  else if (user?.role === 'STORE_MANAGER') inner = <StoreManagerDashboard />;
   else if (user?.role === 'SUPPLY_CHAIN') inner = <SupplyChainDashboard />;
   else if (user?.role === 'PURCHASE_OFFICER') inner = <PurchaseOfficerDashboard />;
   else if (['ACCOUNTING', 'FINANCE'].includes(user?.role)) inner = <AccountingDashboard />;

@@ -445,7 +445,7 @@ router.get('/:id', authenticate, async (req, res) => {
           select: {
             id: true, inspectionNumber: true, lotNumber: true, arrivedQty: true,
             batchNo: true,
-            invoiceNo: true, invoiceDate: true, invoiceFileUrl: true,
+            invoiceNo: true, invoiceDate: true, invoiceFileUrl: true, lotReportFileUrl: true,
             materialReceiptDate: true, result: true,
             dcNo: true, gatePassNo: true, gatePassType: true,
             // Inspection request (IIR) metadata — who raised it, when

@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "cd server && npx prisma migrate deploy || echo 'Migration warning - continuing startup' && node src/index.js",
+    "startCommand": "cd server && npx prisma migrate deploy && node src/index.js",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",

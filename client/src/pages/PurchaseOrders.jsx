@@ -138,6 +138,18 @@ function QCInspectionCard({ qc }) {
               <FileText size={12} /> Invoice
             </a>
           )}
+          {qc.lotReportFileUrl && (
+            <a
+              href={qc.lotReportFileUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-xs text-indigo-700 hover:underline"
+              title="Open lot report PDF"
+            >
+              <FileText size={12} /> Lot Report
+            </a>
+          )}
           <Badge color={qc.result === 'PASSED' ? 'green' : qc.result === 'FAILED' ? 'red' : qc.result === 'PARTIAL' ? 'navy' : qc.result === 'ON_HOLD' ? 'orange' : 'yellow'}>
             {qc.result}
           </Badge>
@@ -147,9 +159,9 @@ function QCInspectionCard({ qc }) {
       {open && (
         <div className="border-t border-gray-200 p-3 text-xs space-y-3">
           {/* Lot summary — what arrived in THIS lot */}
-          {(qc.lotNumber || qc.arrivedQty != null || qc.invoiceFileUrl || (qc.items && qc.items.length > 0)) && (
+          {(qc.lotNumber || qc.arrivedQty != null || qc.invoiceFileUrl || qc.lotReportFileUrl || (qc.items && qc.items.length > 0)) && (
             <div className="bg-navy-50/60 border border-navy-200 rounded p-2">
-              <div className="font-semibold text-navy-800 mb-1 flex items-center gap-2">
+              <div className="font-semibold text-navy-800 mb-1 flex items-center gap-2 flex-wrap">
                 {lotLabel || 'Lot'} delivery
                 {qc.invoiceFileUrl && (
                   <a
@@ -159,6 +171,16 @@ function QCInspectionCard({ qc }) {
                     className="inline-flex items-center gap-1 text-blue-700 hover:underline font-normal"
                   >
                     <FileText size={11} /> Open invoice PDF
+                  </a>
+                )}
+                {qc.lotReportFileUrl && (
+                  <a
+                    href={qc.lotReportFileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-indigo-700 hover:underline font-normal"
+                  >
+                    <FileText size={11} /> Open lot report PDF
                   </a>
                 )}
               </div>
@@ -307,7 +329,7 @@ function AutoFillRow({ sno, label, value }) {
   );
 }
 
-function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setInvoiceFile, processing, onCancel, onSubmit, mode = 'create', editingInspection = null }) {
+function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setInvoiceFile, lotReportFile, setLotReportFile, processing, onCancel, onSubmit, mode = 'create', editingInspection = null }) {
   const isEdit = mode === 'edit';
   const lotNumber = isEdit ? (editingInspection?.lotNumber || 1) : (order.qcInspections?.length || 0) + 1;
   const cumulativeReceived = (order.items || []).reduce((s, i) => s + (i.receivedQty || 0), 0);
@@ -652,6 +674,28 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
           )}
         </div>
 
+        {/* Lot Report File (supplier test report / COA / COC) */}
+        <div className="bg-indigo-50 border border-indigo-200 rounded p-4 mb-4">
+          <div className="text-xs font-bold text-indigo-900 mb-2">
+            Lot Report PDF <span className="text-gray-500 font-normal">(test report / COA / COC / mill cert — optional but recommended)</span>
+            {isEdit && <span className="text-gray-500 font-normal"> (locked — uploaded at goods-arrival)</span>}
+          </div>
+          {isEdit ? (
+            editingInspection?.lotReportFileUrl ? (
+              <div className="text-[11px] text-indigo-800">
+                <a href={editingInspection.lotReportFileUrl} target="_blank" rel="noreferrer" className="underline">view lot report on file</a>
+              </div>
+            ) : (
+              <div className="text-[11px] text-gray-500 italic">No lot report on file.</div>
+            )
+          ) : (
+            <>
+              <input type="file" accept=".pdf" onChange={e => setLotReportFile(e.target.files?.[0] || null)} className="text-xs" />
+              {lotReportFile && <div className="mt-1 text-[10px] text-green-700 font-bold">✓ {lotReportFile.name}</div>}
+            </>
+          )}
+        </div>
+
         <div className="text-[10px] text-gray-500 italic pb-2 text-center">
           {isEdit
             ? 'Edits are logged. QC will see the updated form on their next view.'
@@ -690,6 +734,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [editingInspection, setEditingInspection] = useState(null);
   const [lotItems, setLotItems] = useState([]);
   const [invoiceFile, setInvoiceFile] = useState(null);
+  const [lotReportFile, setLotReportFile] = useState(null);
   // Close-PO confirmation: when the server returns 409 with the pending list
   // we surface this dialog so the PO can review and choose to force-close.
   const [closePending, setClosePending] = useState(null);
@@ -901,6 +946,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
       }))
     );
     setInvoiceFile(null);
+    setLotReportFile(null);
     setIirMode('create');
     setEditingInspection(null);
     setShowIirForm(true);
@@ -930,6 +976,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     });
     setLotItems([]); // not editable in edit mode
     setInvoiceFile(null);
+    setLotReportFile(null);
     setEditingInspection(pending);
     setIirMode('edit');
     setShowIirForm(true);
@@ -988,6 +1035,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
       if (!isEdit) {
         fd.append('items', JSON.stringify(arrivedItems));
         if (invoiceFile) fd.append('invoiceFile', invoiceFile);
+        if (lotReportFile) fd.append('lotReportFile', lotReportFile);
       }
 
       const url = isEdit
@@ -1827,6 +1875,8 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             setLotItems={setLotItems}
             invoiceFile={invoiceFile}
             setInvoiceFile={setInvoiceFile}
+            lotReportFile={lotReportFile}
+            setLotReportFile={setLotReportFile}
             processing={processing}
             onCancel={() => setShowIirForm(false)}
             onSubmit={submitIir}

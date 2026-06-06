@@ -13,6 +13,7 @@ import Input, { Select, Textarea } from '../components/ui/Input';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
+import { checkFileSize } from '../utils/fileGuard';
 import { formatDate, formatDateTime } from '../utils/formatters';
 import GatePassPdf from '../components/pdf/GatePassPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
@@ -67,11 +68,22 @@ const blankItem = () => ({
   contactPersonDetails: '',
 });
 
+// Each role lands on the tab where they actually have work to do.
+const DEFAULT_TAB_BY_ROLE = {
+  LOGISTICS: 'PENDING_LOGISTICS',
+  ACCOUNTING: 'PENDING_ACCOUNTS',
+  FINANCE: 'PENDING_ACCOUNTS',
+  SITE_OFFICE: 'IN_TRANSIT',
+  STORE_MANAGER: 'PENDING_STORE',
+  MANAGER: 'PENDING_STORE',
+  ADMIN: 'ALL',
+};
+
 export default function GatePass() {
   const { user } = useAuth();
-  const canCreate = ['MANAGER', 'LOGISTICS', 'ADMIN'].includes(user?.role);
+  const canCreate = ['MANAGER', 'ADMIN'].includes(user?.role);
   const [register, setRegister] = useState('OUTWARD');
-  const [activeTab, setActiveTab] = useState('PENDING_STORE');
+  const [activeTab, setActiveTab] = useState(DEFAULT_TAB_BY_ROLE[user?.role] || 'PENDING_STORE');
   const [gatePasses, setGatePasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -96,6 +108,13 @@ export default function GatePass() {
   };
 
   useEffect(load, [register, activeTab, refreshKey, fromDate, toDate]);
+
+  // Reset date filter when switching registers so the new view isn't
+  // accidentally filtered by leftover dates from the prior register.
+  useEffect(() => {
+    setFromDate('');
+    setToDate('');
+  }, [register]);
 
   const localJobRows = useMemo(
     () => gatePasses.filter((g) => g.kind === 'LOCAL_JOB'),
@@ -936,7 +955,11 @@ function LogisticsBox({ g, busy, onAssigned, onDispatched, setError }) {
               <input
                 type="file"
                 accept="application/pdf"
-                onChange={e => setSignedPdf(e.target.files?.[0] || null)}
+                onChange={e => {
+                  const f = e.target.files?.[0] || null;
+                  if (f && !checkFileSize(f)) { e.target.value = ''; return; }
+                  setSignedPdf(f);
+                }}
                 className="block w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border file:border-gray-300 file:bg-gray-50 file:text-gray-700 file:text-xs hover:file:bg-gray-100"
               />
             </div>

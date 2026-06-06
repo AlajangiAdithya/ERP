@@ -85,7 +85,16 @@ const KINDS = ['LOCAL_JOB', 'OUTSIDE'];
 const toDate = (v) => (v ? new Date(v) : null);
 
 const notify = async (data) => {
-  try { await prisma.notification.create({ data }); } catch (e) { console.error('notify failed', e); }
+  try {
+    await prisma.notification.create({ data });
+  } catch (e) {
+    console.error('[notify] failed', {
+      type: data?.type,
+      targetUserId: data?.targetUserId,
+      code: e?.code,
+      message: e?.message,
+    });
+  }
 };
 
 // GET /api/gatepasses — list
@@ -157,7 +166,7 @@ router.get('/:id', authenticate, async (req, res) => {
 // OUTWARD: Manager raises (RAMS/GPR/01) → Store → Accounts → Approved.
 // INWARD: Stores / Manager records customer-supplied FIM. Status starts at
 // PENDING_ACCEPTANCE; items get inwarded into Products via the From-Gatepass flow.
-router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'LOGISTICS', 'ADMIN'), acceptFimGpPdf, async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), acceptFimGpPdf, async (req, res) => {
   try {
     const {
       siteName, remarks, items, direction: rawDirection,

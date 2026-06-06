@@ -37,12 +37,18 @@ const authorize = (...allowedRoles) => {
 };
 
 const authorizeMinRole = (minRole) => {
+  if (ROLE_HIERARCHY[minRole] === undefined) {
+    throw new Error(`authorizeMinRole: unknown role "${minRole}"`);
+  }
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    if (ROLE_HIERARCHY[req.user.role] < ROLE_HIERARCHY[minRole]) {
+    if (req.user.role === 'SUPERADMIN') return next();
+
+    const userLevel = ROLE_HIERARCHY[req.user.role];
+    if (userLevel === undefined || userLevel < ROLE_HIERARCHY[minRole]) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 

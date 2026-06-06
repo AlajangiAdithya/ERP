@@ -730,7 +730,7 @@ model PurchaseOrder {
   purchaseRequest   PurchaseRequest?      @relation(fields: [purchaseRequestId], references: [id])
   isUnion           Boolean               @default(false)
   quotationId       String
-  quotation         Quotation             @relation(fields: [quotationId], references: [id])
+  quotation         Quotation             @relation(fields: [quotationId], references: [id], onDelete: Restrict)
   supplierId        String?
   supplier          Supplier?             @relation(fields: [supplierId], references: [id])
   supplierName      String
@@ -781,6 +781,8 @@ model PurchaseOrderSource {
   createdAt         DateTime        @default(now())
 
   @@unique([purchaseOrderId, purchaseRequestId])
+  // Reverse-direction lookups (find POs for a PR).
+  @@index([purchaseRequestId])
 }
 
 model PurchaseOrderItem {
@@ -803,6 +805,11 @@ model PurchaseOrderItem {
   statusUpdatedBy       String?
   allocations           PurchaseOrderItemAllocation[]
   inspectionItems       QCInspectionItem[]
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+  @@index([purchaseRequestItemId])
+  @@index([supplierId])
 }
 
 // For union PO items: tracks per-PR-item allocation of the consolidated quantity.
@@ -818,6 +825,9 @@ model PurchaseOrderItemAllocation {
   createdAt             DateTime            @default(now())
 
   @@unique([purchaseOrderItemId, purchaseRequestItemId])
+  // Composite @@unique above already covers purchaseOrderItemId-leading queries.
+  // Index purchaseRequestItemId for joins/lookups in the FIFO allocator.
+  @@index([purchaseRequestItemId])
 }
 
 enum ItemOrderStatus {
@@ -941,10 +951,17 @@ model QCInspection {
   arrivedQty           Float?
   // Invoice PDF uploaded by Purchase Officer for this specific lot
   invoiceFileUrl       String?
+  // Lot report PDF (supplier test report / COA / COC / mill cert) uploaded by
+  // Purchase Officer alongside the invoice when raising the QC request.
+  lotReportFileUrl     String?
   // Per-item arrived qty rows for this lot
   items                QCInspectionItem[]
   // Batches inwarded against this lot (FIFO traceability)
   batches              ProductBatch[]     @relation("BatchSourceInspection")
+
+  @@index([purchaseOrderId])
+  @@index([inspectedById])
+  @@index([requestCreatedById])
 }
 
 // Per-item arrived qty for a specific lot (QCInspection).
@@ -1105,6 +1122,9 @@ model GatePassItem {
 
   // FIM batches created from this INWARD item
   fimBatches ProductBatch[] @relation("FimSourceItem")
+
+  @@index([gatePassId])
+  @@index([sourceInwardGatePassItemId])
 }
 
 enum GatePassType {

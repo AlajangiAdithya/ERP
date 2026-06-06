@@ -39,7 +39,9 @@ export function NotificationProvider({ children }) {
           .catch(() => { a.volume = prevVol; });
       }
       if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {});
+        Notification.requestPermission().catch((e) => {
+          if (import.meta.env.DEV) console.warn('[notify] requestPermission failed', e);
+        });
       }
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
@@ -58,8 +60,12 @@ export function NotificationProvider({ children }) {
     if (!a) return;
     try {
       a.currentTime = 0;
-      a.play().catch(() => {});
-    } catch {}
+      a.play().catch((e) => {
+        if (import.meta.env.DEV) console.warn('[notify] play() rejected', e);
+      });
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn('[notify] play() threw', e);
+    }
   }, []);
 
   const showPush = useCallback((n) => {

@@ -56,7 +56,7 @@ export default function MyRequests() {
   };
 
   const updateQty = (productId, qty) => {
-    setCartItems(cartItems.map(i => i.productId === productId ? { ...i, quantity: Math.max(1, parseInt(qty) || 1) } : i));
+    setCartItems(cartItems.map(i => i.productId === productId ? { ...i, quantity: Math.max(1, parseInt(qty, 10) || 1) } : i));
   };
 
   const updatePurpose = (productId, purpose) => {

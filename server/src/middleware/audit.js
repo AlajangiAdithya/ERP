@@ -33,7 +33,14 @@ const auditLog = (action, entity) => {
             details: pickDetails(req, data),
             ipAddress: req.ip || req.connection?.remoteAddress,
           },
-        }).catch((err) => console.error('Audit log error:', err));
+        }).catch((err) => console.error('[AUDIT FAIL]', {
+          action,
+          entity,
+          userId: req.user?.id,
+          entityId: data?.id || req.params?.id || null,
+          code: err?.code,
+          message: err?.message,
+        }));
       }
       return originalJson(data);
     };

@@ -30,7 +30,7 @@ const superadminRoutes = require('./routes/superadmin.routes');
 const calibrationRoutes = require('./routes/calibration.routes');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 // Security
 app.use(helmet({

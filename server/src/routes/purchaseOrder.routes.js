@@ -5,7 +5,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { poDocumentUpload, invoiceUpload, publicUrlFor, UPLOAD_ROOT } = require('../middleware/upload');
+const { poDocumentUpload, goodsArrivedUpload, publicUrlFor, UPLOAD_ROOT } = require('../middleware/upload');
 const {
   generateSequentialNumber, generateMirNumber, generateProductSku,
   normalizeMaterialType, paginate, applyDateFilter, isUniqueViolation,
@@ -20,12 +20,16 @@ function acceptPoDocument(req, res, next) {
   });
 }
 
-// Invoice PDF accompanying a "mark goods arrived" lot. Optional — if no file
-// is uploaded the inspection is still created (invoice can be added later via
-// the QC docs endpoint), but ideally the PO uploads it at arrival time.
-function acceptInvoice(req, res, next) {
-  invoiceUpload.single('invoiceFile')(req, res, (err) => {
-    if (err) return res.status(400).json({ error: err.message || 'Invoice upload failed' });
+// Invoice PDF (required) and optional supplier lot report PDF accompanying a
+// "mark goods arrived" lot. Both are routed to their own /uploads subdirs by
+// the goodsArrivedUpload storage. The route saves the resulting URLs onto the
+// QCInspection so QC can open both documents inline.
+function acceptGoodsArrived(req, res, next) {
+  goodsArrivedUpload.fields([
+    { name: 'invoiceFile', maxCount: 1 },
+    { name: 'lotReportFile', maxCount: 1 },
+  ])(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Document upload failed' });
     next();
   });
 }
@@ -563,17 +567,23 @@ router.put('/:id/place-on-credit', authenticate, authorize('PURCHASE_OFFICER'), 
 // Accepts multipart/form-data so the invoice PDF can be uploaded alongside
 // the IIR page-1 fields. `items` is a JSON-stringified array of per-PO-item
 // arrived quantities for THIS lot (partial delivery).
-router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), acceptInvoice, async (req, res) => {
+router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), acceptGoodsArrived, async (req, res) => {
+  const invoiceFile = req.files?.invoiceFile?.[0] || null;
+  const lotReportFile = req.files?.lotReportFile?.[0] || null;
+  const cleanupUploads = () => {
+    if (invoiceFile) unlinkPublicFile(publicUrlFor('invoices', invoiceFile.filename));
+    if (lotReportFile) unlinkPublicFile(publicUrlFor('lot-reports', lotReportFile.filename));
+  };
   try {
     // Multer parsed form fields land as strings; rehydrate the structured pieces.
     const body = { ...req.body };
     if (typeof body.items === 'string') {
       try { body.items = JSON.parse(body.items); }
-      catch { return res.status(400).json({ error: 'items must be valid JSON' }); }
+      catch { cleanupUploads(); return res.status(400).json({ error: 'items must be valid JSON' }); }
     }
     if (typeof body.documentTypes === 'string') {
       try { body.documentTypes = JSON.parse(body.documentTypes); }
-      catch { return res.status(400).json({ error: 'documentTypes must be valid JSON' }); }
+      catch { cleanupUploads(); return res.status(400).json({ error: 'documentTypes must be valid JSON' }); }
     }
 
     const iir = goodsArrivedSchema.parse(body);
@@ -591,13 +601,13 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), ac
     });
 
     if (!order) {
-      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+      cleanupUploads();
       return res.status(404).json({ error: 'Purchase order not found' });
     }
 
     const allowedStatuses = ['ORDERED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'PARTIAL'];
     if (!allowedStatuses.includes(order.status)) {
-      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+      cleanupUploads();
       return res.status(400).json({
         error: order.status === 'GOODS_ARRIVED' || order.status === 'QC_PENDING' || order.status === 'QC_PASSED'
           ? 'A delivery batch is already being processed (QC / inward). Complete that first.'
@@ -611,12 +621,12 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), ac
     for (const li of iir.items) {
       const poItem = itemById.get(li.poItemId);
       if (!poItem) {
-        if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+        cleanupUploads();
         return res.status(400).json({ error: `Item ${li.poItemId} is not on this purchase order` });
       }
       const alreadyReceived = poItem.receivedQty || 0;
       if (alreadyReceived + li.arrivedQty > poItem.quantity + 0.0001) {
-        if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+        cleanupUploads();
         const remaining = Math.max(0, poItem.quantity - alreadyReceived);
         return res.status(400).json({
           error: `Lot qty exceeds remaining for "${poItem.productName}": ` +
@@ -633,7 +643,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), ac
       (q) => (q.batchNo || '').trim().toLowerCase() === incomingBatchNo.toLowerCase(),
     );
     if (duplicate) {
-      if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+      cleanupUploads();
       return res.status(400).json({
         error: `Batch number "${incomingBatchNo}" was already used on Lot ${duplicate.lotNumber || '?'} of this PO. Use a different batch number.`,
       });
@@ -644,7 +654,8 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), ac
     const lotArrivedQty = iir.items.reduce((s, i) => s + i.arrivedQty, 0);
     const isFollowupLot = totalReceivedBefore > 0;
     const lotNumber = (order.qcInspections?.length || 0) + 1;
-    const invoiceFileUrl = req.file ? publicUrlFor('invoices', req.file.filename) : null;
+    const invoiceFileUrl = invoiceFile ? publicUrlFor('invoices', invoiceFile.filename) : null;
+    const lotReportFileUrl = lotReportFile ? publicUrlFor('lot-reports', lotReportFile.filename) : null;
 
     const sourcePRs = order.isUnion
       ? (order.sourceRequests || []).map((s) => s.purchaseRequest)
@@ -692,6 +703,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), ac
           lotNumber,
           arrivedQty: lotArrivedQty,
           invoiceFileUrl,
+          lotReportFileUrl,
           // Locked-in batch number set by Purchase Officer. Used as ProductBatch.batchNo
           // at inward and shown read-only on QC + Inward forms.
           batchNo: incomingBatchNo,
@@ -750,6 +762,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), ac
           lotNumber, lotArrivedQty, batchNumber: incomingBatchNo,
           isFollowupLot, totalReceivedBefore, totalOrdered,
           invoiceFileUrl,
+          lotReportFileUrl,
         },
         ipAddress: req.ip,
       },
@@ -757,7 +770,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), ac
 
     res.json(updated);
   } catch (error) {
-    if (req.file) unlinkPublicFile(publicUrlFor('invoices', req.file.filename));
+    cleanupUploads();
     if (error?.name === 'ZodError') {
       return res.status(400).json({ error: error.errors?.[0]?.message || 'Invalid input', details: error.errors });
     }
@@ -827,6 +840,18 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
     // Every ProductBatch row created for this inward gets stamped with this exact identifier.
     const lockedBatchNo = activeInspection?.batchNo || null;
 
+    // Inward qty is locked to whatever QC finalised on the inspection report.
+    // Stores Incharge cannot reduce / inflate it — the submitted total must
+    // equal QCInspection.qtyAccepted (within float tolerance).
+    if (activeInspection?.qtyAccepted != null) {
+      const submittedTotal = items.reduce((s, it) => s + (parseFloat(it.receivedQty) || 0), 0);
+      if (Math.abs(submittedTotal - activeInspection.qtyAccepted) > 0.01) {
+        return res.status(400).json({
+          error: `Inward qty (${submittedTotal}) does not match QC-accepted qty (${activeInspection.qtyAccepted}). The inward total is locked to whatever QC finalised — Stores Incharge cannot alter it.`,
+        });
+      }
+    }
+
     // Auto-generate MIR number (daily reset) on first inward only
     const mirNo = order.mirNo || (await generateMirNumber(prisma));
 
@@ -835,7 +860,19 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
       : (order.purchaseRequest ? [order.purchaseRequest] : []);
     const sourcePRIds = sourcePRs.map((p) => p.id);
 
-    const updated = await prisma.$transaction(async (tx) => {
+    // P2034 = Prisma transaction conflict/deadlock. Retry up to 3 times with
+    // exponential backoff + jitter; other errors propagate as before.
+    const withInwardRetry = async (fn, attempt = 0) => {
+      try { return await fn(); }
+      catch (err) {
+        if (err?.code === 'P2034' && attempt < 3) {
+          await new Promise((r) => setTimeout(r, 100 * Math.pow(2, attempt) + Math.random() * 50));
+          return withInwardRetry(fn, attempt + 1);
+        }
+        throw err;
+      }
+    };
+    const updated = await withInwardRetry(() => prisma.$transaction(async (tx) => {
       for (const item of items) {
         const orderItem = order.items.find(i => i.id === item.id);
         if (!orderItem) continue;
@@ -871,26 +908,32 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
             return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
           });
 
-          let remaining = Math.round(receivedQty * 100) / 100;
+          // Use integer micro-units (×1000) so partial qty across many allocations
+          // doesn't drift (e.g. 0.1 + 0.2 ≠ 0.30000000000000004). Convert to floats
+          // only at the end when we write each share.
+          const toMicro = (n) => Math.round((Number(n) || 0) * 1000);
+          const fromMicro = (m) => Math.round(m) / 1000;
+          const EPS_MICRO = 1; // 0.001
+
+          let remainingMicro = toMicro(receivedQty);
           const rawShares = [];
           for (const alloc of sortedAllocations) {
-            if (remaining <= 0.0001) break;
-            const alreadyReceived = alloc.receivedQty || 0;
-            const stillOwed = Math.max(0, alloc.allocatedQty - alreadyReceived);
-            if (stillOwed <= 0) continue;
-            const give = Math.min(stillOwed, remaining);
-            rawShares.push({ allocation: alloc, share: Math.round(give * 100) / 100 });
-            remaining = Math.round((remaining - give) * 100) / 100;
+            if (remainingMicro <= EPS_MICRO) break;
+            const owedMicro = Math.max(0, toMicro(alloc.allocatedQty) - toMicro(alloc.receivedQty || 0));
+            if (owedMicro <= 0) continue;
+            const giveMicro = Math.min(owedMicro, remainingMicro);
+            rawShares.push({ allocation: alloc, share: fromMicro(giveMicro) });
+            remainingMicro -= giveMicro;
           }
           // Over-shipment (lot brought more than total still owed): dump the surplus
           // on the last unfilled allocation so the books balance. If every allocation
           // is already full, attribute it to the most recent (last) one.
-          if (remaining > 0.0001) {
+          if (remainingMicro > EPS_MICRO) {
             if (rawShares.length > 0) {
               const last = rawShares[rawShares.length - 1];
-              last.share = Math.round((last.share + remaining) * 100) / 100;
+              last.share = fromMicro(toMicro(last.share) + remainingMicro);
             } else if (sortedAllocations.length > 0) {
-              rawShares.push({ allocation: sortedAllocations[sortedAllocations.length - 1], share: Math.round(remaining * 100) / 100 });
+              rawShares.push({ allocation: sortedAllocations[sortedAllocations.length - 1], share: fromMicro(remainingMicro) });
             }
           }
           shares = rawShares;
@@ -1086,7 +1129,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
       }
 
       return { result, allFullyReceived, refreshedItems };
-    });
+    }));
 
     const { result: updatedOrder, allFullyReceived, refreshedItems } = updated;
     const totalReceived = refreshedItems.reduce((s, i) => s + i.receivedQty, 0);

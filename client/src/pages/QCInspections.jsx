@@ -169,6 +169,7 @@ function OrderInfoHeader({ order, inspection, qcView = false }) {
                 <th className="px-3 py-1 text-right font-normal">Arrived</th>
                 <th className="px-3 py-1 text-left font-normal">Receipt date</th>
                 <th className="px-3 py-1 text-left font-normal">Invoice</th>
+                <th className="px-3 py-1 text-left font-normal">Lot report</th>
                 <th className="px-3 py-1 text-left font-normal">QC result</th>
               </tr>
             </thead>
@@ -194,6 +195,13 @@ function OrderInfoHeader({ order, inspection, qcView = false }) {
                         ) : (lot.invoiceNo || '—')
                       )}
                     </td>
+                    <td className="px-3 py-1">
+                      {lot.lotReportFileUrl ? (
+                        <a href={lot.lotReportFileUrl} target="_blank" rel="noreferrer" className="text-indigo-700 hover:underline">
+                          View
+                        </a>
+                      ) : '—'}
+                    </td>
                     <td className="px-3 py-1">{lot.result}</td>
                   </tr>
                 );
@@ -217,6 +225,7 @@ function InspectionDocsPanel({ order, inspection, qcView = false }) {
   const primaryPr = prs[0] || null;
   const poDocumentUrl = order?.poDocumentUrl;
   const invoiceFileUrl = inspection?.invoiceFileUrl;
+  const lotReportFileUrl = inspection?.lotReportFileUrl;
   const invoiceLabelTail = inspection?.lotNumber ? ` (Lot ${inspection.lotNumber})` : '';
 
   const DocLink = ({ href, label, hint, missingHint }) => {
@@ -289,8 +298,16 @@ function InspectionDocsPanel({ order, inspection, qcView = false }) {
         }
 
         const url = URL.createObjectURL(finalBlob);
-        window.open(url, '_blank', 'noopener,noreferrer');
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        const win = window.open(url, '_blank', 'noopener,noreferrer');
+        // Revoke on a 60 s safety timer, but also as early as possible when the
+        // opened window closes (same-origin only — cross-origin throws on access).
+        const revoke = () => URL.revokeObjectURL(url);
+        setTimeout(revoke, 60000);
+        try {
+          if (win && typeof win.addEventListener === 'function') {
+            win.addEventListener('beforeunload', revoke);
+          }
+        } catch { /* cross-origin: rely on the timer */ }
       } catch (err) {
         console.error('PR PDF generation failed:', err);
         alert(`Failed to open PR: ${err?.message || 'Unknown error'}`);
@@ -366,6 +383,12 @@ function InspectionDocsPanel({ order, inspection, qcView = false }) {
             missingHint="No invoice uploaded for this lot."
           />
         )}
+        <DocLink
+          href={lotReportFileUrl}
+          label={`Lot Report${invoiceLabelTail}`}
+          hint="Supplier test report / COA / COC for this lot"
+          missingHint="No lot report uploaded by Purchase for this lot."
+        />
         <DocLink
           href={ANNEXURE_URL}
           label="PO Terms & Conditions (Annexure)"

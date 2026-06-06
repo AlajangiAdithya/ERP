@@ -826,6 +826,14 @@ function ProcurementChainTab({ product, isStores }) {
                         </a>
                       </div>
                     )}
+                    {insp.lotReportFileUrl && (
+                      <div className="mt-1">
+                        <a href={insp.lotReportFileUrl} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-indigo-700 hover:underline font-medium">
+                          <FileText size={12} /> View lot report PDF
+                        </a>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <p className="text-xs text-gray-400 italic">No QC link (pre-lot-tracking)</p>
@@ -874,6 +882,22 @@ function ProcurementChainTab({ product, isStores }) {
                             {k}
                           </span>
                         ))}
+                      </div>
+                    )}
+                    {(insp.invoiceFileUrl || insp.lotReportFileUrl) && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {insp.invoiceFileUrl && (
+                          <a href={insp.invoiceFileUrl} target="_blank" rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline font-medium">
+                            <FileText size={11} /> Invoice PDF
+                          </a>
+                        )}
+                        {insp.lotReportFileUrl && (
+                          <a href={insp.lotReportFileUrl} target="_blank" rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] text-indigo-700 hover:underline font-medium">
+                            <FileText size={11} /> Lot Report PDF
+                          </a>
+                        )}
                       </div>
                     )}
                   </div>
@@ -980,7 +1004,10 @@ export default function ProductDetail() {
 
   useEffect(() => {
     loadProduct()
-      .catch(() => navigate('/products'))
+      .catch((err) => {
+        alert(err?.response?.data?.error || 'Could not load product. Returning to product list.');
+        navigate('/products');
+      })
       .finally(() => setLoading(false));
   }, [id]);
 

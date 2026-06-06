@@ -1,6 +1,8 @@
 const paginate = (page = 1, limit = 20) => {
-  const p = Math.max(1, parseInt(page));
-  const l = Math.min(1000, Math.max(1, parseInt(limit)));
+  const rawP = parseInt(page, 10);
+  const rawL = parseInt(limit, 10);
+  const p = Number.isFinite(rawP) && rawP > 0 ? rawP : 1;
+  const l = Number.isFinite(rawL) && rawL > 0 ? Math.min(1000, rawL) : 20;
   return { skip: (p - 1) * l, take: l, page: p, limit: l };
 };
 

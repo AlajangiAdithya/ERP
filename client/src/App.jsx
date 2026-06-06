@@ -1,3 +1,4 @@
+import { Component } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import MainLayout from './components/layout/MainLayout';
@@ -51,6 +52,44 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 // (and the server's calibration.routes.js) enforces the unit-aware split.
 const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'SUPERADMIN'];
 
+// Global ErrorBoundary — catches render-phase errors so a single page bug
+// doesn't white-screen the entire app. Reload restores normal navigation.
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error('[ErrorBoundary] render crash', error, info?.componentStack);
+  }
+  handleReload = () => {
+    this.setState({ hasError: false, error: null });
+    window.location.href = '/';
+  };
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-brand-gray p-6">
+        <div className="max-w-md w-full bg-white rounded-lg shadow p-6 text-center">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Something went wrong</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            An unexpected error occurred on this page. Your session is safe — reload to continue.
+          </p>
+          <button
+            onClick={this.handleReload}
+            className="px-4 py-2 bg-navy-700 text-white text-sm rounded hover:bg-navy-800"
+          >
+            Reload app
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
 function PrivateRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
 
@@ -80,6 +119,7 @@ export default function App() {
   }
 
   return (
+    <ErrorBoundary>
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
 
@@ -238,5 +278,6 @@ export default function App() {
         </PrivateRoute>
       } />
     </Routes>
+    </ErrorBoundary>
   );
 }

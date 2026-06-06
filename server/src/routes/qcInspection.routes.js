@@ -88,7 +88,7 @@ const INSPECTION_INCLUDE = {
       qcInspections: {
         select: {
           id: true, inspectionNumber: true, lotNumber: true, arrivedQty: true,
-          invoiceNo: true, invoiceFileUrl: true, result: true,
+          invoiceNo: true, invoiceFileUrl: true, lotReportFileUrl: true, result: true,
           materialReceiptDate: true, createdAt: true,
         },
         orderBy: { lotNumber: 'asc' },
