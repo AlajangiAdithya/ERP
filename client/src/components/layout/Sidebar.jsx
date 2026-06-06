@@ -4,7 +4,7 @@ import {
   LayoutDashboard, UserCog,
   BarChart3, Settings, Menu, X,
   CheckSquare, ScrollText, Bell,
-  Building2, ShieldCheck, Database, HardDrive, Activity, Boxes, Ruler,
+  Building2, ShieldCheck, Crown, Boxes, Ruler,
   ClipboardList, Truck, DoorOpen,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -46,10 +46,9 @@ const buildAllItems = () => {
     { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
     { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
     { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },
-    // SUPERADMIN-only owner hatch — invisible to everyone else.
-    { to: '/superadmin/health', icon: Activity, label: 'System Health', roles: ['SUPERADMIN'] },
-    { to: '/superadmin/corrections', icon: Database, label: 'Real-time Corrections', roles: ['SUPERADMIN'] },
-    { to: '/superadmin/backups', icon: HardDrive, label: 'Backups', roles: ['SUPERADMIN'] },
+    // SUPERADMIN-only owner hatch — invisible to everyone else. One entry
+    // takes the owner to the hub; deeper pages link from there.
+    { to: '/superadmin', icon: Crown, label: 'Control Hub', roles: ['SUPERADMIN'] },
   ];
 
   return items;

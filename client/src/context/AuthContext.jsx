@@ -55,11 +55,43 @@ export function AuthProvider({ children }) {
     } catch {}
     localStorage.removeItem('accessToken');
     localStorage.removeItem('user');
+    // Drop any owner-impersonation stash so a fresh login starts clean.
+    sessionStorage.removeItem('ownerAccessToken');
+    sessionStorage.removeItem('ownerUser');
     setUser(null);
   };
 
+  // ── Owner impersonation ───────────────────────────────
+  // Stash the SUPERADMIN's own token in sessionStorage (cleared on tab close),
+  // then swap the active token + user to the target. `returnToOwner` swaps back.
+  const impersonate = async (targetUserId) => {
+    const ownerToken = localStorage.getItem('accessToken');
+    const ownerUserStr = localStorage.getItem('user');
+    const { data } = await api.post(`/superadmin/users/${targetUserId}/impersonate`);
+    if (ownerToken) sessionStorage.setItem('ownerAccessToken', ownerToken);
+    if (ownerUserStr) sessionStorage.setItem('ownerUser', ownerUserStr);
+    localStorage.setItem('accessToken', data.accessToken);
+    localStorage.setItem('user', JSON.stringify(data.user));
+    setUser(data.user);
+    return data;
+  };
+
+  const returnToOwner = () => {
+    const ownerToken = sessionStorage.getItem('ownerAccessToken');
+    const ownerUserStr = sessionStorage.getItem('ownerUser');
+    if (!ownerToken || !ownerUserStr) return false;
+    localStorage.setItem('accessToken', ownerToken);
+    localStorage.setItem('user', ownerUserStr);
+    sessionStorage.removeItem('ownerAccessToken');
+    sessionStorage.removeItem('ownerUser');
+    try { setUser(JSON.parse(ownerUserStr)); } catch { return false; }
+    return true;
+  };
+
+  const isImpersonating = !!sessionStorage.getItem('ownerAccessToken');
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, impersonate, returnToOwner, isImpersonating }}>
       {children}
     </AuthContext.Provider>
   );

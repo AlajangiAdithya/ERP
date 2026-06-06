@@ -1,10 +1,12 @@
 // Hidden owner-only endpoints. All routes are 404 for anyone except SUPERADMIN.
 const express = require('express');
 const path = require('path');
+const bcrypt = require('bcrypt');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const { authenticate } = require('../middleware/auth');
 const { superadminOnly } = require('../middleware/superadminOnly');
+const { generateAccessToken } = require('../utils/jwt');
 const prisma = require('../config/db');
 const { listBackupTree, signBackupUrl, previewBackup } = require('../services/s3Browse');
 
@@ -552,6 +554,216 @@ router.get('/backups/signed-url', async (req, res) => {
   } catch (e) {
     console.error('superadmin/backups/signed-url error:', e);
     res.status(500).json({ error: e.message || 'Failed to sign URL' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────
+//  Owner Control Hub — quick stats, user manager, impersonation, broadcast.
+//  Mobile-friendly endpoints driving the /superadmin hub on the client.
+// ────────────────────────────────────────────────────────────
+
+// GET /api/superadmin/quick-stats — dashboard tiles.
+router.get('/quick-stats', async (req, res) => {
+  try {
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const [
+      totalUsers, activeUsers, inactiveUsers,
+      sessions, logins24h, audit24h,
+      products, purchaseRequests, purchaseOrders,
+      workOrders, qcInspections, notifications,
+      notifications7d,
+    ] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { isActive: true } }),
+      prisma.user.count({ where: { isActive: false } }),
+      prisma.session.count(),
+      prisma.auditLog.count({ where: { action: 'LOGIN', createdAt: { gte: since24h } } }),
+      prisma.auditLog.count({ where: { createdAt: { gte: since24h } } }),
+      prisma.product.count({ where: { isActive: true } }),
+      prisma.purchaseRequest.count(),
+      prisma.purchaseOrder.count(),
+      prisma.workOrder.count(),
+      prisma.qCInspection.count(),
+      prisma.notification.count(),
+      prisma.notification.count({ where: { createdAt: { gte: since7d } } }),
+    ]);
+    res.json({
+      users: { total: totalUsers, active: activeUsers, inactive: inactiveUsers },
+      sessions: { open: sessions },
+      activity: { logins24h, audit24h },
+      data: { products, purchaseRequests, purchaseOrders, workOrders, qcInspections },
+      notifications: { total: notifications, last7d: notifications7d },
+    });
+  } catch (e) {
+    console.error('superadmin/quick-stats error:', e);
+    res.status(500).json({ error: 'Failed to compute stats' });
+  }
+});
+
+// GET /api/superadmin/users-list?q=&role=&active=
+// Slim user list for the control panel. Includes every user (no SUPERADMIN
+// filter — that's only applied for non-owner callers elsewhere).
+router.get('/users-list', async (req, res) => {
+  const q = (req.query.q || '').trim();
+  const role = (req.query.role || '').trim();
+  const activeParam = req.query.active;
+  const where = {};
+  if (q) {
+    where.OR = [
+      { username: { contains: q, mode: 'insensitive' } },
+      { name: { contains: q, mode: 'insensitive' } },
+    ];
+  }
+  if (role) where.role = role;
+  if (activeParam === 'true') where.isActive = true;
+  if (activeParam === 'false') where.isActive = false;
+  try {
+    const users = await prisma.user.findMany({
+      where,
+      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
+      select: {
+        id: true, username: true, name: true, role: true, isActive: true,
+        plainPassword: true, createdAt: true, updatedAt: true,
+        unit: { select: { id: true, name: true, code: true } },
+        _count: { select: { sessions: true } },
+      },
+      take: 500,
+    });
+    res.json({ users });
+  } catch (e) {
+    console.error('superadmin/users-list error:', e);
+    res.status(500).json({ error: 'Failed to list users' });
+  }
+});
+
+// POST /api/superadmin/users/:id/toggle-active — flip isActive.
+// Killing sessions on deactivation locks the user out immediately.
+router.post('/users/:id/toggle-active', async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true, isActive: true, role: true } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.role === 'SUPERADMIN' && user.id !== req.user.id) {
+      return res.status(400).json({ error: 'Cannot toggle another SUPERADMIN' });
+    }
+    const next = !user.isActive;
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { isActive: next },
+      select: { id: true, isActive: true },
+    });
+    if (!next) {
+      await prisma.session.deleteMany({ where: { userId: user.id } });
+    }
+    res.json(updated);
+  } catch (e) {
+    console.error('superadmin/users toggle-active error:', e);
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// POST /api/superadmin/users/:id/reset-password { password }
+// Owner-set password; updates both bcrypt hash and the plain-text mirror.
+router.post('/users/:id/reset-password', async (req, res) => {
+  const { password } = req.body || {};
+  if (!password || typeof password !== 'string' || password.length < 4) {
+    return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  }
+  try {
+    const passwordHash = await bcrypt.hash(password, 10);
+    const updated = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { passwordHash, plainPassword: password },
+      select: { id: true, username: true },
+    });
+    // Force re-login on every device by nuking sessions.
+    await prisma.session.deleteMany({ where: { userId: updated.id } });
+    res.json({ ok: true, user: updated });
+  } catch (e) {
+    console.error('superadmin/users reset-password error:', e);
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// POST /api/superadmin/users/:id/kill-sessions — log them out everywhere.
+router.post('/users/:id/kill-sessions', async (req, res) => {
+  try {
+    const result = await prisma.session.deleteMany({ where: { userId: req.params.id } });
+    res.json({ ok: true, killed: result.count });
+  } catch (e) {
+    console.error('superadmin/users kill-sessions error:', e);
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// POST /api/superadmin/users/:id/impersonate — issue an access token for the
+// target user without touching their password or creating an auditable session.
+// The owner keeps their own token client-side and swaps back when finished.
+router.post('/users/:id/impersonate', async (req, res) => {
+  try {
+    const target = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      include: { unit: { select: { id: true, name: true, code: true } } },
+    });
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (!target.isActive) return res.status(400).json({ error: 'Target user is inactive' });
+    if (target.role === 'SUPERADMIN' && target.id !== req.user.id) {
+      return res.status(400).json({ error: 'Cannot impersonate another SUPERADMIN' });
+    }
+    const accessToken = generateAccessToken(target);
+    res.json({
+      accessToken,
+      user: {
+        id: target.id, username: target.username, name: target.name, role: target.role,
+        unitId: target.unitId, unit: target.unit,
+      },
+    });
+  } catch (e) {
+    console.error('superadmin/users impersonate error:', e);
+    res.status(500).json({ error: 'Failed to impersonate' });
+  }
+});
+
+// POST /api/superadmin/broadcast { title, message, targetRole?, targetUserId?, type? }
+// One row, visible to:
+//   • everyone when both target fields are null (matches alert.routes filter);
+//   • a single role when targetRole is set;
+//   • a single user when targetUserId is set.
+router.post('/broadcast', async (req, res) => {
+  const { title, message, targetRole, targetUserId, type } = req.body || {};
+  if (!title || !message) return res.status(400).json({ error: 'title and message required' });
+  try {
+    const notif = await prisma.notification.create({
+      data: {
+        type: type || 'BROADCAST',
+        title,
+        message,
+        targetRole: targetRole || null,
+        targetUserId: targetUserId || null,
+        sentById: null, // appears as system message, not "from SUPERADMIN"
+      },
+    });
+    res.status(201).json(notif);
+  } catch (e) {
+    console.error('superadmin/broadcast error:', e);
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// GET /api/superadmin/recent-activity — last 30 audit log entries with the
+// SUPERADMIN entries excluded (the owner's own activity is never logged anyway,
+// but this keeps the feed clean if anyone else briefly held the role).
+router.get('/recent-activity', async (req, res) => {
+  try {
+    const logs = await prisma.auditLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      include: { user: { select: { id: true, name: true, role: true, username: true } } },
+    });
+    res.json({ logs });
+  } catch (e) {
+    console.error('superadmin/recent-activity error:', e);
+    res.status(500).json({ error: 'Failed to load activity' });
   }
 });
 

@@ -33,6 +33,10 @@ import SafetyMonitor from './pages/SafetyMonitor';
 import RealtimeCorrections from './pages/superadmin/RealtimeCorrections';
 import Backups from './pages/superadmin/Backups';
 import Health from './pages/superadmin/Health';
+import SuperAdminHub from './pages/superadmin/Hub';
+import SuperAdminUsers from './pages/superadmin/Users';
+import SuperAdminBroadcast from './pages/superadmin/Broadcast';
+import SuperAdminActivity from './pages/superadmin/Activity';
 import Metrology from './pages/Metrology';
 import PressureGauges from './pages/metrology/PressureGauges';
 import VacuumGauges from './pages/metrology/VacuumGauges';
@@ -256,6 +260,18 @@ export default function App() {
               } />
 
               {/* SUPERADMIN-only — owner hatch */}
+              <Route path="/superadmin" element={
+                <PrivateRoute allowedRoles={['SUPERADMIN']}><SuperAdminHub /></PrivateRoute>
+              } />
+              <Route path="/superadmin/users" element={
+                <PrivateRoute allowedRoles={['SUPERADMIN']}><SuperAdminUsers /></PrivateRoute>
+              } />
+              <Route path="/superadmin/broadcast" element={
+                <PrivateRoute allowedRoles={['SUPERADMIN']}><SuperAdminBroadcast /></PrivateRoute>
+              } />
+              <Route path="/superadmin/activity" element={
+                <PrivateRoute allowedRoles={['SUPERADMIN']}><SuperAdminActivity /></PrivateRoute>
+              } />
               <Route path="/superadmin/corrections" element={
                 <PrivateRoute allowedRoles={['SUPERADMIN']}><RealtimeCorrections /></PrivateRoute>
               } />

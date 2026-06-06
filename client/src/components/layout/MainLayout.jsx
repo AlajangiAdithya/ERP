@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import InProgressBadge from '../shared/InProgressBadge';
+import ImpersonationBanner from '../superadmin/ImpersonationBanner';
 
 // Hub → child-route map. Visiting any child path shows a back link returning
 // the user to the parent hub. Add new hubs here; everything else is wired up.
@@ -65,6 +66,7 @@ export default function MainLayout({ children }) {
         </main>
       </div>
       <InProgressBadge />
+      <ImpersonationBanner />
     </div>
   );
 }
