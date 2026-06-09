@@ -36,6 +36,7 @@ const employeeRoutes = require('./routes/employee.routes');
 const skillMatrixRoutes = require('./routes/skillMatrix.routes');
 const trainingPlanRoutes = require('./routes/trainingPlan.routes');
 const trainingSessionRoutes = require('./routes/trainingSession.routes');
+const attendanceRoutes = require('./routes/attendance.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -109,6 +110,7 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/skill-matrix', skillMatrixRoutes);
 app.use('/api/training-plans', trainingPlanRoutes);
 app.use('/api/training-sessions', trainingSessionRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

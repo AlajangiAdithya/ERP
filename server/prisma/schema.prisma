@@ -101,6 +101,10 @@ model User {
   trainingPlansCreated     TrainingPlan[]     @relation("TrainingPlanCreator")
   trainingPlanItemsCreated TrainingPlanItem[] @relation("TrainingPlanItemCreator")
   trainingSessionsCreated  TrainingSession[]  @relation("TrainingSessionCreator")
+
+  // Attendance register (managers maintain per-unit workforce + daily IN/OUT)
+  attendanceEmployeesCreated AttendanceEmployee[]          @relation("AttEmpCreator")
+  attendanceMonthSubmissions AttendanceMonthSubmission[]   @relation("AttMonthSubmitter")
 }
 
 model Session {
@@ -159,6 +163,8 @@ model Unit {
   inwardGatePasses   GatePass[]                 @relation("GatePassDestinationUnit")
   fimBatchesAssigned ProductBatch[]             @relation("FimAssignedToUnit")
   trainingPlanItems  TrainingPlanItem[]         @relation("TrainingPlanItemUnit")
+  attendanceEmployees       AttendanceEmployee[]
+  attendanceMonthSubmissions AttendanceMonthSubmission[]
 }
 
 // ──── AUDIT LOG ────
@@ -2208,3 +2214,76 @@ model TrainingAttendee {
   @@unique([sessionId, employeeId])
   @@index([employeeId])
 }
+
+// ──── ATTENDANCE REGISTER ────
+// Unit-scoped monthly attendance maintained by each unit's MANAGER.
+// Editing access (employees + day cells + month submission) is restricted to
+// the manager of that unit. ADMIN, SAFETY, and ACCOUNTING (after submission)
+// can view the data but never see the per-cell modification trail —
+// `modifiedAt`/`modifiedBy`/`history` are stripped server-side for non-managers.
+model AttendanceEmployee {
+  id          String   @id @default(uuid())
+  unitId      String
+  unit        Unit     @relation(fields: [unitId], references: [id])
+  serialNo    Int                                              // SL NO in the register
+  name        String
+  empCode     String?                                          // "E.ID" column
+  isActive    Boolean  @default(true)
+
+  createdById String
+  createdBy   User     @relation("AttEmpCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  entries     AttendanceEntry[]
+
+  @@unique([unitId, serialNo])
+  @@index([unitId, isActive])
+}
+
+// One row per (employee, calendar day). Either a punched IN/OUT pair OR a
+// status code is stored — `statusCode` covers leave / holiday / off-site
+// values like "L", "HYD", "BAKRID", "H".
+model AttendanceEntry {
+  id           String   @id @default(uuid())
+  employeeId   String
+  employee     AttendanceEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date         DateTime @db.Date
+
+  inTime       String?                                         // "HH:mm" — stored as text to dodge timezone math
+  outTime      String?                                         // "HH:mm"
+  statusCode   String?                                         // "L", "HYD", "BAKRID", "H" …
+
+  // Audit trail for manager edits. The icon shown to managers under a cell
+  // lights up whenever this entry has been modified after first save.
+  // Stripped from the API response for ADMIN/SAFETY/ACCOUNTING viewers.
+  firstSavedAt DateTime @default(now())
+  modifiedAt   DateTime?
+  modifiedById String?
+  modifiedByName String?
+  history      Json?                                           // [{ at, byId, byName, from, to }]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([date])
+}
+
+// One row per (unit, year, month) when the manager clicks "Send to Accounts".
+// Accounts can see / pull monthly summaries only for months that have a row
+// here, keyed by (unitId, year, month).
+model AttendanceMonthSubmission {
+  id            String   @id @default(uuid())
+  unitId        String
+  unit          Unit     @relation(fields: [unitId], references: [id])
+  year          Int
+  month         Int                                            // 1..12
+  submittedAt   DateTime @default(now())
+  submittedById String
+  submittedBy   User     @relation("AttMonthSubmitter", fields: [submittedById], references: [id])
+
+  @@unique([unitId, year, month])
+  @@index([year, month])
+}
+

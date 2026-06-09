@@ -5,7 +5,7 @@ import {
   BarChart3, Settings, Menu, X,
   CheckSquare, ScrollText, Bell,
   Building2, ShieldCheck, Crown, Boxes, Ruler,
-  ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap,
+  ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -21,14 +21,14 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 
 // Metrology hub viewers (per access chart RAPS/QSP):
 // Full edit = METROLOGY, QC, MANAGER@UNIT-V.
-// View + remarks + cert download = ADMIN, MANAGER (all units), LAB, NDT, RND.
+// View + remarks + cert download = ADMIN, MANAGER (all units), LAB, NDT, RND, HR.
 // SUPERADMIN reaches this register from Real-time Corrections, not the sidebar.
-const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND'];
+const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'HR'];
 
 // Procurement & Inventory Management hub is visible to every authenticated
-// user EXCEPT Supply Chain — Metrology / Lab / NDT now also raise PRs through
-// this hub (their PRs go to QC for first-level approval before reaching admin).
-const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN');
+// user EXCEPT Supply Chain and HR — HR is people-ops only and doesn't raise
+// material PRs through this hub.
+const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN' && r !== 'HR');
 
 const buildAllItems = () => {
   const items = [
@@ -40,6 +40,9 @@ const buildAllItems = () => {
     // HR hub — employees, skill matrix, annual training plan, training records.
     // HR + ADMIN edit; Managers can append training items for their unit; all view.
     { to: '/hr', icon: GraduationCap, label: 'Human Resources', roles: ALL_ROLES },
+    // Attendance register — Unit managers edit their own unit; ADMIN + SAFETY
+    // can view all units; ACCOUNTING sees only months submitted to them.
+    { to: '/attendance', icon: CalendarClock, label: 'Attendance', roles: ['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING'] },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'] },
     { to: '/gate-pass', icon: DoorOpen, label: 'Gate Pass', roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SITE_OFFICE'] },

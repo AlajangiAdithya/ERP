@@ -22,7 +22,7 @@ const router = express.Router();
 const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
 const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
-const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'LAB', 'NDT', 'RND'];
+const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'LAB', 'NDT', 'RND', 'HR'];
 
 const unitCodeOf = (user) => (user?.unit?.code || '').toString().toUpperCase();
 const unitNameOf = (user) => (user?.unit?.name || '').toString().trim().toLowerCase();

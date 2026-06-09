@@ -52,6 +52,7 @@ import HrEmployees from './pages/hr/Employees';
 import HrSkillMatrix from './pages/hr/SkillMatrix';
 import HrTrainingPlan from './pages/hr/TrainingPlan';
 import HrTrainingRecords from './pages/hr/TrainingRecords';
+import Attendance from './pages/Attendance';
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
@@ -287,6 +288,13 @@ export default function App() {
               <Route path="/hr/skill-matrix"    element={<PrivateRoute><HrSkillMatrix /></PrivateRoute>} />
               <Route path="/hr/training-plan"   element={<PrivateRoute><HrTrainingPlan /></PrivateRoute>} />
               <Route path="/hr/training-records" element={<PrivateRoute><HrTrainingRecords /></PrivateRoute>} />
+
+              {/* Attendance register — managers edit their own unit; ADMIN +
+                  SAFETY view all; ACCOUNTING only sees submitted months
+                  (gated server-side). */}
+              <Route path="/attendance" element={
+                <PrivateRoute allowedRoles={['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING']}><Attendance /></PrivateRoute>
+              } />
 
               {/* SUPERADMIN-only — owner hatch */}
               <Route path="/superadmin" element={
