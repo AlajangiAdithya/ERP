@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock, Truck, DoorOpen, MapPin, Send, ShieldCheck, ScrollText, Inbox, ArrowRight, Calendar, Eye, FileSearch, CreditCard, BarChart3, ArrowLeftRight, FlaskConical, History } from 'lucide-react';
+import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock, Truck, DoorOpen, MapPin, Send, ShieldCheck, ScrollText, Inbox, ArrowRight, Calendar, Eye, FileSearch, CreditCard, BarChart3, ArrowLeftRight, FlaskConical, History, GraduationCap, Users, UserCheck, BookOpen } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -1586,6 +1586,487 @@ function AccountingDashboard() {
   );
 }
 
+// Finance owns the customer-side closure pipeline: send invoice → 48h delivery
+// ack SLA → 45-day payment window with weekly followups → payment received.
+// The dashboard surfaces both feeds plus the cycles that have breached SLA so
+// finance can act on what matters first.
+function FinanceDashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [slaFeed, setSlaFeed] = useState([]);
+  const [paymentFeed, setPaymentFeed] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const results = await Promise.allSettled([
+        api.get('/work-orders/closure/sla-feed'),
+        api.get('/work-orders/closure/payment-feed'),
+      ]);
+      if (cancelled) return;
+      const [slaRes, payRes] = results;
+      if (slaRes.status === 'fulfilled') setSlaFeed(slaRes.value.data.feed || []);
+      if (payRes.status === 'fulfilled') setPaymentFeed(payRes.value.data.feed || []);
+      setLoading(false);
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <Loader />;
+
+  const slaBreached     = slaFeed.filter((c) => c.breached).length;
+  const slaDueSoon      = slaFeed.filter((c) => !c.breached && (c.hoursLeft ?? 99) <= 12).length;
+  const paymentDelayed  = paymentFeed.filter((c) => c.delayed).length;
+  const followupDueNow  = paymentFeed.filter((c) => {
+    if (!c.lastFollowupAt && c.deliveryAckAt) {
+      const ackTime = new Date(c.deliveryAckAt).getTime();
+      return Date.now() - ackTime >= 7 * 24 * 60 * 60 * 1000;
+    }
+    if (!c.lastFollowupAt) return false;
+    const since = Date.now() - new Date(c.lastFollowupAt).getTime();
+    return since >= 7 * 24 * 60 * 60 * 1000;
+  }).length;
+
+  return (
+    <div className="space-y-6">
+      <DashboardHero
+        title={greet(user, 'Finance')}
+        subtitle="Customer invoicing, 48h delivery SLA, and the 45-day payment window"
+        actions={
+          <Button onClick={() => navigate('/work-orders')}>
+            <ClipboardList size={16} className="mr-1" /> Work Orders
+          </Button>
+        }
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard
+          title="Invoices Awaiting Ack"
+          value={slaFeed.length}
+          subtitle="48h delivery SLA"
+          icon={Send}
+          color="blue"
+          onClick={() => navigate('/work-orders')}
+        />
+        <StatsCard
+          title="SLA Breached"
+          value={slaBreached}
+          subtitle="Past 48h — needs reminder"
+          icon={AlertTriangle}
+          color="red"
+          onClick={() => navigate('/work-orders')}
+        />
+        <StatsCard
+          title="In 45-Day Window"
+          value={paymentFeed.length}
+          subtitle="Awaiting customer payment"
+          icon={Clock}
+          color="yellow"
+          onClick={() => navigate('/work-orders')}
+        />
+        <StatsCard
+          title="Payments Delayed"
+          value={paymentDelayed}
+          subtitle="Past 45 days"
+          icon={IndianRupee}
+          color="red"
+          onClick={() => navigate('/work-orders')}
+        />
+      </div>
+
+      {/* Delivery acknowledgement SLA — invoices sent, waiting for customer ack */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">
+              Delivery Acknowledgement SLA
+              <span className="ml-2 text-xs font-normal text-gray-500">({slaFeed.length})</span>
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              48 hours after sending the invoice, the customer must confirm delivery. Breached cycles need a reminder call.
+            </p>
+          </div>
+          {slaDueSoon > 0 && (
+            <Badge color="amber">{slaDueSoon} due within 12h</Badge>
+          )}
+        </div>
+
+        {slaFeed.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">No invoices waiting on delivery ack ✓</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Work Order</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Customer</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Cycle</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Invoice #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Sent</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">SLA</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {slaFeed.map((c, i) => {
+                  const wo = c.workOrder || {};
+                  return (
+                    <tr key={c.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                      <td className="px-3 py-2 font-medium text-navy-700">{wo.workOrderNumber || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">{wo.customerName || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">#{c.cycleNumber}</td>
+                      <td className="px-3 py-2 text-gray-600 font-mono text-xs">{c.invoiceNumber || '—'}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{c.invoiceSentAt ? formatDate(c.invoiceSentAt) : '—'}</td>
+                      <td className="px-3 py-2">
+                        {c.breached ? (
+                          <Badge color="red">Breached {Math.abs(c.hoursLeft ?? 0)}h ago</Badge>
+                        ) : (c.hoursLeft ?? 99) <= 12 ? (
+                          <Badge color="amber">{c.hoursLeft}h left</Badge>
+                        ) : (
+                          <Badge color="green">{c.hoursLeft}h left</Badge>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Button size="sm" variant="secondary" onClick={() => navigate(`/work-orders/${wo.id}`)}>Open</Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* 45-day customer payment window */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">
+              45-Day Payment Window
+              <span className="ml-2 text-xs font-normal text-gray-500">({paymentFeed.length})</span>
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Delivery has been acknowledged. Run weekly customer follow-ups until payment lands.
+            </p>
+          </div>
+          {followupDueNow > 0 && (
+            <Badge color="amber">{followupDueNow} weekly follow-up{followupDueNow === 1 ? '' : 's'} due</Badge>
+          )}
+        </div>
+
+        {paymentFeed.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">No cycles in the payment window ✓</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Work Order</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Customer</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Cycle</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Invoice #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Due</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Last Follow-up</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paymentFeed.map((c, i) => {
+                  const wo = c.workOrder || {};
+                  return (
+                    <tr key={c.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                      <td className="px-3 py-2 font-medium text-navy-700">{wo.workOrderNumber || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">{wo.customerName || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">#{c.cycleNumber}</td>
+                      <td className="px-3 py-2 text-gray-600 font-mono text-xs">{c.invoiceNumber || '—'}</td>
+                      <td className="px-3 py-2">
+                        {c.delayed ? (
+                          <Badge color="red">Delayed {Math.abs(c.daysLeft ?? 0)}d</Badge>
+                        ) : (c.daysLeft ?? 99) <= 7 ? (
+                          <Badge color="amber">{c.daysLeft}d left</Badge>
+                        ) : (
+                          <Badge color="green">{c.daysLeft}d left</Badge>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">
+                        {c.lastFollowupAt
+                          ? `W${c.lastFollowupWeek} · ${formatDate(c.lastFollowupAt)}`
+                          : <span className="text-gray-400">No follow-ups yet</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Button size="sm" variant="secondary" onClick={() => navigate(`/work-orders/${wo.id}`)}>Open</Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// HR owns the people-side of the system: employees, the annual training plan,
+// delivered training sessions, and the skill matrix. The dashboard surfaces
+// headcount, what's due in the active training plan, and recent sessions so
+// HR can act on what's slipping.
+function HRDashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [employees, setEmployees] = useState([]);
+  const [activePlan, setActivePlan] = useState(null);
+  const [recentSessions, setRecentSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const results = await Promise.allSettled([
+        api.get('/employees'),
+        api.get('/training-plans', { params: { status: 'ACTIVE' } }),
+        api.get('/training-sessions'),
+      ]);
+      if (cancelled) return;
+      const [empRes, planRes, sessRes] = results;
+      const emps = empRes.status === 'fulfilled' ? (empRes.value.data.employees || []) : [];
+      const plans = planRes.status === 'fulfilled' ? (planRes.value.data.plans || []) : [];
+      const sessions = sessRes.status === 'fulfilled' ? (sessRes.value.data.sessions || []) : [];
+
+      setEmployees(emps);
+      setRecentSessions(sessions.slice(0, 8));
+
+      // Pull the items for the most recent ACTIVE plan so we can break down
+      // PLANNED vs SCHEDULED vs COMPLETED without an extra dashboard endpoint.
+      const latest = plans[0];
+      if (latest) {
+        try {
+          const { data } = await api.get(`/training-plans/${latest.id}`);
+          if (!cancelled) setActivePlan(data);
+        } catch {
+          if (!cancelled) setActivePlan(latest);
+        }
+      }
+      setLoading(false);
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <Loader />;
+
+  const activeEmps    = employees.filter((e) => e.status === 'ACTIVE').length;
+  const inactiveEmps  = employees.length - activeEmps;
+  const planItems     = activePlan?.items || [];
+  const itemsPlanned    = planItems.filter((i) => i.status === 'PLANNED').length;
+  const itemsScheduled  = planItems.filter((i) => i.status === 'SCHEDULED').length;
+  const itemsCompleted  = planItems.filter((i) => i.status === 'COMPLETED').length;
+
+  // Plan items past their target date but still not completed need HR attention.
+  const overdueItems = planItems.filter((i) => {
+    if (i.status === 'COMPLETED' || i.status === 'CANCELLED') return false;
+    if (!i.plannedDate) return false;
+    return new Date(i.plannedDate) < new Date();
+  });
+
+  // Sessions delivered in the last 30 days — quick proxy for training velocity.
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const sessionsLast30 = recentSessions.filter((s) => {
+    if (!s.trainingDateFrom) return false;
+    return new Date(s.trainingDateFrom).getTime() >= thirtyDaysAgo;
+  }).length;
+
+  return (
+    <div className="space-y-6">
+      <DashboardHero
+        title={greet(user, 'HR')}
+        subtitle="Workforce, annual training plan, and skill development"
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => navigate('/hr/employees')}>
+              <Users size={16} className="mr-1" /> Employees
+            </Button>
+            <Button onClick={() => navigate('/hr/training-plan')}>
+              <GraduationCap size={16} className="mr-1" /> Training Plan
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard
+          title="Active Employees"
+          value={activeEmps}
+          subtitle={inactiveEmps ? `${inactiveEmps} inactive` : 'All on roll'}
+          icon={UserCheck}
+          color="green"
+          onClick={() => navigate('/hr/employees')}
+        />
+        <StatsCard
+          title="Training Items Scheduled"
+          value={itemsScheduled}
+          subtitle={`${itemsPlanned} planned · ${itemsCompleted} done`}
+          icon={Calendar}
+          color="blue"
+          onClick={() => navigate('/hr/training-plan')}
+        />
+        <StatsCard
+          title="Sessions (30 days)"
+          value={sessionsLast30}
+          subtitle="Trainings delivered"
+          icon={BookOpen}
+          color="navy"
+          onClick={() => navigate('/hr/training-records')}
+        />
+        <StatsCard
+          title="Overdue Plan Items"
+          value={overdueItems.length}
+          subtitle={overdueItems.length ? 'Past planned date' : 'Plan on track'}
+          icon={AlertTriangle}
+          color={overdueItems.length ? 'red' : 'gray'}
+          onClick={() => navigate('/hr/training-plan')}
+        />
+      </div>
+
+      {/* Active plan snapshot */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">
+              Active Training Plan
+              {activePlan && (
+                <span className="ml-2 text-xs font-normal text-gray-500">
+                  · {activePlan.fiscalYear} · {activePlan.title}
+                </span>
+              )}
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Item status across the current fiscal year plan.
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/hr/training-plan')}>Open Plan</Button>
+        </div>
+
+        {!activePlan ? (
+          <div className="text-center py-6 text-gray-400">No active training plan yet. Create one to get started.</div>
+        ) : planItems.length === 0 ? (
+          <div className="text-center py-6 text-gray-400">No items added to this plan yet.</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-2xl font-bold text-gray-700">{itemsPlanned}</p>
+                <p className="text-xs text-gray-500 mt-1">Planned</p>
+              </div>
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <p className="text-2xl font-bold text-blue-600">{itemsScheduled}</p>
+                <p className="text-xs text-gray-500 mt-1">Scheduled</p>
+              </div>
+              <div className="text-center p-3 bg-green-50 rounded-lg">
+                <p className="text-2xl font-bold text-green-600">{itemsCompleted}</p>
+                <p className="text-xs text-gray-500 mt-1">Completed</p>
+              </div>
+              <div className="text-center p-3 bg-rose-50 rounded-lg">
+                <p className="text-2xl font-bold text-rose-600">{overdueItems.length}</p>
+                <p className="text-xs text-gray-500 mt-1">Overdue</p>
+              </div>
+            </div>
+
+            {overdueItems.length > 0 && (
+              <div className="overflow-x-auto">
+                <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">
+                  Overdue items
+                </h4>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">#</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Subject</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Planned</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overdueItems.slice(0, 8).map((it, i) => (
+                      <tr key={it.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                        <td className="px-3 py-2 text-gray-500 text-xs">{it.serialNo || '—'}</td>
+                        <td className="px-3 py-2 font-medium text-navy-700">{it.subject || '—'}</td>
+                        <td className="px-3 py-2 text-gray-600">{it.unit?.code || it.unit?.name || '—'}</td>
+                        <td className="px-3 py-2 text-gray-500">{it.plannedDate ? formatDate(it.plannedDate) : '—'}</td>
+                        <td className="px-3 py-2"><Badge color={it.status === 'SCHEDULED' ? 'yellow' : 'gray'}>{it.status}</Badge></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </Card>
+
+      {/* Recent training sessions */}
+      <Card>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">Recent Training Sessions</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              The latest sessions delivered, with attendance counts.
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/hr/training-records')}>View All</Button>
+        </div>
+
+        {recentSessions.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            <BookOpen size={36} className="mx-auto mb-2 opacity-50" />
+            <p className="text-gray-500">No training sessions logged yet</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Session #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Subject</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Faculty</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Attendees</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentSessions.map((s, i) => (
+                  <tr key={s.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/hr/training-records')}>
+                    <td className="px-3 py-2 font-medium text-navy-700">{s.sessionNumber}</td>
+                    <td className="px-3 py-2 text-gray-700">{s.subject || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{s.faculty || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500">{s.trainingDateFrom ? formatDate(s.trainingDateFrom) : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{s.attendees?.length || 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// Shared between QC / NDT / RND / DESIGNS — all four sit in the inspection &
+// verification chain (incoming material → QC → release). Labels and the hero
+// subtitle adapt per role so each team sees terms that match their workflow.
+const QC_ROLE_META = {
+  QC:      { label: 'QC',      subtitle: 'Incoming inspections and quality outcomes' },
+  NDT:     { label: 'NDT',     subtitle: 'Non-destructive testing queue and recent results' },
+  RND:     { label: 'R&D',     subtitle: 'Inspection results and material verification activity' },
+  DESIGNS: { label: 'Designs', subtitle: 'Material conformance against released designs' },
+};
+
 function QCDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -1608,6 +2089,7 @@ function QCDashboard() {
 
   if (loading) return <Loader />;
 
+  const meta = QC_ROLE_META[user?.role] || QC_ROLE_META.QC;
   const pendingCount = inspections.filter(i => i.result === 'PENDING').length;
   const passedCount = inspections.filter(i => i.result === 'PASSED').length;
   const failedCount = inspections.filter(i => i.result === 'FAILED').length;
@@ -1615,8 +2097,8 @@ function QCDashboard() {
   return (
     <div className="space-y-6">
       <DashboardHero
-        title={greet(user, 'QC')}
-        subtitle="Incoming inspections and quality outcomes"
+        title={greet(user, meta.label)}
+        subtitle={meta.subtitle}
         actions={
           <>
             <InProgressButton />
@@ -2642,7 +3124,9 @@ export default function Dashboard() {
   else if (user?.role === 'STORE_MANAGER') inner = <StoreManagerDashboard />;
   else if (user?.role === 'SUPPLY_CHAIN') inner = <SupplyChainDashboard />;
   else if (user?.role === 'PURCHASE_OFFICER') inner = <PurchaseOfficerDashboard />;
-  else if (['ACCOUNTING', 'FINANCE'].includes(user?.role)) inner = <AccountingDashboard />;
+  else if (user?.role === 'ACCOUNTING') inner = <AccountingDashboard />;
+  else if (user?.role === 'FINANCE') inner = <FinanceDashboard />;
+  else if (user?.role === 'HR') inner = <HRDashboard />;
   else if (user?.role === 'METROLOGY') inner = <MetrologyDashboard />;
   else if (['QC', 'NDT', 'RND', 'DESIGNS'].includes(user?.role)) inner = <QCDashboard />;
   else inner = <AdminDashboard />;

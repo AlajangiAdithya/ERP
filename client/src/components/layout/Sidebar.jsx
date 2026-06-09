@@ -26,25 +26,36 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'HR'];
 
 // Procurement & Inventory Management hub is visible to every authenticated
-// user EXCEPT Supply Chain and HR — HR is people-ops only and doesn't raise
-// material PRs through this hub.
-const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN' && r !== 'HR');
+// user EXCEPT Supply Chain, HR, and Finance — Finance is customer-side
+// receivables only and doesn't raise material PRs through this hub.
+const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN' && r !== 'HR' && r !== 'FINANCE');
+
+// HR hub is hidden from Metrology — not part of their workflow.
+const NON_METROLOGY_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY');
+
+// Gate Pass / Vehicle Movement / Logistics hub is hidden from Metrology
+// and QC — neither runs dispatch.
+const DISPATCH_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY' && r !== 'QC');
 
 const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'] },
     { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: PROCUREMENT_ROLES },
+    { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
     // Dispatch hub — Gate Pass + Logistics + Vehicle Movement. Vehicle
     // register is open to everyone, so the hub itself is too; the cards
     // inside are role-filtered, and each sub-page enforces its own gate.
-    { to: '/transport', icon: Navigation, label: 'Gate Pass & Vehicles', roles: ALL_ROLES },
+    // Hidden from Metrology and QC — they don't run dispatch.
+    { to: '/transport', icon: Navigation, label: 'Gate Pass & Vehicles', roles: DISPATCH_ROLES },
     { to: '/metrology', icon: Ruler, label: 'Measuring and Monitoring Resources', roles: METROLOGY_VIEW_ROLES },
     // Safety register — view-only for everyone, edit for SAFETY + Unit-5 (gated server-side).
-    { to: '/machinery', icon: Wrench, label: 'Machinery & Safety Register', roles: ALL_ROLES },
+    // Hidden from Accounting and Supply Chain — not part of their workflow.
+    { to: '/machinery', icon: Wrench, label: 'Machinery & Safety Register', roles: ALL_ROLES.filter((r) => r !== 'ACCOUNTING' && r !== 'SUPPLY_CHAIN') },
     // HR hub — employees, skill matrix, annual training plan, training records.
     // HR + ADMIN edit; Managers can append training items for their unit; all view.
-    { to: '/hr', icon: GraduationCap, label: 'Human Resources', roles: ALL_ROLES },
+    // Hidden from Metrology — not part of their workflow.
+    { to: '/hr', icon: GraduationCap, label: 'Human Resources', roles: NON_METROLOGY_ROLES },
     // Attendance register — Unit managers edit their own unit; ADMIN + SAFETY
     // can view all units; ACCOUNTING sees only months submitted to them.
     { to: '/attendance', icon: CalendarClock, label: 'Attendance', roles: ['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING'] },
@@ -53,7 +64,6 @@ const buildAllItems = () => {
     { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
     { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
     { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },
-    { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY'] },
     // SUPERADMIN-only owner hatch — invisible to everyone else. One entry
