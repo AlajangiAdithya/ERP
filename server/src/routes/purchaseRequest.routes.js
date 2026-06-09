@@ -22,8 +22,11 @@ const OWN_ONLY_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'PLANNING'];
 const MONITOR_ROLES = [];
 // Full chain visibility: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING'];
-// Roles that are globally-scoped (have no unit assignment) and must supply a unitId when creating a PR.
-const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'PLANNING'];
+// Roles that are globally-scoped — they raise PRs in their own name, not for any
+// specific unit. Their PRs have unitId = null and only show up on their own
+// dashboard plus the procurement chain (ADMIN, PURCHASE_OFFICER, ACCOUNTING).
+// Includes QC ("Quality") because Quality acts as a non-unit function here.
+const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'PLANNING', 'QC'];
 
 const createSchema = z.object({
   notes: z.string().optional(),
@@ -254,6 +257,29 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
       'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'INWARD_DONE',
     ];
 
+    // Role-scoped visibility for the In-Progress modal, mirroring the rules on
+    // the main PR/PO lists:
+    //   - OWN_ONLY_ROLES (MANAGER unit raise, DESIGNS, RND, QC, PLANNING) see
+    //     only PRs they themselves raised. (For MANAGER this also means only
+    //     their unit's PRs since their PRs are always unit-scoped.)
+    //   - Chain roles (ADMIN, PURCHASE_OFFICER, ACCOUNTING, STORE_MANAGER) see
+    //     everything in flight.
+    // Unit-less PRs (STORES/QC/DESIGNS/PLANNING raised) never carry a unitId,
+    // so they will not surface on any unit-bound dashboard view.
+    const prRoleFilter = OWN_ONLY_ROLES.includes(req.user.role)
+      ? { managerId: req.user.id }
+      : {};
+    // POs inherit PR scope via either the direct purchaseRequest link or the
+    // sourceRequests pivot (multi-PR purchase orders).
+    const poRoleFilter = OWN_ONLY_ROLES.includes(req.user.role)
+      ? {
+          OR: [
+            { purchaseRequest: { managerId: req.user.id } },
+            { sourceRequests: { some: { purchaseRequest: { managerId: req.user.id } } } },
+          ],
+        }
+      : {};
+
     const [
       prCount, prTotal,
       poCount, poTotal,
@@ -261,21 +287,21 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
       poAmountAgg,
       prSamples, poSamples,
     ] = await Promise.all([
-      prisma.purchaseRequest.count({ where: { status: { in: prInProgressStatuses } } }),
-      prisma.purchaseRequest.count(),
-      prisma.purchaseOrder.count({ where: { status: { in: poInProgressStatuses } } }),
-      prisma.purchaseOrder.count(),
-      prisma.purchaseOrder.count({ where: { status: 'QC_PENDING' } }),
+      prisma.purchaseRequest.count({ where: { status: { in: prInProgressStatuses }, ...prRoleFilter } }),
+      prisma.purchaseRequest.count({ where: prRoleFilter }),
+      prisma.purchaseOrder.count({ where: { status: { in: poInProgressStatuses }, ...poRoleFilter } }),
+      prisma.purchaseOrder.count({ where: poRoleFilter }),
+      prisma.purchaseOrder.count({ where: { status: 'QC_PENDING', ...poRoleFilter } }),
       prisma.purchaseOrder.aggregate({
         _sum: { totalAmount: true },
-        where: { status: { in: poInProgressStatuses } },
+        where: { status: { in: poInProgressStatuses }, ...poRoleFilter },
       }),
       prisma.purchaseRequest.findMany({
-        where: { status: { in: prInProgressStatuses } },
+        where: { status: { in: prInProgressStatuses }, ...prRoleFilter },
         select: {
           id: true, requestNumber: true, status: true, createdAt: true,
           notes: true,
-          manager: { select: { name: true, role: true } },
+          manager: { select: { name: true, username: true, role: true } },
           unit: { select: { name: true, code: true } },
           items: { select: { requiredByDate: true, materialRequiredFor: true } },
         },
@@ -283,14 +309,14 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
         take: 15,
       }),
       prisma.purchaseOrder.findMany({
-        where: { status: { in: poInProgressStatuses } },
+        where: { status: { in: poInProgressStatuses }, ...poRoleFilter },
         select: {
           id: true, orderNumber: true, customName: true, supplierName: true,
           status: true, totalAmount: true, createdAt: true,
           purchaseRequest: {
             select: {
               requestNumber: true,
-              manager: { select: { name: true } },
+              manager: { select: { name: true, username: true } },
               unit: { select: { name: true, code: true } },
             },
           },
@@ -589,16 +615,19 @@ router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MAN
   try {
     const data = createSchema.parse(req.body);
 
-    // Unit-bound roles (MANAGER, RND, QC) file PRs against their own unit.
-    // Global roles (STORE_MANAGER, DESIGNS, PLANNING) must pick a unit in the payload.
-    let unitId = req.user.unitId || null;
-    if (!unitId) {
-      if (!data.unitId) {
-        return res.status(400).json({ error: 'Please select the unit this purchase request is for' });
+    // Unit-bound roles (MANAGER, RND) file PRs against their own unit. Global
+    // roles (STORE_MANAGER, DESIGNS, PLANNING, QC) file PRs in their own name
+    // with no unit attached — their PR is owned by them (managerId) and never
+    // shows up on any unit dashboard. STORE_MANAGER's PR is effectively
+    // "unassigned" (chain-visible); DESIGNS/PLANNING/QC PRs are own-only.
+    let unitId = null;
+    if (GLOBAL_REQUESTER_ROLES.includes(req.user.role)) {
+      unitId = null;
+    } else {
+      unitId = req.user.unitId || null;
+      if (!unitId) {
+        return res.status(400).json({ error: 'Your account is not assigned to a unit. Contact admin.' });
       }
-      const unit = await prisma.unit.findUnique({ where: { id: data.unitId }, select: { id: true } });
-      if (!unit) return res.status(400).json({ error: 'Selected unit does not exist' });
-      unitId = unit.id;
     }
 
     // Resolve productId for each item BEFORE the transactional create:

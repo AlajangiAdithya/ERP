@@ -489,8 +489,8 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), a
 // ──────────────────────────────────────────────────────────────────────────────
 // OUTWARD v2 — Local Job / Outside dual flow
 //
-// LOCAL_JOB: PENDING_STORE → (store-approve) → PENDING_STORE_REVIEW → (store-review)
-//            → PENDING_LOGISTICS → (logistics-assign+dispatch) → IN_TRANSIT
+// LOCAL_JOB: PENDING_STORE → (store-approve) → PENDING_LOGISTICS
+//            → (logistics-assign+dispatch) → IN_TRANSIT
 //            → (stores-ack-arrival) → CLOSED  [returnable acks on RETURN; non-returnable acks on REACH]
 //
 // OUTSIDE:   PENDING_STORE → (store-approve) → PENDING_ACCOUNTS → (accounts-invoice)
@@ -504,8 +504,8 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), a
 
 // PUT /api/gatepasses/:id/store-approve
 // Stores reviews items + approves. For OUTSIDE, routes to PENDING_ACCOUNTS for invoice entry.
-// For LOCAL_JOB, routes to PENDING_STORE_REVIEW (skipping accounts). Legacy (kind=null)
-// keeps the old behaviour: vehicleNo/driverName required, routes to PENDING_ACCOUNTS.
+// For LOCAL_JOB, routes directly to PENDING_LOGISTICS (skipping accounts + store review).
+// Legacy (kind=null) keeps the old behaviour: vehicleNo/driverName required, routes to PENDING_ACCOUNTS.
 router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
     const { driverName, vehicleNo, remarks } = req.body || {};
@@ -524,7 +524,7 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
 
     const nextStatus = isLegacy
       ? 'PENDING_ACCOUNTS'
-      : (existing.kind === 'OUTSIDE' ? 'PENDING_ACCOUNTS' : 'PENDING_STORE_REVIEW');
+      : (existing.kind === 'OUTSIDE' ? 'PENDING_ACCOUNTS' : 'PENDING_LOGISTICS');
 
     const now = new Date();
     const updated = await prisma.gatePass.update({
@@ -551,13 +551,19 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
       },
     });
 
+    const notifyMessage = {
+      PENDING_ACCOUNTS: `${req.user.name} approved stores stage. Awaiting Accounts to add invoice details.`,
+      PENDING_LOGISTICS: `${req.user.name} approved stores stage. Awaiting Logistics for vehicle assignment and dispatch.`,
+    }[nextStatus] || `${req.user.name} approved stores stage.`;
+    const notifyRole = {
+      PENDING_ACCOUNTS: 'ACCOUNTING',
+      PENDING_LOGISTICS: 'LOGISTICS',
+    }[nextStatus] || 'STORE_MANAGER';
     await notify({
       type: 'GATE_PASS_STAGE',
       title: `Gate Pass ${updated.passNumber}: stores approved`,
-      message: nextStatus === 'PENDING_ACCOUNTS'
-        ? `${req.user.name} approved stores stage. Awaiting Accounts to add invoice details.`
-        : `${req.user.name} approved stores stage. Awaiting Stores final review.`,
-      targetRole: nextStatus === 'PENDING_ACCOUNTS' ? 'ACCOUNTING' : 'STORE_MANAGER',
+      message: notifyMessage,
+      targetRole: notifyRole,
       sentById: req.user.id,
     });
 

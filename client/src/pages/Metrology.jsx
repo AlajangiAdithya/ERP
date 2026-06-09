@@ -26,7 +26,7 @@ const UNIFIED_CATEGORIES = [
   {
     value: 'LAB_TESTING_EQUIPMENT',
     label: 'Mechanical & chemical lab testing equipment',
-    matchCategories: ['TESTING_EQUIPMENT', 'WEIGHING_BALANCE'],
+    matchCategories: ['TESTING_EQUIPMENT'],
     matchMmrSubs:    ['LAB_TESTING_EQUIPMENT'],
   },
   {
@@ -40,6 +40,18 @@ const UNIFIED_CATEGORIES = [
     label: 'EOT cranes, Chain block pulleys',
     matchCategories: [],
     matchMmrSubs:    ['EOT_CRANES_CHAIN_BLOCKS'],
+  },
+  {
+    value: 'WEIGHING_BALANCES',
+    label: 'Weighing balances',
+    matchCategories: ['WEIGHING_BALANCE'],
+    matchMmrSubs:    ['WEIGHING_BALANCES'],
+  },
+  {
+    value: 'NDT',
+    label: 'NDT',
+    matchCategories: [],
+    matchMmrSubs:    ['NDT'],
   },
   {
     value: 'OTHER',

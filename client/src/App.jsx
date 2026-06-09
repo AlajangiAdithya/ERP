@@ -26,6 +26,7 @@ import Procurement from './pages/Procurement';
 import Monitoring from './pages/Monitoring';
 import GatePass from './pages/GatePass';
 import Vehicles from './pages/Vehicles';
+import Logistics from './pages/Logistics';
 import InterOfficeNote from './pages/InterOfficeNote';
 import InventoryTransfers from './pages/InventoryTransfers';
 import WorkOrders from './pages/WorkOrders';
@@ -206,8 +207,13 @@ export default function App() {
               <Route path="/gate-pass" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE']}><GatePass /></PrivateRoute>
               } />
-              <Route path="/vehicles" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'LOGISTICS']}><Vehicles /></PrivateRoute>
+              {/* Vehicle Register — viewable by anyone signed in (read-only).
+                  LOGISTICS + ADMIN get edit/add/delete via the page's canEdit gate. */}
+              <Route path="/vehicles" element={<Vehicles />} />
+              {/* Logistics dispatch desk — PENDING_LOGISTICS queue with vehicle
+                  assignment + dispatch confirmation. */}
+              <Route path="/logistics" element={
+                <PrivateRoute allowedRoles={['ADMIN', 'LOGISTICS']}><Logistics /></PrivateRoute>
               } />
               {/* Inventory Transfers — MANAGER + LOGISTICS + SAFETY monitor */}
               <Route path="/inventory-transfers" element={

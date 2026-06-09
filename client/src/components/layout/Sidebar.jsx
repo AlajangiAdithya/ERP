@@ -38,7 +38,10 @@ const buildAllItems = () => {
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'] },
     { to: '/gate-pass', icon: DoorOpen, label: 'Gate Pass', roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SITE_OFFICE'] },
-    { to: '/vehicles', icon: Truck, label: 'Vehicles', roles: ['LOGISTICS', 'ADMIN'] },
+    { to: '/logistics', icon: Truck, label: 'Logistics', roles: ['LOGISTICS', 'ADMIN'] },
+    // Vehicle register: LOGISTICS edits; everyone else views (trip history is
+    // useful traceability for managers, stores, accounts, etc.).
+    { to: '/vehicles', icon: Truck, label: 'Vehicles', roles: ALL_ROLES },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },
     { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },

@@ -114,12 +114,12 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   // Per-item upload state — keyed by row index; tracks {uploading, error} so the
   // UI can show a spinner / error inline without blocking other rows.
   const [specUpload, setSpecUpload] = useState({});
-  // Global-role requesters (STORE_MANAGER, DESIGNS, PLANNING) have no unit
-  // assignment and must pick which unit the PR belongs to before submitting.
-  // In edit mode the unit is locked to the original PR's unit.
-  const requiresUnitPick = !isEdit && !user?.unitId;
-  const [units, setUnits] = useState([]);
-  const [unitId, setUnitId] = useState('');
+  // Global-role requesters (STORE_MANAGER, DESIGNS, PLANNING, QC) raise PRs in
+  // their own name with no unit attached. Unit-bound roles (MANAGER, RND) get
+  // their unit auto-filled server-side. Either way the form never shows a
+  // unit picker. In edit mode the unit is locked to the original PR's unit.
+  const GLOBAL_ROLES = ['STORE_MANAGER', 'DESIGNS', 'PLANNING', 'QC'];
+  const isGlobalRole = GLOBAL_ROLES.includes(user?.role);
 
   useEffect(() => {
     if (isOpen) {
@@ -133,11 +133,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
         setItems([{ ...emptyItem }]);
         setNotes(prefillNotes || '');
       }
-      setUnitId('');
       setSpecUpload({});
-      if (requiresUnitPick && units.length === 0) {
-        api.get('/units').then(({ data }) => setUnits(Array.isArray(data) ? data : [])).catch(() => setUnits([]));
-      }
     }
   }, [isOpen, prefillItems, prefillNotes, requestToEdit]);
 
@@ -209,12 +205,11 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const submit = async () => {
     const validItems = items.filter(i => i.productName.trim());
     if (validItems.length === 0) return alert('Enter at least one material description');
-    if (requiresUnitPick && !unitId) return alert('Please select the unit this PR is for');
     setSaving(true);
     try {
       const payload = {
         notes: notes || undefined,
-        unitId: requiresUnitPick ? unitId : undefined,
+        unitId: undefined,
         items: validItems.map(i => ({
           productName: i.productName.trim(),
           productUnit: i.productUnit || 'pcs',
@@ -298,20 +293,14 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
               <td className={dataCell}>
                 {isEdit ? (
                   <span className="px-2 py-1 text-xs text-gray-700">
-                    {requestToEdit.unit?.name || requestToEdit.unit?.code || '—'}
+                    {requestToEdit.unit?.name || requestToEdit.unit?.code || (
+                      <span className="italic text-gray-500">Unassigned — {requestToEdit.manager?.username || requestToEdit.manager?.name || '—'}</span>
+                    )}
                   </span>
-                ) : requiresUnitPick ? (
-                  <select
-                    className={cellSelect}
-                    value={unitId}
-                    onChange={(e) => setUnitId(e.target.value)}
-                    required
-                  >
-                    <option value="">Select unit…</option>
-                    {units.map(u => (
-                      <option key={u.id} value={u.id}>{u.name} ({u.code})</option>
-                    ))}
-                  </select>
+                ) : isGlobalRole ? (
+                  <span className="px-2 py-1 text-xs italic text-gray-600">
+                    Unassigned — raised in <strong>{user?.username || user?.name || 'your'}</strong> name
+                  </span>
                 ) : (
                   <span className="px-2 py-1 text-xs text-gray-700">{user?.unit?.name || user?.unit?.code || '—'}</span>
                 )}
@@ -1723,7 +1712,13 @@ export default function PurchaseRequests() {
                         {r.requestNumber}
                       </td>
                       <td className="px-3 py-2 text-gray-600">{r.manager?.name}</td>
-                      <td className="px-3 py-2"><Badge color="blue">{r.unit?.code}</Badge></td>
+                      <td className="px-3 py-2">
+                        {r.unit?.code ? (
+                          <Badge color="blue">{r.unit.code}</Badge>
+                        ) : (
+                          <Badge color="gray">@{r.manager?.username || r.manager?.name || 'unassigned'}</Badge>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-gray-600">{r.items?.length}</td>
                       <td className="px-3 py-2"><Badge color={statusColor(r.status)}>{statusLabel(r.status)}</Badge></td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>

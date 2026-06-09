@@ -114,7 +114,13 @@ function InProgressButton() {
                         <tr key={pr.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                           <td className="px-2 py-1.5 font-medium text-navy-700">{pr.requestNumber}</td>
                           <td className="px-2 py-1.5">
-                            <Badge color="blue">{pr.unit?.code || pr.unit?.name || '—'}</Badge>
+                            {pr.unit?.code || pr.unit?.name ? (
+                              <Badge color="blue">{pr.unit.code || pr.unit.name}</Badge>
+                            ) : (
+                              <Badge color="gray">
+                                @{pr.manager?.username || pr.manager?.name || 'unassigned'}
+                              </Badge>
+                            )}
                           </td>
                           <td className="px-2 py-1.5 text-gray-600">
                             {pr.manager?.name || '—'}

@@ -3,6 +3,7 @@ import {
   Plus, Trash2, RotateCcw, CheckCircle2, Truck, PackageCheck,
   Send, ShieldCheck, Calculator, Stamp, XCircle, Clock, AlertCircle, LayoutList,
   DoorOpen, MapPin, Building2, FileText, Upload, FileDown, ClipboardList, Briefcase,
+  GitBranch, ArrowRight, ArrowDown, User, Workflow,
 } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
@@ -87,6 +88,7 @@ export default function GatePass() {
   const [gatePasses, setGatePasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [showFlow, setShowFlow] = useState(false);
   const [detail, setDetail] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [fromDate, setFromDate] = useState('');
@@ -129,11 +131,16 @@ export default function GatePass() {
         eyebrow="Outward Movement"
         icon={DoorOpen}
         actions={
-          canCreate && (
-            <Button onClick={() => setShowCreate(true)}>
-              <Plus size={16} /> Create Gate Pass
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => setShowFlow(true)}>
+              <Workflow size={16} /> View Workflow
             </Button>
-          )
+            {canCreate && (
+              <Button onClick={() => setShowCreate(true)}>
+                <Plus size={16} /> Create Gate Pass
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -198,6 +205,8 @@ export default function GatePass() {
           onAction={() => { setDetail(null); setRefreshKey(k => k + 1); }}
         />
       )}
+
+      {showFlow && <WorkflowModal onClose={() => setShowFlow(false)} />}
     </div>
   );
 }
@@ -810,7 +819,7 @@ function StoreApproveBox({ g, busy, onSubmit }) {
           ? 'Legacy FIM gate pass — capture driver/vehicle and forward to Accounts'
           : g.kind === 'OUTSIDE'
             ? 'Approve and forward to Accounts for invoice details'
-            : 'Approve and forward to Stores Review'}
+            : 'Approve and forward directly to Logistics for dispatch'}
       </p>
       {isLegacy && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -1032,11 +1041,13 @@ function ApprovalTrail({ g }) {
   if (kind === 'OUTSIDE' || !kind) {
     stages.push({ label: kind === 'OUTSIDE' ? 'Accounts (Invoice)' : 'Accounts', user: g.accountsApprover, at: g.accountsAt, icon: Calculator });
   }
-  // Stores Review (v2 only) — backend has no separate timestamp; show as complete
-  // once status has moved past PENDING_STORE_REVIEW.
-  if (kind) {
+  // Stores Review — OUTSIDE only; LOCAL_JOB skips this stage and goes straight
+  // from PENDING_STORE → PENDING_LOGISTICS after the first stores approval.
+  if (kind === 'OUTSIDE') {
     const pastStoreReview = !['PENDING_STORE', 'PENDING_ACCOUNTS', 'PENDING_STORE_REVIEW'].includes(g.status);
     stages.push({ label: 'Stores Review', user: g.storeIncharge, at: pastStoreReview ? (g.logisticsAt || g.storeInchargeAt) : null, icon: ClipboardList });
+  }
+  if (kind) {
     stages.push({ label: 'Logistics Dispatch', user: g.logisticsBy, at: g.dispatchedAt, icon: Truck });
     if (kind === 'OUTSIDE') {
       stages.push({ label: 'Site Office Ack', user: g.siteOfficeAckBy, at: g.siteOfficeAckAt, icon: Stamp });
@@ -1073,6 +1084,133 @@ function Field({ label, value, icon: Icon }) {
         {Icon && <Icon size={10} />} {label}
       </p>
       <p className="text-gray-800">{value || '—'}</p>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Workflow flowchart — visual reference of who acts at each stage, and how
+// LOCAL_JOB differs from OUTSIDE (LOCAL_JOB skips Accounts + Store Review).
+// ──────────────────────────────────────────────────────────────────────────────
+function WorkflowModal({ onClose }) {
+  const LOCAL_JOB_STEPS = [
+    { role: 'Unit Manager', action: 'Raise gate pass',          status: 'PENDING_STORE',    icon: Plus,         tone: 'gray' },
+    { role: 'Stores',       action: 'Approve & forward',        status: 'PENDING_LOGISTICS', icon: ShieldCheck,  tone: 'amber' },
+    { role: 'Logistics',    action: 'Assign vehicle + driver',  status: 'PENDING_LOGISTICS', icon: Truck,        tone: 'amber' },
+    { role: 'Logistics',    action: 'Confirm dispatch',         status: 'IN_TRANSIT',        icon: Upload,       tone: 'blue' },
+    { role: 'Stores',       action: 'Acknowledge return/reach', status: 'CLOSED',            icon: CheckCircle2, tone: 'green' },
+  ];
+
+  const OUTSIDE_STEPS = [
+    { role: 'Unit Manager', action: 'Raise gate pass',                status: 'PENDING_STORE',         icon: Plus,         tone: 'gray' },
+    { role: 'Stores',       action: 'Approve & forward to Accounts',  status: 'PENDING_ACCOUNTS',      icon: ShieldCheck,  tone: 'amber' },
+    { role: 'Accounts',     action: 'Add Invoice / DC details',       status: 'PENDING_STORE_REVIEW',  icon: Calculator,   tone: 'amber' },
+    { role: 'Stores',       action: 'Final review & forward',         status: 'PENDING_LOGISTICS',     icon: PackageCheck, tone: 'amber' },
+    { role: 'Logistics',    action: 'Assign vehicle + driver',        status: 'PENDING_LOGISTICS',     icon: Truck,        tone: 'amber' },
+    { role: 'Logistics',    action: 'Upload signed PDF & dispatch',   status: 'IN_TRANSIT',            icon: Upload,       tone: 'blue' },
+    { role: 'Site Office',  action: 'Acknowledge receipt',            status: 'CLOSED',                icon: Stamp,        tone: 'green' },
+  ];
+
+  return (
+    <Modal isOpen onClose={onClose} title="Gate Pass Workflow" size="xl">
+      <div className="space-y-6">
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-900">
+          <p className="font-medium mb-1 flex items-center gap-1.5">
+            <GitBranch size={14} /> Two parallel flows
+          </p>
+          <p className="text-xs text-blue-800">
+            The path forks based on the gate pass <span className="font-medium">kind</span> chosen at creation.
+            Local Job goes straight from Stores to Logistics. Outside passes through Accounts and a final Stores Review first.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <FlowColumn
+            title="Local Job"
+            subtitle="Material leaves and returns to stores (RAPS/JL-JW)"
+            color="purple"
+            steps={LOCAL_JOB_STEPS}
+          />
+          <FlowColumn
+            title="Outside"
+            subtitle="Material delivered to a site office (RAMS/GPR/01)"
+            color="blue"
+            steps={OUTSIDE_STEPS}
+          />
+        </div>
+
+        <div className="p-3 bg-gray-50 border border-gray-200 rounded text-xs text-gray-700">
+          <p className="font-medium mb-1">Notes</p>
+          <ul className="list-disc ml-4 space-y-0.5">
+            <li>Logistics pre-registers all company vehicles in the <span className="font-medium">Vehicles</span> page; the dispatch picker pulls from that pool.</li>
+            <li>For Outside dispatches, a driver-signed delivery PDF is mandatory before confirming dispatch.</li>
+            <li>Rejection is allowed at any pending stage — the gate pass moves to REJECTED with the reviewer's reason captured.</li>
+          </ul>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function FlowColumn({ title, subtitle, color, steps }) {
+  const headerTone = {
+    purple: 'bg-purple-50 border-purple-200 text-purple-800',
+    blue:   'bg-blue-50 border-blue-200 text-blue-800',
+  }[color] || 'bg-gray-50 border-gray-200 text-gray-800';
+
+  return (
+    <div className="space-y-3">
+      <div className={`p-3 rounded border ${headerTone}`}>
+        <p className="text-sm font-semibold">{title}</p>
+        <p className="text-[11px] opacity-80 mt-0.5">{subtitle}</p>
+      </div>
+      <div className="space-y-2">
+        {steps.map((s, idx) => (
+          <div key={idx}>
+            <FlowStep step={idx + 1} {...s} />
+            {idx < steps.length - 1 && (
+              <div className="flex justify-center py-1">
+                <ArrowDown size={14} className="text-gray-400" />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FlowStep({ step, role, action, status, icon: Icon, tone }) {
+  const toneClasses = {
+    gray:  'bg-gray-50 border-gray-200',
+    amber: 'bg-amber-50 border-amber-200',
+    blue:  'bg-blue-50 border-blue-200',
+    green: 'bg-green-50 border-green-200',
+  }[tone] || 'bg-gray-50 border-gray-200';
+
+  const badgeColor = {
+    gray:  'gray',
+    amber: 'yellow',
+    blue:  'blue',
+    green: 'green',
+  }[tone] || 'gray';
+
+  return (
+    <div className={`p-3 rounded border ${toneClasses} flex items-start gap-3`}>
+      <div className="flex-shrink-0 w-7 h-7 rounded-full bg-white border border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700">
+        {step}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 text-xs text-gray-600 font-medium">
+          <User size={11} /> {role}
+        </div>
+        <p className="text-sm text-gray-900 font-medium mt-0.5 flex items-center gap-1.5">
+          <Icon size={13} className="text-gray-500" /> {action}
+        </p>
+        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-gray-500">
+          <ArrowRight size={10} /> <Badge color={badgeColor}>{status.replace(/_/g, ' ')}</Badge>
+        </div>
+      </div>
     </div>
   );
 }

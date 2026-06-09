@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Pencil, Trash2, ChevronLeft, ChevronDown, ChevronRight, Search, Filter,
   CheckCircle2, Clock, AlertTriangle, Activity, FileText,
-  Settings2, X, Upload, Download, Save,
+  Settings2, X, Upload, Eye, Save,
 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
@@ -17,7 +17,7 @@ const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
 // Fiscal-year columns shown side-by-side in the register, matching the
 // physical Excel sheet the client maintains. New FYs can be added by
 // appending here.
-const FY_COLUMNS = ['FY 26-27', 'FY 27-28'];
+const FY_COLUMNS = ['FY 25-26', 'FY 26-27', 'FY 27-28'];
 
 // Metrology access (per access chart RAPS/QSP):
 // Full edit: METROLOGY, QC, MANAGER@Unit-V. SUPERADMIN bypasses.
@@ -766,7 +766,7 @@ export default function CalibrationList({
                                     rel="noreferrer"
                                     className="inline-flex items-center gap-1 text-[10px] text-navy-600 hover:text-navy-800 hover:underline w-fit"
                                   >
-                                    <Download size={10} /> PDF
+                                    <Eye size={10} /> View
                                   </a>
                                 )}
                               </div>
@@ -997,7 +997,7 @@ export default function CalibrationList({
                             rel="noreferrer"
                             className="inline-flex items-center gap-1 text-xs text-navy-600 hover:text-navy-800"
                           >
-                            <Download size={12} /> Current PDF
+                            <Eye size={12} /> View
                           </a>
                         ) : (
                           <span className="text-xs text-gray-400">No file</span>

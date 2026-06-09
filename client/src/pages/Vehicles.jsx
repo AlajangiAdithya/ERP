@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Plus, Truck, Pencil, Trash2, ChevronRight, ArrowLeft, Activity } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Plus, Truck, Pencil, Trash2, ChevronRight, ArrowLeft, Activity, Send, CheckCircle2, Clock } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -8,7 +8,24 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input, { Select, Textarea } from '../components/ui/Input';
 import PageHero from '../components/shared/PageHero';
-import { formatDate } from '../utils/formatters';
+import { formatDate, formatDateTime } from '../utils/formatters';
+
+const STATUS_BADGE = {
+  DRAFT: 'gray',
+  PENDING_STORE: 'yellow',
+  PENDING_ACCOUNTS: 'yellow',
+  PENDING_STORE_REVIEW: 'yellow',
+  PENDING_LOGISTICS: 'yellow',
+  IN_TRANSIT: 'blue',
+  PENDING_RETURN: 'yellow',
+  RETURNED: 'green',
+  CLOSED: 'gray',
+  REJECTED: 'red',
+  APPROVED: 'green',
+  OPEN: 'yellow',
+};
+
+const STATUS_LABEL = (s) => (s || '—').replace(/_/g, ' ');
 
 const STATUS_OPTS = [
   { value: 'ACTIVE', label: 'Active' },
@@ -207,7 +224,7 @@ export default function Vehicles() {
       </Card>
 
       {showModal && (
-        <Modal onClose={() => setShowModal(false)} title={editing ? 'Edit Vehicle' : 'Add Vehicle'}>
+        <Modal isOpen onClose={() => setShowModal(false)} title={editing ? 'Edit Vehicle' : 'Add Vehicle'}>
           <div className="space-y-3">
             {error && <div className="text-sm text-brand-red">{error}</div>}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -245,6 +262,8 @@ export default function Vehicles() {
 function VehicleDetail({ vehicleId, onBack }) {
   const [v, setV] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [tripFilter, setTripFilter] = useState('ALL');
+  const [tripSearch, setTripSearch] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -253,6 +272,30 @@ function VehicleDetail({ vehicleId, onBack }) {
       .catch(() => setV(null))
       .finally(() => setLoading(false));
   }, [vehicleId]);
+
+  const trips = v?.gatePasses || [];
+
+  const stats = useMemo(() => {
+    const inTransit = trips.filter((g) => g.status === 'IN_TRANSIT').length;
+    const closed = trips.filter((g) => g.status === 'CLOSED' || g.status === 'RETURNED' || g.status === 'APPROVED').length;
+    const pending = trips.filter((g) => String(g.status || '').startsWith('PENDING_')).length;
+    return { total: trips.length, inTransit, closed, pending };
+  }, [trips]);
+
+  const filteredTrips = useMemo(() => {
+    const term = tripSearch.trim().toLowerCase();
+    return trips.filter((g) => {
+      if (tripFilter !== 'ALL') {
+        if (tripFilter === 'IN_TRANSIT' && g.status !== 'IN_TRANSIT') return false;
+        if (tripFilter === 'CLOSED' && !['CLOSED', 'RETURNED', 'APPROVED'].includes(g.status)) return false;
+        if (tripFilter === 'PENDING' && !String(g.status || '').startsWith('PENDING_')) return false;
+      }
+      if (!term) return true;
+      const hay = [g.passNumber, g.kind, g.passType, g.destinationOffice, g.partyName, g.jobWorkNo]
+        .filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(term);
+    });
+  }, [trips, tripFilter, tripSearch]);
 
   if (loading) return <div className="p-8 text-center text-gray-500 text-sm">Loading…</div>;
   if (!v) return <div className="p-8 text-center text-gray-500 text-sm">Vehicle not found.</div>;
@@ -266,6 +309,13 @@ function VehicleDetail({ vehicleId, onBack }) {
         icon={Truck}
         actions={<Button variant="outline" onClick={onBack}><ArrowLeft size={14} /> Back</Button>}
       />
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatPill label="Total Trips" value={stats.total} Icon={Activity} tone="navy" />
+        <StatPill label="In Transit" value={stats.inTransit} Icon={Send} tone="blue" />
+        <StatPill label="Closed" value={stats.closed} Icon={CheckCircle2} tone="green" />
+        <StatPill label="Pending" value={stats.pending} Icon={Clock} tone="amber" />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card>
@@ -302,39 +352,75 @@ function VehicleDetail({ vehicleId, onBack }) {
       )}
 
       <Card>
-        <div className="p-4">
-          <h3 className="font-semibold text-navy-700 mb-3 flex items-center gap-2">
-            <Activity size={16} /> Trip History ({v.gatePasses?.length || 0})
-          </h3>
-          {!v.gatePasses?.length ? (
-            <div className="text-sm text-gray-500">No trips yet.</div>
+        <div className="p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="font-semibold text-navy-700 flex items-center gap-2">
+              <Activity size={16} /> Previous Assignments ({stats.total})
+            </h3>
+            <div className="flex flex-wrap items-end gap-2">
+              <Input
+                label="Search"
+                placeholder="Pass no, destination, job…"
+                value={tripSearch}
+                onChange={(e) => setTripSearch(e.target.value)}
+                className="min-w-[200px]"
+              />
+              <Select label="Filter" value={tripFilter} onChange={(e) => setTripFilter(e.target.value)} className="min-w-[140px]">
+                <option value="ALL">All</option>
+                <option value="PENDING">Pending</option>
+                <option value="IN_TRANSIT">In Transit</option>
+                <option value="CLOSED">Closed</option>
+              </Select>
+            </div>
+          </div>
+
+          {!trips.length ? (
+            <div className="p-6 text-center text-sm text-gray-500">
+              This vehicle hasn't been assigned to any gate pass yet.
+            </div>
+          ) : !filteredTrips.length ? (
+            <div className="p-6 text-center text-sm text-gray-500">
+              No trips match the current filter.
+            </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto border border-gray-200 rounded">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr className="text-left text-xs uppercase tracking-wider text-gray-600">
                     <th className="px-3 py-2">Pass No</th>
                     <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2">Kind / Type</th>
-                    <th className="px-3 py-2">Party / Destination</th>
+                    <th className="px-3 py-2">Kind</th>
+                    <th className="px-3 py-2">Job / PO</th>
+                    <th className="px-3 py-2">Destination / Party</th>
                     <th className="px-3 py-2">Dispatched</th>
                     <th className="px-3 py-2">Reached / Returned</th>
                     <th className="px-3 py-2">Status</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {v.gatePasses.map((g) => (
-                    <tr key={g.id} className="border-b">
+                <tbody className="divide-y divide-gray-100">
+                  {filteredTrips.map((g) => (
+                    <tr key={g.id} className="hover:bg-gray-50">
                       <td className="px-3 py-2 font-mono text-navy-700">{g.passNumber}</td>
                       <td className="px-3 py-2">{formatDate(g.date)}</td>
                       <td className="px-3 py-2">
-                        {g.kind || '—'}
-                        {g.passType && <div className="text-[10px] text-gray-500">{g.passType}</div>}
+                        {g.kind ? <Badge color={g.kind === 'OUTSIDE' ? 'blue' : 'purple'}>{g.kind}</Badge> : '—'}
+                        {g.passType && <div className="text-[10px] text-gray-500 mt-0.5">{g.passType}</div>}
                       </td>
-                      <td className="px-3 py-2">{g.destinationOffice || g.partyName || '—'}</td>
-                      <td className="px-3 py-2">{formatDate(g.dispatchedAt)}</td>
-                      <td className="px-3 py-2">{formatDate(g.reachedDate || g.actualReturnDate)}</td>
-                      <td className="px-3 py-2"><Badge color="blue">{g.status}</Badge></td>
+                      <td className="px-3 py-2 text-gray-700 max-w-[10rem] truncate" title={g.jobWorkNo || ''}>
+                        {g.jobWorkNo || '—'}
+                      </td>
+                      <td className="px-3 py-2 text-gray-700 max-w-[14rem] truncate" title={g.destinationOffice || g.partyName || ''}>
+                        {g.destinationOffice || g.partyName || '—'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-gray-600">
+                        {g.dispatchedAt ? formatDateTime(g.dispatchedAt) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-gray-600">
+                        {formatDate(g.reachedDate || g.actualReturnDate) || '—'}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Badge color={STATUS_BADGE[g.status] || 'gray'}>{STATUS_LABEL(g.status)}</Badge>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -343,6 +429,24 @@ function VehicleDetail({ vehicleId, onBack }) {
           )}
         </div>
       </Card>
+    </div>
+  );
+}
+
+function StatPill({ label, value, Icon, tone = 'navy' }) {
+  const styles = {
+    navy:  'bg-navy-50 text-navy-700 ring-navy-200',
+    blue:  'bg-blue-50 text-blue-700 ring-blue-200',
+    green: 'bg-green-50 text-green-700 ring-green-200',
+    amber: 'bg-amber-50 text-amber-700 ring-amber-200',
+  }[tone] || 'bg-gray-50 text-gray-700 ring-gray-200';
+  return (
+    <div className={`rounded-lg ring-1 ${styles} p-3 flex items-center gap-2.5`}>
+      <div className="rounded-md bg-white/70 p-1.5"><Icon size={16} /></div>
+      <div className="min-w-0">
+        <p className="text-[10px] uppercase tracking-wider font-semibold opacity-80">{label}</p>
+        <p className="text-xl font-semibold leading-none mt-0.5">{value}</p>
+      </div>
     </div>
   );
 }

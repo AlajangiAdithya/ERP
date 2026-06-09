@@ -10,6 +10,8 @@ const MMR_SUB_OPTIONS = [
   { value: 'LAB_TESTING_EQUIPMENT',        label: 'Mechanical & chemical lab testing equipment' },
   { value: 'AUTOCLAVE_OVEN_THERMOCOUPLES', label: 'Autoclave, Oven, Thermocouples' },
   { value: 'EOT_CRANES_CHAIN_BLOCKS',      label: 'EOT cranes, Chain block pulleys' },
+  { value: 'WEIGHING_BALANCES',            label: 'Weighing balances' },
+  { value: 'NDT',                          label: 'NDT' },
   { value: 'OTHER',                        label: 'Other equipment' },
 ];
 

@@ -78,6 +78,8 @@ const VALID_MMR_SUBS = [
   'LAB_TESTING_EQUIPMENT',
   'AUTOCLAVE_OVEN_THERMOCOUPLES',
   'EOT_CRANES_CHAIN_BLOCKS',
+  'WEIGHING_BALANCES',
+  'NDT',
   'OTHER',
 ];
 
@@ -91,6 +93,8 @@ const MMR_SUB_PREFIX = {
   LAB_TESTING_EQUIPMENT:        'LTE',
   AUTOCLAVE_OVEN_THERMOCOUPLES: 'AOT',
   EOT_CRANES_CHAIN_BLOCKS:      'EOT',
+  WEIGHING_BALANCES:            'WB',
+  NDT:                          'NDT',
   OTHER:                        'OTH',
 };
 
