@@ -133,6 +133,8 @@ export default function SkillMatrix() {
               <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 bg-gray-50 sticky top-0">
                 <th className="py-2 px-2 sticky left-0 bg-gray-50 z-10">#</th>
                 <th className="py-2 px-2 sticky left-8 bg-gray-50 z-10 min-w-[160px]">Employee</th>
+                <th className="py-2 px-2 min-w-[90px]">Code</th>
+                <th className="py-2 px-2 min-w-[90px]">Date of Joining</th>
                 {SKILLS.map((s) => (
                   <th key={s.key} className="py-2 px-2 text-center whitespace-nowrap" title={s.label}>
                     {s.label.split(' ').map((w, i) => <div key={i}>{w}</div>)}
@@ -146,9 +148,9 @@ export default function SkillMatrix() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={SKILLS.length + 5} className="py-6 text-center text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={SKILLS.length + 7} className="py-6 text-center text-gray-400">Loading…</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={SKILLS.length + 5} className="py-6 text-center text-gray-400">No employees.</td></tr>
+                <tr><td colSpan={SKILLS.length + 7} className="py-6 text-center text-gray-400">No employees.</td></tr>
               ) : filtered.map((emp) => (
                 <tr key={emp.id} className="border-b border-gray-100 hover:bg-gray-50/50">
                   <td className="py-1.5 px-2 sticky left-0 bg-white text-gray-500">{emp.serialNo}</td>
@@ -156,6 +158,8 @@ export default function SkillMatrix() {
                     <div className="font-semibold text-navy-900 truncate">{emp.name}</div>
                     <div className="text-[10px] text-gray-500 truncate">{emp.designation || emp.category || ''}</div>
                   </td>
+                  <td className="py-1.5 px-2 font-mono text-[10px] text-gray-700">{emp.empCode || '—'}</td>
+                  <td className="py-1.5 px-2 text-[10px] text-gray-700">{emp.dateOfJoining ? emp.dateOfJoining.slice(0, 10) : '—'}</td>
                   {SKILLS.map((s) => (
                     <td key={s.key} className="py-1 px-1 text-center">
                       <input
