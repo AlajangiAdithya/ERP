@@ -151,7 +151,9 @@ export default function SkillMatrix() {
                 <tr><td colSpan={SKILLS.length + 7} className="py-6 text-center text-gray-400">Loading…</td></tr>
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={SKILLS.length + 7} className="py-6 text-center text-gray-400">No employees.</td></tr>
-              ) : filtered.map((emp) => (
+              ) : filtered.map((emp) => {
+                const rowEdit = !!emp.canEdit;
+                return (
                 <tr key={emp.id} className="border-b border-gray-100 hover:bg-gray-50/50">
                   <td className="py-1.5 px-2 sticky left-0 bg-white text-gray-500">{emp.serialNo}</td>
                   <td className="py-1.5 px-2 sticky left-8 bg-white">
@@ -165,7 +167,7 @@ export default function SkillMatrix() {
                       <input
                         type="number" min={0} max={4} step={0.5}
                         value={getCellValue(emp, s.key)}
-                        disabled={!canWrite}
+                        disabled={!rowEdit}
                         onChange={(e) => setCellValue(emp.id, s.key, e.target.value)}
                         className="w-12 px-1 py-1 text-center border border-gray-200 rounded text-xs disabled:bg-gray-50 disabled:text-gray-700"
                       />
@@ -175,7 +177,7 @@ export default function SkillMatrix() {
                     <input
                       type="text"
                       value={drafts[emp.id]?.trainingNeeds ?? emp.skillMatrix?.trainingNeeds ?? ''}
-                      disabled={!canWrite}
+                      disabled={!rowEdit}
                       onChange={(e) => setCellValue(emp.id, 'trainingNeeds', e.target.value)}
                       className="w-full px-2 py-1 border border-gray-200 rounded text-xs disabled:bg-gray-50"
                     />
@@ -184,7 +186,7 @@ export default function SkillMatrix() {
                     <input
                       type="text"
                       value={drafts[emp.id]?.remarks ?? emp.skillMatrix?.remarks ?? ''}
-                      disabled={!canWrite}
+                      disabled={!rowEdit}
                       onChange={(e) => setCellValue(emp.id, 'remarks', e.target.value)}
                       className="w-full px-2 py-1 border border-gray-200 rounded text-xs disabled:bg-gray-50"
                     />
@@ -195,7 +197,7 @@ export default function SkillMatrix() {
                         <FileText size={12} /> View
                       </a>
                     ) : <span className="text-gray-400">—</span>}
-                    {canWrite && (
+                    {rowEdit && (
                       <label className="block mt-1 cursor-pointer text-[10px] text-violet-700 hover:underline">
                         <span className="inline-flex items-center gap-1"><Upload size={10} /> Upload</span>
                         <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => uploadHodSign(emp, e.target.files[0])} />
@@ -204,17 +206,22 @@ export default function SkillMatrix() {
                   </td>
                   {canWrite && (
                     <td className="py-1 px-2 text-right">
-                      <button
-                        onClick={() => saveRow(emp)}
-                        disabled={!isDirty(emp.id) || savingId === emp.id}
-                        className="px-2 py-1 text-xs rounded bg-violet-700 hover:bg-violet-800 text-white disabled:opacity-30 inline-flex items-center gap-1"
-                      >
-                        <Save size={11} /> {savingId === emp.id ? '…' : 'Save'}
-                      </button>
+                      {rowEdit ? (
+                        <button
+                          onClick={() => saveRow(emp)}
+                          disabled={!isDirty(emp.id) || savingId === emp.id}
+                          className="px-2 py-1 text-xs rounded bg-violet-700 hover:bg-violet-800 text-white disabled:opacity-30 inline-flex items-center gap-1"
+                        >
+                          <Save size={11} /> {savingId === emp.id ? '…' : 'Save'}
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-gray-400">Fixed</span>
+                      )}
                     </td>
                   )}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
