@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import {
-  BarChart3, FileText, History, ArrowRight, Sparkles, Activity,
+  BarChart3, FileText, History, ArrowRight, Sparkles, Activity, ScrollText,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -16,6 +16,17 @@ const MODULES = [
     glow: 'group-hover:shadow-blue-500/40',
     iconBg: 'bg-gradient-to-br from-blue-100 to-blue-200 text-blue-700',
     ringColor: 'ring-blue-200/60',
+  },
+  {
+    to: '/all-requests',
+    icon: ScrollText,
+    title: 'All MIV Requests',
+    description: 'Every Material Issue Voucher request across units, with full status history.',
+    roles: ['ADMIN', 'SAFETY'],
+    gradient: 'from-emerald-500 via-teal-500 to-cyan-600',
+    glow: 'group-hover:shadow-emerald-500/40',
+    iconBg: 'bg-gradient-to-br from-emerald-100 to-teal-200 text-emerald-700',
+    ringColor: 'ring-emerald-200/60',
   },
   {
     to: '/audit-logs',

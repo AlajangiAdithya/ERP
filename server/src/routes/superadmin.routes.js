@@ -31,9 +31,17 @@ const TABLES = [
   'ProductRequest', 'RequestItem', 'StockMovement', 'PurchaseRequest', 'PurchaseRequestItem',
   'Quotation', 'QuotationItem', 'QuotationSource', 'PurchaseOrder', 'PurchaseOrderItem',
   'PurchaseOrderSource', 'PurchaseOrderItemAllocation', 'PaymentRequest', 'QCInspection',
-  'QCInspectionItem', 'GatePass', 'GatePassItem', 'InterOfficeNote', 'InventoryTransferRequest',
-  'InventoryTransferItem', 'Supplier', 'WorkOrder', 'WorkOrderExtension', 'WorkOrderInvoice', 'Notification',
-  'CalibrationItem', 'CalibrationRecord',
+  'QCInspectionItem', 'GatePass', 'GatePassItem', 'InterOfficeNote', 'IONItem',
+  'InventoryTransferRequest', 'InventoryTransferItem', 'Supplier', 'SupplierReEvaluation',
+  'SupplierAssessmentForm', 'SupplierPerformanceRating', 'SupplierPerformanceRatingItem',
+  'MaterialPool', 'MaterialPoolItem', 'Vehicle', 'Driver', 'VehicleTrip',
+  'WorkOrder', 'WorkOrderExtension', 'WorkOrderInvoice', 'WorkOrderBgEntry',
+  'WorkOrderInsuranceEntry', 'WorkOrderClosure', 'WorkOrderClosureDoc',
+  'WorkOrderHoldRequest', 'WorkOrderAlarm', 'WorkOrderAlarmNote',
+  'WorkOrderClosureWeeklyFollowup', 'Notification', 'CalibrationItem', 'CalibrationRecord',
+  'Machinery', 'FireExtinguisher', 'Employee', 'SkillMatrix', 'TrainingPlan',
+  'TrainingPlanItem', 'TrainingSession', 'TrainingAttendee', 'AttendanceEmployee',
+  'AttendanceEntry', 'AttendanceMonthSubmission',
 ];
 
 // Convert PascalCase table name to camelCase Prisma model accessor.
@@ -141,13 +149,39 @@ router.delete('/table/:name/row/:id', async (req, res) => {
 // the delete handler (only fields listed here are deletable).
 const FILE_FIELDS = {
   PurchaseRequest: [{ field: 'materialSpecsPdfUrl', label: 'Material Specs PDF' }],
+  PurchaseRequestItem: [{ field: 'specAttachmentUrl', label: 'Item Spec Attachment' }],
   Supplier: [
     { field: 'vendorEvaluationPdfUrl', label: 'Vendor Evaluation PDF', uploadedAtField: 'vendorEvaluationUploadedAt' },
     { field: 'supplierAssessmentPdfUrl', label: 'Supplier Assessment PDF', uploadedAtField: 'assessmentUploadedAt' },
   ],
+  SupplierAssessmentForm: [{ field: 'isoCertificateUrl', label: 'ISO Certificate' }],
   Quotation: [{ field: 'quotationPdfUrl', label: 'Quotation PDF' }],
   PurchaseOrder: [{ field: 'poDocumentUrl', label: 'Signed PO PDF' }],
-  QCInspection: [{ field: 'invoiceFileUrl', label: 'Lot Invoice PDF' }],
+  QCInspection: [
+    { field: 'invoiceFileUrl', label: 'Lot Invoice PDF' },
+    { field: 'lotReportFileUrl', label: 'Lot Report PDF' },
+  ],
+  GatePass: [
+    { field: 'signedDeliveryPdfUrl', label: 'Signed Delivery PDF' },
+    { field: 'customerGpPdfUrl', label: 'Customer Gate Pass PDF' },
+  ],
+  Vehicle: [{ field: 'rcUrl', label: 'Vehicle RC' }],
+  WorkOrderBgEntry: [{ field: 'fileUrl', label: 'Bank Guarantee File' }],
+  WorkOrderInsuranceEntry: [{ field: 'fileUrl', label: 'Insurance File' }],
+  WorkOrderClosure: [
+    { field: 'qcCertificateUrl', label: 'QC Certificate' },
+    { field: 'invoiceFileUrl', label: 'Closure Invoice (legacy)' },
+    { field: 'deliveryAckSignedUrl', label: 'Delivery Ack (Signed)' },
+  ],
+  WorkOrderClosureDoc: [{ field: 'fileUrl', label: 'Closure Doc' }],
+  TrainingSession: [
+    { field: 'facultySign', label: 'Faculty Signature' },
+    { field: 'trainingNotesUrl', label: 'Training Notes' },
+    { field: 'evaluationUrl', label: 'Evaluation' },
+    { field: 'feedbackUrl', label: 'Feedback' },
+  ],
+  TrainingAttendee: [{ field: 'signUrl', label: 'Attendee Signature' }],
+  SkillMatrix: [{ field: 'headOfDeptSig', label: 'HOD Signature' }],
 };
 
 // GET /api/superadmin/uploads — every file URL across the schema, newest first.
@@ -239,7 +273,258 @@ router.get('/uploads', async (req, res) => {
       url: q.invoiceFileUrl, uploadedAt: q.createdAt, uploadedBy: null,
     }));
 
-    // 6. QCInspection.uploadedDocs — JSON array of {filename, url, uploadedById, uploadedAt}
+    // 6. QCInspection.lotReportFileUrl
+    const qcLotReports = await prisma.qCInspection.findMany({
+      where: { lotReportFileUrl: { not: null } },
+      select: { id: true, inspectionNumber: true, lotReportFileUrl: true, createdAt: true },
+    });
+    qcLotReports.forEach((q) => uploads.push({
+      table: 'QCInspection', recordId: q.id, field: 'lotReportFileUrl',
+      label: 'Lot Report PDF', recordLabel: q.inspectionNumber,
+      url: q.lotReportFileUrl, uploadedAt: q.createdAt, uploadedBy: null,
+    }));
+
+    // 7. PurchaseRequestItem.specAttachmentUrl
+    const prItems = await prisma.purchaseRequestItem.findMany({
+      where: { specAttachmentUrl: { not: null } },
+      select: {
+        id: true, specAttachmentUrl: true, specAttachmentName: true, productName: true,
+        request: { select: { requestNumber: true, createdAt: true, manager: { select: { name: true } } } },
+      },
+    });
+    prItems.forEach((p) => uploads.push({
+      table: 'PurchaseRequestItem', recordId: p.id, field: 'specAttachmentUrl',
+      label: `Item Spec: ${p.specAttachmentName || p.productName || 'file'}`,
+      recordLabel: `${p.request?.requestNumber || ''} · ${p.productName || ''}`.trim(),
+      url: p.specAttachmentUrl, uploadedAt: p.request?.createdAt || null,
+      uploadedBy: p.request?.manager?.name || null,
+    }));
+
+    // 8. SupplierAssessmentForm.isoCertificateUrl
+    const isoCerts = await prisma.supplierAssessmentForm.findMany({
+      where: { isoCertificateUrl: { not: null } },
+      select: {
+        id: true, isoCertificateUrl: true, financialYear: true, createdAt: true,
+        reviewedByName: true, supplier: { select: { name: true } },
+      },
+    });
+    isoCerts.forEach((s) => uploads.push({
+      table: 'SupplierAssessmentForm', recordId: s.id, field: 'isoCertificateUrl',
+      label: `ISO Certificate${s.financialYear ? ` (FY ${s.financialYear})` : ''}`,
+      recordLabel: s.supplier?.name || s.id,
+      url: s.isoCertificateUrl, uploadedAt: s.createdAt,
+      uploadedBy: s.reviewedByName || null,
+    }));
+
+    // 9. GatePass.signedDeliveryPdfUrl + customerGpPdfUrl
+    const gps = await prisma.gatePass.findMany({
+      where: {
+        OR: [
+          { signedDeliveryPdfUrl: { not: null } },
+          { customerGpPdfUrl: { not: null } },
+        ],
+      },
+      select: {
+        id: true, passNumber: true, signedDeliveryPdfUrl: true, customerGpPdfUrl: true,
+        dispatchedAt: true, date: true,
+        logisticsBy: { select: { name: true } },
+      },
+    });
+    gps.forEach((g) => {
+      if (g.signedDeliveryPdfUrl) uploads.push({
+        table: 'GatePass', recordId: g.id, field: 'signedDeliveryPdfUrl',
+        label: 'Signed Delivery PDF', recordLabel: g.passNumber,
+        url: g.signedDeliveryPdfUrl, uploadedAt: g.dispatchedAt || g.date,
+        uploadedBy: g.logisticsBy?.name || null,
+      });
+      if (g.customerGpPdfUrl) uploads.push({
+        table: 'GatePass', recordId: g.id, field: 'customerGpPdfUrl',
+        label: 'Customer Gate Pass PDF', recordLabel: g.passNumber,
+        url: g.customerGpPdfUrl, uploadedAt: g.date, uploadedBy: null,
+      });
+    });
+
+    // 10. Vehicle.rcUrl
+    const vehicles = await prisma.vehicle.findMany({
+      where: { rcUrl: { not: null } },
+      select: {
+        id: true, regNumber: true, rcUrl: true, createdAt: true,
+        createdBy: { select: { name: true } },
+      },
+    });
+    vehicles.forEach((v) => uploads.push({
+      table: 'Vehicle', recordId: v.id, field: 'rcUrl',
+      label: 'Vehicle RC', recordLabel: v.regNumber,
+      url: v.rcUrl, uploadedAt: v.createdAt,
+      uploadedBy: v.createdBy?.name || null,
+    }));
+
+    // 11. WorkOrderBgEntry.fileUrl
+    const bgEntries = await prisma.workOrderBgEntry.findMany({
+      where: { fileUrl: { not: null } },
+      select: {
+        id: true, bgNo: true, fileUrl: true, fileName: true, addedAt: true,
+        addedBy: { select: { name: true } },
+        workOrder: { select: { orderNumber: true } },
+      },
+    });
+    bgEntries.forEach((b) => uploads.push({
+      table: 'WorkOrderBgEntry', recordId: b.id, field: 'fileUrl',
+      label: `Bank Guarantee${b.fileName ? `: ${b.fileName}` : ''}`,
+      recordLabel: `${b.workOrder?.orderNumber || ''} · BG ${b.bgNo}`.trim(),
+      url: b.fileUrl, uploadedAt: b.addedAt,
+      uploadedBy: b.addedBy?.name || null,
+    }));
+
+    // 12. WorkOrderInsuranceEntry.fileUrl
+    const insEntries = await prisma.workOrderInsuranceEntry.findMany({
+      where: { fileUrl: { not: null } },
+      select: {
+        id: true, insuranceNo: true, fileUrl: true, fileName: true, addedAt: true,
+        addedBy: { select: { name: true } },
+        workOrder: { select: { orderNumber: true } },
+      },
+    });
+    insEntries.forEach((b) => uploads.push({
+      table: 'WorkOrderInsuranceEntry', recordId: b.id, field: 'fileUrl',
+      label: `Insurance${b.fileName ? `: ${b.fileName}` : ''}`,
+      recordLabel: `${b.workOrder?.orderNumber || ''} · Ins ${b.insuranceNo}`.trim(),
+      url: b.fileUrl, uploadedAt: b.addedAt,
+      uploadedBy: b.addedBy?.name || null,
+    }));
+
+    // 13. WorkOrderClosure.qcCertificateUrl + invoiceFileUrl + deliveryAckSignedUrl
+    const closures = await prisma.workOrderClosure.findMany({
+      where: {
+        OR: [
+          { qcCertificateUrl: { not: null } },
+          { invoiceFileUrl: { not: null } },
+          { deliveryAckSignedUrl: { not: null } },
+        ],
+      },
+      select: {
+        id: true, cycleNumber: true,
+        qcCertificateUrl: true, qcVerifiedAt: true,
+        qcVerifiedBy: { select: { name: true } },
+        invoiceFileUrl: true, invoiceSentAt: true,
+        invoiceSentBy: { select: { name: true } },
+        deliveryAckSignedUrl: true, deliveryAckAt: true,
+        deliveryAckBy: { select: { name: true } },
+        workOrder: { select: { orderNumber: true } },
+      },
+    });
+    closures.forEach((c) => {
+      const recordLabel = `${c.workOrder?.orderNumber || ''} · Cycle ${c.cycleNumber}`.trim();
+      if (c.qcCertificateUrl) uploads.push({
+        table: 'WorkOrderClosure', recordId: c.id, field: 'qcCertificateUrl',
+        label: 'QC Certificate', recordLabel,
+        url: c.qcCertificateUrl, uploadedAt: c.qcVerifiedAt,
+        uploadedBy: c.qcVerifiedBy?.name || null,
+      });
+      if (c.invoiceFileUrl) uploads.push({
+        table: 'WorkOrderClosure', recordId: c.id, field: 'invoiceFileUrl',
+        label: 'Closure Invoice (legacy)', recordLabel,
+        url: c.invoiceFileUrl, uploadedAt: c.invoiceSentAt,
+        uploadedBy: c.invoiceSentBy?.name || null,
+      });
+      if (c.deliveryAckSignedUrl) uploads.push({
+        table: 'WorkOrderClosure', recordId: c.id, field: 'deliveryAckSignedUrl',
+        label: 'Delivery Ack (Signed)', recordLabel,
+        url: c.deliveryAckSignedUrl, uploadedAt: c.deliveryAckAt,
+        uploadedBy: c.deliveryAckBy?.name || null,
+      });
+    });
+
+    // 14. WorkOrderClosureDoc.fileUrl
+    const closureDocs = await prisma.workOrderClosureDoc.findMany({
+      select: {
+        id: true, docType: true, fileUrl: true, fileName: true, uploadedAt: true,
+        uploadedBy: { select: { name: true } },
+        closure: { select: { cycleNumber: true, workOrder: { select: { orderNumber: true } } } },
+      },
+    });
+    closureDocs.forEach((d) => uploads.push({
+      table: 'WorkOrderClosureDoc', recordId: d.id, field: 'fileUrl',
+      label: `${d.docType}${d.fileName ? `: ${d.fileName}` : ''}`,
+      recordLabel: `${d.closure?.workOrder?.orderNumber || ''} · Cycle ${d.closure?.cycleNumber || ''}`.trim(),
+      url: d.fileUrl, uploadedAt: d.uploadedAt,
+      uploadedBy: d.uploadedBy?.name || null,
+    }));
+
+    // 15. TrainingSession uploads (facultySign, trainingNotesUrl, evaluationUrl, feedbackUrl)
+    const sessions = await prisma.trainingSession.findMany({
+      where: {
+        OR: [
+          { facultySign: { not: null } },
+          { trainingNotesUrl: { not: null } },
+          { evaluationUrl: { not: null } },
+          { feedbackUrl: { not: null } },
+        ],
+      },
+      select: {
+        id: true, sessionNumber: true, subject: true, createdAt: true,
+        facultySign: true, trainingNotesUrl: true, evaluationUrl: true, feedbackUrl: true,
+        createdBy: { select: { name: true } },
+      },
+    });
+    sessions.forEach((s) => {
+      const recordLabel = `${s.sessionNumber} · ${s.subject || ''}`.trim();
+      const uploadedBy = s.createdBy?.name || null;
+      if (s.facultySign) uploads.push({
+        table: 'TrainingSession', recordId: s.id, field: 'facultySign',
+        label: 'Faculty Signature', recordLabel,
+        url: s.facultySign, uploadedAt: s.createdAt, uploadedBy,
+      });
+      if (s.trainingNotesUrl) uploads.push({
+        table: 'TrainingSession', recordId: s.id, field: 'trainingNotesUrl',
+        label: 'Training Notes', recordLabel,
+        url: s.trainingNotesUrl, uploadedAt: s.createdAt, uploadedBy,
+      });
+      if (s.evaluationUrl) uploads.push({
+        table: 'TrainingSession', recordId: s.id, field: 'evaluationUrl',
+        label: 'Evaluation', recordLabel,
+        url: s.evaluationUrl, uploadedAt: s.createdAt, uploadedBy,
+      });
+      if (s.feedbackUrl) uploads.push({
+        table: 'TrainingSession', recordId: s.id, field: 'feedbackUrl',
+        label: 'Feedback', recordLabel,
+        url: s.feedbackUrl, uploadedAt: s.createdAt, uploadedBy,
+      });
+    });
+
+    // 16. TrainingAttendee.signUrl
+    const attendees = await prisma.trainingAttendee.findMany({
+      where: { signUrl: { not: null } },
+      select: {
+        id: true, signUrl: true, createdAt: true,
+        employee: { select: { name: true, empCode: true } },
+        session: { select: { sessionNumber: true } },
+      },
+    });
+    attendees.forEach((a) => uploads.push({
+      table: 'TrainingAttendee', recordId: a.id, field: 'signUrl',
+      label: 'Attendee Signature',
+      recordLabel: `${a.session?.sessionNumber || ''} · ${a.employee?.name || a.employee?.empCode || ''}`.trim(),
+      url: a.signUrl, uploadedAt: a.createdAt,
+      uploadedBy: a.employee?.name || null,
+    }));
+
+    // 17. SkillMatrix.headOfDeptSig
+    const skills = await prisma.skillMatrix.findMany({
+      where: { headOfDeptSig: { not: null } },
+      select: {
+        id: true, headOfDeptSig: true, ratedOn: true, updatedAt: true,
+        employee: { select: { name: true, empCode: true } },
+      },
+    });
+    skills.forEach((s) => uploads.push({
+      table: 'SkillMatrix', recordId: s.id, field: 'headOfDeptSig',
+      label: 'HOD Signature',
+      recordLabel: `${s.employee?.empCode || ''} · ${s.employee?.name || ''}`.trim(),
+      url: s.headOfDeptSig, uploadedAt: s.ratedOn || s.updatedAt, uploadedBy: null,
+    }));
+
+    // 18. QCInspection.uploadedDocs — JSON array of {filename, url, uploadedById, uploadedAt}
     const qcDocs = await prisma.qCInspection.findMany({
       where: { uploadedDocs: { not: null } },
       select: { id: true, inspectionNumber: true, uploadedDocs: true },
@@ -307,6 +592,12 @@ router.delete('/uploads', async (req, res) => {
     if (!allowed) return res.status(400).json({ error: 'Field not in deletable allowlist' });
 
     const key = modelKey(table);
+    // WorkOrderClosureDoc.fileUrl/fileName are non-nullable in the schema, so
+    // "clearing" the reference is meaningless — drop the whole row instead.
+    if (table === 'WorkOrderClosureDoc' && field === 'fileUrl') {
+      await prisma.workOrderClosureDoc.delete({ where: { id: recordId } });
+      return res.json({ ok: true });
+    }
     await prisma[key].update({ where: { id: recordId }, data: { [field]: null } });
     res.json({ ok: true });
   } catch (e) {

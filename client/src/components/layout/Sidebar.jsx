@@ -33,7 +33,12 @@ const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN' && r !== 
 const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
+    { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'] },
     { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: PROCUREMENT_ROLES },
+    // Dispatch hub — Gate Pass + Logistics + Vehicle Movement. Vehicle
+    // register is open to everyone, so the hub itself is too; the cards
+    // inside are role-filtered, and each sub-page enforces its own gate.
+    { to: '/transport', icon: Navigation, label: 'Gate Pass & Vehicles', roles: ALL_ROLES },
     { to: '/metrology', icon: Ruler, label: 'Measuring and Monitoring Resources', roles: METROLOGY_VIEW_ROLES },
     // Safety register — view-only for everyone, edit for SAFETY + Unit-5 (gated server-side).
     { to: '/machinery', icon: Wrench, label: 'Machinery & Safety Register', roles: ALL_ROLES },
@@ -43,19 +48,14 @@ const buildAllItems = () => {
     // Attendance register — Unit managers edit their own unit; ADMIN + SAFETY
     // can view all units; ACCOUNTING sees only months submitted to them.
     { to: '/attendance', icon: CalendarClock, label: 'Attendance', roles: ['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING'] },
-    { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
-    { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'] },
-    // Dispatch hub — Gate Pass + Logistics + Vehicle Movement. Vehicle
-    // register is open to everyone, so the hub itself is too; the cards
-    // inside are role-filtered, and each sub-page enforces its own gate.
-    { to: '/transport', icon: Navigation, label: 'Gate Pass & Vehicles', roles: ALL_ROLES },
-    { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
-    { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },
+    // Monitoring hub — Stock Movements, All MIV Requests, Audit Logs, Unit Usage Logs.
     { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
-    { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY'] },
     { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
     { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
     { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },
+    { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
+    { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
+    { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY'] },
     // SUPERADMIN-only owner hatch — invisible to everyone else. One entry
     // takes the owner to the hub; deeper pages link from there.
     { to: '/superadmin', icon: Crown, label: 'Control Hub', roles: ['SUPERADMIN'] },
