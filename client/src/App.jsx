@@ -53,6 +53,7 @@ import HrSkillMatrix from './pages/hr/SkillMatrix';
 import HrTrainingPlan from './pages/hr/TrainingPlan';
 import HrTrainingRecords from './pages/hr/TrainingRecords';
 import Attendance from './pages/Attendance';
+import Transport from './pages/Transport';
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
@@ -212,6 +213,8 @@ export default function App() {
               <Route path="/stock-movements" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY']}><StockMovements /></PrivateRoute>
               } />
+              {/* Dispatch hub — landing page for Gate Pass, Logistics, Vehicle Movement. */}
+              <Route path="/transport" element={<PrivateRoute><Transport /></PrivateRoute>} />
               <Route path="/gate-pass" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE']}><GatePass /></PrivateRoute>
               } />
