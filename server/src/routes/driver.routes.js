@@ -9,7 +9,6 @@ const DRIVER_STATUSES = ['ACTIVE', 'INACTIVE'];
 
 const DRIVER_INCLUDE = {
   createdBy:      { select: { id: true, name: true, role: true } },
-  defaultVehicle: { select: { id: true, regNumber: true, make: true, model: true } },
 };
 
 const toDate = (v) => (v ? new Date(v) : null);
@@ -33,10 +32,22 @@ router.get('/', authenticate, async (req, res) => {
       include: {
         ...DRIVER_INCLUDE,
         _count: { select: { gatePasses: true, trips: true } },
+        trips: {
+          where: { status: 'IN_TRANSIT' },
+          select: { id: true, tripNumber: true, status: true, vehicle: { select: { id: true, regNumber: true } } },
+          take: 1,
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
-    res.json({ drivers });
+
+    const enriched = drivers.map(d => ({
+      ...d,
+      onJob: d.trips.length > 0,
+      activeTrip: d.trips[0] || null,
+    }));
+
+    res.json({ drivers: enriched });
   } catch (error) {
     console.error('List drivers error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -77,8 +88,15 @@ router.get('/:id', authenticate, async (req, res) => {
         },
       },
     });
+
     if (!driver) return res.status(404).json({ error: 'Driver not found' });
-    res.json(driver);
+
+    const activeTrip = driver.trips.find(t => t.status === 'IN_TRANSIT');
+    res.json({
+      ...driver,
+      onJob: !!activeTrip,
+      activeTrip: activeTrip || null,
+    });
   } catch (error) {
     console.error('Get driver error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -109,7 +127,6 @@ router.post('/', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res)
         phone: phone?.trim() || null,
         licenseNo: normalizedLicense,
         licenseExpiry: toDate(licenseExpiry),
-        defaultVehicleId: defaultVehicleId || null,
         status: DRIVER_STATUSES.includes(status) ? status : 'ACTIVE',
         notes: notes?.trim() || null,
         createdById: req.user.id,
@@ -160,16 +177,6 @@ router.put('/:id', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, re
       data.licenseNo = norm;
     }
     if (licenseExpiry !== undefined) data.licenseExpiry = toDate(licenseExpiry);
-    if (defaultVehicleId !== undefined) {
-      if (defaultVehicleId) {
-        const v = await prisma.vehicle.findUnique({ where: { id: defaultVehicleId } });
-        if (!v) return res.status(400).json({ error: 'Default vehicle not found' });
-      }
-      data.defaultVehicleId = defaultVehicleId || null;
-    }
-    if (status !== undefined && DRIVER_STATUSES.includes(status)) data.status = status;
-    if (notes !== undefined) data.notes = notes?.trim() || null;
-
     const driver = await prisma.driver.update({
       where: { id: req.params.id },
       data,

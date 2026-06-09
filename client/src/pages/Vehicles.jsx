@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Truck, Pencil, Trash2, ChevronRight, ArrowLeft, Activity, Send, CheckCircle2, Clock } from 'lucide-react';
+import { Plus, Truck, Pencil, Trash2, ChevronRight, ArrowLeft, Activity, Send, CheckCircle2, Clock, IdCard } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -71,15 +71,31 @@ export default function Vehicles() {
   const [error, setError] = useState('');
   const [detail, setDetail] = useState(null);
   const [showAdhoc, setShowAdhoc] = useState(false);
+  const [activeTab, setActiveTab] = useState('VEHICLES');
 
   const load = () => {
     setLoading(true);
-    api.get('/vehicles', { params: { status: statusFilter || undefined, q: search || undefined } })
-      .then(({ data }) => setVehicles(data.vehicles || []))
-      .catch(() => setVehicles([]))
+    const endpoint = activeTab === 'VEHICLES' ? '/vehicles' : '/drivers';
+    api.get(endpoint, { params: { status: statusFilter || undefined, q: search || undefined } })
+      .then(({ data }) => {
+        if (activeTab === 'VEHICLES') setVehicles(data.vehicles || []);
+        else setDrivers(data.drivers || []);
+      })
+      .catch(() => {
+        if (activeTab === 'VEHICLES') setVehicles([]);
+        else setDrivers([]);
+      })
       .finally(() => setLoading(false));
   };
-  useEffect(load, [statusFilter, search]);
+  useEffect(load, [statusFilter, search, activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'DRIVERS' && vehicles.length === 0) {
+      api.get('/vehicles', { params: { status: 'ACTIVE' } })
+        .then(({ data }) => setVehicles(data.vehicles || []))
+        .catch(() => {});
+    }
+  }, [activeTab]);
 
   const openCreate = () => {
     setEditing(null);
@@ -139,14 +155,19 @@ export default function Vehicles() {
   };
 
   if (detail) {
-    return <VehicleDetail vehicleId={detail} onBack={() => setDetail(null)} />;
+    if (activeTab === 'VEHICLES') {
+      return <VehicleDetail vehicleId={detail} onBack={() => setDetail(null)} />;
+    }
+    return <DriverDetail driverId={detail} onBack={() => setDetail(null)} />;
   }
+
+  const isVehicles = activeTab === 'VEHICLES';
 
   return (
     <div className="space-y-6">
       <PageHero
         title="Vehicle Movement"
-        subtitle="Vehicles used for gate-pass dispatches and ad-hoc trips. Full movement history per vehicle."
+        subtitle="Manage vehicles and drivers used for dispatches and ad-hoc trips. Real-time status tracking."
         eyebrow="Logistics"
         icon={Truck}
         actions={canEdit && (
@@ -154,15 +175,30 @@ export default function Vehicles() {
             <Button variant="outline" onClick={() => setShowAdhoc(true)}>
               <Send size={16} /> Log Ad-hoc Trip
             </Button>
-            <Button onClick={openCreate}><Plus size={16} /> Add Vehicle</Button>
+            <Button onClick={openCreate}><Plus size={16} /> Add {isVehicles ? 'Vehicle' : 'Driver'}</Button>
           </div>
         )}
       />
 
+      <div className="flex border-b border-gray-200">
+        <button
+          onClick={() => { setActiveTab('VEHICLES'); setStatusFilter(''); setSearch(''); setDetail(null); }}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'VEHICLES' ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <div className="flex items-center gap-2"><Truck size={16} /> Vehicles</div>
+        </button>
+        <button
+          onClick={() => { setActiveTab('DRIVERS'); setStatusFilter(''); setSearch(''); setDetail(null); }}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'DRIVERS' ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <div className="flex items-center gap-2"><IdCard size={16} /> Drivers</div>
+        </button>
+      </div>
+
       <div className="flex flex-wrap gap-3 items-end">
         <Input
           label="Search"
-          placeholder="Reg no, driver, make…"
+          placeholder={isVehicles ? "Reg no, driver, make…" : "Name, phone, license…"}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="min-w-[220px]"
@@ -176,9 +212,9 @@ export default function Vehicles() {
       <Card>
         {loading ? (
           <div className="p-8 text-center text-gray-500 text-sm">Loading…</div>
-        ) : vehicles.length === 0 ? (
-          <div className="p-8 text-center text-gray-500 text-sm">No vehicles yet.</div>
-        ) : (
+        ) : (isVehicles ? vehicles : drivers).length === 0 ? (
+          <div className="p-8 text-center text-gray-500 text-sm">No {isVehicles ? 'vehicles' : 'drivers'} yet.</div>
+        ) : isVehicles ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b">
@@ -187,16 +223,20 @@ export default function Vehicles() {
                   <th className="px-3 py-2">Type</th>
                   <th className="px-3 py-2">Make / Model</th>
                   <th className="px-3 py-2">Driver</th>
-                  <th className="px-3 py-2">Capacity</th>
                   <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Trips</th>
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {vehicles.map((v) => (
                   <tr key={v.id} className="border-b hover:bg-blue-50/30 transition-colors">
-                    <td className="px-3 py-2 font-mono font-semibold text-navy-700">{v.regNumber}</td>
+                    <td className="px-3 py-2">
+                       <div className="flex items-center gap-2">
+                        <span className="font-mono font-semibold text-navy-700">{v.regNumber}</span>
+                        {v.onJob && <Badge color="blue" variant="solid">ON JOB</Badge>}
+                       </div>
+                       {v.activeTrip && <div className="text-[10px] text-blue-600 font-medium">Trip: {v.activeTrip.tripNumber}</div>}
+                    </td>
                     <td className="px-3 py-2 text-gray-700">{v.vehicleType || '—'}</td>
                     <td className="px-3 py-2 text-gray-700">
                       {[v.make, v.model].filter(Boolean).join(' ') || '—'}
@@ -205,9 +245,7 @@ export default function Vehicles() {
                       {v.driverName || '—'}
                       {v.driverPhone && <div className="text-[10px] text-gray-500">{v.driverPhone}</div>}
                     </td>
-                    <td className="px-3 py-2 text-gray-700">{v.capacityKg ? `${v.capacityKg} kg` : '—'}</td>
                     <td className="px-3 py-2"><Badge color={statusBadge(v.status)}>{v.status}</Badge></td>
-                    <td className="px-3 py-2 text-gray-700">{v._count?.gatePasses ?? 0}</td>
                     <td className="px-3 py-2 text-right space-x-1">
                       <Button size="sm" variant="outline" onClick={() => setDetail(v.id)}>
                         <ChevronRight size={14} /> Open
@@ -218,6 +256,58 @@ export default function Vehicles() {
                             <Pencil size={14} />
                           </Button>
                           <Button size="sm" variant="outline" onClick={() => remove(v)}>
+                            <Trash2 size={14} />
+                          </Button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr className="text-left text-xs uppercase tracking-wider text-gray-600">
+                  <th className="px-3 py-2">Name</th>
+                  <th className="px-3 py-2">Phone</th>
+                  <th className="px-3 py-2">License</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {drivers.map((d) => (
+                  <tr key={d.id} className="border-b hover:bg-blue-50/30 transition-colors">
+                    <td className="px-3 py-2">
+                       <div className="flex items-center gap-2">
+                        <span className="font-semibold text-navy-700">{d.name}</span>
+                        {d.onJob && <Badge color="blue" variant="solid">ON JOB</Badge>}
+                       </div>
+                       {d.activeTrip && (
+                         <div className="text-[10px] text-blue-600 font-medium">
+                           {d.activeTrip.vehicle?.regNumber} · {d.activeTrip.tripNumber}
+                         </div>
+                       )}
+                    </td>
+                    <td className="px-3 py-2 text-gray-700">{d.phone || '—'}</td>
+                    <td className="px-3 py-2 text-gray-700">
+                      <div className="font-mono text-xs">{d.licenseNo || '—'}</div>
+                      {d.licenseExpiry && <div className="text-[10px] text-gray-500">exp {formatDate(d.licenseExpiry)}</div>}
+                    </td>
+                    <td className="px-3 py-2"><Badge color={statusBadge(d.status)}>{d.status}</Badge></td>
+                    <td className="px-3 py-2 text-right space-x-1">
+                      <Button size="sm" variant="outline" onClick={() => setDetail(d.id)}>
+                        <ChevronRight size={14} /> Open
+                      </Button>
+                      {canEdit && (
+                        <>
+                          <Button size="sm" variant="outline" onClick={() => openEdit(d)}>
+                            <Pencil size={14} />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => remove(d)}>
                             <Trash2 size={14} />
                           </Button>
                         </>
@@ -240,33 +330,46 @@ export default function Vehicles() {
       )}
 
       {showModal && (
-        <Modal isOpen onClose={() => setShowModal(false)} title={editing ? 'Edit Vehicle' : 'Add Vehicle'}>
+        <Modal isOpen onClose={() => setShowModal(false)} title={editing ? (isVehicles ? 'Edit Vehicle' : 'Edit Driver') : (isVehicles ? 'Add Vehicle' : 'Add Driver')}>
           <div className="space-y-3">
             {error && <div className="text-sm text-brand-red">{error}</div>}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Input label="Registration No *" value={form.regNumber} onChange={(e) => setForm({ ...form, regNumber: e.target.value })} placeholder="KA01AB1234" />
-              <Select label="Type" value={form.vehicleType} onChange={(e) => setForm({ ...form, vehicleType: e.target.value })}>
-                {TYPE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </Select>
-              <Input label="Make" value={form.make} onChange={(e) => setForm({ ...form, make: e.target.value })} placeholder="Tata, Ashok Leyland…" />
-              <Input label="Model" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
-              <Input label="Capacity (kg)" type="number" value={form.capacityKg} onChange={(e) => setForm({ ...form, capacityKg: e.target.value })} />
-              <Select label="Owner Type" value={form.ownerType} onChange={(e) => setForm({ ...form, ownerType: e.target.value })}>
-                {OWNER_TYPE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </Select>
-              <Input label="Driver Name" value={form.driverName} onChange={(e) => setForm({ ...form, driverName: e.target.value })} />
-              <Input label="Driver Phone" value={form.driverPhone} onChange={(e) => setForm({ ...form, driverPhone: e.target.value })} />
-              <Input label="Insurance Expiry" type="date" value={form.insuranceExpiry} onChange={(e) => setForm({ ...form, insuranceExpiry: e.target.value })} />
-              <Input label="PUC Expiry" type="date" value={form.pucExpiry} onChange={(e) => setForm({ ...form, pucExpiry: e.target.value })} />
-              <Input label="Fitness Expiry" type="date" value={form.fitnessExpiry} onChange={(e) => setForm({ ...form, fitnessExpiry: e.target.value })} />
-              <Select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                {STATUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </Select>
-            </div>
+            {isVehicles ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Input label="Registration No *" value={form.regNumber} onChange={(e) => setForm({ ...form, regNumber: e.target.value })} placeholder="KA01AB1234" />
+                <Select label="Type" value={form.vehicleType} onChange={(e) => setForm({ ...form, vehicleType: e.target.value })}>
+                  {TYPE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+                <Input label="Make" value={form.make} onChange={(e) => setForm({ ...form, make: e.target.value })} placeholder="Tata, Ashok Leyland…" />
+                <Input label="Model" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                <Input label="Capacity (kg)" type="number" value={form.capacityKg} onChange={(e) => setForm({ ...form, capacityKg: e.target.value })} />
+                <Select label="Owner Type" value={form.ownerType} onChange={(e) => setForm({ ...form, ownerType: e.target.value })}>
+                  {OWNER_TYPE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+                <Input label="Driver Name" value={form.driverName} onChange={(e) => setForm({ ...form, driverName: e.target.value })} />
+                <Input label="Driver Phone" value={form.driverPhone} onChange={(e) => setForm({ ...form, driverPhone: e.target.value })} />
+                <Input label="Insurance Expiry" type="date" value={form.insuranceExpiry} onChange={(e) => setForm({ ...form, insuranceExpiry: e.target.value })} />
+                <Input label="PUC Expiry" type="date" value={form.pucExpiry} onChange={(e) => setForm({ ...form, pucExpiry: e.target.value })} />
+                <Input label="Fitness Expiry" type="date" value={form.fitnessExpiry} onChange={(e) => setForm({ ...form, fitnessExpiry: e.target.value })} />
+                <Select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                  {STATUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Input label="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                <Input label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <Input label="License No" value={form.licenseNo} onChange={(e) => setForm({ ...form, licenseNo: e.target.value })} />
+                <Input label="License Expiry" type="date" value={form.licenseExpiry} onChange={(e) => setForm({ ...form, licenseExpiry: e.target.value })} />
+                <Select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                </Select>
+              </div>
+            )}
             <Textarea label="Notes" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowModal(false)}>Cancel</Button>
-              <Button onClick={save}>{editing ? 'Save Changes' : 'Add Vehicle'}</Button>
+              <Button onClick={save}>{editing ? 'Save Changes' : (isVehicles ? 'Add Vehicle' : 'Add Driver')}</Button>
             </div>
           </div>
         </Modal>
@@ -327,8 +430,26 @@ function VehicleDetail({ vehicleId, onBack }) {
         subtitle={[v.make, v.model].filter(Boolean).join(' ') || 'Vehicle details and trip history.'}
         eyebrow="Vehicle Detail"
         icon={Truck}
-        actions={<Button variant="outline" onClick={onBack}><ArrowLeft size={14} /> Back</Button>}
+        actions={
+          <div className="flex items-center gap-2">
+            {v.onJob && <Badge color="blue" variant="solid" className="px-3 py-1">ON JOB</Badge>}
+            <Button variant="outline" onClick={onBack}><ArrowLeft size={14} /> Back</Button>
+          </div>
+        }
       />
+
+      {v.onJob && v.activeTrip && (
+        <Card className="border-blue-200 bg-blue-50/30">
+          <div className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider font-bold text-blue-600">Current Active Trip</p>
+              <p className="text-sm font-semibold text-navy-700">{v.activeTrip.tripNumber} · {v.activeTrip.driver?.name || 'No driver'}</p>
+              <p className="text-xs text-gray-600">{[v.activeTrip.purpose, v.activeTrip.destination].filter(Boolean).join(' → ')}</p>
+            </div>
+            <Badge color="blue">IN TRANSIT</Badge>
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatPill label="Total Trips" value={stats.total} Icon={Activity} tone="navy" />
@@ -634,4 +755,97 @@ function AdhocTripModal({ vehicles, onClose, onSaved }) {
       </div>
     </Modal>
   );
+}
+function StatsSection({ d, stats, onBack }) {
+  return (
+    <div className="space-y-6">
+      <PageHero
+        title={d.name}
+        subtitle={d.phone || 'Driver details and movement history.'}
+        eyebrow="Driver Detail"
+        icon={IdCard}
+        actions={
+          <div className="flex items-center gap-2">
+            {d.onJob && <Badge color="blue" variant="solid" className="px-3 py-1">ON JOB</Badge>}
+            <Button variant="outline" onClick={onBack}><ArrowLeft size={14} /> Back</Button>
+          </div>
+        }
+      />
+
+      {d.onJob && d.activeTrip && (
+        <Card className="border-blue-200 bg-blue-50/30">
+          <div className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider font-bold text-blue-600">Current Active Trip</p>
+              <p className="text-sm font-semibold text-navy-700">{d.activeTrip.tripNumber} · {d.activeTrip.vehicle?.regNumber}</p>
+              <p className="text-xs text-gray-600">{[d.activeTrip.purpose, d.activeTrip.destination].filter(Boolean).join(' → ')}</p>
+            </div>
+            <Badge color="blue">IN TRANSIT</Badge>
+          </div>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatPill label="Total Trips" value={stats.total} Icon={Activity} tone="navy" />
+        <StatPill label="In Transit" value={stats.inTransit} Icon={Send} tone="blue" />
+        <StatPill label="Returned" value={stats.returned} Icon={CheckCircle2} tone="green" />
+        <StatPill label="Scheduled" value={stats.scheduled} Icon={Clock} tone="amber" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card>
+          <div className="p-4 space-y-2 text-sm">
+            <h3 className="font-semibold text-navy-700 mb-2">Identity</h3>
+            <Row label="Name" value={d.name} />
+            <Row label="Phone" value={d.phone} />
+            <Row label="License No" value={d.licenseNo} mono />
+            <Row label="License Expiry" value={formatDate(d.licenseExpiry)} />
+            <Row label="Status" value={<Badge color={d.status === 'ACTIVE' ? 'green' : 'gray'}>{d.status}</Badge>} />
+          </div>
+        </Card>
+        <Card>
+          <div className="p-4 space-y-2 text-sm">
+            <h3 className="font-semibold text-navy-700 mb-2">Activity</h3>
+            <Row label="Total Trips" value={stats.total} />
+            <Row label="Gate Passes" value={d.gatePasses?.length || 0} />
+            <Row label="Added On" value={formatDate(d.createdAt)} />
+          </div>
+        </Card>
+      </div>
+
+      {d.notes && (
+        <Card><div className="p-4 text-sm whitespace-pre-wrap"><strong>Notes:</strong> {d.notes}</div></Card>
+      )}
+
+      <TripsSection trips={d.trips || []} />
+    </div>
+  );
+}
+
+function DriverDetail({ driverId, onBack }) {
+  const [d, setD] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api.get(`/drivers/${driverId}`)
+      .then(({ data }) => setD(data))
+      .catch(() => setD(null))
+      .finally(() => setLoading(false));
+  }, [driverId]);
+
+  const stats = useMemo(() => {
+    const trips = d?.trips || [];
+    return {
+      total: trips.length,
+      inTransit: trips.filter(t => t.status === 'IN_TRANSIT').length,
+      returned: trips.filter(t => t.status === 'RETURNED').length,
+      scheduled: trips.filter(t => t.status === 'SCHEDULED').length,
+    };
+  }, [d]);
+
+  if (loading) return <div className="p-8 text-center text-gray-500 text-sm">Loading…</div>;
+  if (!d) return <div className="p-8 text-center text-gray-500 text-sm">Driver not found.</div>;
+
+  return <StatsSection d={d} stats={stats} onBack={onBack} />;
 }

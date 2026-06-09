@@ -33,10 +33,22 @@ router.get('/', authenticate, async (req, res) => {
       include: {
         ...VEHICLE_INCLUDE,
         _count: { select: { gatePasses: true } },
+        trips: {
+          where: { status: 'IN_TRANSIT' },
+          select: { id: true, tripNumber: true, status: true },
+          take: 1,
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
-    res.json({ vehicles });
+
+    const enriched = vehicles.map(v => ({
+      ...v,
+      onJob: v.trips.length > 0,
+      activeTrip: v.trips[0] || null,
+    }));
+
+    res.json({ vehicles: enriched });
   } catch (error) {
     console.error('List vehicles error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -50,6 +62,14 @@ router.get('/:id', authenticate, async (req, res) => {
       where: { id: req.params.id },
       include: {
         ...VEHICLE_INCLUDE,
+        trips: {
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          include: {
+            driver: { select: { id: true, name: true, phone: true } },
+            gatePasses: { select: { id: true, passNumber: true } },
+          },
+        },
         gatePasses: {
           select: {
             id: true, passNumber: true, kind: true, passType: true, direction: true,
@@ -61,8 +81,15 @@ router.get('/:id', authenticate, async (req, res) => {
         },
       },
     });
+
     if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' });
-    res.json(vehicle);
+
+    const activeTrip = vehicle.trips.find(t => t.status === 'IN_TRANSIT');
+    res.json({
+      ...vehicle,
+      onJob: !!activeTrip,
+      activeTrip: activeTrip || null,
+    });
   } catch (error) {
     console.error('Get vehicle error:', error);
     res.status(500).json({ error: 'Internal server error' });

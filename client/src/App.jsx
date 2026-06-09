@@ -26,7 +26,6 @@ import Procurement from './pages/Procurement';
 import Monitoring from './pages/Monitoring';
 import GatePass from './pages/GatePass';
 import Vehicles from './pages/Vehicles';
-import Drivers from './pages/Drivers';
 import Logistics from './pages/Logistics';
 import InterOfficeNote from './pages/InterOfficeNote';
 import InventoryTransfers from './pages/InventoryTransfers';
@@ -211,7 +210,6 @@ export default function App() {
               {/* Vehicle Register — viewable by anyone signed in (read-only).
                   LOGISTICS + ADMIN get edit/add/delete via the page's canEdit gate. */}
               <Route path="/vehicles" element={<Vehicles />} />
-              <Route path="/drivers" element={<Drivers />} />
               {/* Logistics dispatch desk — PENDING_LOGISTICS queue with vehicle
                   assignment + dispatch confirmation. */}
               <Route path="/logistics" element={

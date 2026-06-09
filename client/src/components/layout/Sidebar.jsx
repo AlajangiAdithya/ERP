@@ -42,7 +42,6 @@ const buildAllItems = () => {
     // Vehicle + Driver registers: LOGISTICS edits; everyone else views (trip
     // history is useful traceability for managers, stores, accounts, etc.).
     { to: '/vehicles', icon: Truck, label: 'Vehicle Movement', roles: ALL_ROLES },
-    { to: '/drivers', icon: IdCard, label: 'Driver Movement', roles: ALL_ROLES },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },
     { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
