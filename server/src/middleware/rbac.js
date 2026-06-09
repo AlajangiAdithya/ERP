@@ -8,6 +8,7 @@ const ROLE_HIERARCHY = {
   SUPPLY_CHAIN: 3,
   SAFETY: 3,
   LOGISTICS: 3,
+  HR: 3,
   PLANNING: 2,
   QC: 2,
   MANAGER: 2,

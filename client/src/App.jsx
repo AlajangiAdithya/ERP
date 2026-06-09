@@ -47,6 +47,11 @@ import MetrologyInstruments from './pages/metrology/MetrologyInstruments';
 import MMR from './pages/metrology/MMR';
 import MetrologyCategoryView from './pages/metrology/CategoryView';
 import MachineryRegister from './pages/MachineryRegister';
+import HumanResources from './pages/HumanResources';
+import HrEmployees from './pages/hr/Employees';
+import HrSkillMatrix from './pages/hr/SkillMatrix';
+import HrTrainingPlan from './pages/hr/TrainingPlan';
+import HrTrainingRecords from './pages/hr/TrainingRecords';
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
@@ -274,6 +279,14 @@ export default function App() {
               <Route path="/machinery" element={
                 <PrivateRoute><MachineryRegister /></PrivateRoute>
               } />
+
+              {/* HR hub + sub-modules — everyone views; HR/ADMIN edit. Managers
+                  can append training items for their team. Server enforces. */}
+              <Route path="/hr"                 element={<PrivateRoute><HumanResources /></PrivateRoute>} />
+              <Route path="/hr/employees"       element={<PrivateRoute><HrEmployees /></PrivateRoute>} />
+              <Route path="/hr/skill-matrix"    element={<PrivateRoute><HrSkillMatrix /></PrivateRoute>} />
+              <Route path="/hr/training-plan"   element={<PrivateRoute><HrTrainingPlan /></PrivateRoute>} />
+              <Route path="/hr/training-records" element={<PrivateRoute><HrTrainingRecords /></PrivateRoute>} />
 
               {/* SUPERADMIN-only — owner hatch */}
               <Route path="/superadmin" element={

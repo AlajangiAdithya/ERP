@@ -5,14 +5,14 @@ import {
   BarChart3, Settings, Menu, X,
   CheckSquare, ScrollText, Bell,
   Building2, ShieldCheck, Crown, Boxes, Ruler,
-  ClipboardList, Truck, DoorOpen, IdCard, Wrench,
+  ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const ALL_ROLES = [
   'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
   'METROLOGY', 'NDT', 'RND', 'SAFETY', 'SUPPLY_CHAIN',
-  'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS', 'SITE_OFFICE',
+  'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS', 'HR', 'SITE_OFFICE',
 ];
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
@@ -37,6 +37,9 @@ const buildAllItems = () => {
     { to: '/metrology', icon: Ruler, label: 'Measuring and Monitoring Resources', roles: METROLOGY_VIEW_ROLES },
     // Safety register — view-only for everyone, edit for SAFETY + Unit-5 (gated server-side).
     { to: '/machinery', icon: Wrench, label: 'Machinery & Safety Register', roles: ALL_ROLES },
+    // HR hub — employees, skill matrix, annual training plan, training records.
+    // HR + ADMIN edit; Managers can append training items for their unit; all view.
+    { to: '/hr', icon: GraduationCap, label: 'Human Resources', roles: ALL_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'] },
     { to: '/gate-pass', icon: DoorOpen, label: 'Gate Pass', roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SITE_OFFICE'] },

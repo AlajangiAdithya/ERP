@@ -94,6 +94,13 @@ model User {
   // ── Machinery + Fire Extinguisher register (Safety dept owns it; Unit-5 also edits) ──
   machineryCreated         Machinery[]        @relation("MachineryCreator")
   fireExtinguishersCreated FireExtinguisher[] @relation("FireExtinguisherCreator")
+
+  // HR / Training domain ownership
+  employeesCreated         Employee[]         @relation("EmployeeCreator")
+  employeeProfile          Employee?          @relation("EmployeeAccount")
+  trainingPlansCreated     TrainingPlan[]     @relation("TrainingPlanCreator")
+  trainingPlanItemsCreated TrainingPlanItem[] @relation("TrainingPlanItemCreator")
+  trainingSessionsCreated  TrainingSession[]  @relation("TrainingSessionCreator")
 }
 
 model Session {
@@ -122,6 +129,10 @@ enum Role {
   FINANCE
   PLANNING
   LOGISTICS
+  // Human Resources — owns Employees, Skill Matrix, Annual Training Plan and
+  // Training Session records. Managers can also append training items for
+  // their team into the active Annual Training Plan.
+  HR
   // Receives OUTSIDE gate passes at the destination site (e.g., Hyderabad office).
   // Acknowledges arrival with reached-date; this closes the gate pass.
   SITE_OFFICE
@@ -147,6 +158,7 @@ model Unit {
   workOrders         WorkOrder[]                @relation("WorkOrderAssignedUnit")
   inwardGatePasses   GatePass[]                 @relation("GatePassDestinationUnit")
   fimBatchesAssigned ProductBatch[]             @relation("FimAssignedToUnit")
+  trainingPlanItems  TrainingPlanItem[]         @relation("TrainingPlanItemUnit")
 }
 
 // ──── AUDIT LOG ────
@@ -1991,4 +2003,208 @@ model FireExtinguisher {
 
   @@index([unit])
   @@index([nextDueOn])
+}
+
+// ──────────────────────────────────────────────────────────────
+// HR / Training domain
+//   • Employee — master register independent of login Users. Most operators
+//     don't need ERP accounts but still appear in the skill matrix / training
+//     records.
+//   • SkillMatrix — fixed-column 1-4 (+ NA) self/manager rating per employee,
+//     plus a free-text training-needs note. One row per employee.
+//   • TrainingPlan — per fiscal year (e.g. "2026-27"). HR opens it, unit
+//     Managers can append their team's training items.
+//   • TrainingPlanItem — one training topic in the plan.
+//   • TrainingSession — actual delivery record (date, faculty, place, subject).
+//     Optionally linked back to a plan item.
+//   • TrainingAttendee — one row per attendee on a session: evaluation
+//     details + evaluation date + per-attendee sign file.
+// ──────────────────────────────────────────────────────────────
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Employee {
+  id            String         @id @default(uuid())
+  empCode       String         @unique           // e.g. "RAPSPL-3"
+  serialNo      Int                              // running S.No in the printed register
+  name          String
+  designation   String?
+  qualification String?
+  experience    Int?                             // years
+  category      String?                          // "QA-QC" / "Production UNIT 1" / "Adminstration" …
+  department    String?                          // free-text fallback when category isn't enough
+  phone         String?
+  email         String?
+  dateOfJoining DateTime?
+  status        EmployeeStatus @default(ACTIVE)
+  notes         String?
+
+  // Optional link if this employee also has an ERP login account.
+  userId        String?        @unique
+  user          User?          @relation("EmployeeAccount", fields: [userId], references: [id], onDelete: SetNull)
+
+  createdById   String
+  createdBy     User           @relation("EmployeeCreator", fields: [createdById], references: [id])
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  skillMatrix      SkillMatrix?
+  trainingAttended TrainingAttendee[]
+
+  @@index([category])
+  @@index([status])
+  @@index([serialNo])
+}
+
+// Skill levels are stored 0-4 where 0 = "N.A." and 1-4 is the rating. Using
+// Float to allow the 3.5 half-step the latest sheet uses.
+model SkillMatrix {
+  id          String   @id @default(uuid())
+  employeeId  String   @unique
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  // 16 fixed skill area columns (mirrors the Excel — change with a migration
+  // if/when the org adds/removes a skill).
+  qmsAwareness                 Float?
+  risksOpportunities           Float?
+  processKnowledge             Float?
+  inspectionTesting            Float?
+  qualityAnalytical            Float?
+  nonconformityAnalysis        Float?
+  customerRelations            Float?
+  supplierManagement           Float?
+  projectPlanning              Float?
+  equipmentMaintenance         Float?
+  materialInventory            Float?
+  internalAuditing             Float?
+  crisisManagement             Float?
+  communicationSkills          Float?
+  interPersonalRelations       Float?
+
+  trainingNeeds String?       // free-text "Risks & opportunities, Internal auditing"
+  remarks       String?
+  headOfDeptSig String?       // signature image / pdf url
+  ratedOn       DateTime?     // when this rating was last given
+
+  updatedAt     DateTime      @updatedAt
+  createdAt     DateTime      @default(now())
+}
+
+enum TrainingPlanStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+model TrainingPlan {
+  id            String              @id @default(uuid())
+  fiscalYear    String              @unique                  // "2026-27"
+  title         String                                       // "Annual Training Plan FY 2026-27"
+  reference     String?                                      // "F.No. RAMS/ATP/00, Dt. 06-04-2026"
+  preparedBy    String?
+  approvedBy    String?
+  status        TrainingPlanStatus  @default(DRAFT)
+
+  createdById   String
+  createdBy     User                @relation("TrainingPlanCreator", fields: [createdById], references: [id])
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  items         TrainingPlanItem[]
+  sessions      TrainingSession[]
+
+  @@index([status])
+}
+
+enum TrainingItemStatus {
+  PLANNED       // entered in the plan but not yet held
+  SCHEDULED     // date locked
+  COMPLETED     // session done
+  CANCELLED
+}
+
+model TrainingPlanItem {
+  id              String             @id @default(uuid())
+  planId          String
+  plan            TrainingPlan       @relation(fields: [planId], references: [id], onDelete: Cascade)
+  serialNo        Int                                          // running # in the plan
+  subject         String                                       // "AS 9100D Requirements – QMS"
+  participants    String                                       // free-text list of names / "All staff"
+  faculty         String?                                      // "External (K. Vijaya Krishna)"
+  scheduledMonth  String?                                      // "Nov 2026 for 01 day @ 3 hrs"
+  actualMonth     String?                                      // filled when held
+  hoursPerMonth   Float?
+  remarks         String?
+  status          TrainingItemStatus @default(PLANNED)
+
+  // The unit / dept this item is tagged to. Managers can add items for
+  // their own unit; HR sees everything.
+  unitId          String?
+  unit            Unit?              @relation("TrainingPlanItemUnit", fields: [unitId], references: [id], onDelete: SetNull)
+  category        String?                                      // free-text dept tag if no unit
+
+  createdById     String
+  createdBy       User               @relation("TrainingPlanItemCreator", fields: [createdById], references: [id])
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  sessions        TrainingSession[]
+
+  @@index([planId])
+  @@index([unitId])
+  @@index([status])
+}
+
+model TrainingSession {
+  id              String              @id @default(uuid())
+  sessionNumber   String              @unique                  // auto e.g. "TS-2026-0001"
+  planId          String?
+  plan            TrainingPlan?       @relation(fields: [planId], references: [id], onDelete: SetNull)
+  planItemId      String?
+  planItem        TrainingPlanItem?   @relation(fields: [planItemId], references: [id], onDelete: SetNull)
+
+  subject         String                                       // "Lab testing chemical analysis and reporting"
+  trainingDateFrom DateTime
+  trainingDateTo   DateTime?                                   // null when single-day
+  duration         String?                                     // "5 days @ 2hrs/day"
+  place            String?                                     // "Unit-2"
+  faculty          String                                      // "P. Ashok Babu"
+  facultySign      String?                                     // file url
+  reference        String?                                     // "F. No. RAMS/TAER, Rev.00 Dt. 10-11-2023"
+
+  // Per-session uploads
+  trainingNotesUrl String?
+  evaluationUrl    String?
+  feedbackUrl      String?
+  notes            String?
+
+  createdById     String
+  createdBy       User                @relation("TrainingSessionCreator", fields: [createdById], references: [id])
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  attendees       TrainingAttendee[]
+
+  @@index([planId])
+  @@index([planItemId])
+  @@index([trainingDateFrom])
+}
+
+model TrainingAttendee {
+  id                String          @id @default(uuid())
+  sessionId         String
+  session           TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  employeeId        String
+  employee          Employee        @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  signUrl           String?                                    // attendee sign image
+  evaluationDetails String?                                    // "Awareness about preparation of reports …"
+  dateOfEvaluation  DateTime?
+  evaluatedBy       String?                                    // free-text or signature url
+  createdAt         DateTime        @default(now())
+
+  @@unique([sessionId, employeeId])
+  @@index([employeeId])
 }

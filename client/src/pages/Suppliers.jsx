@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import {
   Plus, Upload, FileText, CheckCircle2, AlertCircle, Building2,
-  ClipboardCheck, Pencil, Star, BarChart3,
+  ClipboardCheck, Pencil, Star, BarChart3, ArrowUp, ArrowDown, ArrowUpDown,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -62,6 +62,17 @@ export default function Suppliers() {
   const [assessmentFor, setAssessmentFor] = useState(null);
   const [uploadingFor, setUploadingFor] = useState(null);
   const [showRatingModal, setShowRatingModal] = useState(false);
+
+  // Click "Vendor ID" header to cycle: none → asc → desc → none.
+  // Sort is natural (numeric-aware) so V2 sorts before V10.
+  const [vendorSort, setVendorSort] = useState('none');
+  const cycleVendorSort = () => setVendorSort((p) => (p === 'none' ? 'asc' : p === 'asc' ? 'desc' : 'none'));
+  const sortedSuppliers = useMemo(() => {
+    if (vendorSort === 'none') return suppliers;
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    const sign = vendorSort === 'asc' ? 1 : -1;
+    return [...suppliers].sort((a, b) => sign * collator.compare(a.vendorIdNo || '', b.vendorIdNo || ''));
+  }, [suppliers, vendorSort]);
 
   const fetchSuppliers = () => {
     setLoading(true);
@@ -225,7 +236,17 @@ function ApprovedSupplierTable({ suppliers, currentFY, canEdit, onEditSupplier, 
             </th>
           </tr>
           <tr className="bg-gray-100 text-gray-700 text-[11px] uppercase tracking-wider">
-            <th className="px-2 py-2 text-left font-semibold border-b">Vendor ID</th>
+            <th className="px-2 py-2 text-left font-semibold border-b">
+              <button
+                type="button"
+                onClick={cycleVendorSort}
+                className="inline-flex items-center gap-1 hover:text-navy-700 transition-colors"
+                title="Sort by Vendor ID"
+              >
+                Vendor ID
+                {vendorSort === 'asc' ? <ArrowUp size={11} /> : vendorSort === 'desc' ? <ArrowDown size={11} /> : <ArrowUpDown size={11} className="opacity-40" />}
+              </button>
+            </th>
             <th className="px-2 py-2 text-left font-semibold border-b">Supplier Name</th>
             <th className="px-2 py-2 text-left font-semibold border-b">Address</th>
             <th className="px-2 py-2 text-left font-semibold border-b">Contact Person + Phone</th>
@@ -243,7 +264,7 @@ function ApprovedSupplierTable({ suppliers, currentFY, canEdit, onEditSupplier, 
           </tr>
         </thead>
         <tbody>
-          {suppliers.map((s, i) => {
+          {sortedSuppliers.map((s, i) => {
             const r = s.currentReEvaluation;
             const ratingValue = r?.performanceRating;
             const ratingBelow = ratingValue != null && ratingValue < 85;

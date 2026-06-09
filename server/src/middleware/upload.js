@@ -162,6 +162,14 @@ const amcDocUpload = multer({
   limits: { fileSize: SIZE_PDF },
 });
 
+// Training-session notes, evaluation sheets, attendee sign images, HoD signs
+// on the skill matrix. PDFs or scanned images.
+const trainingDocUpload = multer({
+  storage: makeStorage('training-docs'),
+  fileFilter: pdfOrImage,
+  limits: { fileSize: SIZE_PDF },
+});
+
 const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
 
 module.exports = {
@@ -178,6 +186,7 @@ module.exports = {
   calibrationCertUpload,
   closureDocUpload,
   amcDocUpload,
+  trainingDocUpload,
   publicUrlFor,
   UPLOAD_ROOT,
 };

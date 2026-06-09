@@ -9,13 +9,13 @@ import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
 
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'LAB', 'METROLOGY', 'NDT'];
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
 
 // Every authenticated role gets Products visibility — stock data is universal.
 const ALL_ROLES = [
   'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
   'METROLOGY', 'NDT', 'RND', 'SAFETY', 'SUPPLY_CHAIN',
-  'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS', 'SUPERADMIN',
+  'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS', 'HR', 'SUPERADMIN',
 ];
 
 // Narrower visibility for finance-sensitive modules. Unit managers and the

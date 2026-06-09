@@ -14,7 +14,7 @@ import { useAuth } from '../../context/AuthContext';
 const ROLES = [
   'ADMIN', 'SUPERADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER',
   'ACCOUNTING', 'FINANCE', 'QC', 'LAB', 'METROLOGY', 'NDT', 'RND',
-  'SAFETY', 'SUPPLY_CHAIN', 'DESIGNS', 'PLANNING', 'LOGISTICS', 'SITE_OFFICE',
+  'SAFETY', 'SUPPLY_CHAIN', 'DESIGNS', 'PLANNING', 'LOGISTICS', 'HR', 'SITE_OFFICE',
 ];
 
 export default function SuperAdminUsers() {

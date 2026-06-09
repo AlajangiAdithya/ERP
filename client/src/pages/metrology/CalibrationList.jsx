@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Plus, Pencil, Trash2, ChevronLeft, ChevronDown, ChevronRight, Search, Filter,
   CheckCircle2, Clock, AlertTriangle, Activity, FileText,
-  Settings2, X, Upload, Eye, Save,
+  Settings2, X, Upload, Eye, Save, ArrowUp, ArrowDown, ArrowUpDown,
 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
@@ -183,6 +183,11 @@ export default function CalibrationList({
   const [unitFilter, setUnitFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [mmrSub, setMmrSub] = useState(initialBucket || '');
+  // Click "RAP S.no" header to cycle: none → asc → desc → none.
+  // Sort is numeric-aware so PG-2 sorts before PG-10. Falls back to the row
+  // index counter when rapsplSerialNo is empty.
+  const [rapsplSort, setRapsplSort] = useState('none');
+  const cycleRapsplSort = () => setRapsplSort((p) => (p === 'none' ? 'asc' : p === 'asc' ? 'desc' : 'none'));
 
   const [editing, setEditing] = useState(null); // 'new' | item | null
   const [form, setForm] = useState(blankForm);
@@ -288,8 +293,13 @@ export default function CalibrationList({
     if (statusFilter) {
       rows = rows.filter((it) => dueStatus(latestDueDate(it)).tone === statusFilter);
     }
+    if (rapsplSort !== 'none') {
+      const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+      const sign = rapsplSort === 'asc' ? 1 : -1;
+      rows = [...rows].sort((a, b) => sign * collator.compare(a.rapsplSerialNo || '', b.rapsplSerialNo || ''));
+    }
     return rows;
-  }, [items, statusFilter, unified, mmrSub, unifiedCategories]);
+  }, [items, statusFilter, unified, mmrSub, unifiedCategories, rapsplSort]);
 
   const openCreate = () => {
     setEditing('new');
@@ -729,7 +739,17 @@ export default function CalibrationList({
                   <Th rowSpan={2}>Make</Th>
                   <Th rowSpan={2}>Model</Th>
                   <Th rowSpan={2}>S.no</Th>
-                  <Th rowSpan={2}>RAP S.no</Th>
+                  <Th rowSpan={2}>
+                    <button
+                      type="button"
+                      onClick={cycleRapsplSort}
+                      className="inline-flex items-center gap-1 hover:text-navy-900 transition-colors"
+                      title="Sort by RAP S.no"
+                    >
+                      RAP S.no
+                      {rapsplSort === 'asc' ? <ArrowUp size={11} /> : rapsplSort === 'desc' ? <ArrowDown size={11} /> : <ArrowUpDown size={11} className="opacity-40" />}
+                    </button>
+                  </Th>
                   <Th rowSpan={2} groupEnd>Located at</Th>
                   {fyColumns.map((fy) => {
                     const collapsed = isFyCollapsed(fy);

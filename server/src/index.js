@@ -32,6 +32,10 @@ const superadminRoutes = require('./routes/superadmin.routes');
 const calibrationRoutes = require('./routes/calibration.routes');
 const machineryRoutes = require('./routes/machinery.routes');
 const fireExtinguisherRoutes = require('./routes/fireExtinguisher.routes');
+const employeeRoutes = require('./routes/employee.routes');
+const skillMatrixRoutes = require('./routes/skillMatrix.routes');
+const trainingPlanRoutes = require('./routes/trainingPlan.routes');
+const trainingSessionRoutes = require('./routes/trainingSession.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -101,6 +105,10 @@ app.use('/api/superadmin', superadminRoutes);
 app.use('/api/calibration', calibrationRoutes);
 app.use('/api/machinery', machineryRoutes);
 app.use('/api/fire-extinguishers', fireExtinguisherRoutes);
+app.use('/api/employees', employeeRoutes);
+app.use('/api/skill-matrix', skillMatrixRoutes);
+app.use('/api/training-plans', trainingPlanRoutes);
+app.use('/api/training-sessions', trainingSessionRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

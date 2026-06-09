@@ -1148,7 +1148,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
     request &&
     !['COMPLETED', 'REJECTED'].includes(request.status) &&
     (user?.role === 'ADMIN' ||
-      (['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'PLANNING'].includes(user?.role) &&
+      (['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'PLANNING', 'SAFETY'].includes(user?.role) &&
         request.managerId === user.id));
 
   const submitClose = async () => {
@@ -1631,7 +1631,7 @@ export default function PurchaseRequests() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const isManager = ['MANAGER', 'PLANNING', 'STORE_MANAGER', 'QC', 'RND', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT'].includes(user?.role);
+  const isManager = ['MANAGER', 'PLANNING', 'STORE_MANAGER', 'QC', 'RND', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'].includes(user?.role);
   const isStoreManager = user?.role === 'STORE_MANAGER';
   const isAdmin = user?.role === 'ADMIN';
   const isPO = user?.role === 'PURCHASE_OFFICER';
