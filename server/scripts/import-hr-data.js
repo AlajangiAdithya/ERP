@@ -1,49 +1,27 @@
 // One-shot importer for the HR module — seeds Employees, Skill Matrix,
 // the FY 2023-24 Training Plan, and the autoclave-batch training sessions.
 //
-//   Sources:
-//     • Skill matrix:    C:/Users/alaja/Downloads/Skill matrix_LATEST.xlsx (sheet "Skill matrix v1 (2)" — FY 26-27)
-//     • Training plan:   C:/Users/alaja/Downloads/Training Plan_2023-24.xls
-//     • Training records: C:/Users/alaja/Downloads/Training attendence-cum-evaluation record_Autoclave operation.xls
+// Reads from scripts/hr-data.json (pre-extracted from the original Excel
+// files on the dev machine — see the sibling extract-hr-data.js script).
 //
-//   Run from the server folder:   node scripts/import-hr-data.js
+// Run from the server folder:   node scripts/import-hr-data.js
 //
-//   Re-runnable: keyed on empCode / fiscalYear / (subject + trainingDateFrom) — no duplicates on second run.
+// Re-runnable: keyed on empCode / fiscalYear+serialNo / (subject + trainingDateFrom).
 
-const XLSX = require('xlsx');
+const fs = require('fs');
+const path = require('path');
 const prisma = require('../src/config/db');
 
-// Override with HR_SKILL_FILE / HR_PLAN_FILE / HR_REC_FILE env vars when
-// running on a server where the Excel files live elsewhere.
-const SKILL_FILE = process.env.HR_SKILL_FILE || 'C:/Users/alaja/Downloads/Skill matrix_LATEST.xlsx';
-const PLAN_FILE  = process.env.HR_PLAN_FILE  || 'C:/Users/alaja/Downloads/Training Plan_2023-24.xls';
-const REC_FILE   = process.env.HR_REC_FILE   || 'C:/Users/alaja/Downloads/Training attendence-cum-evaluation record_Autoclave operation.xls';
+const DATA_PATH = path.join(__dirname, 'hr-data.json');
 
-// Column order of the 15 skill ratings in the skill-matrix sheet (after
-// columns A=code, B=serial, C=name, D=designation, E=qualification, F=experience).
+// Skill columns in the order they appear in the source spreadsheet.
 const SKILL_COLS = [
-  'qmsAwareness',          // G
-  'risksOpportunities',    // H
-  'processKnowledge',      // I
-  'inspectionTesting',     // J
-  'qualityAnalytical',     // K
-  'nonconformityAnalysis', // L
-  'customerRelations',     // M
-  'supplierManagement',    // N
-  'projectPlanning',       // O
-  'equipmentMaintenance',  // P
-  'materialInventory',     // Q
-  'internalAuditing',      // R
-  'crisisManagement',      // S
-  'communicationSkills',   // T
-  'interPersonalRelations',// U
+  'qmsAwareness',          'risksOpportunities',    'processKnowledge',
+  'inspectionTesting',     'qualityAnalytical',     'nonconformityAnalysis',
+  'customerRelations',     'supplierManagement',    'projectPlanning',
+  'equipmentMaintenance',  'materialInventory',     'internalAuditing',
+  'crisisManagement',      'communicationSkills',   'interPersonalRelations',
 ];
-
-const cleanText = (v) => {
-  if (v === null || v === undefined) return null;
-  const s = String(v).replace(/\s+/g, ' ').trim();
-  return s ? s : null;
-};
 
 const sanitizeRating = (v) => {
   if (v === null || v === undefined || v === '') return null;
@@ -66,35 +44,15 @@ const parseDmy = (s) => {
 };
 
 // ─── 1. EMPLOYEES + SKILL MATRIX ────────────────────────────────────────────
-async function importEmployeesAndSkills(systemUserId) {
-  const wb = XLSX.readFile(SKILL_FILE);
-  const sheet = wb.Sheets['Skill matrix v1 (2)'];
-  if (!sheet) throw new Error('Sheet "Skill matrix v1 (2)" not found.');
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
-  let created = 0, updated = 0, skipped = 0, skillRows = 0;
-  for (const r of rows) {
-    const code = cleanText(r[0]);
-    const serial = parseInt(r[1], 10);
-    const name = cleanText(r[2]);
-    if (!code || !name || !Number.isFinite(serial)) { skipped++; continue; }
-    if (!/^RAPSPL-?\d+/i.test(code)) { skipped++; continue; }
-
-    const empCode = code.toUpperCase().replace(/\s+/g, '');
-    const designation   = cleanText(r[3]);
-    const qualification = cleanText(r[4]);
-    const experience    = (() => {
-      const n = parseInt(r[5], 10);
-      return Number.isFinite(n) ? n : null;
-    })();
-    const trainingNeeds = cleanText(r[21]);
-    const department    = cleanText(r[22]);
-
+async function importEmployeesAndSkills(data, systemUserId) {
+  let created = 0, updated = 0, skillRows = 0;
+  for (const e of data.employees) {
+    const empCode = e.empCode;
     const skillData = {};
     for (let i = 0; i < SKILL_COLS.length; i++) {
-      skillData[SKILL_COLS[i]] = sanitizeRating(r[6 + i]);
+      skillData[SKILL_COLS[i]] = sanitizeRating(e.skills?.[i]);
     }
-    skillData.trainingNeeds = trainingNeeds;
+    skillData.trainingNeeds = e.trainingNeeds;
 
     const existing = await prisma.employee.findUnique({ where: { empCode } });
     let employee;
@@ -102,14 +60,13 @@ async function importEmployeesAndSkills(systemUserId) {
       employee = await prisma.employee.update({
         where: { id: existing.id },
         data: {
-          serialNo: serial,
-          name,
-          designation,
-          qualification,
-          experience,
-          department,
-          // category mirrors department for now; can be refined manually.
-          category: department,
+          serialNo: e.serialNo,
+          name: e.name,
+          designation: e.designation,
+          qualification: e.qualification,
+          experience: e.experience,
+          department: e.department,
+          category: e.department,
           status: 'ACTIVE',
         },
       });
@@ -118,13 +75,13 @@ async function importEmployeesAndSkills(systemUserId) {
       employee = await prisma.employee.create({
         data: {
           empCode,
-          serialNo: serial,
-          name,
-          designation,
-          qualification,
-          experience,
-          department,
-          category: department,
+          serialNo: e.serialNo,
+          name: e.name,
+          designation: e.designation,
+          qualification: e.qualification,
+          experience: e.experience,
+          department: e.department,
+          category: e.department,
           status: 'ACTIVE',
           createdById: systemUserId,
         },
@@ -139,17 +96,12 @@ async function importEmployeesAndSkills(systemUserId) {
     });
     skillRows++;
   }
-  console.log(`Employees: ${created} created, ${updated} updated, ${skipped} skipped.`);
+  console.log(`Employees: ${created} created, ${updated} updated.`);
   console.log(`Skill matrix rows: ${skillRows}`);
 }
 
 // ─── 2. TRAINING PLAN FY 2023-24 + ITEMS ─────────────────────────────────────
-async function importTrainingPlan(systemUserId) {
-  const wb = XLSX.readFile(PLAN_FILE);
-  const sheet = wb.Sheets['Training plan'];
-  if (!sheet) throw new Error('Sheet "Training plan" not found.');
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
+async function importTrainingPlan(data, systemUserId) {
   const fy = '2023-24';
   let plan = await prisma.trainingPlan.findUnique({ where: { fiscalYear: fy } });
   if (!plan) {
@@ -168,35 +120,21 @@ async function importTrainingPlan(systemUserId) {
   }
 
   let added = 0, skippedDup = 0;
-  for (const r of rows) {
-    const sno = parseInt(r[0], 10);
-    const subject = cleanText(r[1]);
-    if (!Number.isFinite(sno) || !subject) continue;
-
-    const participants = cleanText(r[2]) || '—';
-    const faculty      = cleanText(r[3]);
-    const scheduled    = cleanText(r[4]);
-    const actual       = cleanText(r[5]);
-    const hrs          = (() => {
-      const n = parseFloat(r[6]);
-      return Number.isFinite(n) ? n : null;
-    })();
-
+  for (const item of data.planItems) {
     const dup = await prisma.trainingPlanItem.findFirst({
-      where: { planId: plan.id, serialNo: sno },
+      where: { planId: plan.id, serialNo: item.serialNo },
     });
     if (dup) { skippedDup++; continue; }
-
     await prisma.trainingPlanItem.create({
       data: {
         planId: plan.id,
-        serialNo: sno,
-        subject,
-        participants,
-        faculty,
-        scheduledMonth: scheduled,
-        actualMonth: actual,
-        hoursPerMonth: hrs,
+        serialNo: item.serialNo,
+        subject: item.subject,
+        participants: item.participants || '—',
+        faculty: item.faculty,
+        scheduledMonth: item.scheduledMonth,
+        actualMonth: item.actualMonth,
+        hoursPerMonth: item.hoursPerMonth,
         status: 'PLANNED',
         createdById: systemUserId,
       },
@@ -206,64 +144,27 @@ async function importTrainingPlan(systemUserId) {
   console.log(`Plan items: ${added} added, ${skippedDup} already present.`);
 }
 
-// ─── 3. TRAINING SESSIONS (autoclave file) ───────────────────────────────────
-function parseHeaderBlock(rows) {
-  // Header rows hold "Date of training: ...   Duration: ..." in a single cell,
-  // followed by Place, Faculty, Subject lines.
-  const flat = (i) => String(rows[i]?.[0] || '').replace(/\s+/g, ' ').trim();
-
-  const datesLine = flat(2);
-  const placeLine = flat(3);
-  const facultyLine = flat(4);
-  const subjectLine = flat(5);
-
-  // "Date of training: 03/01/2024 to 06/01/2024 ... Duration: 3 days @ 2hrs/day"
-  let fromDate = null, toDate = null;
-  const dateMatch = datesLine.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})(?:\s*to\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}))?/i);
-  if (dateMatch) {
-    fromDate = parseDmy(dateMatch[1]);
-    toDate   = dateMatch[2] ? parseDmy(dateMatch[2]) : null;
-  }
-  const duration = (datesLine.match(/Duration:\s*(.+)$/i) || [])[1] || null;
-  const place    = (placeLine.match(/Place of Training:\s*(.+)$/i) || [])[1] || null;
-  const faculty  = (facultyLine.match(/Faculty\s*:\s*(.+?)(?:\s+Signature.*)?$/i) || [])[1] || null;
-  const subject  = (subjectLine.match(/Subject of training:\s*(.+)$/i) || [])[1] || null;
-
-  return {
-    fromDate, toDate,
-    duration: cleanText(duration),
-    place:    cleanText(place),
-    faculty:  cleanText(faculty),
-    subject:  cleanText(subject),
-  };
-}
-
-async function importTrainingSessions(systemUserId) {
-  const wb = XLSX.readFile(REC_FILE);
-  // Cache empCode → employee for quick attendee lookups.
+// ─── 3. TRAINING SESSIONS ────────────────────────────────────────────────────
+async function importTrainingSessions(data, systemUserId) {
   const allEmps = await prisma.employee.findMany({ select: { id: true, name: true, empCode: true } });
   const normalize = (s) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
   const byName = new Map(allEmps.map((e) => [normalize(e.name), e]));
 
-  // Roughly match attendee names from the spreadsheet to existing employees.
-  // Initials like "D Prathyusha" / "P. Ashok Babu" → strip dots/spaces and
-  // compare against `byName`; if no exact hit, try a substring contains.
+  // Loose match: exact normalized first, otherwise substring (min 5 chars).
   const matchEmployee = (raw) => {
     const norm = normalize(raw);
     if (!norm) return null;
     if (byName.has(norm)) return byName.get(norm);
     for (const [key, emp] of byName) {
-      if (key.includes(norm) || norm.includes(key)) {
-        // Require at least 5 chars overlap to avoid spurious matches.
-        if (Math.min(key.length, norm.length) >= 5) return emp;
+      if ((key.includes(norm) || norm.includes(key)) && Math.min(key.length, norm.length) >= 5) {
+        return emp;
       }
     }
     return null;
   };
 
   let sessionsCreated = 0, sessionsSkipped = 0, attendeesAdded = 0;
-  // Generate session numbers per year so we don't collide with the live sequence.
-  let yearCounters = {};
+  const yearCounters = {};
   const nextSessionNumber = async (yr) => {
     if (yearCounters[yr] === undefined) {
       const top = await prisma.trainingSession.findMany({
@@ -278,60 +179,43 @@ async function importTrainingSessions(systemUserId) {
     return `TS-${yr}-${String(yearCounters[yr]).padStart(4, '0')}`;
   };
 
-  for (const sheetName of wb.SheetNames) {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
-    const meta = parseHeaderBlock(rows);
-    if (!meta.subject || !meta.fromDate || !meta.faculty) {
-      console.log(`  ! ${sheetName}: missing subject/from-date/faculty — skipped`);
+  for (const s of data.sessions) {
+    const fromDate = parseDmy(s.fromDate);
+    if (!s.subject || !fromDate || !s.faculty) {
+      console.log(`  ! ${s.sheetName}: missing subject/from-date/faculty — skipped`);
       continue;
     }
-
-    // Skip if a session with the same subject + from-date already exists.
     const existing = await prisma.trainingSession.findFirst({
-      where: { subject: meta.subject, trainingDateFrom: meta.fromDate },
+      where: { subject: s.subject, trainingDateFrom: fromDate },
     });
     if (existing) { sessionsSkipped++; continue; }
 
-    const yr = meta.fromDate.getFullYear();
+    const yr = fromDate.getFullYear();
     const sessionNumber = await nextSessionNumber(yr);
 
-    // Attendees: rows 8..12 (Sl no, Name, Designation, Department, Sign, Eval details, Date of eval, Eval by)
-    const attendees = [];
-    for (let i = 8; i < rows.length; i++) {
-      const r = rows[i];
-      const slNo = parseInt(r[0], 10);
-      const name = cleanText(r[1]);
-      if (!Number.isFinite(slNo) || !name) continue;
-      const evalDetails = cleanText(r[5]);
-      const dateOfEvalLine = String(r[6] || '');
-      const dateOfEval = parseDmy(dateOfEvalLine);
-      const evaluatedBy = cleanText(r[7]);
-      attendees.push({ name, evalDetails, dateOfEval, evaluatedBy });
-    }
-
-    const matched = attendees.map((a) => ({ ...a, emp: matchEmployee(a.name) }));
+    const matched = s.attendees.map((a) => ({ ...a, emp: matchEmployee(a.name) }));
     const matchedEmps = matched.filter((a) => a.emp);
     const unmatchedNames = matched.filter((a) => !a.emp).map((a) => a.name);
 
     await prisma.trainingSession.create({
       data: {
         sessionNumber,
-        subject: meta.subject,
-        trainingDateFrom: meta.fromDate,
-        trainingDateTo: meta.toDate,
-        duration: meta.duration,
-        place: meta.place,
-        faculty: meta.faculty,
+        subject: s.subject,
+        trainingDateFrom: fromDate,
+        trainingDateTo: parseDmy(s.toDate),
+        duration: s.duration,
+        place: s.place,
+        faculty: s.faculty,
         notes: unmatchedNames.length
-          ? `Imported from ${sheetName}. Unmatched attendees (no Employee record): ${unmatchedNames.join('; ')}`
-          : `Imported from ${sheetName}.`,
+          ? `Imported from ${s.sheetName}. Unmatched attendees (no Employee record): ${unmatchedNames.join('; ')}`
+          : `Imported from ${s.sheetName}.`,
         createdById: systemUserId,
         attendees: matchedEmps.length
           ? {
               create: matchedEmps.map((a) => ({
                 employeeId: a.emp.id,
                 evaluationDetails: a.evalDetails,
-                dateOfEvaluation: a.dateOfEval,
+                dateOfEvaluation: parseDmy(a.dateOfEval),
                 evaluatedBy: a.evaluatedBy,
               })),
             }
@@ -341,7 +225,7 @@ async function importTrainingSessions(systemUserId) {
     sessionsCreated++;
     attendeesAdded += matchedEmps.length;
     if (unmatchedNames.length) {
-      console.log(`  ! ${sheetName}: ${unmatchedNames.length} attendee(s) not matched: ${unmatchedNames.join('; ')}`);
+      console.log(`  ! ${s.sheetName}: ${unmatchedNames.length} attendee(s) unmatched: ${unmatchedNames.join('; ')}`);
     }
   }
   console.log(`Training sessions: ${sessionsCreated} created, ${sessionsSkipped} already present.`);
@@ -350,9 +234,13 @@ async function importTrainingSessions(systemUserId) {
 
 // ─── MAIN ────────────────────────────────────────────────────────────────────
 (async () => {
-  // Pick any admin/superadmin row to credit the records to — falls back to
-  // the first user found if none exists. We need *some* createdById because
-  // the relations are required.
+  if (!fs.existsSync(DATA_PATH)) {
+    console.error(`Data file not found: ${DATA_PATH}`);
+    console.error('Run scripts/extract-hr-data.js on a machine with the original Excel files first.');
+    process.exit(1);
+  }
+  const data = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'));
+
   const owner = await prisma.user.findFirst({
     where: { role: { in: ['SUPERADMIN', 'ADMIN', 'HR'] }, isActive: true },
     orderBy: { createdAt: 'asc' },
@@ -364,13 +252,13 @@ async function importTrainingSessions(systemUserId) {
   console.log(`Crediting records to user: ${owner.username} (${owner.role})`);
 
   console.log('\n── 1. Employees + Skill Matrix ──');
-  await importEmployeesAndSkills(owner.id);
+  await importEmployeesAndSkills(data, owner.id);
 
   console.log('\n── 2. Training Plan FY 2023-24 ──');
-  await importTrainingPlan(owner.id);
+  await importTrainingPlan(data, owner.id);
 
   console.log('\n── 3. Training Sessions ──');
-  await importTrainingSessions(owner.id);
+  await importTrainingSessions(data, owner.id);
 
   console.log('\nDone.');
   await prisma.$disconnect();
