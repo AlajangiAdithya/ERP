@@ -24,6 +24,27 @@ const SKILLS = [
 
 const RATING_HINT = '0 = no exposure · 1 = aware · 2 = can perform with help · 3 = independent · 4 = expert / can train others';
 
+// Textarea that auto-grows with its content. Used for free-form fields
+// (Training Needs / Remarks) where long entries should remain readable.
+function AutoTextarea({ value, onChange, disabled, className = '' }) {
+  const resize = (el) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  };
+  return (
+    <textarea
+      rows={1}
+      value={value}
+      disabled={disabled}
+      ref={resize}
+      onInput={(e) => resize(e.target)}
+      onChange={(e) => onChange(e.target.value)}
+      className={`w-full px-2 py-1 border border-gray-200 rounded text-xs resize-none overflow-hidden leading-snug disabled:bg-gray-50 ${className}`}
+    />
+  );
+}
+
 export default function SkillMatrix() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -134,23 +155,24 @@ export default function SkillMatrix() {
                 <th className="py-2 px-2 sticky left-0 bg-gray-50 z-10">#</th>
                 <th className="py-2 px-2 sticky left-8 bg-gray-50 z-10 min-w-[160px]">Employee</th>
                 <th className="py-2 px-2 min-w-[90px]">Code</th>
+                <th className="py-2 px-2 min-w-[120px]">Category</th>
                 <th className="py-2 px-2 min-w-[90px]">Date of Joining</th>
                 {SKILLS.map((s) => (
                   <th key={s.key} className="py-2 px-2 text-center whitespace-nowrap" title={s.label}>
                     {s.label.split(' ').map((w, i) => <div key={i}>{w}</div>)}
                   </th>
                 ))}
-                <th className="py-2 px-2 min-w-[140px]">Training Needs</th>
-                <th className="py-2 px-2 min-w-[120px]">Remarks</th>
+                <th className="py-2 px-2 min-w-[200px]">Training Needs</th>
+                <th className="py-2 px-2 min-w-[180px]">Remarks</th>
                 <th className="py-2 px-2 min-w-[100px]">HoD Sign</th>
                 {canWrite && <th className="py-2 px-2 text-right min-w-[80px]">Save</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={SKILLS.length + 7} className="py-6 text-center text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={SKILLS.length + 8} className="py-6 text-center text-gray-400">Loading…</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={SKILLS.length + 7} className="py-6 text-center text-gray-400">No employees.</td></tr>
+                <tr><td colSpan={SKILLS.length + 8} className="py-6 text-center text-gray-400">No employees.</td></tr>
               ) : filtered.map((emp) => {
                 const rowEdit = !!emp.canEdit;
                 return (
@@ -161,6 +183,7 @@ export default function SkillMatrix() {
                     <div className="text-[10px] text-gray-500 truncate">{emp.designation || emp.category || ''}</div>
                   </td>
                   <td className="py-1.5 px-2 font-mono text-[10px] text-gray-700">{emp.empCode || '—'}</td>
+                  <td className="py-1.5 px-2 text-[11px] text-gray-700 whitespace-normal">{emp.category || '—'}</td>
                   <td className="py-1.5 px-2 text-[10px] text-gray-700">{emp.dateOfJoining ? emp.dateOfJoining.slice(0, 10) : '—'}</td>
                   {SKILLS.map((s) => (
                     <td key={s.key} className="py-1 px-1 text-center">
@@ -173,22 +196,18 @@ export default function SkillMatrix() {
                       />
                     </td>
                   ))}
-                  <td className="py-1 px-2">
-                    <input
-                      type="text"
+                  <td className="py-1 px-2 align-top">
+                    <AutoTextarea
                       value={drafts[emp.id]?.trainingNeeds ?? emp.skillMatrix?.trainingNeeds ?? ''}
                       disabled={!rowEdit}
-                      onChange={(e) => setCellValue(emp.id, 'trainingNeeds', e.target.value)}
-                      className="w-full px-2 py-1 border border-gray-200 rounded text-xs disabled:bg-gray-50"
+                      onChange={(v) => setCellValue(emp.id, 'trainingNeeds', v)}
                     />
                   </td>
-                  <td className="py-1 px-2">
-                    <input
-                      type="text"
+                  <td className="py-1 px-2 align-top">
+                    <AutoTextarea
                       value={drafts[emp.id]?.remarks ?? emp.skillMatrix?.remarks ?? ''}
                       disabled={!rowEdit}
-                      onChange={(e) => setCellValue(emp.id, 'remarks', e.target.value)}
-                      className="w-full px-2 py-1 border border-gray-200 rounded text-xs disabled:bg-gray-50"
+                      onChange={(v) => setCellValue(emp.id, 'remarks', v)}
                     />
                   </td>
                   <td className="py-1 px-2 text-center">

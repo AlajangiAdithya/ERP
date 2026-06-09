@@ -9,6 +9,27 @@ import api from '../../api/axios';
 
 const INPUT_CLS = 'mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-200';
 
+// Uncontrolled auto-grow textarea — used for free-form evaluation fields
+// where long entries should stay fully readable inside the table cell.
+function AutoTextarea({ defaultValue, onBlur, disabled }) {
+  const resize = (el) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  };
+  return (
+    <textarea
+      rows={1}
+      defaultValue={defaultValue}
+      disabled={disabled}
+      ref={resize}
+      onInput={(e) => resize(e.target)}
+      onBlur={onBlur}
+      className="w-full px-2 py-1 border border-gray-200 rounded text-xs resize-none overflow-hidden leading-snug disabled:bg-gray-50"
+    />
+  );
+}
+
 const EMPTY_SESSION = {
   planId: '', planItemId: '', subject: '', trainingDateFrom: '', trainingDateTo: '',
   duration: '', place: '', faculty: '', reference: '', notes: '',
@@ -280,9 +301,9 @@ export default function TrainingRecords() {
                       <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 border-b border-gray-200">
                         <th className="py-2 pr-2">Employee</th>
                         <th className="py-2 pr-2">Designation</th>
-                        <th className="py-2 pr-2">Evaluation</th>
+                        <th className="py-2 pr-2 min-w-[220px]">Evaluation</th>
                         <th className="py-2 pr-2">Date</th>
-                        <th className="py-2 pr-2">Evaluated by</th>
+                        <th className="py-2 pr-2 min-w-[180px]">Evaluated by</th>
                         <th className="py-2 pr-2">Sign</th>
                         {canCreate && <th className="py-2 pr-2 text-right"></th>}
                       </tr>
@@ -297,16 +318,15 @@ export default function TrainingRecords() {
                             <div className="text-[10px] text-gray-500 font-mono">{a.employee?.empCode}</div>
                           </td>
                           <td className="py-1.5 pr-2 text-gray-600">{a.employee?.designation || '—'}</td>
-                          <td className="py-1.5 pr-2">
-                            <input
-                              type="text"
+                          <td className="py-1.5 pr-2 align-top">
+                            <AutoTextarea
+                              key={`ev-${a.id}-${a.evaluationDetails || ''}`}
                               defaultValue={a.evaluationDetails || ''}
                               disabled={!canCreate}
                               onBlur={(e) => e.target.value !== (a.evaluationDetails || '') && updateAttendee(a, { evaluationDetails: e.target.value })}
-                              className="w-full px-2 py-1 border border-gray-200 rounded text-xs disabled:bg-gray-50"
                             />
                           </td>
-                          <td className="py-1.5 pr-2">
+                          <td className="py-1.5 pr-2 align-top">
                             <input
                               type="date"
                               defaultValue={a.dateOfEvaluation?.slice(0, 10) || ''}
@@ -315,13 +335,12 @@ export default function TrainingRecords() {
                               className="px-1.5 py-1 border border-gray-200 rounded text-xs disabled:bg-gray-50"
                             />
                           </td>
-                          <td className="py-1.5 pr-2">
-                            <input
-                              type="text"
+                          <td className="py-1.5 pr-2 align-top">
+                            <AutoTextarea
+                              key={`by-${a.id}-${a.evaluatedBy || ''}`}
                               defaultValue={a.evaluatedBy || ''}
                               disabled={!canCreate}
                               onBlur={(e) => e.target.value !== (a.evaluatedBy || '') && updateAttendee(a, { evaluatedBy: e.target.value })}
-                              className="w-full px-2 py-1 border border-gray-200 rounded text-xs disabled:bg-gray-50"
                             />
                           </td>
                           <td className="py-1.5 pr-2">
