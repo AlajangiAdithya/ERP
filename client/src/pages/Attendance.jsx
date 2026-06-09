@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, useCallback, Fragment } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  ClipboardList, Plus, Send, Pencil, Trash2, Lock,
+  ClipboardList, Plus, Send, Pencil, Trash2, Lock, Calendar, ChevronLeft,
+  ChevronRight, BarChart3, Users, User as UserIcon,
 } from 'lucide-react';
 import api from '../api/axios';
 import PageHero from '../components/shared/PageHero';
@@ -9,30 +10,44 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 
 // ──────────────────────────────────────────────────────────────
-// Attendance register — month-grid view.
+// Attendance register.
 //
-// • Managers: full edit of their own unit. IN/OUT cells are inline-editable;
-//   cells that have been modified after first save show a small pencil dot
-//   underneath (only managers see this). Hovering the dot reveals who changed
-//   what and when.
-// • ADMIN / SAFETY: read-only view of every unit's grid. No modification
-//   indicators.
-// • ACCOUNTING: read-only, and only AFTER the manager has sent the month to
-//   accounts. Sees per-employee totals.
+// Two views, both backed by the same /api/attendance endpoints:
+//   • Day view (default) — pick a date, edit every employee's IN/OUT for
+//     that day on a single roomy row. Totals + OT compute live.
+//   • Month view — pick one employee, see the whole month vertically with
+//     one calendar row per day. Easy to scan a person's pattern.
 //
-// Status codes appear in cells instead of times (L, HYD, BAKRID, H, …).
-// To enter a status: type the code into the IN cell and leave OUT blank.
+// "Send to Accounts" finalizes the month and locks edits.
+// Modification trail (dot + history) is shown to the unit's manager only.
 // ──────────────────────────────────────────────────────────────
 
-const STATUS_LABELS = {
-  L: 'Leave',
-  HYD: 'Hyderabad',
-  BAKRID: 'Holiday',
-  H: 'Holiday',
-  WO: 'Weekly Off',
-  CL: 'Casual Leave',
-  SL: 'Sick Leave',
+const STATUS_OPTIONS = [
+  { value: '', label: '—' },
+  { value: 'L', label: 'L — Leave' },
+  { value: 'CL', label: 'CL — Casual Leave' },
+  { value: 'SL', label: 'SL — Sick Leave' },
+  { value: 'WO', label: 'WO — Weekly Off' },
+  { value: 'H', label: 'H — Holiday' },
+  { value: 'BAKRID', label: 'BAKRID — Festival' },
+  { value: 'HYD', label: 'HYD — Off-site (Hyderabad)' },
+];
+
+const STATUS_COLOR = {
+  L: 'bg-rose-100 text-rose-700 border-rose-200',
+  CL: 'bg-rose-100 text-rose-700 border-rose-200',
+  SL: 'bg-rose-100 text-rose-700 border-rose-200',
+  WO: 'bg-slate-100 text-slate-600 border-slate-200',
+  H: 'bg-amber-100 text-amber-700 border-amber-200',
+  BAKRID: 'bg-amber-100 text-amber-700 border-amber-200',
+  HYD: 'bg-indigo-100 text-indigo-700 border-indigo-200',
 };
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const STANDARD_DAY_MIN = 9 * 60;
+const OT_THRESHOLD_MIN = 60;
 
 const TIME_RE = /^\d{1,2}:\d{1,2}$/;
 const isTimeLike = (s) => TIME_RE.test(String(s || '').trim());
@@ -41,8 +56,7 @@ const minutesOfTime = (hhmm) => {
   if (!hhmm) return null;
   const m = String(hhmm).match(/^(\d{1,2}):(\d{1,2})$/);
   if (!m) return null;
-  const h = parseInt(m[1], 10);
-  const mm = parseInt(m[2], 10);
+  const h = +m[1]; const mm = +m[2];
   if (h < 0 || h > 23 || mm < 0 || mm > 59) return null;
   return h * 60 + mm;
 };
@@ -51,11 +65,8 @@ const formatHHmmFromMin = (min) => {
   if (min == null || min <= 0) return '';
   const h = Math.floor(min / 60);
   const m = min % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  return `${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m`;
 };
-
-const STANDARD_DAY_MIN = 9 * 60;
-const OT_THRESHOLD_MIN = 60;
 
 const computeDayTotals = (entry) => {
   if (!entry || entry.statusCode) return { total: null, ot: null };
@@ -68,25 +79,27 @@ const computeDayTotals = (entry) => {
   return { total: span, ot: over >= OT_THRESHOLD_MIN ? over : 0 };
 };
 
-const dayOfWeekShort = (year, month, day) => {
-  const d = new Date(year, month - 1, day);
-  return d.toLocaleDateString('en-US', { weekday: 'short' });
+const ymdLocal = (dt) => {
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 };
 
-const buildEntryMap = (entries) => {
-  const map = new Map();
-  for (const e of entries || []) {
-    map.set(`${e.employeeId}|${e.date}`, e);
-  }
-  return map;
+const parseYmd = (s) => {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
 };
 
-const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const daysInMonth = (year, month) => new Date(year, month, 0).getDate();
 
+// ──────────────────────────────────────────────────────────────
 export default function Attendance() {
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const today = new Date();
+  const [view, setView] = useState('day');           // 'day' | 'month'
+  const [dayDate, setDayDate] = useState(ymdLocal(today));
+  const [monthYear, setMonthYear] = useState(today.getFullYear());
+  const [monthIdx, setMonthIdx] = useState(today.getMonth() + 1); // 1..12
 
   const [units, setUnits] = useState([]);
   const [unitId, setUnitId] = useState('');
@@ -97,11 +110,21 @@ export default function Attendance() {
   const [canEdit, setCanEdit] = useState(false);
   const [isManager, setIsManager] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [days, setDays] = useState(31);
 
+  const [focusedEmpId, setFocusedEmpId] = useState(null);
   const [showAddEmp, setShowAddEmp] = useState(false);
-  const [showHistory, setShowHistory] = useState(null); // entry object
+  const [showHistory, setShowHistory] = useState(null);
   const [showSummary, setShowSummary] = useState(false);
+
+  // The grid's year/month is driven by either dayDate (day view) or
+  // monthYear+monthIdx (month view) so we only fetch what we need.
+  const activeYM = useMemo(() => {
+    if (view === 'day') {
+      const d = parseYmd(dayDate);
+      return { year: d.getFullYear(), month: d.getMonth() + 1 };
+    }
+    return { year: monthYear, month: monthIdx };
+  }, [view, dayDate, monthYear, monthIdx]);
 
   // ── load units once ─────────────────────────────────────────
   useEffect(() => {
@@ -109,9 +132,7 @@ export default function Attendance() {
       try {
         const { data } = await api.get('/attendance/units');
         setUnits(data.units || []);
-        if (data.units?.length && !unitId) {
-          setUnitId(data.units[0].id);
-        }
+        if (data.units?.length && !unitId) setUnitId(data.units[0].id);
       } catch (err) {
         console.error('Load attendance units failed', err);
       }
@@ -119,74 +140,46 @@ export default function Attendance() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── load grid when unit/year/month changes ──────────────────
   const reloadGrid = useCallback(async () => {
     if (!unitId) return;
     setLoading(true);
     try {
-      const { data } = await api.get('/attendance/grid', { params: { unitId, year, month } });
+      const { data } = await api.get('/attendance/grid', {
+        params: { unitId, year: activeYM.year, month: activeYM.month },
+      });
       setEmployees(data.employees || []);
       setEntries(data.entries || []);
       setSubmission(data.submission || null);
       setCanEdit(!!data.canEdit);
       setIsManager(!!data.isManager);
-      setDays(data.days || 31);
+      if (!focusedEmpId && data.employees?.length) {
+        setFocusedEmpId(data.employees[0].id);
+      }
     } catch (err) {
       console.error('Load attendance grid failed', err);
-      const msg = err.response?.data?.error || 'Failed to load attendance';
       if (err.response?.status === 403) {
         setEmployees([]); setEntries([]); setSubmission(null);
         setCanEdit(false); setIsManager(false);
       }
-      alert(msg);
+      alert(err.response?.data?.error || 'Failed to load attendance');
     } finally {
       setLoading(false);
     }
-  }, [unitId, year, month]);
+  }, [unitId, activeYM.year, activeYM.month, focusedEmpId]);
 
   useEffect(() => { reloadGrid(); }, [reloadGrid]);
 
-  const entryMap = useMemo(() => buildEntryMap(entries), [entries]);
-  const dayList = useMemo(() => Array.from({ length: days }, (_, i) => i + 1), [days]);
+  const entryMap = useMemo(() => {
+    const map = new Map();
+    for (const e of entries) map.set(`${e.employeeId}|${e.date}`, e);
+    return map;
+  }, [entries]);
 
-  const ymdOf = (d) => `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-
-  // ── save handler (debounced via onBlur) ─────────────────────
-  const saveCell = async (employeeId, day, field, raw) => {
+  // ── save handler ────────────────────────────────────────────
+  const saveCell = async (employeeId, date, fields) => {
     if (!canEdit) return;
-    const date = ymdOf(day);
-    const val = String(raw || '').trim();
-
-    // Detect status code vs time
-    let payload = { employeeId, date };
-    if (field === 'inTime') {
-      if (val === '') {
-        // Clearing IN also clears any status code so the cell becomes blank.
-        payload.inTime = null;
-        payload.statusCode = null;
-      } else if (isTimeLike(val)) {
-        payload.inTime = val;
-        // If user clears status while entering time
-        const existing = entryMap.get(`${employeeId}|${date}`);
-        if (existing?.statusCode) payload.statusCode = null;
-      } else {
-        // Treat as status code
-        payload.statusCode = val.toUpperCase();
-        payload.inTime = null;
-        payload.outTime = null;
-      }
-    } else if (field === 'outTime') {
-      if (val === '') payload.outTime = null;
-      else if (isTimeLike(val)) {
-        payload.outTime = val;
-      } else {
-        alert('OUT must be HH:mm (24h). Enter status codes in the IN column.');
-        return;
-      }
-    }
-
     try {
-      const { data } = await api.put('/attendance/entry', payload);
+      const { data } = await api.put('/attendance/entry', { employeeId, date, ...fields });
       setEntries((prev) => {
         const key = `${employeeId}|${date}`;
         const filtered = prev.filter((e) => `${e.employeeId}|${e.date}` !== key);
@@ -194,74 +187,57 @@ export default function Attendance() {
         return filtered;
       });
     } catch (err) {
-      console.error('Save cell failed', err);
       alert(err.response?.data?.error || 'Failed to save');
       reloadGrid();
     }
   };
 
-  // ── summaries (totals per employee) ─────────────────────────
-  const employeeSummary = (empId) => {
-    let daysWorked = 0;
-    let totalMin = 0;
-    let otMin = 0;
-    for (const d of dayList) {
-      const e = entryMap.get(`${empId}|${ymdOf(d)}`);
-      if (!e) continue;
-      const { total, ot } = computeDayTotals(e);
-      if (total != null) {
-        daysWorked += 1;
-        totalMin += total;
-        otMin += ot || 0;
-      }
-    }
-    return { daysWorked, totalMin, otMin };
-  };
-
-  // ── render ──────────────────────────────────────────────────
-  const monthName = MONTH_NAMES[month - 1];
-
   const sendToAccounts = async () => {
-    if (!confirm(`Send ${monthName} ${year} attendance to Accounts? Once submitted, this month will be locked from edits.`)) return;
+    if (!confirm(`Send ${MONTH_NAMES[activeYM.month - 1]} ${activeYM.year} attendance to Accounts? The month will be locked from edits.`)) return;
     try {
-      await api.post('/attendance/submit', { unitId, year, month });
+      await api.post('/attendance/submit', { unitId, year: activeYM.year, month: activeYM.month });
       reloadGrid();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to submit');
     }
   };
 
+  // ── day navigation ──────────────────────────────────────────
+  const shiftDay = (delta) => {
+    const d = parseYmd(dayDate);
+    d.setDate(d.getDate() + delta);
+    setDayDate(ymdLocal(d));
+  };
+
+  // ── per-employee summary (current loaded month) ─────────────
+  const computeMonthSummary = useCallback((empId) => {
+    let days = 0; let total = 0; let ot = 0;
+    const statuses = {};
+    for (const e of entries) {
+      if (e.employeeId !== empId) continue;
+      if (e.statusCode) {
+        statuses[e.statusCode] = (statuses[e.statusCode] || 0) + 1;
+        continue;
+      }
+      const { total: t, ot: o } = computeDayTotals(e);
+      if (t != null) { days += 1; total += t; ot += o || 0; }
+    }
+    return { days, total, ot, statuses };
+  }, [entries]);
+
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-[1700px] mx-auto">
+    <div className="p-4 sm:p-6 space-y-5 max-w-[1500px] mx-auto">
       <PageHero
         title="Attendance Register"
         subtitle={
           isManager
-            ? 'Maintain your unit\'s daily IN / OUT punches. Total hours and OT are computed automatically.'
-            : 'View attendance maintained by each unit\'s manager. Modification details are private to the unit manager.'
+            ? 'Edit each day\'s IN / OUT for your unit. Total hours and OT compute automatically.'
+            : 'Live view of unit attendance. The unit\'s manager is the only one who can edit cells.'
         }
-        eyebrow="Monthly Attendance"
+        eyebrow="Daily & Monthly"
         icon={ClipboardList}
         actions={(
           <div className="flex flex-wrap gap-2 items-center">
-            <select
-              value={month}
-              onChange={(e) => setMonth(parseInt(e.target.value, 10))}
-              className="px-3 py-1.5 rounded-md text-sm bg-white/10 border border-white/20 text-white"
-            >
-              {MONTH_NAMES.map((m, i) => (
-                <option key={m} value={i + 1} className="text-gray-900">{m}</option>
-              ))}
-            </select>
-            <select
-              value={year}
-              onChange={(e) => setYear(parseInt(e.target.value, 10))}
-              className="px-3 py-1.5 rounded-md text-sm bg-white/10 border border-white/20 text-white"
-            >
-              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => (
-                <option key={y} value={y} className="text-gray-900">{y}</option>
-              ))}
-            </select>
             {units.length > 1 && (
               <select
                 value={unitId}
@@ -274,7 +250,7 @@ export default function Attendance() {
               </select>
             )}
             <Button variant="secondary" size="sm" onClick={() => setShowSummary(true)}>
-              Monthly Summary
+              <BarChart3 size={14} /> Summary
             </Button>
             {canEdit && (
               <>
@@ -290,86 +266,128 @@ export default function Attendance() {
         )}
       />
 
-      {submission && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-3 flex items-center gap-2 text-sm">
-          <Lock size={16} />
-          <span>
-            This month was sent to Accounts on{' '}
-            <strong>{new Date(submission.submittedAt).toLocaleString()}</strong>. The register is locked.
-          </span>
+      {/* View toggle + period nav */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex rounded-lg bg-white shadow-sm border border-gray-200 p-1">
+          <button
+            onClick={() => setView('day')}
+            className={`px-3.5 py-1.5 rounded-md text-sm font-medium flex items-center gap-1.5 transition
+              ${view === 'day' ? 'bg-navy-700 text-white' : 'text-gray-700 hover:bg-gray-50'}`}
+          >
+            <Users size={14} /> Day View
+          </button>
+          <button
+            onClick={() => setView('month')}
+            className={`px-3.5 py-1.5 rounded-md text-sm font-medium flex items-center gap-1.5 transition
+              ${view === 'month' ? 'bg-navy-700 text-white' : 'text-gray-700 hover:bg-gray-50'}`}
+          >
+            <Calendar size={14} /> Month View
+          </button>
         </div>
-      )}
 
-      <div className="bg-white rounded-xl shadow-card border border-navy-100/60 overflow-hidden">
-        {loading ? (
-          <div className="p-10 text-center text-gray-500 text-sm">Loading…</div>
-        ) : !unitId ? (
-          <div className="p-10 text-center text-gray-500 text-sm">No unit available.</div>
-        ) : !employees.length ? (
-          <div className="p-10 text-center text-gray-500 text-sm">
-            {canEdit ? 'No employees yet. Click "Employee" to add the first one.' : 'No employees in this unit.'}
+        {view === 'day' ? (
+          <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 shadow-sm px-2 py-1">
+            <button
+              onClick={() => shiftDay(-1)}
+              className="p-1.5 rounded hover:bg-gray-100 text-gray-600"
+              aria-label="Previous day"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <input
+              type="date"
+              value={dayDate}
+              onChange={(e) => setDayDate(e.target.value)}
+              className="px-2 py-1 text-sm border-0 focus:outline-none focus:ring-0 bg-transparent"
+            />
+            <button
+              onClick={() => shiftDay(1)}
+              className="p-1.5 rounded hover:bg-gray-100 text-gray-600"
+              aria-label="Next day"
+            >
+              <ChevronRight size={16} />
+            </button>
+            <button
+              onClick={() => setDayDate(ymdLocal(new Date()))}
+              className="ml-1 px-2 py-1 text-xs font-medium text-navy-700 hover:bg-navy-50 rounded"
+            >
+              Today
+            </button>
+            <span className="ml-1 px-2 text-sm text-gray-600">
+              {parseYmd(dayDate).toLocaleDateString('en-US', { weekday: 'long' })}
+            </span>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="border-collapse text-[11px]" style={{ minWidth: 260 + days * 96 }}>
-              <thead className="sticky top-0 bg-navy-700 text-white z-10">
-                <tr>
-                  <th className="sticky left-0 bg-navy-700 px-2 py-2 text-left w-10 border-r border-white/20">SL</th>
-                  <th className="sticky left-10 bg-navy-700 px-2 py-2 text-left min-w-[170px] border-r border-white/20">NAME (E.ID)</th>
-                  {dayList.map((d) => (
-                    <th key={d} colSpan={2} className="px-1 py-1 text-center border-r border-white/20 min-w-[90px]">
-                      <div className="text-[9px] uppercase opacity-70">{dayOfWeekShort(year, month, d)}</div>
-                      <div className="text-[12px] font-semibold leading-tight">{d}</div>
-                    </th>
-                  ))}
-                  <th className="px-2 py-2 text-center bg-navy-800 min-w-[80px]">DAYS</th>
-                  <th className="px-2 py-2 text-center bg-navy-800 min-w-[80px]">TOTAL</th>
-                  <th className="px-2 py-2 text-center bg-navy-800 min-w-[70px]">OT</th>
-                </tr>
-                <tr className="bg-navy-600 text-white text-[10px]">
-                  <th className="sticky left-0 bg-navy-600 border-r border-white/20" />
-                  <th className="sticky left-10 bg-navy-600 border-r border-white/20" />
-                  {dayList.map((d) => (
-                    <Fragment key={d}>
-                      <th className="px-1 py-1 border-r border-white/10">IN</th>
-                      <th className="px-1 py-1 border-r border-white/20">OUT</th>
-                    </Fragment>
-                  ))}
-                  <th className="bg-navy-700" />
-                  <th className="bg-navy-700" />
-                  <th className="bg-navy-700" />
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((emp, idx) => {
-                  const sum = employeeSummary(emp.id);
-                  const rowBg = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50';
-                  return (
-                    <EmployeeRow
-                      key={emp.id}
-                      emp={emp}
-                      year={year}
-                      month={month}
-                      dayList={dayList}
-                      ymdOf={ymdOf}
-                      entryMap={entryMap}
-                      canEdit={canEdit}
-                      isManager={isManager}
-                      onSaveCell={saveCell}
-                      onShowHistory={setShowHistory}
-                      onEditEmp={canEdit ? () => setShowAddEmp(emp) : null}
-                      summary={sum}
-                      rowBg={rowBg}
-                    />
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 shadow-sm px-2 py-1">
+            <select
+              value={monthIdx}
+              onChange={(e) => setMonthIdx(parseInt(e.target.value, 10))}
+              className="px-2 py-1 text-sm border-0 focus:outline-none bg-transparent"
+            >
+              {MONTH_NAMES.map((m, i) => (
+                <option key={m} value={i + 1}>{m}</option>
+              ))}
+            </select>
+            <select
+              value={monthYear}
+              onChange={(e) => setMonthYear(parseInt(e.target.value, 10))}
+              className="px-2 py-1 text-sm border-0 focus:outline-none bg-transparent"
+            >
+              {Array.from({ length: 5 }, (_, i) => today.getFullYear() - 2 + i).map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
           </div>
+        )}
+
+        {submission && (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
+            <Lock size={12} />
+            Locked — sent to Accounts on {new Date(submission.submittedAt).toLocaleDateString()}
+          </span>
         )}
       </div>
 
-      {/* Add / edit employee modal */}
+      {loading ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500 text-sm">
+          Loading…
+        </div>
+      ) : !unitId ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500 text-sm">
+          No unit available.
+        </div>
+      ) : !employees.length ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500 text-sm">
+          {canEdit ? 'No employees yet. Click "Employee" to add the first one.' : 'No employees in this unit.'}
+        </div>
+      ) : view === 'day' ? (
+        <DayView
+          employees={employees}
+          date={dayDate}
+          entryMap={entryMap}
+          canEdit={canEdit}
+          isManager={isManager}
+          onSave={saveCell}
+          onShowHistory={setShowHistory}
+          onEditEmp={canEdit ? setShowAddEmp : null}
+        />
+      ) : (
+        <MonthView
+          employees={employees}
+          year={activeYM.year}
+          month={activeYM.month}
+          entryMap={entryMap}
+          canEdit={canEdit}
+          isManager={isManager}
+          focusedEmpId={focusedEmpId}
+          onFocus={setFocusedEmpId}
+          onSave={saveCell}
+          onShowHistory={setShowHistory}
+          monthSummary={computeMonthSummary}
+        />
+      )}
+
+      {/* Modals */}
       {showAddEmp && (
         <EmployeeModal
           unitId={unitId}
@@ -378,164 +396,428 @@ export default function Attendance() {
           onSaved={() => { setShowAddEmp(false); reloadGrid(); }}
         />
       )}
-
-      {/* Modification history modal (managers only) */}
       {showHistory && (
         <Modal isOpen onClose={() => setShowHistory(null)} title="Modification history" size="lg">
           <HistoryView entry={showHistory} />
         </Modal>
       )}
-
-      {/* Monthly summary modal */}
       {showSummary && (
-        <Modal isOpen onClose={() => setShowSummary(false)} title={`${monthName} ${year} — Monthly Summary`} size="xl">
-          <MonthlySummary unitId={unitId} year={year} month={month} />
+        <Modal
+          isOpen
+          onClose={() => setShowSummary(false)}
+          title={`${MONTH_NAMES[activeYM.month - 1]} ${activeYM.year} — Monthly Summary`}
+          size="xl"
+        >
+          <MonthlySummary unitId={unitId} year={activeYM.year} month={activeYM.month} />
         </Modal>
       )}
     </div>
   );
 }
 
-// ─── Employee row ──────────────────────────────────────────────
-function EmployeeRow({
-  emp, dayList, ymdOf, entryMap, canEdit, isManager,
-  onSaveCell, onShowHistory, onEditEmp, summary, rowBg,
-}) {
+// ──────────────────────────────────────────────────────────────
+// DAY VIEW
+// ──────────────────────────────────────────────────────────────
+function DayView({ employees, date, entryMap, canEdit, isManager, onSave, onShowHistory, onEditEmp }) {
   return (
-    <>
-      {/* Row 1: IN / OUT */}
-      <tr className={`${rowBg} border-b border-gray-200`}>
-        <td rowSpan={3} className={`sticky left-0 ${rowBg} px-2 py-1 align-top text-gray-700 font-semibold border-r border-gray-200`}>
-          {emp.serialNo}
-        </td>
-        <td rowSpan={3} className={`sticky left-10 ${rowBg} px-2 py-1 align-top border-r border-gray-200`}>
-          <div className="font-semibold text-gray-900 leading-tight">{emp.name}</div>
-          {emp.empCode && <div className="text-[10px] text-gray-500">E.ID {emp.empCode}</div>}
-          {onEditEmp && (
-            <button
-              type="button"
-              onClick={onEditEmp}
-              className="mt-1 inline-flex items-center gap-1 text-[10px] text-navy-600 hover:underline"
-            >
-              <Pencil size={10} /> edit
-            </button>
-          )}
-        </td>
-        {dayList.map((d) => {
-          const e = entryMap.get(`${emp.id}|${ymdOf(d)}`);
-          return (
-            <DayInOut
-              key={d}
-              day={d}
-              entry={e}
-              canEdit={canEdit}
-              isManager={isManager}
-              onSave={(field, val) => onSaveCell(emp.id, d, field, val)}
-              onShowHistory={onShowHistory}
-            />
-          );
-        })}
-        <td rowSpan={3} className="px-2 py-1 text-center bg-blue-50 border-l border-gray-200 font-semibold text-navy-700">
-          {summary.daysWorked}
-        </td>
-        <td rowSpan={3} className="px-2 py-1 text-center bg-blue-50 font-semibold text-navy-700">
-          {formatHHmmFromMin(summary.totalMin) || '—'}
-        </td>
-        <td rowSpan={3} className="px-2 py-1 text-center bg-amber-50 font-semibold text-amber-700">
-          {formatHHmmFromMin(summary.otMin) || '—'}
-        </td>
-      </tr>
-      {/* Row 2: Total working hrs */}
-      <tr className={`${rowBg} text-[10px] text-gray-600`}>
-        {dayList.map((d) => {
-          const e = entryMap.get(`${emp.id}|${ymdOf(d)}`);
-          const { total } = computeDayTotals(e);
-          return (
-            <td key={d} colSpan={2} className="px-1 py-0.5 text-center border-r border-gray-200">
-              {e?.statusCode ? <span className="italic">{STATUS_LABELS[e.statusCode] || ''}</span> : formatHHmmFromMin(total)}
-            </td>
-          );
-        })}
-      </tr>
-      {/* Row 3: OT */}
-      <tr className={`${rowBg} text-[10px] text-amber-700 border-b-2 border-gray-300`}>
-        {dayList.map((d) => {
-          const e = entryMap.get(`${emp.id}|${ymdOf(d)}`);
-          const { ot } = computeDayTotals(e);
-          return (
-            <td key={d} colSpan={2} className="px-1 py-0.5 text-center border-r border-gray-200">
-              {ot ? formatHHmmFromMin(ot) : ''}
-            </td>
-          );
-        })}
-      </tr>
-    </>
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wide">
+            <th className="px-4 py-3 text-left w-12">#</th>
+            <th className="px-4 py-3 text-left">Employee</th>
+            <th className="px-3 py-3 text-center w-28">IN</th>
+            <th className="px-3 py-3 text-center w-28">OUT</th>
+            <th className="px-3 py-3 text-center w-40">Status</th>
+            <th className="px-3 py-3 text-center w-24">Hours</th>
+            <th className="px-3 py-3 text-center w-24">OT</th>
+            <th className="px-3 py-3 w-12" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {employees.map((emp) => {
+            const entry = entryMap.get(`${emp.id}|${date}`);
+            return (
+              <DayRow
+                key={emp.id}
+                emp={emp}
+                date={date}
+                entry={entry}
+                canEdit={canEdit}
+                isManager={isManager}
+                onSave={onSave}
+                onShowHistory={onShowHistory}
+                onEditEmp={onEditEmp}
+              />
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
-// ─── A single day's IN/OUT pair ───────────────────────────────
-function DayInOut({ day, entry, canEdit, isManager, onSave, onShowHistory }) {
-  const inVal = entry?.statusCode ? entry.statusCode : (entry?.inTime || '');
-  const outVal = entry?.outTime || '';
-  const wasModified = isManager && !!entry?.modifiedAt;
-  const bg = entry?.statusCode
-    ? 'bg-purple-50'
-    : (entry?.inTime || entry?.outTime ? '' : 'bg-gray-50/50');
+function DayRow({ emp, date, entry, canEdit, isManager, onSave, onShowHistory, onEditEmp }) {
+  const [inVal, setInVal] = useState(entry?.inTime || '');
+  const [outVal, setOutVal] = useState(entry?.outTime || '');
+  const [status, setStatus] = useState(entry?.statusCode || '');
 
-  if (!canEdit) {
-    return (
-      <>
-        <td className={`px-1 py-1 text-center border-r border-gray-200 ${bg} relative`}>
-          <span className={entry?.statusCode ? 'text-purple-700 font-semibold' : 'text-gray-800'}>
-            {inVal || ''}
-          </span>
-        </td>
-        <td className={`px-1 py-1 text-center border-r border-gray-200 ${bg}`}>
-          <span className="text-gray-800">{outVal}</span>
-        </td>
-      </>
-    );
-  }
+  useEffect(() => {
+    setInVal(entry?.inTime || '');
+    setOutVal(entry?.outTime || '');
+    setStatus(entry?.statusCode || '');
+  }, [entry?.inTime, entry?.outTime, entry?.statusCode, entry?.id]);
+
+  const { total, ot } = computeDayTotals(entry);
+  const wasModified = isManager && !!entry?.modifiedAt;
+
+  const commitTime = (field, val) => {
+    const v = val.trim();
+    if (v === (field === 'inTime' ? (entry?.inTime || '') : (entry?.outTime || ''))) return;
+    if (v !== '' && !isTimeLike(v)) {
+      alert(`${field === 'inTime' ? 'IN' : 'OUT'} must be HH:mm`);
+      if (field === 'inTime') setInVal(entry?.inTime || '');
+      else setOutVal(entry?.outTime || '');
+      return;
+    }
+    const fields = { [field]: v || null };
+    // Setting a time clears any status code on the same cell.
+    if (v && entry?.statusCode) fields.statusCode = null;
+    onSave(emp.id, date, fields);
+  };
+
+  const commitStatus = (v) => {
+    if (v === (entry?.statusCode || '')) return;
+    if (v) onSave(emp.id, date, { statusCode: v, inTime: null, outTime: null });
+    else onSave(emp.id, date, { statusCode: null });
+  };
 
   return (
-    <>
-      <td className={`px-0.5 py-0.5 border-r border-gray-200 ${bg} relative`}>
-        <input
-          type="text"
-          defaultValue={inVal}
-          onBlur={(e) => {
-            if (e.target.value === inVal) return;
-            onSave('inTime', e.target.value);
-          }}
-          className="w-full px-1 py-0.5 text-center text-[11px] bg-transparent focus:bg-white focus:ring-1 focus:ring-navy-500 rounded"
-          placeholder="HH:mm"
-        />
+    <tr className="hover:bg-blue-50/40 transition">
+      <td className="px-4 py-3 text-gray-500 font-medium">{emp.serialNo}</td>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-navy-100 text-navy-700 flex items-center justify-center text-xs font-semibold">
+            {(emp.name || '?').slice(0, 1).toUpperCase()}
+          </div>
+          <div>
+            <div className="font-medium text-gray-900 leading-tight">{emp.name}</div>
+            {emp.empCode && <div className="text-xs text-gray-500">E.ID {emp.empCode}</div>}
+          </div>
+          {onEditEmp && (
+            <button
+              type="button"
+              onClick={() => onEditEmp(emp)}
+              className="ml-1 p-1 rounded hover:bg-navy-100 text-navy-600"
+              aria-label="Edit employee"
+            >
+              <Pencil size={12} />
+            </button>
+          )}
+        </div>
+      </td>
+      <td className="px-3 py-3 text-center">
+        {canEdit ? (
+          <input
+            type="time"
+            value={inVal}
+            onChange={(e) => setInVal(e.target.value)}
+            onBlur={(e) => commitTime('inTime', e.target.value)}
+            disabled={!!status}
+            className="w-24 px-2 py-1.5 text-sm text-center border border-gray-200 rounded-md focus:ring-2 focus:ring-navy-500 focus:border-navy-500 disabled:bg-gray-50 disabled:text-gray-400"
+          />
+        ) : (
+          <span className="text-gray-800">{entry?.inTime || '—'}</span>
+        )}
+      </td>
+      <td className="px-3 py-3 text-center relative">
+        {canEdit ? (
+          <input
+            type="time"
+            value={outVal}
+            onChange={(e) => setOutVal(e.target.value)}
+            onBlur={(e) => commitTime('outTime', e.target.value)}
+            disabled={!!status}
+            className="w-24 px-2 py-1.5 text-sm text-center border border-gray-200 rounded-md focus:ring-2 focus:ring-navy-500 focus:border-navy-500 disabled:bg-gray-50 disabled:text-gray-400"
+          />
+        ) : (
+          <span className="text-gray-800">{entry?.outTime || '—'}</span>
+        )}
+      </td>
+      <td className="px-3 py-3 text-center">
+        {canEdit ? (
+          <select
+            value={status}
+            onChange={(e) => { setStatus(e.target.value); commitStatus(e.target.value); }}
+            className="px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
+          >
+            {STATUS_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        ) : entry?.statusCode ? (
+          <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold border ${STATUS_COLOR[entry.statusCode] || 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+            {entry.statusCode}
+          </span>
+        ) : (
+          <span className="text-gray-400">—</span>
+        )}
+      </td>
+      <td className="px-3 py-3 text-center font-medium text-gray-800">
+        {formatHHmmFromMin(total) || '—'}
+      </td>
+      <td className="px-3 py-3 text-center font-semibold text-amber-600">
+        {formatHHmmFromMin(ot) || '—'}
+      </td>
+      <td className="px-3 py-3 text-center">
         {wasModified && (
           <button
             type="button"
             onClick={() => onShowHistory(entry)}
             title={`Modified ${new Date(entry.modifiedAt).toLocaleString()} by ${entry.modifiedByName || ''}`}
-            className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-1.5 h-1.5 rounded-full bg-orange-500 hover:scale-150 transition"
-          />
+            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200"
+          >
+            <Pencil size={11} />
+          </button>
         )}
       </td>
-      <td className={`px-0.5 py-0.5 border-r border-gray-200 ${bg}`}>
-        <input
-          type="text"
-          defaultValue={outVal}
-          onBlur={(e) => {
-            if (e.target.value === outVal) return;
-            onSave('outTime', e.target.value);
-          }}
-          className="w-full px-1 py-0.5 text-center text-[11px] bg-transparent focus:bg-white focus:ring-1 focus:ring-navy-500 rounded"
-          placeholder="HH:mm"
-        />
-      </td>
-    </>
+    </tr>
   );
 }
 
-// ─── Add / edit employee modal ────────────────────────────────
+// ──────────────────────────────────────────────────────────────
+// MONTH VIEW — one employee at a time, day-by-day rows
+// ──────────────────────────────────────────────────────────────
+function MonthView({
+  employees, year, month, entryMap, canEdit, isManager,
+  focusedEmpId, onFocus, onSave, onShowHistory, monthSummary,
+}) {
+  const focused = employees.find((e) => e.id === focusedEmpId) || employees[0];
+  const total = monthSummary(focused.id);
+  const days = daysInMonth(year, month);
+  const dayList = Array.from({ length: days }, (_, i) => i + 1);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
+      {/* Employee picker rail */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-100 bg-gray-50">
+          Employees
+        </div>
+        <div className="max-h-[600px] overflow-y-auto">
+          {employees.map((emp) => {
+            const s = monthSummary(emp.id);
+            const active = emp.id === focused?.id;
+            return (
+              <button
+                key={emp.id}
+                onClick={() => onFocus(emp.id)}
+                className={`w-full text-left px-3 py-2.5 border-b border-gray-100 transition
+                  ${active ? 'bg-navy-50 border-l-2 border-l-navy-600' : 'hover:bg-gray-50'}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-gray-900 truncate">{emp.name}</div>
+                    <div className="text-[11px] text-gray-500">
+                      {emp.empCode ? `E.ID ${emp.empCode} · ` : ''}{s.days} days
+                    </div>
+                  </div>
+                  {s.ot > 0 && (
+                    <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                      OT {Math.floor(s.ot/60)}h
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Monthly day grid for focused employee */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-full bg-navy-100 text-navy-700 flex items-center justify-center font-semibold">
+              <UserIcon size={16} />
+            </div>
+            <div>
+              <div className="text-base font-semibold text-gray-900">{focused.name}</div>
+              <div className="text-xs text-gray-500">
+                {focused.empCode ? `E.ID ${focused.empCode} · ` : ''}{MONTH_SHORT[month - 1]} {year}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 text-xs">
+            <StatTile label="Days" value={total.days} />
+            <StatTile label="Total" value={formatHHmmFromMin(total.total) || '0h'} />
+            <StatTile label="OT" value={formatHHmmFromMin(total.ot) || '0h'} accent="amber" />
+          </div>
+        </div>
+
+        <div className="max-h-[600px] overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-gray-50 text-gray-600 text-xs uppercase tracking-wide">
+              <tr>
+                <th className="px-3 py-2 text-left w-16">Date</th>
+                <th className="px-3 py-2 text-left w-20">Day</th>
+                <th className="px-3 py-2 text-center w-28">IN</th>
+                <th className="px-3 py-2 text-center w-28">OUT</th>
+                <th className="px-3 py-2 text-center w-40">Status</th>
+                <th className="px-3 py-2 text-center w-24">Hours</th>
+                <th className="px-3 py-2 text-center w-20">OT</th>
+                <th className="px-3 py-2 w-10" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {dayList.map((d) => {
+                const ymd = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const dt = new Date(year, month - 1, d);
+                const dow = dt.toLocaleDateString('en-US', { weekday: 'short' });
+                const isWeekend = dt.getDay() === 0 || dt.getDay() === 6;
+                const entry = entryMap.get(`${focused.id}|${ymd}`);
+                return (
+                  <MonthDayRow
+                    key={d}
+                    empId={focused.id}
+                    date={ymd}
+                    day={d}
+                    dow={dow}
+                    isWeekend={isWeekend}
+                    entry={entry}
+                    canEdit={canEdit}
+                    isManager={isManager}
+                    onSave={onSave}
+                    onShowHistory={onShowHistory}
+                  />
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MonthDayRow({ empId, date, day, dow, isWeekend, entry, canEdit, isManager, onSave, onShowHistory }) {
+  const [inVal, setInVal] = useState(entry?.inTime || '');
+  const [outVal, setOutVal] = useState(entry?.outTime || '');
+  const [status, setStatus] = useState(entry?.statusCode || '');
+
+  useEffect(() => {
+    setInVal(entry?.inTime || '');
+    setOutVal(entry?.outTime || '');
+    setStatus(entry?.statusCode || '');
+  }, [entry?.inTime, entry?.outTime, entry?.statusCode, entry?.id]);
+
+  const { total, ot } = computeDayTotals(entry);
+  const wasModified = isManager && !!entry?.modifiedAt;
+
+  const commitTime = (field, val) => {
+    const v = val.trim();
+    const cur = field === 'inTime' ? (entry?.inTime || '') : (entry?.outTime || '');
+    if (v === cur) return;
+    if (v !== '' && !isTimeLike(v)) {
+      alert(`${field === 'inTime' ? 'IN' : 'OUT'} must be HH:mm`);
+      if (field === 'inTime') setInVal(cur); else setOutVal(cur);
+      return;
+    }
+    const fields = { [field]: v || null };
+    if (v && entry?.statusCode) fields.statusCode = null;
+    onSave(empId, date, fields);
+  };
+
+  const commitStatus = (v) => {
+    if (v === (entry?.statusCode || '')) return;
+    if (v) onSave(empId, date, { statusCode: v, inTime: null, outTime: null });
+    else onSave(empId, date, { statusCode: null });
+  };
+
+  return (
+    <tr className={isWeekend ? 'bg-gray-50/60' : ''}>
+      <td className="px-3 py-2 font-medium text-gray-800">{day}</td>
+      <td className={`px-3 py-2 text-xs ${isWeekend ? 'text-rose-600 font-medium' : 'text-gray-500'}`}>{dow}</td>
+      <td className="px-3 py-2 text-center">
+        {canEdit ? (
+          <input
+            type="time"
+            value={inVal}
+            onChange={(e) => setInVal(e.target.value)}
+            onBlur={(e) => commitTime('inTime', e.target.value)}
+            disabled={!!status}
+            className="w-24 px-2 py-1.5 text-sm text-center border border-gray-200 rounded-md focus:ring-2 focus:ring-navy-500 focus:border-navy-500 disabled:bg-gray-50 disabled:text-gray-400"
+          />
+        ) : (
+          <span className="text-gray-800">{entry?.inTime || '—'}</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-center">
+        {canEdit ? (
+          <input
+            type="time"
+            value={outVal}
+            onChange={(e) => setOutVal(e.target.value)}
+            onBlur={(e) => commitTime('outTime', e.target.value)}
+            disabled={!!status}
+            className="w-24 px-2 py-1.5 text-sm text-center border border-gray-200 rounded-md focus:ring-2 focus:ring-navy-500 focus:border-navy-500 disabled:bg-gray-50 disabled:text-gray-400"
+          />
+        ) : (
+          <span className="text-gray-800">{entry?.outTime || '—'}</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-center">
+        {canEdit ? (
+          <select
+            value={status}
+            onChange={(e) => { setStatus(e.target.value); commitStatus(e.target.value); }}
+            className="px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
+          >
+            {STATUS_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        ) : entry?.statusCode ? (
+          <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold border ${STATUS_COLOR[entry.statusCode] || 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+            {entry.statusCode}
+          </span>
+        ) : (
+          <span className="text-gray-400">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-center font-medium text-gray-800">{formatHHmmFromMin(total) || '—'}</td>
+      <td className="px-3 py-2 text-center font-semibold text-amber-600">{formatHHmmFromMin(ot) || '—'}</td>
+      <td className="px-3 py-2 text-center">
+        {wasModified && (
+          <button
+            type="button"
+            onClick={() => onShowHistory(entry)}
+            title={`Modified ${new Date(entry.modifiedAt).toLocaleString()} by ${entry.modifiedByName || ''}`}
+            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200"
+          >
+            <Pencil size={11} />
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function StatTile({ label, value, accent }) {
+  const colors = accent === 'amber'
+    ? 'bg-amber-50 text-amber-700 border-amber-200'
+    : 'bg-navy-50 text-navy-700 border-navy-200';
+  return (
+    <div className={`flex flex-col items-center px-3 py-1.5 rounded-lg border ${colors}`}>
+      <div className="text-[10px] uppercase tracking-wide font-semibold opacity-80">{label}</div>
+      <div className="text-sm font-bold">{value}</div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// EMPLOYEE / HISTORY / SUMMARY MODALS
+// ──────────────────────────────────────────────────────────────
 function EmployeeModal({ unitId, initial, onClose, onSaved }) {
   const [name, setName] = useState(initial?.name || '');
   const [empCode, setEmpCode] = useState(initial?.empCode || '');
@@ -546,19 +828,15 @@ function EmployeeModal({ unitId, initial, onClose, onSaved }) {
     e.preventDefault();
     setBusy(true);
     try {
+      const payload = {
+        name: name.trim(),
+        empCode: empCode.trim() || null,
+        serialNo: serialNo ? parseInt(serialNo, 10) : undefined,
+      };
       if (initial?.id) {
-        await api.put(`/attendance/employees/${initial.id}`, {
-          name: name.trim(),
-          empCode: empCode.trim() || null,
-          serialNo: serialNo ? parseInt(serialNo, 10) : undefined,
-        });
+        await api.put(`/attendance/employees/${initial.id}`, payload);
       } else {
-        await api.post('/attendance/employees', {
-          unitId,
-          name: name.trim(),
-          empCode: empCode.trim() || null,
-          serialNo: serialNo ? parseInt(serialNo, 10) : undefined,
-        });
+        await api.post('/attendance/employees', { ...payload, unitId });
       }
       onSaved();
     } catch (err) {
@@ -570,7 +848,7 @@ function EmployeeModal({ unitId, initial, onClose, onSaved }) {
 
   const remove = async () => {
     if (!initial?.id) return;
-    if (!confirm(`Remove ${initial.name} from the register? (Their past entries are kept.)`)) return;
+    if (!confirm(`Remove ${initial.name} from the register? (Past entries are kept.)`)) return;
     setBusy(true);
     try {
       await api.delete(`/attendance/employees/${initial.id}`);
@@ -608,7 +886,6 @@ function EmployeeModal({ unitId, initial, onClose, onSaved }) {
   );
 }
 
-// ─── History view (manager-only) ──────────────────────────────
 function HistoryView({ entry }) {
   const list = Array.isArray(entry.history) ? entry.history : [];
   return (
@@ -628,13 +905,13 @@ function HistoryView({ entry }) {
               </div>
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div>
-                  <div className="font-semibold text-red-600">From</div>
+                  <div className="font-semibold text-red-600 mb-0.5">From</div>
                   <div>IN: {h.from?.inTime || '—'}</div>
                   <div>OUT: {h.from?.outTime || '—'}</div>
                   <div>Status: {h.from?.statusCode || '—'}</div>
                 </div>
                 <div>
-                  <div className="font-semibold text-green-600">To</div>
+                  <div className="font-semibold text-green-600 mb-0.5">To</div>
                   <div>IN: {h.to?.inTime || '—'}</div>
                   <div>OUT: {h.to?.outTime || '—'}</div>
                   <div>Status: {h.to?.statusCode || '—'}</div>
@@ -648,7 +925,6 @@ function HistoryView({ entry }) {
   );
 }
 
-// ─── Monthly summary (totals per employee) ────────────────────
 function MonthlySummary({ unitId, year, month }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -678,36 +954,38 @@ function MonthlySummary({ unitId, year, month }) {
           Not yet sent to Accounts. Totals shown are live.
         </div>
       )}
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="bg-gray-100 text-left">
-            <th className="px-2 py-2 border">SL</th>
-            <th className="px-2 py-2 border">Name</th>
-            <th className="px-2 py-2 border">E.ID</th>
-            <th className="px-2 py-2 border text-center">Days Worked</th>
-            <th className="px-2 py-2 border text-center">Total Hours</th>
-            <th className="px-2 py-2 border text-center">OT Hours</th>
-            <th className="px-2 py-2 border">Leaves / Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.rows.map((r) => (
-            <tr key={r.id} className="hover:bg-gray-50">
-              <td className="px-2 py-1.5 border">{r.serialNo}</td>
-              <td className="px-2 py-1.5 border font-medium">{r.name}</td>
-              <td className="px-2 py-1.5 border">{r.empCode || '—'}</td>
-              <td className="px-2 py-1.5 border text-center">{r.daysWorked}</td>
-              <td className="px-2 py-1.5 border text-center">{formatHHmmFromMin(r.totalMinutes) || '—'}</td>
-              <td className="px-2 py-1.5 border text-center font-semibold text-amber-700">
-                {formatHHmmFromMin(r.otMinutes) || '—'}
-              </td>
-              <td className="px-2 py-1.5 border text-[10px]">
-                {Object.entries(r.statusCounts || {}).map(([k, v]) => `${k}:${v}`).join('  ') || '—'}
-              </td>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="bg-gray-100 text-left">
+              <th className="px-2 py-2 border">SL</th>
+              <th className="px-2 py-2 border">Name</th>
+              <th className="px-2 py-2 border">E.ID</th>
+              <th className="px-2 py-2 border text-center">Days</th>
+              <th className="px-2 py-2 border text-center">Total Hrs</th>
+              <th className="px-2 py-2 border text-center">OT Hrs</th>
+              <th className="px-2 py-2 border">Leaves / Status</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {data.rows.map((r) => (
+              <tr key={r.id} className="hover:bg-gray-50">
+                <td className="px-2 py-1.5 border">{r.serialNo}</td>
+                <td className="px-2 py-1.5 border font-medium">{r.name}</td>
+                <td className="px-2 py-1.5 border">{r.empCode || '—'}</td>
+                <td className="px-2 py-1.5 border text-center">{r.daysWorked}</td>
+                <td className="px-2 py-1.5 border text-center">{formatHHmmFromMin(r.totalMinutes) || '—'}</td>
+                <td className="px-2 py-1.5 border text-center font-semibold text-amber-700">
+                  {formatHHmmFromMin(r.otMinutes) || '—'}
+                </td>
+                <td className="px-2 py-1.5 border text-[10px]">
+                  {Object.entries(r.statusCounts || {}).map(([k, v]) => `${k}:${v}`).join('  ') || '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
