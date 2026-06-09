@@ -1759,15 +1759,15 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             </>
           )}
 
-          {isPO && ['ORDERED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'PARTIAL'].includes(order.status) && (
+          {isSM && ['ORDERED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'PARTIAL'].includes(order.status) && (
             <Button onClick={openIirForm} disabled={processing}>
               <Truck size={16} className="mr-1" />
               {order.items?.some(i => (i.receivedQty || 0) > 0) ? 'Mark More Goods Arrived' : 'Mark Goods Arrived'}
             </Button>
           )}
 
-          {/* Edit IIR: PO can amend an unsubmitted IIR (page 1) until QC posts the result. */}
-          {isPO && (order.qcInspections || []).some(q => q.result === 'PENDING' || q.result === 'ON_HOLD') && (
+          {/* Edit IIR: Stores can amend an unsubmitted IIR (page 1) until QC posts the result. */}
+          {isSM && (order.qcInspections || []).some(q => q.result === 'PENDING' || q.result === 'ON_HOLD') && (
             <Button variant="secondary" onClick={openEditIirForm} disabled={processing}>
               <Truck size={16} className="mr-1" /> Edit IIR (Page 1)
             </Button>

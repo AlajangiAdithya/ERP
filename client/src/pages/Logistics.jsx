@@ -172,8 +172,8 @@ function DispatchTable({ rows, tab, onOpen }) {
                 <td className="px-3 py-2">{formatDate(g.date)}</td>
                 <td className="px-3 py-2"><Badge color={kindMeta.color}>{kindMeta.label}</Badge></td>
                 <td className="px-3 py-2">{g.siteName || '—'}</td>
-                <td className="px-3 py-2 max-w-[16rem] truncate" title={g.destinationOffice || g.partyName || ''}>
-                  {g.destinationOffice || g.partyName || '—'}
+                <td className="px-3 py-2 max-w-[16rem] truncate" title={g.partyName || ''}>
+                  {g.partyName || '—'}
                 </td>
                 <td className="px-3 py-2 text-xs">
                   {g.assignedVehicle ? (
@@ -230,9 +230,7 @@ function DispatchModal({ gatePass: initial, onClose, onAction }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <Field label="Date" value={formatDate(g.date)} />
           <Field label="Site / Unit" value={g.siteName} icon={Building2} />
-          {g.kind === 'OUTSIDE' && <Field label="Destination Office" value={g.destinationOffice} icon={MapPin} />}
           {g.kind === 'LOCAL_JOB' && <Field label="Job Work / PO" value={g.jobWorkNo} icon={FileText} />}
-          {g.kind === 'LOCAL_JOB' && <Field label="Vendor" value={g.vendorDetails} icon={Building2} />}
           <Field label="Dispatched to" value={g.partyName} />
           <Field label="Raised by" value={g.createdBy?.name} />
           <Field label="Raised at" value={formatDateTime(g.createdAt)} />

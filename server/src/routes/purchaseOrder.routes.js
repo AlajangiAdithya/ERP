@@ -563,11 +563,11 @@ router.put('/:id/place-on-credit', authenticate, authorize('PURCHASE_OFFICER'), 
   }
 });
 
-// PUT /api/purchase-orders/:id/goods-arrived — PO marks a lot as arrived.
+// PUT /api/purchase-orders/:id/goods-arrived — Stores marks a lot as arrived.
 // Accepts multipart/form-data so the invoice PDF can be uploaded alongside
 // the IIR page-1 fields. `items` is a JSON-stringified array of per-PO-item
 // arrived quantities for THIS lot (partial delivery).
-router.put('/:id/goods-arrived', authenticate, authorize('PURCHASE_OFFICER'), acceptGoodsArrived, async (req, res) => {
+router.put('/:id/goods-arrived', authenticate, authorize('STORE_MANAGER', 'ADMIN'), acceptGoodsArrived, async (req, res) => {
   const invoiceFile = req.files?.invoiceFile?.[0] || null;
   const lotReportFile = req.files?.lotReportFile?.[0] || null;
   const cleanupUploads = () => {

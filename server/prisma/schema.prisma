@@ -27,6 +27,7 @@ model User {
   sentNotifications          Notification[]             @relation("SentBy")
   purchaseRequests           PurchaseRequest[]          @relation("PurchaseRequestManager")
   purchaseRequestApprovals   PurchaseRequest[]          @relation("PurchaseRequestApprover")
+  purchaseRequestQcApprovals PurchaseRequest[]          @relation("PurchaseRequestQcApprover")
   // New relations for procurement workflow
   targetedNotifications      Notification[]             @relation("TargetUser")
   quotationsCreated          Quotation[]                @relation("QuotationCreator")
@@ -333,6 +334,13 @@ model PurchaseRequest {
   status               PurchaseRequestStatus @default(PENDING_ADMIN)
   notes                String?
   materialSpecsPdfUrl  String? // Optional material specs PDF attached at PR creation
+  // QC-department gate: PRs raised by LAB / METROLOGY / NDT pass through QC
+  // before reaching ADMIN. These columns are null for PRs that bypass the QC
+  // gate (e.g. raised by MANAGER, DESIGNS, RND, PLANNING, STORE_MANAGER, QC).
+  qcNotes              String?
+  qcApprovedById       String?
+  qcApprovedBy         User?                 @relation("PurchaseRequestQcApprover", fields: [qcApprovedById], references: [id])
+  qcApprovedAt         DateTime?
   adminNotes           String?
   adminApprovedById    String?
   adminApprovedBy      User?                 @relation("PurchaseRequestApprover", fields: [adminApprovedById], references: [id])
@@ -383,6 +391,8 @@ model PurchaseRequestItem {
 }
 
 enum PurchaseRequestStatus {
+  // PRs from LAB / METROLOGY / NDT start here so QC can approve before ADMIN.
+  PENDING_QC
   PENDING_ADMIN
   APPROVED
   QUOTATION_SUBMITTED
@@ -1008,12 +1018,8 @@ model GatePass {
   // Local Job Work Register (RAPS/JL-JW) header fields.
   jobWorkNo            String? // JW NO / RAPS PO Order No.
   jobWorkDate          DateTime? // Date against the JW / RAPS PO order
-  vendorDetails        String? // VENDOR DETAILS
   requestedById        String?
   requestedBy          User?              @relation("GatePassRequestedBy", fields: [requestedById], references: [id])
-  // OUTSIDE only: destination office label (e.g., "Hyderabad"). Free-text for now;
-  // wire to a Site/Unit FK when more sites are added.
-  destinationOffice    String?
   // Logistics step (both LOCAL_JOB and OUTSIDE).
   assignedVehicleId    String?
   assignedVehicle      Vehicle?           @relation("GatePassVehicle", fields: [assignedVehicleId], references: [id])
@@ -1023,12 +1029,14 @@ model GatePass {
   dispatchedAt         DateTime?
   // OUTSIDE only: PDF signed by driver, uploaded by logistics on dispatch.
   signedDeliveryPdfUrl String?
-  // OUTSIDE only: site office (e.g., Hyd) acknowledges arrival.
+  // OUTSIDE only: Logistics acknowledges arrival at destination after delivery.
+  // (Historically these columns were called "siteOfficeAck*" when the SITE_OFFICE
+  // role owned this step; now Logistics handles both dispatch and arrival ack.)
   siteOfficeAckById    String?
   siteOfficeAckBy      User?              @relation("GatePassSiteOfficeAck", fields: [siteOfficeAckById], references: [id])
   siteOfficeAckAt      DateTime?
   reachedDate          DateTime?
-  // LOCAL_JOB returnable: stores acknowledges return.
+  // Returnable close — both LOCAL_JOB and OUTSIDE: stores acknowledges return.
   localReturnedAt      DateTime?
   localReturnedById    String?
   localReturnedBy      User?              @relation("GatePassLocalReturnedBy", fields: [localReturnedById], references: [id])

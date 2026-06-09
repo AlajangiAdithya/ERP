@@ -179,9 +179,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), a
       kind: rawKind,
       jobWorkNo: rawJobWorkNo,
       jobWorkDate: rawJobWorkDate,
-      vendorDetails: rawVendorDetails,
       requestedById: rawRequestedById,
-      destinationOffice: rawDestinationOffice,
     } = req.body;
 
     const customerGpDocType = GP_DOC_TYPES.includes(rawDocType) ? rawDocType : null;
@@ -194,9 +192,6 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), a
     // Legacy OUTWARD callers (FIM return via /fim-batches/:id/send-out) skip this and
     // create rows with kind=null — those flow through the legacy approve path.
     const kind = !isInward && KINDS.includes(rawKind) ? rawKind : null;
-    if (!isInward && kind === 'OUTSIDE' && !rawDestinationOffice?.trim()) {
-      return res.status(400).json({ error: 'Destination office is required for OUTSIDE gate passes' });
-    }
 
     // INWARD FIM is recorded by Stores Manager (or Admin) only — unit managers can't.
     if (isInward && !['STORE_MANAGER', 'ADMIN'].includes(req.user.role)) {
@@ -302,9 +297,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), a
           kind,
           jobWorkNo: !isInward && kind === 'LOCAL_JOB' ? (rawJobWorkNo?.trim() || null) : null,
           jobWorkDate: !isInward && kind === 'LOCAL_JOB' ? (toDate(rawJobWorkDate) || null) : null,
-          vendorDetails: !isInward && kind === 'LOCAL_JOB' ? (rawVendorDetails?.trim() || null) : null,
           requestedById: !isInward && rawRequestedById ? rawRequestedById : null,
-          destinationOffice: !isInward && kind === 'OUTSIDE' ? rawDestinationOffice.trim() : null,
           siteName: siteName?.trim() || null,
           partyName: derivedPartyName,
           customerName: isInward ? customerName.trim() : null,
@@ -496,7 +489,8 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), a
 // OUTSIDE:   PENDING_STORE → (store-approve) → PENDING_ACCOUNTS → (accounts-invoice)
 //            → PENDING_STORE_REVIEW → (store-review) → PENDING_LOGISTICS
 //            → (logistics-assign+dispatch w/ signed PDF) → IN_TRANSIT
-//            → (site-office-ack) → CLOSED
+//            → (logistics arrival-ack) → CLOSED  [or PENDING_RETURN if returnable]
+//            → (stores-ack) → CLOSED  [returnable only]
 //
 // Legacy OUTWARD rows (kind=null, e.g. FIM /send-out) use the original
 // PENDING_STORE → PENDING_ACCOUNTS → APPROVED path retained below.
@@ -784,9 +778,9 @@ router.post('/:id/logistics-dispatch', authenticate, authorize('LOGISTICS', 'ADM
       if (updated.kind === 'OUTSIDE') {
         await notify({
           type: 'GATE_PASS_STAGE',
-          title: `Gate Pass ${updated.passNumber}: in transit to ${updated.destinationOffice}`,
-          message: `${req.user.name} dispatched vehicle ${updated.vehicleNo || ''}. Site office, please acknowledge arrival with reached date.`,
-          targetRole: 'SITE_OFFICE',
+          title: `Gate Pass ${updated.passNumber}: in transit`,
+          message: `${req.user.name} dispatched vehicle ${updated.vehicleNo || ''}. Logistics, please acknowledge arrival once the consignment reaches the office.`,
+          targetRole: 'LOGISTICS',
           sentById: req.user.id,
         });
       } else {
@@ -807,30 +801,34 @@ router.post('/:id/logistics-dispatch', authenticate, authorize('LOGISTICS', 'ADM
   }
 );
 
-// PUT /api/gatepasses/:id/site-office-ack
-// OUTSIDE only: site office (e.g., Hyderabad) acknowledges arrival with the reached date.
-// Closes the gate pass.
-router.put('/:id/site-office-ack', authenticate, authorize('SITE_OFFICE', 'ADMIN'), async (req, res) => {
+// PUT /api/gatepasses/:id/arrival-ack
+// OUTSIDE only: Logistics confirms the consignment reached the destination office.
+//  * Non-returnable → status CLOSED (final).
+//  * Returnable     → status PENDING_RETURN (waiting for Stores to ack the return).
+router.put('/:id/arrival-ack', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
   try {
     const { reachedDate, remarks } = req.body || {};
     if (!reachedDate) return res.status(400).json({ error: 'reachedDate is required' });
 
     const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
-    if (existing.kind !== 'OUTSIDE') return res.status(400).json({ error: 'Site office ack applies to OUTSIDE only' });
+    if (existing.kind !== 'OUTSIDE') return res.status(400).json({ error: 'Arrival ack applies to OUTSIDE only' });
     if (existing.status !== 'IN_TRANSIT') return res.status(400).json({ error: 'Gate pass is not in transit' });
 
     const now = new Date();
+    const isReturnable = existing.passType === 'RETURNABLE';
+    const nextStatus = isReturnable ? 'PENDING_RETURN' : 'CLOSED';
     const updated = await prisma.gatePass.update({
       where: { id: req.params.id },
       data: {
-        status: 'CLOSED',
+        status: nextStatus,
         reachedDate: new Date(reachedDate),
         siteOfficeAckById: req.user.id,
         siteOfficeAckAt: now,
         remarks: remarks?.trim() || existing.remarks,
-        approvedById: req.user.id,
-        approvedAt: now,
+        // Only stamp final approval when the pass actually closes.
+        approvedById: isReturnable ? existing.approvedById : req.user.id,
+        approvedAt: isReturnable ? existing.approvedAt : now,
       },
       include: GATEPASS_INCLUDE,
     });
@@ -838,43 +836,66 @@ router.put('/:id/site-office-ack', authenticate, authorize('SITE_OFFICE', 'ADMIN
     await prisma.auditLog.create({
       data: {
         userId: req.user.id,
-        action: 'SITE_OFFICE_ACK',
+        action: 'LOGISTICS_ARRIVAL_ACK',
         entity: 'GatePass',
         entityId: updated.id,
-        details: { passNumber: updated.passNumber, reachedDate: updated.reachedDate },
+        details: { passNumber: updated.passNumber, reachedDate: updated.reachedDate, nextStatus },
         ipAddress: req.ip,
       },
     });
 
     await notify({
       type: 'GATE_PASS_APPROVED',
-      title: `Gate Pass ${updated.passNumber}: arrived`,
-      message: `${req.user.name} confirmed arrival on ${new Date(reachedDate).toLocaleDateString()}. Gate pass closed.`,
+      title: isReturnable
+        ? `Gate Pass ${updated.passNumber}: arrived — awaiting return`
+        : `Gate Pass ${updated.passNumber}: arrived`,
+      message: isReturnable
+        ? `${req.user.name} confirmed arrival on ${new Date(reachedDate).toLocaleDateString()}. Stores will close once material is returned.`
+        : `${req.user.name} confirmed arrival on ${new Date(reachedDate).toLocaleDateString()}. Gate pass closed.`,
       targetUserId: updated.createdById,
       sentById: req.user.id,
     });
 
+    // For returnable, also nudge stores so they can close on receipt.
+    if (isReturnable) {
+      await notify({
+        type: 'GATE_PASS_STAGE',
+        title: `Gate Pass ${updated.passNumber}: awaiting return`,
+        message: `Material reached the destination office. Acknowledge return when items are back at stores.`,
+        targetRole: 'STORE_MANAGER',
+        sentById: req.user.id,
+      });
+    }
+
     res.json(updated);
   } catch (error) {
-    console.error('Site office ack error:', error);
+    console.error('Arrival ack error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // PUT /api/gatepasses/:id/stores-ack
-// LOCAL_JOB only: Stores acknowledges either return (RETURNABLE) or arrival (NON_RETURNABLE).
-// Closes the gate pass.
+// Stores closes the gate pass.
+//  * LOCAL_JOB (RETURNABLE or NON_RETURNABLE) from IN_TRANSIT.
+//  * OUTSIDE RETURNABLE from PENDING_RETURN (Logistics already confirmed arrival).
 router.put('/:id/stores-ack', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
     const { remarks } = req.body || {};
 
     const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
-    if (existing.kind !== 'LOCAL_JOB') return res.status(400).json({ error: 'Stores ack applies to LOCAL_JOB only' });
-    if (existing.status !== 'IN_TRANSIT') return res.status(400).json({ error: 'Gate pass is not in transit' });
+
+    const isReturnable = existing.passType === 'RETURNABLE';
+    const isLocal = existing.kind === 'LOCAL_JOB';
+    const isOutside = existing.kind === 'OUTSIDE';
+
+    const validLocal = isLocal && existing.status === 'IN_TRANSIT';
+    const validOutsideReturn = isOutside && isReturnable && existing.status === 'PENDING_RETURN';
+    if (!validLocal && !validOutsideReturn) {
+      return res.status(400).json({ error: 'Stores ack is not applicable for this gate pass right now' });
+    }
 
     const now = new Date();
-    const isReturnable = existing.passType === 'RETURNABLE';
     const updated = await prisma.gatePass.update({
       where: { id: req.params.id },
       data: {
@@ -892,10 +913,10 @@ router.put('/:id/stores-ack', authenticate, authorize('STORE_MANAGER', 'ADMIN'),
     await prisma.auditLog.create({
       data: {
         userId: req.user.id,
-        action: isReturnable ? 'LOCAL_JOB_RETURN_ACK' : 'LOCAL_JOB_ARRIVAL_ACK',
+        action: isReturnable ? 'STORES_RETURN_ACK' : 'STORES_ARRIVAL_ACK',
         entity: 'GatePass',
         entityId: updated.id,
-        details: { passNumber: updated.passNumber, passType: updated.passType },
+        details: { passNumber: updated.passNumber, kind: updated.kind, passType: updated.passType },
         ipAddress: req.ip,
       },
     });

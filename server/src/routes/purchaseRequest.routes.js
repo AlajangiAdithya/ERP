@@ -13,20 +13,25 @@ const { buildCoverageSummary, cancelLeftoverPRItems } = require('../utils/prClos
 const router = express.Router();
 
 // Roles that can create/manage their own purchase requests (same privileges as MANAGER).
-const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'PLANNING'];
+const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'PLANNING', 'LAB', 'METROLOGY', 'NDT'];
 // Subset that should only see PRs they themselves raised. STORE_MANAGER is
 // intentionally excluded — they also receive goods against everyone's PRs, so
 // they keep full chain visibility like ADMIN.
-const OWN_ONLY_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'PLANNING'];
+const OWN_ONLY_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'PLANNING', 'LAB', 'METROLOGY', 'NDT'];
 // Reserved for monitor-only roles (none currently — SAFETY removed from PR chain).
 const MONITOR_ROLES = [];
 // Full chain visibility: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING'];
+// LAB / METROLOGY / NDT included so their own raised PRs are visible to them through the listing endpoints.
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'LAB', 'METROLOGY', 'NDT'];
 // Roles that are globally-scoped — they raise PRs in their own name, not for any
 // specific unit. Their PRs have unitId = null and only show up on their own
 // dashboard plus the procurement chain (ADMIN, PURCHASE_OFFICER, ACCOUNTING).
-// Includes QC ("Quality") because Quality acts as a non-unit function here.
-const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'PLANNING', 'QC'];
+// Includes QC ("Quality") and the QC-department roles (LAB / METROLOGY / NDT)
+// because Quality acts as a non-unit function here.
+const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'PLANNING', 'QC', 'LAB', 'METROLOGY', 'NDT'];
+// Sub-roles under the QC department. PRs from these roles go to QC for the
+// first-level approval before flowing on to ADMIN.
+const QC_MANAGED_ROLES = ['LAB', 'METROLOGY', 'NDT'];
 
 const createSchema = z.object({
   notes: z.string().optional(),
@@ -85,8 +90,16 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
     const where = {};
     applyDateFilter(where, { fromDate, toDate });
 
-    // Role-based filtering — requester roles see only their own
-    if (OWN_ONLY_ROLES.includes(req.user.role)) {
+    // Role-based filtering — requester roles see only their own.
+    // QC is special: in addition to their own PRs they also oversee PRs raised
+    // by LAB / METROLOGY / NDT (the sub-roles of the QC department), since
+    // QC is the first-level approver for those PRs.
+    if (req.user.role === 'QC') {
+      where.OR = [
+        { managerId: req.user.id },
+        { manager: { role: { in: QC_MANAGED_ROLES } } },
+      ];
+    } else if (OWN_ONLY_ROLES.includes(req.user.role)) {
       where.managerId = req.user.id;
     } else if (req.user.role === 'PURCHASE_OFFICER') {
       // PO sees approved and beyond
@@ -106,6 +119,7 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
         include: {
           manager: { select: { id: true, name: true, username: true, role: true } },
           unit: { select: { id: true, name: true, code: true } },
+          qcApprovedBy: { select: { id: true, name: true } },
           adminApprovedBy: { select: { id: true, name: true } },
           items: {
             include: {
@@ -250,7 +264,7 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
     // PO exists (QUOTATION_APPROVED onwards), the PR's procurement work is done;
     // the PO list owns the rest of the lifecycle.
     const prInProgressStatuses = [
-      'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS',
+      'PENDING_QC', 'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS',
     ];
     const poInProgressStatuses = [
       'PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PLACED', 'ADVANCE_PAID',
@@ -266,19 +280,38 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
     //     everything in flight.
     // Unit-less PRs (STORES/QC/DESIGNS/PLANNING raised) never carry a unitId,
     // so they will not surface on any unit-bound dashboard view.
-    const prRoleFilter = OWN_ONLY_ROLES.includes(req.user.role)
-      ? { managerId: req.user.id }
-      : {};
+    // QC sees their own PRs plus PRs from LAB / METROLOGY / NDT (department oversight).
+    const prRoleFilter =
+      req.user.role === 'QC'
+        ? {
+            OR: [
+              { managerId: req.user.id },
+              { manager: { role: { in: QC_MANAGED_ROLES } } },
+            ],
+          }
+        : OWN_ONLY_ROLES.includes(req.user.role)
+        ? { managerId: req.user.id }
+        : {};
     // POs inherit PR scope via either the direct purchaseRequest link or the
     // sourceRequests pivot (multi-PR purchase orders).
-    const poRoleFilter = OWN_ONLY_ROLES.includes(req.user.role)
-      ? {
-          OR: [
-            { purchaseRequest: { managerId: req.user.id } },
-            { sourceRequests: { some: { purchaseRequest: { managerId: req.user.id } } } },
-          ],
-        }
-      : {};
+    const poRoleFilter =
+      req.user.role === 'QC'
+        ? {
+            OR: [
+              { purchaseRequest: { managerId: req.user.id } },
+              { purchaseRequest: { manager: { role: { in: QC_MANAGED_ROLES } } } },
+              { sourceRequests: { some: { purchaseRequest: { managerId: req.user.id } } } },
+              { sourceRequests: { some: { purchaseRequest: { manager: { role: { in: QC_MANAGED_ROLES } } } } } },
+            ],
+          }
+        : OWN_ONLY_ROLES.includes(req.user.role)
+        ? {
+            OR: [
+              { purchaseRequest: { managerId: req.user.id } },
+              { sourceRequests: { some: { purchaseRequest: { managerId: req.user.id } } } },
+            ],
+          }
+        : {};
 
     const [
       prCount, prTotal,
@@ -423,7 +456,12 @@ router.get('/unit-dashboard', authenticate, async (req, res) => {
 router.get('/dashboard-stats', authenticate, async (req, res) => {
   try {
     const where = {};
-    if (OWN_ONLY_ROLES.includes(req.user.role)) {
+    if (req.user.role === 'QC') {
+      where.OR = [
+        { managerId: req.user.id },
+        { manager: { role: { in: QC_MANAGED_ROLES } } },
+      ];
+    } else if (OWN_ONLY_ROLES.includes(req.user.role)) {
       where.managerId = req.user.id;
     } else if (req.user.role === 'PURCHASE_OFFICER') {
       where.status = { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE'] };
@@ -445,6 +483,7 @@ router.get('/dashboard-stats', authenticate, async (req, res) => {
     }
 
     res.json({
+      pendingQc: counts['PENDING_QC'] || 0,
       pendingAdmin: counts['PENDING_ADMIN'] || 0,
       approved: counts['APPROVED'] || 0,
       quotationSubmitted: counts['QUOTATION_SUBMITTED'] || 0,
@@ -472,6 +511,7 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
       include: {
         manager: { select: { id: true, name: true, username: true, role: true, unit: { select: { name: true, code: true } } } },
         unit: { select: { id: true, name: true, code: true } },
+        qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
         items: {
           include: {
@@ -597,9 +637,14 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
 
     if (!request) return res.status(404).json({ error: 'Purchase request not found' });
 
-    // Requester roles can only view their own
+    // Requester roles can only view their own — except QC, who can also view
+    // PRs from LAB / METROLOGY / NDT under their department oversight.
     if (OWN_ONLY_ROLES.includes(req.user.role) && request.managerId !== req.user.id) {
-      return res.status(403).json({ error: 'Access denied' });
+      const qcOversight =
+        req.user.role === 'QC' && QC_MANAGED_ROLES.includes(request.manager?.role);
+      if (!qcOversight) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
     }
 
     const coverageSummary = buildCoverageSummary(request.items);
@@ -611,15 +656,17 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
 });
 
 // POST /api/purchase-requests — Requester creates.
-router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'PLANNING'), async (req, res) => {
+router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
 
     // Unit-bound roles (MANAGER, RND) file PRs against their own unit. Global
-    // roles (STORE_MANAGER, DESIGNS, PLANNING, QC) file PRs in their own name
-    // with no unit attached — their PR is owned by them (managerId) and never
-    // shows up on any unit dashboard. STORE_MANAGER's PR is effectively
-    // "unassigned" (chain-visible); DESIGNS/PLANNING/QC PRs are own-only.
+    // roles (STORE_MANAGER, DESIGNS, PLANNING, QC, LAB, METROLOGY, NDT) file
+    // PRs in their own name with no unit attached — their PR is owned by them
+    // (managerId) and never shows up on any unit dashboard. STORE_MANAGER's
+    // PR is effectively "unassigned" (chain-visible); DESIGNS/PLANNING/QC
+    // PRs are own-only. LAB/METROLOGY/NDT PRs are own-only but also visible
+    // to QC for first-level approval.
     let unitId = null;
     if (GLOBAL_REQUESTER_ROLES.includes(req.user.role)) {
       unitId = null;
@@ -674,6 +721,11 @@ router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MAN
       itemsResolved.push({ ...item, productId, materialType: matType });
     }
 
+    // PRs raised by LAB / METROLOGY / NDT enter the QC-approval gate first.
+    // Every other requester role goes straight to ADMIN as before.
+    const needsQcApproval = QC_MANAGED_ROLES.includes(req.user.role);
+    const initialStatus = needsQcApproval ? 'PENDING_QC' : 'PENDING_ADMIN';
+
     // Generate PR number with retry on race.
     let request = null;
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -684,6 +736,7 @@ router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MAN
             requestNumber,
             managerId: req.user.id,
             unitId,
+            status: initialStatus,
             notes: data.notes || null,
             items: {
               create: itemsResolved.map(item => ({
@@ -739,14 +792,17 @@ router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MAN
       },
     });
 
-    // Notify admins
+    // Notify the right approver. LAB/METROLOGY/NDT route to QC first; everyone
+    // else continues to go straight to ADMIN.
     const unitLabel = request.unit?.name || request.unit?.code || 'No unit';
     await prisma.notification.create({
       data: {
         type: 'NEW_PURCHASE_REQUEST',
         title: `New Purchase Request: ${requestNumber}`,
-        message: `${req.user.name} (${unitLabel}) has submitted a purchase request with ${data.items.length} item(s) for admin approval.`,
-        targetRole: 'ADMIN',
+        message: needsQcApproval
+          ? `${req.user.name} (${req.user.role}) has submitted a purchase request with ${data.items.length} item(s) for QC approval.`
+          : `${req.user.name} (${unitLabel}) has submitted a purchase request with ${data.items.length} item(s) for admin approval.`,
+        targetRole: needsQcApproval ? 'QC' : 'ADMIN',
         sentById: req.user.id,
       },
     });
@@ -762,9 +818,10 @@ router.post('/', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MAN
 });
 
 // PUT /api/purchase-requests/:id — Requester edits their own PR while it is
-// still PENDING_ADMIN. Items are fully replaced; productIds are re-resolved
-// just like create so newly added rows still get a Product link.
-router.put('/:id', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'PLANNING', 'ADMIN'), async (req, res) => {
+// still in an editable status (PENDING_QC for QC-gated requesters, or
+// PENDING_ADMIN for everyone else). Items are fully replaced; productIds are
+// re-resolved just like create so newly added rows still get a Product link.
+router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
 
@@ -777,7 +834,7 @@ router.put('/:id', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_M
     if (req.user.role !== 'ADMIN' && request.managerId !== req.user.id) {
       return res.status(403).json({ error: 'You can only edit your own requests' });
     }
-    if (request.status !== 'PENDING_ADMIN') {
+    if (request.status !== 'PENDING_ADMIN' && request.status !== 'PENDING_QC') {
       return res.status(400).json({ error: 'Only pending requests can be edited' });
     }
 
@@ -878,14 +935,16 @@ router.put('/:id', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_M
       },
     });
 
-    // Quietly tell admins the PR they may already be reviewing has changed.
+    // Quietly tell the current approver (QC for PENDING_QC, ADMIN otherwise)
+    // that the PR they may already be reviewing has changed.
     const unitLabel = updated.unit?.name || updated.unit?.code || 'No unit';
+    const approverRole = updated.status === 'PENDING_QC' ? 'QC' : 'ADMIN';
     await prisma.notification.create({
       data: {
         type: 'NEW_PURCHASE_REQUEST',
         title: `Purchase Request ${updated.requestNumber} updated`,
         message: `${req.user.name} (${unitLabel}) updated PR ${updated.requestNumber} — please review the latest version.`,
-        targetRole: 'ADMIN',
+        targetRole: approverRole,
         sentById: req.user.id,
       },
     });
@@ -896,6 +955,148 @@ router.put('/:id', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_M
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
     }
     console.error('Edit purchase request error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/purchase-requests/:id/qc-approve — QC department first-level approval
+// for PRs raised by LAB / METROLOGY / NDT. On success the PR moves on to ADMIN
+// for the second-level approval (status PENDING_QC → PENDING_ADMIN).
+router.put('/:id/qc-approve', authenticate, authorize('QC'), async (req, res) => {
+  try {
+    const { qcNotes } = req.body;
+
+    const request = await prisma.purchaseRequest.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: true,
+        manager: { select: { id: true, name: true, role: true } },
+        unit: { select: { name: true } },
+      },
+    });
+
+    if (!request) return res.status(404).json({ error: 'Purchase request not found' });
+    if (request.status !== 'PENDING_QC') {
+      return res.status(400).json({ error: 'Only PRs awaiting QC approval can be approved here' });
+    }
+    if (!QC_MANAGED_ROLES.includes(request.manager?.role)) {
+      return res.status(400).json({ error: 'This PR is not under QC oversight' });
+    }
+
+    const updated = await prisma.purchaseRequest.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'PENDING_ADMIN',
+        qcNotes: qcNotes || null,
+        qcApprovedById: req.user.id,
+        qcApprovedAt: new Date(),
+      },
+      include: {
+        manager: { select: { id: true, name: true, role: true } },
+        unit: { select: { id: true, name: true, code: true } },
+        qcApprovedBy: { select: { id: true, name: true } },
+        adminApprovedBy: { select: { id: true, name: true } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'QC_APPROVE',
+        entity: 'PurchaseRequest',
+        entityId: request.id,
+        details: { requestNumber: request.requestNumber, action: 'QC_APPROVED', qcNotes },
+        ipAddress: req.ip,
+      },
+    });
+
+    // Hand the PR off to ADMIN, and let the original requester know QC has signed off.
+    await prisma.notification.createMany({
+      data: [
+        {
+          type: 'NEW_PURCHASE_REQUEST',
+          title: `New Purchase Request: ${request.requestNumber}`,
+          message: `${request.manager.name} (${request.manager.role}) raised PR ${request.requestNumber} — QC has approved, awaiting your review.`,
+          targetRole: 'ADMIN',
+          sentById: req.user.id,
+        },
+        {
+          type: 'PURCHASE_REQUEST_APPROVED',
+          title: `Purchase Request ${request.requestNumber} — QC Approved`,
+          message: `Your purchase request ${request.requestNumber} has been approved by QC and forwarded to admin.${qcNotes ? ' QC notes: ' + qcNotes : ''}`,
+          targetRole: request.manager.role,
+          sentById: req.user.id,
+        },
+      ],
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('QC approve error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/purchase-requests/:id/qc-reject — QC rejects a LAB/METROLOGY/NDT PR
+// before it ever reaches ADMIN.
+router.put('/:id/qc-reject', authenticate, authorize('QC'), async (req, res) => {
+  try {
+    const { qcNotes } = req.body;
+
+    const request = await prisma.purchaseRequest.findUnique({
+      where: { id: req.params.id },
+      include: { manager: { select: { id: true, name: true, role: true } } },
+    });
+
+    if (!request) return res.status(404).json({ error: 'Purchase request not found' });
+    if (request.status !== 'PENDING_QC') {
+      return res.status(400).json({ error: 'Only PRs awaiting QC approval can be rejected here' });
+    }
+    if (!QC_MANAGED_ROLES.includes(request.manager?.role)) {
+      return res.status(400).json({ error: 'This PR is not under QC oversight' });
+    }
+
+    const updated = await prisma.purchaseRequest.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'REJECTED',
+        qcNotes: qcNotes || 'Rejected by QC',
+        qcApprovedById: req.user.id,
+        qcApprovedAt: new Date(),
+      },
+      include: {
+        manager: { select: { id: true, name: true, role: true } },
+        unit: { select: { id: true, name: true, code: true } },
+        qcApprovedBy: { select: { id: true, name: true } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'QC_REJECT',
+        entity: 'PurchaseRequest',
+        entityId: request.id,
+        details: { requestNumber: request.requestNumber, action: 'QC_REJECTED', reason: qcNotes },
+        ipAddress: req.ip,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        type: 'PURCHASE_REQUEST_REJECTED',
+        title: `Purchase Request ${request.requestNumber} Rejected by QC`,
+        message: `Your purchase request ${request.requestNumber} has been rejected by QC. Reason: ${qcNotes || 'No reason provided'}`,
+        targetRole: request.manager.role,
+        sentById: req.user.id,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('QC reject error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -944,6 +1145,7 @@ router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, r
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
+        qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
         items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
       },
@@ -1061,6 +1263,7 @@ router.put('/:id/admin-update-notes', authenticate, authorize('ADMIN'), async (r
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
+        qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
         items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
       },
@@ -1126,6 +1329,7 @@ router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), 
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
+        qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
         items: {
           include: { product: { select: { id: true, name: true, sku: true, unit: true } } },
@@ -1171,7 +1375,7 @@ router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), 
 });
 
 // PUT /api/purchase-requests/:id/cancel — Requester cancels own pending request
-router.put('/:id/cancel', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'PLANNING'), async (req, res) => {
+router.put('/:id/cancel', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
   try {
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: req.params.id },
@@ -1181,7 +1385,7 @@ router.put('/:id/cancel', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', '
     if (request.managerId !== req.user.id) {
       return res.status(403).json({ error: 'You can only cancel your own requests' });
     }
-    if (request.status !== 'PENDING_ADMIN') {
+    if (request.status !== 'PENDING_ADMIN' && request.status !== 'PENDING_QC') {
       return res.status(400).json({ error: 'Only pending requests can be cancelled' });
     }
 
@@ -1217,7 +1421,7 @@ router.put('/:id/cancel', authenticate, authorize('MANAGER', 'DESIGNS', 'RND', '
 // own PR. Allowed in any non-terminal state. Any still-live items are flipped
 // to CANCELLED (which also prunes their pending quotations) and the PR is
 // forced to COMPLETED so downstream queues stop tracking it.
-router.post('/:id/close', authenticate, authorize('MANAGER', 'ADMIN', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'PLANNING'), async (req, res) => {
+router.post('/:id/close', authenticate, authorize('ADMIN', ...REQUESTER_ROLES), async (req, res) => {
   try {
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
 

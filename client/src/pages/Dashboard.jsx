@@ -293,7 +293,7 @@ function AdminDashboard() {
         <StatsCard title="Low Stock Alerts" value={stats.lowStockAlerts} icon={AlertTriangle} color="red" onClick={openLowStockModal} />
         <StatsCard
           title="Purchase Requests"
-          value={prStats ? `${(prStats.pendingAdmin || 0) + (prStats.inProgress || 0)} / ${prStats.total || 0}` : '— / —'}
+          value={prStats ? `${(prStats.pendingQc || 0) + (prStats.pendingAdmin || 0) + (prStats.inProgress || 0)} / ${prStats.total || 0}` : '— / —'}
           subtitle="Active / Total"
           icon={ShoppingCart}
           color="blue"
@@ -311,7 +311,7 @@ function AdminDashboard() {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             <div className="text-center p-3 bg-yellow-50 rounded-lg">
-              <p className="text-2xl font-bold text-yellow-600">{prStats.pendingAdmin}</p>
+              <p className="text-2xl font-bold text-yellow-600">{(prStats.pendingQc || 0) + (prStats.pendingAdmin || 0)}</p>
               <p className="text-xs text-gray-500 mt-1">Pending Approval</p>
             </div>
             <div className="text-center p-3 bg-blue-50 rounded-lg">
@@ -1058,7 +1058,7 @@ function LogisticsDashboard() {
                     <td className="px-3 py-2.5">
                       {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '—'}
                     </td>
-                    <td className="px-3 py-2.5 text-gray-600">{g.destinationOffice || g.partyName || '—'}</td>
+                    <td className="px-3 py-2.5 text-gray-600">{g.partyName || '—'}</td>
                     <td className="px-3 py-2.5 text-center text-gray-500">{g.items?.length || 0}</td>
                     <td className="px-3 py-2.5 text-gray-600">
                       {g.assignedVehicle ? (
@@ -1126,7 +1126,7 @@ function LogisticsDashboard() {
                     <td className="px-3 py-2.5 text-gray-600">
                       <span className="inline-flex items-center gap-1">
                         <MapPin size={11} className="text-gray-400" />
-                        {g.destinationOffice || g.partyName || '—'}
+                        {g.partyName || '—'}
                       </span>
                     </td>
                     <td className="px-3 py-2.5 text-gray-500 text-xs">
@@ -2238,7 +2238,7 @@ function SiteOfficeDashboard() {
                       <td className="px-3 py-2.5 text-gray-600">
                         <span className="inline-flex items-center gap-1">
                           <MapPin size={11} className="text-gray-400" />
-                          {g.destinationOffice || g.partyName || '—'}
+                          {g.partyName || '—'}
                         </span>
                       </td>
                       <td className="px-3 py-2.5 font-mono text-xs text-gray-700">
@@ -2297,7 +2297,7 @@ function SiteOfficeDashboard() {
                     <td className="px-3 py-2.5">
                       {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '—'}
                     </td>
-                    <td className="px-3 py-2.5 text-gray-600">{g.destinationOffice || g.partyName || '—'}</td>
+                    <td className="px-3 py-2.5 text-gray-600">{g.partyName || '—'}</td>
                     <td className="px-3 py-2.5 text-gray-500 text-xs">
                       {g.acknowledgedAt ? formatDateTime(g.acknowledgedAt) : '—'}
                     </td>

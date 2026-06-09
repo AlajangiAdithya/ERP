@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
 
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING'];
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'LAB', 'METROLOGY', 'NDT'];
 
 // Every authenticated role gets Products visibility — stock data is universal.
 const ALL_ROLES = [
@@ -242,10 +242,10 @@ const WORKFLOW_STEPS = [
   {
     icon: ShoppingCart,
     title: 'Purchase Request (PR)',
-    actor: 'Manager / QC / Designs / R&D',
+    actor: 'Manager / QC / Designs / R&D / Lab / Metrology / NDT',
     to: '/purchase-requests',
-    summary: 'Department raises a request for material or services.',
-    statuses: ['PENDING_ADMIN', 'APPROVED'],
+    summary: 'Department raises a request for material or services. Lab / Metrology / NDT PRs clear QC first.',
+    statuses: ['PENDING_QC', 'PENDING_ADMIN', 'APPROVED'],
     docs: [
       { label: 'PR PDF', detail: 'Open the PR row → "Download PDF" → PR-<requestNumber>.pdf' },
       { label: 'Item spec attachments', detail: 'Each item can carry a spec file (.pdf / image) viewable from the PR detail view.' },

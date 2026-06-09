@@ -549,7 +549,7 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
 });
 
 // PUT /api/qc-inspections/:id/upload-docs — PO uploads supporting documents for QC verification
-// PUT /api/qc-inspections/:id/iir — Purchase Officer edits the page-1 IIR fields.
+// PUT /api/qc-inspections/:id/iir — Store Manager edits the page-1 IIR fields.
 // Allowed while QC has not yet submitted a result (PENDING or ON_HOLD). Lot items
 // (per-PO-item arrived quantities) are NOT editable here — that requires reversing
 // receivedQty on the PO, which is out of scope. Invoice number, invoice date and
@@ -573,7 +573,7 @@ const iirEditSchema = z.object({
   }).partial().optional(),
 });
 
-router.put('/:id/iir', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), async (req, res) => {
+router.put('/:id/iir', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
     const body = { ...req.body };
     if (typeof body.documentTypes === 'string') {

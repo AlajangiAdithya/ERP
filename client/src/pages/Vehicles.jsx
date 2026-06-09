@@ -291,7 +291,7 @@ function VehicleDetail({ vehicleId, onBack }) {
         if (tripFilter === 'PENDING' && !String(g.status || '').startsWith('PENDING_')) return false;
       }
       if (!term) return true;
-      const hay = [g.passNumber, g.kind, g.passType, g.destinationOffice, g.partyName, g.jobWorkNo]
+      const hay = [g.passNumber, g.kind, g.passType, g.partyName, g.jobWorkNo]
         .filter(Boolean).join(' ').toLowerCase();
       return hay.includes(term);
     });
@@ -409,8 +409,8 @@ function VehicleDetail({ vehicleId, onBack }) {
                       <td className="px-3 py-2 text-gray-700 max-w-[10rem] truncate" title={g.jobWorkNo || ''}>
                         {g.jobWorkNo || '—'}
                       </td>
-                      <td className="px-3 py-2 text-gray-700 max-w-[14rem] truncate" title={g.destinationOffice || g.partyName || ''}>
-                        {g.destinationOffice || g.partyName || '—'}
+                      <td className="px-3 py-2 text-gray-700 max-w-[14rem] truncate" title={g.partyName || ''}>
+                        {g.partyName || '—'}
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-600">
                         {g.dispatchedAt ? formatDateTime(g.dispatchedAt) : '—'}

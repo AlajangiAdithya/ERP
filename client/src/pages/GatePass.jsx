@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Plus, Trash2, RotateCcw, CheckCircle2, Truck, PackageCheck,
   Send, ShieldCheck, Calculator, Stamp, XCircle, Clock, AlertCircle, LayoutList,
-  DoorOpen, MapPin, Building2, FileText, Upload, FileDown, ClipboardList, Briefcase,
+  DoorOpen, FileText, Upload, FileDown, ClipboardList, Briefcase,
   GitBranch, ArrowRight, ArrowDown, User, Workflow,
 } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
@@ -31,6 +31,7 @@ const STATUS_TABS = [
   { key: 'PENDING_STORE_REVIEW', label: 'Pending Store Review', Icon: PackageCheck },
   { key: 'PENDING_LOGISTICS', label: 'Pending Logistics', Icon: Truck },
   { key: 'IN_TRANSIT', label: 'In Transit', Icon: Send },
+  { key: 'PENDING_RETURN', label: 'Pending Return', Icon: RotateCcw },
   { key: 'CLOSED', label: 'Closed', Icon: CheckCircle2 },
   { key: 'REJECTED', label: 'Rejected', Icon: XCircle },
 ];
@@ -74,11 +75,61 @@ const DEFAULT_TAB_BY_ROLE = {
   LOGISTICS: 'PENDING_LOGISTICS',
   ACCOUNTING: 'PENDING_ACCOUNTS',
   FINANCE: 'PENDING_ACCOUNTS',
-  SITE_OFFICE: 'IN_TRANSIT',
   STORE_MANAGER: 'PENDING_STORE',
   MANAGER: 'PENDING_STORE',
   ADMIN: 'ALL',
 };
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Returnable-due helpers: a returnable gate pass that has not yet been closed
+// surfaces a blinking indicator once we're within 24h of its earliest probable
+// return date, and stays blinking after the due date until Stores acks.
+// ──────────────────────────────────────────────────────────────────────────────
+const OPEN_RETURN_STATUSES = ['PENDING_LOGISTICS', 'IN_TRANSIT', 'PENDING_RETURN'];
+
+function returnDueInfo(g) {
+  if (!g || g.passType !== 'RETURNABLE') return null;
+  if (!OPEN_RETURN_STATUSES.includes(g.status)) return null;
+  const dates = (g.items || [])
+    .map((it) => it.probableReturnDate)
+    .filter(Boolean)
+    .map((d) => new Date(d));
+  if (!dates.length) return null;
+  const earliest = new Date(Math.min(...dates.map((d) => d.getTime())));
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfDue = new Date(earliest.getFullYear(), earliest.getMonth(), earliest.getDate()).getTime();
+  const daysUntil = Math.round((startOfDue - startOfToday) / 86400000);
+  if (daysUntil > 1) return null;
+  return {
+    earliest,
+    daysUntil,
+    overdue: daysUntil < 0,
+    dueToday: daysUntil === 0,
+    dueTomorrow: daysUntil === 1,
+  };
+}
+
+function ReturnDueBadge({ info, compact = false }) {
+  if (!info) return null;
+  const cls = info.overdue
+    ? 'bg-red-100 text-red-700 border-red-300'
+    : 'bg-amber-100 text-amber-800 border-amber-300';
+  const label = info.overdue
+    ? `Return overdue (${Math.abs(info.daysUntil)}d)`
+    : info.dueToday
+      ? 'Return due today'
+      : 'Return due tomorrow';
+  return (
+    <span
+      title={`Probable return: ${info.earliest.toLocaleDateString()}`}
+      className={`inline-flex items-center gap-1 ${compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs'} font-medium rounded border animate-pulse ${cls}`}
+    >
+      <span className={`inline-block ${compact ? 'w-1.5 h-1.5' : 'w-2 h-2'} rounded-full ${info.overdue ? 'bg-red-500' : 'bg-amber-500'}`}></span>
+      {label}
+    </span>
+  );
+}
 
 export default function GatePass() {
   const { user } = useAuth();
@@ -239,7 +290,7 @@ function OutwardTable({ rows, onView }) {
                     <Badge color={KIND_META[g.kind]?.color}>{KIND_META[g.kind]?.label}</Badge>
                   ) : <span className="text-gray-400 text-xs">Legacy / FIM</span>}
                 </td>
-                <td className="px-4 py-2">{g.destinationOffice || g.partyName || '—'}</td>
+                <td className="px-4 py-2">{g.partyName || '—'}</td>
                 <td className="px-4 py-2 text-gray-500">{g.items?.length || 0}</td>
                 <td className="px-4 py-2 text-gray-600">
                   {g.assignedVehicle ? (
@@ -253,9 +304,12 @@ function OutwardTable({ rows, onView }) {
                 </td>
                 <td className="px-4 py-2 text-gray-600">{g.createdBy?.name || '—'}</td>
                 <td className="px-4 py-2">
-                  <Badge color={STATUS_META[g.status]?.color || 'gray'}>
-                    {STATUS_META[g.status]?.label || g.status}
-                  </Badge>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Badge color={STATUS_META[g.status]?.color || 'gray'}>
+                      {STATUS_META[g.status]?.label || g.status}
+                    </Badge>
+                    <ReturnDueBadge info={returnDueInfo(g)} compact />
+                  </div>
                 </td>
                 <td className="px-4 py-2 text-right">
                   <Button variant="ghost" size="sm" onClick={() => onView(g)}>View</Button>
@@ -293,7 +347,6 @@ function LocalJobRegister({ rows, loading, onView }) {
               <th className="px-2 py-2 font-medium">Gate Pass No.</th>
               <th className="px-2 py-2 font-medium">Item Description</th>
               <th className="px-2 py-2 font-medium">Qty</th>
-              <th className="px-2 py-2 font-medium">Vendor Details</th>
               <th className="px-2 py-2 font-medium">Purpose</th>
               <th className="px-2 py-2 font-medium">Probable Rtn. Dt</th>
               <th className="px-2 py-2 font-medium">Requested By</th>
@@ -314,7 +367,6 @@ function LocalJobRegister({ rows, loading, onView }) {
                 <td className="px-2 py-1.5 font-mono text-navy-700">{g.passNumber}</td>
                 <td className="px-2 py-1.5">{it.description}</td>
                 <td className="px-2 py-1.5">{it.quantity} {it.unit}</td>
-                <td className="px-2 py-1.5">{g.vendorDetails || '—'}</td>
                 <td className="px-2 py-1.5">{it.itemPurpose || '—'}</td>
                 <td className="px-2 py-1.5">{it.probableReturnDate ? formatDate(it.probableReturnDate) : '—'}</td>
                 <td className="px-2 py-1.5">{g.requestedBy?.name || g.createdBy?.name || '—'}</td>
@@ -339,10 +391,8 @@ function LocalJobRegister({ rows, loading, onView }) {
 function CreateGatePassModal({ onClose, onCreated }) {
   const [kind, setKind] = useState('LOCAL_JOB');
   const [siteName, setSiteName] = useState('');
-  const [destinationOffice, setDestinationOffice] = useState('');
   const [jobWorkNo, setJobWorkNo] = useState('');
   const [jobWorkDate, setJobWorkDate] = useState('');
-  const [vendorDetails, setVendorDetails] = useState('');
   const [remarks, setRemarks] = useState('');
   const [items, setItems] = useState([blankItem()]);
   const [saving, setSaving] = useState(false);
@@ -358,9 +408,6 @@ function CreateGatePassModal({ onClose, onCreated }) {
 
   const submit = async () => {
     setError('');
-    if (kind === 'OUTSIDE' && !destinationOffice.trim()) {
-      return setError('Destination office is required for Outside gate passes');
-    }
     if (items.some(i => !i.description.trim())) return setError('Each item needs a name/description');
     if (items.some(i => !i.quantity || Number(i.quantity) <= 0)) return setError('Each item needs a positive quantity');
     if (items.some(i => i.itemPassType === 'RETURNABLE' && !i.probableReturnDate)) {
@@ -373,10 +420,8 @@ function CreateGatePassModal({ onClose, onCreated }) {
         direction: 'OUTWARD',
         kind,
         siteName: siteName.trim() || undefined,
-        destinationOffice: kind === 'OUTSIDE' ? destinationOffice.trim() : undefined,
         jobWorkNo: kind === 'LOCAL_JOB' ? (jobWorkNo.trim() || undefined) : undefined,
         jobWorkDate: kind === 'LOCAL_JOB' ? (jobWorkDate || undefined) : undefined,
-        vendorDetails: kind === 'LOCAL_JOB' ? (vendorDetails.trim() || undefined) : undefined,
         remarks: remarks.trim() || undefined,
         items: items.map(i => ({
           description: i.description.trim(),
@@ -423,20 +468,12 @@ function CreateGatePassModal({ onClose, onCreated }) {
           <p className="text-xs text-gray-500 mt-2">
             {kind === 'LOCAL_JOB'
               ? 'Local Job: material/work going to a vendor — returns to stores when work is done.'
-              : 'Outside: material being delivered to another RAPS office — site office confirms arrival.'}
+              : 'Outside: material being delivered to another RAPS office — Logistics confirms arrival.'}
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <Input label="Site / Unit" value={siteName} onChange={e => setSiteName(e.target.value)} placeholder="Site or unit" />
-          {kind === 'OUTSIDE' && (
-            <Input
-              label="Destination Office *"
-              value={destinationOffice}
-              onChange={e => setDestinationOffice(e.target.value)}
-              placeholder="e.g. Hyderabad Office"
-            />
-          )}
           {kind === 'LOCAL_JOB' && (
             <>
               <Input
@@ -450,12 +487,6 @@ function CreateGatePassModal({ onClose, onCreated }) {
                 label="Date"
                 value={jobWorkDate}
                 onChange={e => setJobWorkDate(e.target.value)}
-              />
-              <Input
-                label="Vendor Details"
-                value={vendorDetails}
-                onChange={e => setVendorDetails(e.target.value)}
-                placeholder="Vendor name / contact"
               />
             </>
           )}
@@ -606,8 +637,16 @@ function DetailModal({ gatePass: initial, onClose, onAction }) {
   const canAccountsInvoice = g.status === 'PENDING_ACCOUNTS' && isOutside && (role === 'ACCOUNTING' || role === 'FINANCE' || isAdmin);
   const canStoreReview = g.status === 'PENDING_STORE_REVIEW' && (role === 'STORE_MANAGER' || isAdmin);
   const canLogistics = g.status === 'PENDING_LOGISTICS' && isV2 && (role === 'LOGISTICS' || isAdmin);
-  const canSiteAck = g.status === 'IN_TRANSIT' && isOutside && (role === 'SITE_OFFICE' || isAdmin);
-  const canStoresAck = g.status === 'IN_TRANSIT' && isLocalJob && (role === 'STORE_MANAGER' || isAdmin);
+  const canArrivalAck = g.status === 'IN_TRANSIT' && isOutside && (role === 'LOGISTICS' || isAdmin);
+  const isReturnable = g.passType === 'RETURNABLE';
+  // Stores closes the pass: LOCAL_JOB from IN_TRANSIT (any pass type),
+  // OUTSIDE returnable from PENDING_RETURN (after Logistics confirmed arrival).
+  const canStoresAck =
+    (role === 'STORE_MANAGER' || isAdmin) && (
+      (g.status === 'IN_TRANSIT' && isLocalJob) ||
+      (g.status === 'PENDING_RETURN' && isOutside && isReturnable)
+    );
+  const dueInfo = returnDueInfo(g);
 
   const canReject =
     ['PENDING_STORE', 'PENDING_ACCOUNTS', 'PENDING_STORE_REVIEW', 'PENDING_LOGISTICS'].includes(g.status) &&
@@ -619,9 +658,10 @@ function DetailModal({ gatePass: initial, onClose, onAction }) {
         {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Badge color={STATUS_META[g.status]?.color || 'gray'}>{STATUS_META[g.status]?.label || g.status}</Badge>
             {g.kind && <Badge color={KIND_META[g.kind]?.color}>{KIND_META[g.kind]?.label}</Badge>}
+            <ReturnDueBadge info={dueInfo} />
           </div>
           <DownloadPdfButton
             document={<GatePassPdf data={g} />}
@@ -635,10 +675,8 @@ function DetailModal({ gatePass: initial, onClose, onAction }) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
           <Field label="Date" value={formatDate(g.date)} />
           <Field label="Site / Unit" value={g.siteName} />
-          {isOutside && <Field label="Destination Office" value={g.destinationOffice} icon={MapPin} />}
           {isLocalJob && <Field label="Job Work / RAPS PO Order No." value={g.jobWorkNo} icon={FileText} />}
           {isLocalJob && <Field label="JW / PO Date" value={g.jobWorkDate ? formatDate(g.jobWorkDate) : ''} />}
-          {isLocalJob && <Field label="Vendor" value={g.vendorDetails} icon={Building2} />}
           <Field label="Dispatched-to (summary)" value={g.partyName} />
           {(g.assignedVehicle || g.vehicleNo) && (
             <Field
@@ -712,8 +750,12 @@ function DetailModal({ gatePass: initial, onClose, onAction }) {
             />
           )}
 
-          {canSiteAck && (
-            <SiteOfficeAckBox busy={busy} onSubmit={(body) => act(`/gatepasses/${g.id}/site-office-ack`, body)} />
+          {canArrivalAck && (
+            <LogisticsArrivalAckBox
+              isReturnable={isReturnable}
+              busy={busy}
+              onSubmit={(body) => act(`/gatepasses/${g.id}/arrival-ack`, body)}
+            />
           )}
 
           {canStoresAck && (
@@ -985,12 +1027,15 @@ function LogisticsBox({ g, busy, onAssigned, onDispatched, setError }) {
   );
 }
 
-function SiteOfficeAckBox({ busy, onSubmit }) {
+function LogisticsArrivalAckBox({ busy, isReturnable, onSubmit }) {
   const [reachedDate, setReachedDate] = useState('');
   const [remarks, setRemarks] = useState('');
   return (
     <div className="p-3 bg-amber-50 border border-amber-200 rounded space-y-2">
-      <p className="text-xs font-medium text-amber-800">Acknowledge arrival at the site office</p>
+      <p className="text-xs font-medium text-amber-800">
+        Acknowledge arrival at the destination office
+        {isReturnable && ' — Stores will close the pass once the material is returned.'}
+      </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         <Input
           type="date"
@@ -1002,7 +1047,7 @@ function SiteOfficeAckBox({ busy, onSubmit }) {
       <Textarea label="Remarks (optional)" value={remarks} onChange={e => setRemarks(e.target.value)} rows={2} />
       <div className="flex justify-end">
         <Button disabled={busy || !reachedDate} onClick={() => onSubmit({ reachedDate, remarks: remarks.trim() || undefined })}>
-          <CheckCircle2 size={14} /> Acknowledge Arrival
+          <CheckCircle2 size={14} /> {isReturnable ? 'Confirm Arrival' : 'Acknowledge & Close'}
         </Button>
       </div>
     </div>
@@ -1050,7 +1095,11 @@ function ApprovalTrail({ g }) {
   if (kind) {
     stages.push({ label: 'Logistics Dispatch', user: g.logisticsBy, at: g.dispatchedAt, icon: Truck });
     if (kind === 'OUTSIDE') {
-      stages.push({ label: 'Site Office Ack', user: g.siteOfficeAckBy, at: g.siteOfficeAckAt, icon: Stamp });
+      stages.push({ label: 'Logistics Arrival Ack', user: g.siteOfficeAckBy, at: g.siteOfficeAckAt, icon: Stamp });
+      // For returnable outside passes, Stores closes after the material comes back.
+      if (g.passType === 'RETURNABLE') {
+        stages.push({ label: 'Stores Return Ack', user: g.localReturnedBy, at: g.localReturnedAt, icon: CheckCircle2 });
+      }
     } else {
       stages.push({ label: 'Stores Ack', user: g.localReturnedBy, at: g.localReturnedAt || (g.status === 'CLOSED' ? g.approvedAt : null), icon: CheckCircle2 });
     }
@@ -1102,13 +1151,14 @@ function WorkflowModal({ onClose }) {
   ];
 
   const OUTSIDE_STEPS = [
-    { role: 'Unit Manager', action: 'Raise gate pass',                status: 'PENDING_STORE',         icon: Plus,         tone: 'gray' },
-    { role: 'Stores',       action: 'Approve & forward to Accounts',  status: 'PENDING_ACCOUNTS',      icon: ShieldCheck,  tone: 'amber' },
-    { role: 'Accounts',     action: 'Add Invoice / DC details',       status: 'PENDING_STORE_REVIEW',  icon: Calculator,   tone: 'amber' },
-    { role: 'Stores',       action: 'Final review & forward',         status: 'PENDING_LOGISTICS',     icon: PackageCheck, tone: 'amber' },
-    { role: 'Logistics',    action: 'Assign vehicle + driver',        status: 'PENDING_LOGISTICS',     icon: Truck,        tone: 'amber' },
-    { role: 'Logistics',    action: 'Upload signed PDF & dispatch',   status: 'IN_TRANSIT',            icon: Upload,       tone: 'blue' },
-    { role: 'Site Office',  action: 'Acknowledge receipt',            status: 'CLOSED',                icon: Stamp,        tone: 'green' },
+    { role: 'Unit Manager', action: 'Raise gate pass',                                 status: 'PENDING_STORE',         icon: Plus,         tone: 'gray' },
+    { role: 'Stores',       action: 'Approve & forward to Accounts',                   status: 'PENDING_ACCOUNTS',      icon: ShieldCheck,  tone: 'amber' },
+    { role: 'Accounts',     action: 'Add Invoice / DC details',                        status: 'PENDING_STORE_REVIEW',  icon: Calculator,   tone: 'amber' },
+    { role: 'Stores',       action: 'Final review & forward',                          status: 'PENDING_LOGISTICS',     icon: PackageCheck, tone: 'amber' },
+    { role: 'Logistics',    action: 'Assign vehicle + driver',                         status: 'PENDING_LOGISTICS',     icon: Truck,        tone: 'amber' },
+    { role: 'Logistics',    action: 'Upload signed PDF & dispatch',                    status: 'IN_TRANSIT',            icon: Upload,       tone: 'blue' },
+    { role: 'Logistics',    action: 'Acknowledge arrival (closes if non-returnable)',  status: 'PENDING_RETURN',        icon: Stamp,        tone: 'amber' },
+    { role: 'Stores',       action: 'Acknowledge return (returnable only)',            status: 'CLOSED',                icon: CheckCircle2, tone: 'green' },
   ];
 
   return (

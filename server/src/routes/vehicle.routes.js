@@ -54,7 +54,7 @@ router.get('/:id', authenticate, async (req, res) => {
           select: {
             id: true, passNumber: true, kind: true, passType: true, direction: true,
             status: true, date: true, dispatchedAt: true, reachedDate: true,
-            actualReturnDate: true, partyName: true, destinationOffice: true,
+            actualReturnDate: true, partyName: true,
             jobWorkNo: true,
           },
           orderBy: { date: 'desc' },

@@ -14,6 +14,7 @@ import PRPdf from '../components/pdf/PRPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 
 const statusColor = (s) => ({
+  PENDING_QC: 'yellow',
   PENDING_ADMIN: 'yellow',
   APPROVED: 'blue',
   QUOTATION_SUBMITTED: 'purple',
@@ -28,6 +29,7 @@ const statusColor = (s) => ({
 }[s] || 'gray');
 
 const statusLabel = (s) => ({
+  PENDING_QC: 'Pending QC',
   PENDING_ADMIN: 'Pending Admin',
   APPROVED: 'Approved',
   QUOTATION_SUBMITTED: 'Quotation Submitted',
@@ -668,10 +670,19 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
           <div><span className="text-gray-500">Manager:</span> <span className="font-medium">{request.manager?.name}</span></div>
           <div><span className="text-gray-500">Unit:</span> <Badge color="blue">{request.unit?.name}</Badge></div>
           <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(request.createdAt)}</span></div>
+          {request.qcApprovedBy && (
+            <div><span className="text-gray-500">QC Approved By:</span> <span className="font-medium">{request.qcApprovedBy.name}</span> • <span className="text-xs">{formatDateTime(request.qcApprovedAt)}</span></div>
+          )}
           {request.adminApprovedBy && (
             <div><span className="text-gray-500">Reviewed By:</span> <span className="font-medium">{request.adminApprovedBy.name}</span> • <span className="text-xs">{formatDateTime(request.adminApprovedAt)}</span></div>
           )}
         </div>
+
+        {request.qcNotes && (
+          <div className="bg-green-50 rounded-md p-3 text-sm">
+            <span className="text-green-700 font-medium">QC Notes:</span> <span>{request.qcNotes}</span>
+          </div>
+        )}
 
         {request.notes && (
           <div className="bg-yellow-50 rounded-md p-3 text-sm">
@@ -792,6 +803,126 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
               </Button>
               <Button onClick={approve} disabled={processing}>
                 <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Approve'}
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── QC: Review Modal — first-level approval for LAB/METROLOGY/NDT PRs ───
+// QC only approves/rejects with notes here; quantity adjustment stays with ADMIN.
+function QcReviewModal({ request, onClose, onUpdated }) {
+  const [qcNotes, setQcNotes] = useState('');
+  const [processing, setProcessing] = useState(false);
+
+  useEffect(() => {
+    if (request) setQcNotes(request.qcNotes || '');
+  }, [request]);
+
+  if (!request) return null;
+
+  const isPending = request.status === 'PENDING_QC';
+
+  const approve = async () => {
+    setProcessing(true);
+    try {
+      await api.put(`/purchase-requests/${request.id}/qc-approve`, {
+        qcNotes: qcNotes || undefined,
+      });
+      onClose();
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to approve');
+    }
+    setProcessing(false);
+  };
+
+  const reject = async () => {
+    if (!qcNotes.trim()) return alert('Please provide a reason for rejection');
+    setProcessing(true);
+    try {
+      await api.put(`/purchase-requests/${request.id}/qc-reject`, { qcNotes });
+      onClose();
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to reject');
+    }
+    setProcessing(false);
+  };
+
+  return (
+    <Modal isOpen={!!request} onClose={onClose} title={`${isPending ? 'QC Review' : 'View'} ${request.requestNumber}`} size="xl">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-md p-4">
+          <div><span className="text-gray-500">Request #:</span> <span className="font-medium">{request.requestNumber}</span></div>
+          <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(request.status)}>{statusLabel(request.status)}</Badge></div>
+          <div><span className="text-gray-500">Raised By:</span> <span className="font-medium">{request.manager?.name} ({request.manager?.role})</span></div>
+          <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(request.createdAt)}</span></div>
+          {request.qcApprovedBy && (
+            <div className="col-span-2"><span className="text-gray-500">QC Reviewed By:</span> <span className="font-medium">{request.qcApprovedBy.name}</span> • <span className="text-xs">{formatDateTime(request.qcApprovedAt)}</span></div>
+          )}
+        </div>
+
+        {request.notes && (
+          <div className="bg-yellow-50 rounded-md p-3 text-sm">
+            <span className="text-yellow-700 font-medium">Requester's Note:</span> <span>{request.notes}</span>
+          </div>
+        )}
+
+        <div>
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">Requested Items</h4>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Category</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              {request.items?.map((item, idx) => (
+                <tr key={item.id} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'}`}>
+                  <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
+                  <td className="px-3 py-2 text-gray-500">{item.product?.category || item.materialType || '—'}</td>
+                  <td className="px-3 py-2 text-gray-700">{item.requestedQty} {item.productUnit}</td>
+                  <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || item.materialRequiredFor || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            <FileText size={14} className="inline mr-1" />
+            QC Notes
+          </label>
+          <textarea
+            value={qcNotes} onChange={(e) => setQcNotes(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
+            rows={3} placeholder="QC review notes — required when rejecting..."
+            disabled={!isPending}
+          />
+        </div>
+
+        <div className="flex justify-between items-center pt-2 gap-3">
+          <DownloadPdfButton
+            document={<PRPdf request={request} />}
+            fileName={`PR-${request.requestNumber}.pdf`}
+            label="View PR PDF"
+            appendPdfs={(request.items || []).map(i => i.specAttachmentUrl).filter(Boolean)}
+          />
+          {isPending && (
+            <div className="flex gap-3">
+              <Button variant="danger" onClick={reject} disabled={processing}>
+                <XCircle size={16} className="mr-1" /> Reject
+              </Button>
+              <Button onClick={approve} disabled={processing}>
+                <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Approve & Forward to Admin'}
               </Button>
             </div>
           )}
@@ -939,8 +1070,15 @@ function ProcurementJourney({ request }) {
       : `PO: ${activePO.customName}`)
     : null;
 
+  // PRs raised by LAB / METROLOGY / NDT carry an extra QC-approval gate before
+  // they reach ADMIN. Show that stage in the tracker only for those PRs so the
+  // existing flow remains unchanged for everyone else.
+  const isQcGated = ['LAB', 'METROLOGY', 'NDT'].includes(request?.manager?.role);
   const statusOrder = [
-    { key: 'PENDING_ADMIN', label: 'Submitted', detail: request?.createdAt ? formatDateTime(request.createdAt) : null },
+    isQcGated
+      ? { key: 'PENDING_QC', label: 'Submitted (QC Review)', detail: request?.createdAt ? formatDateTime(request.createdAt) : null }
+      : { key: 'PENDING_ADMIN', label: 'Submitted', detail: request?.createdAt ? formatDateTime(request.createdAt) : null },
+    ...(isQcGated ? [{ key: 'PENDING_ADMIN', label: 'QC Approved', detail: request?.qcApprovedBy ? `${request.qcApprovedBy.name} • ${formatDateTime(request.qcApprovedAt)}` : null }] : []),
     { key: 'APPROVED', label: 'Admin Approved', detail: request?.adminApprovedBy ? `${request.adminApprovedBy.name} • ${formatDateTime(request.adminApprovedAt)}` : null },
     { key: 'QUOTATION_SUBMITTED', label: 'Quotations Collected', detail: null },
     { key: 'QUOTATION_APPROVED', label: 'Quotation Approved', detail: poDetail },
@@ -1094,6 +1232,12 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           <div><span className="text-gray-500">Requester:</span> <span className="font-medium">{request.manager?.name}</span></div>
           <div><span className="text-gray-500">Unit:</span> <Badge color="blue">{request.unit?.name}</Badge></div>
           <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(request.createdAt)}</span></div>
+          {request.qcApprovedBy && (
+            <>
+              <div><span className="text-gray-500">QC Reviewed By:</span> <span className="font-medium">{request.qcApprovedBy.name}</span></div>
+              <div><span className="text-gray-500">QC Reviewed At:</span> <span>{formatDateTime(request.qcApprovedAt)}</span></div>
+            </>
+          )}
           {request.adminApprovedBy && (
             <>
               <div><span className="text-gray-500">Reviewed By:</span> <span className="font-medium">{request.adminApprovedBy.name}</span></div>
@@ -1479,6 +1623,7 @@ export default function PurchaseRequests() {
   const [lowStock, setLowStock] = useState([]);
   const [selectedLowStock, setSelectedLowStock] = useState(() => new Set());
   const [selectedForReview, setSelectedForReview] = useState(null);
+  const [selectedForQcReview, setSelectedForQcReview] = useState(null);
   const [selectedForPurchase, setSelectedForPurchase] = useState(null);
   const [selectedForDetail, setSelectedForDetail] = useState(null);
   const [selectedForEdit, setSelectedForEdit] = useState(null);
@@ -1486,12 +1631,14 @@ export default function PurchaseRequests() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const isManager = ['MANAGER', 'PLANNING', 'STORE_MANAGER', 'QC', 'RND', 'DESIGNS'].includes(user?.role);
+  const isManager = ['MANAGER', 'PLANNING', 'STORE_MANAGER', 'QC', 'RND', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT'].includes(user?.role);
   const isStoreManager = user?.role === 'STORE_MANAGER';
   const isAdmin = user?.role === 'ADMIN';
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isAccounting = ['ACCOUNTING', 'FINANCE'].includes(user?.role);
   const isQC = user?.role === 'QC';
+  // Sub-roles whose PRs must clear QC first before reaching ADMIN.
+  const isQcManaged = ['LAB', 'METROLOGY', 'NDT'].includes(user?.role);
 
   const fetchRequests = () => {
     setLoading(true);
@@ -1542,7 +1689,9 @@ export default function PurchaseRequests() {
   };
 
   const handleRowClick = (r) => {
-    if (isAdmin) {
+    if (isQC && r.status === 'PENDING_QC') {
+      setSelectedForQcReview(r);
+    } else if (isAdmin) {
       setSelectedForReview(r);
     } else if (isPO) {
       setSelectedForPurchase(r);
@@ -1566,7 +1715,9 @@ export default function PurchaseRequests() {
     : isAccounting
     ? ['ALL', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'COMPLETED']
     : isQC
-    ? ['ALL', 'GOODS_ARRIVED', 'QC_PASSED']
+    ? ['ALL', 'PENDING_QC', 'PENDING_ADMIN', 'APPROVED', 'GOODS_ARRIVED', 'QC_PASSED']
+    : isQcManaged
+    ? ['ALL', 'PENDING_QC', 'PENDING_ADMIN', 'APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED', 'REJECTED']
     : ['ALL', 'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED', 'REJECTED'];
 
   const filteredRequests = tab === 'ALL' ? requests : requests.filter(r => r.status === tab);
@@ -1736,6 +1887,9 @@ export default function PurchaseRequests() {
                           <Button size="sm" variant="secondary" onClick={() => setSelectedForDetail(r)}>
                             <Eye size={14} className="mr-1" /> View Details
                           </Button>
+                          {isQC && r.status === 'PENDING_QC' && r.managerId !== user.id && (
+                            <Button size="sm" onClick={() => setSelectedForQcReview(r)}>QC Review</Button>
+                          )}
                           {isAdmin && r.status === 'PENDING_ADMIN' && (
                             <Button size="sm" onClick={() => setSelectedForReview(r)}>Review</Button>
                           )}
@@ -1749,12 +1903,12 @@ export default function PurchaseRequests() {
                               <ShoppingCart size={14} className="mr-1" /> Update
                             </Button>
                           )}
-                          {isManager && r.status === 'PENDING_ADMIN' && r.managerId === user.id && (
+                          {isManager && (r.status === 'PENDING_ADMIN' || r.status === 'PENDING_QC') && r.managerId === user.id && (
                             <Button size="sm" variant="secondary" onClick={() => setSelectedForEdit(r)}>
                               <Pencil size={14} className="mr-1" /> Edit
                             </Button>
                           )}
-                          {isManager && r.status === 'PENDING_ADMIN' && r.managerId === user.id && (
+                          {isManager && (r.status === 'PENDING_ADMIN' || r.status === 'PENDING_QC') && r.managerId === user.id && (
                             <Button size="sm" variant="danger" onClick={() => cancelRequest(r.id)}>Cancel</Button>
                           )}
                         </div>
@@ -1783,6 +1937,7 @@ export default function PurchaseRequests() {
         requestToEdit={selectedForEdit}
       />
       <AdminReviewModal request={selectedForReview} onClose={() => setSelectedForReview(null)} onUpdated={fetchRequests} />
+      <QcReviewModal request={selectedForQcReview} onClose={() => setSelectedForQcReview(null)} onUpdated={fetchRequests} />
       <RecordPurchaseModal request={selectedForPurchase} onClose={() => setSelectedForPurchase(null)} onUpdated={fetchRequests} />
       <DetailModal
         request={selectedForDetail}

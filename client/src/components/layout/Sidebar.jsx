@@ -26,9 +26,9 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND'];
 
 // Procurement & Inventory Management hub is visible to every authenticated
-// user EXCEPT Metrology and Supply Chain — those teams don't need the
-// procurement hub in their sidebar.
-const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY' && r !== 'SUPPLY_CHAIN');
+// user EXCEPT Supply Chain — Metrology / Lab / NDT now also raise PRs through
+// this hub (their PRs go to QC for first-level approval before reaching admin).
+const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN');
 
 const buildAllItems = () => {
   const items = [
