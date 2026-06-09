@@ -9,6 +9,7 @@ const DRIVER_STATUSES = ['ACTIVE', 'INACTIVE'];
 
 const DRIVER_INCLUDE = {
   createdBy:      { select: { id: true, name: true, role: true } },
+  defaultVehicle: { select: { id: true, regNumber: true, make: true, model: true } },
 };
 
 const toDate = (v) => (v ? new Date(v) : null);
@@ -127,6 +128,7 @@ router.post('/', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res)
         phone: phone?.trim() || null,
         licenseNo: normalizedLicense,
         licenseExpiry: toDate(licenseExpiry),
+        defaultVehicleId: defaultVehicleId || null,
         status: DRIVER_STATUSES.includes(status) ? status : 'ACTIVE',
         notes: notes?.trim() || null,
         createdById: req.user.id,
@@ -177,6 +179,23 @@ router.put('/:id', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, re
       data.licenseNo = norm;
     }
     if (licenseExpiry !== undefined) data.licenseExpiry = toDate(licenseExpiry);
+    if (defaultVehicleId !== undefined) {
+      if (defaultVehicleId) {
+        const v = await prisma.vehicle.findUnique({ where: { id: defaultVehicleId } });
+        if (!v) return res.status(400).json({ error: 'Default vehicle not found' });
+        data.defaultVehicleId = defaultVehicleId;
+      } else {
+        data.defaultVehicleId = null;
+      }
+    }
+    if (status !== undefined) {
+      if (!DRIVER_STATUSES.includes(status)) {
+        return res.status(400).json({ error: 'Invalid status' });
+      }
+      data.status = status;
+    }
+    if (notes !== undefined) data.notes = notes?.trim() || null;
+
     const driver = await prisma.driver.update({
       where: { id: req.params.id },
       data,

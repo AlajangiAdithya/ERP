@@ -116,11 +116,11 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   // Per-item upload state — keyed by row index; tracks {uploading, error} so the
   // UI can show a spinner / error inline without blocking other rows.
   const [specUpload, setSpecUpload] = useState({});
-  // Global-role requesters (STORE_MANAGER, DESIGNS, PLANNING, QC) raise PRs in
+  // Global-role requesters (STORE_MANAGER, DESIGNS, PLANNING, QC, SAFETY) raise PRs in
   // their own name with no unit attached. Unit-bound roles (MANAGER, RND) get
   // their unit auto-filled server-side. Either way the form never shows a
   // unit picker. In edit mode the unit is locked to the original PR's unit.
-  const GLOBAL_ROLES = ['STORE_MANAGER', 'DESIGNS', 'PLANNING', 'QC'];
+  const GLOBAL_ROLES = ['STORE_MANAGER', 'DESIGNS', 'PLANNING', 'QC', 'SAFETY'];
   const isGlobalRole = GLOBAL_ROLES.includes(user?.role);
 
   useEffect(() => {

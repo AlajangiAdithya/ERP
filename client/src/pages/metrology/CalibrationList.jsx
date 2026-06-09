@@ -14,10 +14,23 @@ import Input, { Select, Textarea } from '../../components/ui/Input';
 
 const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
 
-// Fiscal-year columns shown side-by-side in the register, matching the
-// physical Excel sheet the client maintains. New FYs can be added by
-// appending here.
-const FY_COLUMNS = ['FY 25-26', 'FY 26-27', 'FY 27-28'];
+// Baseline FY columns shown side-by-side in the register, matching the
+// physical Excel sheet the client maintains. The visible set is union'd
+// with any fiscal year present in the data so user-entered FYs outside
+// the baseline still get a column.
+const BASE_FY_COLUMNS = ['FY 25-26', 'FY 26-27', 'FY 27-28'];
+
+// Indian fiscal year: April 1 → March 31. Returns 'FY 25-26' for a
+// calibratedOn date like 2025-06-15 or 2026-03-15, 'FY 26-27' for 2026-04-15.
+const computeFiscalYear = (v) => {
+  if (!v) return '';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '';
+  const month = d.getMonth() + 1;
+  const year  = d.getFullYear();
+  const startYear = month >= 4 ? year : year - 1;
+  return `FY ${String(startYear % 100).padStart(2, '0')}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+};
 
 // Metrology access (per access chart RAPS/QSP):
 // Full edit: METROLOGY, QC, MANAGER@Unit-V. SUPERADMIN bypasses.
@@ -90,7 +103,7 @@ const blankForm = {
   mmrSubCategory: '',
 };
 
-const blankFyRecord = () => ({
+const blankCalibrationRecord = () => ({
   qcVerifiedBy: '',
   verifiedOn: '',
   certificateNo: '',
@@ -98,7 +111,18 @@ const blankFyRecord = () => ({
   dueDate: '',
   recallDate: '',
   certificateAttachment: '',
+  // `originalFy` is set on records loaded from the server, so we know which
+  // FY to delete when the user changes calibratedOn to land in a different FY.
+  originalFy: '',
 });
+
+// FY currently targeted by a record in the form: derived from calibratedOn,
+// falling back to the FY the record was originally saved under so blank
+// calibratedOn doesn't strand existing edits.
+const targetFyForRecord = (rec) => {
+  if (rec.calibratedOn) return computeFiscalYear(rec.calibratedOn);
+  return rec.originalFy || '';
+};
 
 // Map a calibration row to a unified category bucket. A group matches when
 // the row's `category` is in `matchCategories` OR (row is MMR and its
@@ -123,6 +147,9 @@ export default function CalibrationList({
   // collapses into a single bucket. When set, the register fetches without a
   // category filter and applies the bucket filter client-side.
   unifiedCategories = null, // [{value, label, matchCategories, matchMmrSubs}]
+  // Pre-select a bucket on mount — used by the per-category focused routes
+  // so /metrology/category/<slug> opens already filtered.
+  initialBucket = '',
 }) {
   const unified = !!unifiedCategories;
   const { user } = useAuth();
@@ -155,18 +182,34 @@ export default function CalibrationList({
   const [search, setSearch] = useState('');
   const [unitFilter, setUnitFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [mmrSub, setMmrSub] = useState('');
+  const [mmrSub, setMmrSub] = useState(initialBucket || '');
 
   const [editing, setEditing] = useState(null); // 'new' | item | null
   const [form, setForm] = useState(blankForm);
-  const [fyForms, setFyForms] = useState({}); // { 'FY 26-27': {...}, 'FY 27-28': {...} }
+  // Each entry is the shape returned by `blankCalibrationRecord()` plus an
+  // optional `originalFy` for records loaded from the server. The FY each
+  // record will be saved under is computed from `calibratedOn`.
+  const [calibrationRecords, setCalibrationRecords] = useState([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+
+  // FY columns rendered in the register table: baseline plus every FY found
+  // in the loaded data, so user-entered years outside the baseline still
+  // show up in the table.
+  const fyColumns = useMemo(() => {
+    const set = new Set(BASE_FY_COLUMNS);
+    items.forEach((it) => {
+      (it.records || []).forEach((r) => {
+        if (r.fiscalYear) set.add(r.fiscalYear);
+      });
+    });
+    return Array.from(set).sort();
+  }, [items]);
 
   // Collapsed FY columns in the register. Default: only the most recent FY is
   // expanded so the table stays readable as more years are added.
   const [collapsedFys, setCollapsedFys] = useState(
-    () => new Set(FY_COLUMNS.slice(0, -1))
+    () => new Set(BASE_FY_COLUMNS.slice(0, -1))
   );
   const isFyCollapsed = (fy) => collapsedFys.has(fy);
   const toggleFy = (fy) => setCollapsedFys((prev) => {
@@ -254,9 +297,7 @@ export default function CalibrationList({
     // entry inherits it.
     const mmrSubDefault = unified ? (mmrSub || '') : '';
     setForm({ ...blankForm, name: defaultName || '', mmrSubCategory: mmrSubDefault });
-    const fy = {};
-    FY_COLUMNS.forEach((f) => { fy[f] = blankFyRecord(); });
-    setFyForms(fy);
+    setCalibrationRecords([blankCalibrationRecord()]);
     setFormError('');
   };
 
@@ -280,40 +321,78 @@ export default function CalibrationList({
       notes:           item.notes || '',
       mmrSubCategory:  item.mmrSubCategory || '',
     });
-    const byFy = {};
-    FY_COLUMNS.forEach((f) => { byFy[f] = blankFyRecord(); });
-    (item.records || []).forEach((r) => {
-      byFy[r.fiscalYear] = {
-        qcVerifiedBy:           r.qcVerifiedBy || '',
-        verifiedOn:             toDateInput(r.verifiedOn),
-        certificateNo:          r.certificateNo || '',
-        calibratedOn:           toDateInput(r.calibratedOn),
-        dueDate:                toDateInput(r.dueDate),
-        recallDate:             toDateInput(r.recallDate),
-        certificateAttachment:  r.certificateAttachment || '',
-      };
-    });
-    setFyForms(byFy);
+    // Carry every existing FY record into the form so they remain visible
+    // and untouched when the user adds a new one. Append one empty row at
+    // the end as the slot for the next calibration.
+    const existing = (item.records || []).map((r) => ({
+      qcVerifiedBy:           r.qcVerifiedBy || '',
+      verifiedOn:             toDateInput(r.verifiedOn),
+      certificateNo:          r.certificateNo || '',
+      calibratedOn:           toDateInput(r.calibratedOn),
+      dueDate:                toDateInput(r.dueDate),
+      recallDate:             toDateInput(r.recallDate),
+      certificateAttachment:  r.certificateAttachment || '',
+      originalFy:             r.fiscalYear || '',
+    }));
+    setCalibrationRecords([...existing, blankCalibrationRecord()]);
     setFormError('');
   };
 
   const closeForm = () => {
     setEditing(null);
     setForm(blankForm);
-    setFyForms({});
+    setCalibrationRecords([]);
     setFormError('');
   };
 
-  const buildRecordsPayload = () =>
-    FY_COLUMNS
-      .map((fy) => ({ fiscalYear: fy, ...fyForms[fy] }))
-      .filter((r) => r.qcVerifiedBy || r.verifiedOn || r.certificateNo || r.calibratedOn || r.dueDate || r.recallDate)
-      .map((r) => {
-        const out = { fiscalYear: r.fiscalYear };
-        ['qcVerifiedBy', 'certificateNo'].forEach((k) => { out[k] = r[k] || null; });
-        ['verifiedOn', 'calibratedOn', 'dueDate', 'recallDate'].forEach((k) => { out[k] = r[k] || null; });
-        return out;
+  const addCalibrationRecord = () => {
+    setCalibrationRecords((prev) => [...prev, blankCalibrationRecord()]);
+  };
+
+  const removeCalibrationRecord = (idx) => {
+    setCalibrationRecords((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateCalibrationField = (idx, field, value) => {
+    setCalibrationRecords((prev) =>
+      prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r))
+    );
+  };
+
+  // Returns { records, error }. Each kept record carries `fiscalYear` (the
+  // computed target FY) and `originalFy` so the save loop knows whether the
+  // record moved FYs.
+  const buildRecordsPayload = () => {
+    const seen = new Map();
+    const out = [];
+    for (const r of calibrationRecords) {
+      const fy = targetFyForRecord(r);
+      const hasAny = r.qcVerifiedBy || r.verifiedOn || r.certificateNo
+        || r.calibratedOn || r.dueDate || r.recallDate || r.certificateAttachment;
+      if (!fy) {
+        if (hasAny) {
+          return { error: 'Enter a "Calibrated on" date so its fiscal year can be set.' };
+        }
+        continue; // entirely empty row → skip silently
+      }
+      if (seen.has(fy)) {
+        return { error: `Two calibrations would land in ${fy}. Each fiscal year supports only one record.` };
+      }
+      seen.set(fy, true);
+      out.push({
+        fiscalYear:            fy,
+        qcVerifiedBy:          r.qcVerifiedBy || null,
+        certificateNo:         r.certificateNo || null,
+        verifiedOn:            r.verifiedOn || null,
+        calibratedOn:          r.calibratedOn || null,
+        dueDate:               r.dueDate || null,
+        recallDate:            r.recallDate || null,
+        certificateAttachment: r.certificateAttachment || null,
+        originalFy:            r.originalFy || '',
       });
+    }
+    return { records: out };
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -346,20 +425,42 @@ export default function CalibrationList({
         return;
       }
 
+      const { records, error: recordsError } = buildRecordsPayload();
+      if (recordsError) {
+        setFormError(recordsError);
+        setSaving(false);
+        return;
+      }
+
       let itemId;
       if (editing === 'new') {
-        const records = buildRecordsPayload();
-        const { data } = await api.post('/calibration', { ...payload, records });
+        // Strip transient fields the server doesn't accept on POST.
+        const newRecords = records.map(({ originalFy, certificateAttachment, ...rest }) => rest);
+        const { data } = await api.post('/calibration', { ...payload, records: newRecords });
         itemId = data.id;
       } else {
         const { data } = await api.put(`/calibration/${editing.id}`, payload);
         itemId = data.id;
-        // Upsert each FY record that has any value set.
-        const records = buildRecordsPayload();
-        for (const rec of records) {
+
+        // Compare original FYs against the new target set so we delete only
+        // the rows the user actually dropped (or moved into a different FY).
+        const originalFys = new Set((editing.records || []).map((r) => r.fiscalYear).filter(Boolean));
+        const newFys      = new Set(records.map((r) => r.fiscalYear));
+
+        for (const fy of originalFys) {
+          if (!newFys.has(fy)) {
+            await api.delete(`/calibration/${itemId}/records/${encodeURIComponent(fy)}`);
+          }
+        }
+
+        // Upsert each current record under its target FY. The server keeps
+        // certificateAttachment when it's passed through, so a moved record
+        // doesn't lose its uploaded PDF.
+        for (const r of records) {
+          const { originalFy, ...recordPayload } = r;
           await api.put(
-            `/calibration/${itemId}/records/${encodeURIComponent(rec.fiscalYear)}`,
-            rec
+            `/calibration/${itemId}/records/${encodeURIComponent(r.fiscalYear)}`,
+            recordPayload
           );
         }
       }
@@ -386,20 +487,38 @@ export default function CalibrationList({
     }
   };
 
-  const handleCertUpload = async (itemId, fy, file) => {
+  const handleCertUpload = async (idx, file) => {
     if (!file) return;
+    if (editing === 'new' || !editing?.id) {
+      alert('Save the entry first, then upload the certificate.');
+      return;
+    }
+    const rec = calibrationRecords[idx];
+    const fy = targetFyForRecord(rec);
+    if (!fy) {
+      alert('Set the "Calibrated on" date before uploading the certificate.');
+      return;
+    }
     const fd = new FormData();
     fd.append('certificate', file);
     try {
       const { data } = await api.post(
-        `/calibration/${itemId}/records/${encodeURIComponent(fy)}/certificate`,
+        `/calibration/${editing.id}/records/${encodeURIComponent(fy)}/certificate`,
         fd,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
-      setFyForms((prev) => ({
-        ...prev,
-        [fy]: { ...(prev[fy] || blankFyRecord()), certificateAttachment: data.certificateAttachment || '' },
-      }));
+      setCalibrationRecords((prev) =>
+        prev.map((r, i) => {
+          if (i !== idx) return r;
+          return {
+            ...r,
+            certificateAttachment: data.certificateAttachment || '',
+            // Treat this record as saved-at-this-FY so subsequent saves
+            // know whether the FY has since moved.
+            originalFy: r.originalFy || fy,
+          };
+        })
+      );
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to upload certificate');
     }
@@ -612,7 +731,7 @@ export default function CalibrationList({
                   <Th rowSpan={2}>S.no</Th>
                   <Th rowSpan={2}>RAP S.no</Th>
                   <Th rowSpan={2} groupEnd>Located at</Th>
-                  {FY_COLUMNS.map((fy) => {
+                  {fyColumns.map((fy) => {
                     const collapsed = isFyCollapsed(fy);
                     return (
                       <Th
@@ -639,7 +758,7 @@ export default function CalibrationList({
                   {canEdit && <Th rowSpan={2}>Actions</Th>}
                 </tr>
                 <tr>
-                  {FY_COLUMNS.flatMap((fy) => {
+                  {fyColumns.flatMap((fy) => {
                     if (isFyCollapsed(fy)) return [];
                     return [
                       <Th key={`${fy}-qc`}>QC Verif. by</Th>,
@@ -714,7 +833,7 @@ export default function CalibrationList({
                         ) : <Dash />}
                       </Td>
 
-                      {FY_COLUMNS.flatMap((fy) => {
+                      {fyColumns.flatMap((fy) => {
                         const r = fyMap[fy] || {};
                         const due = r.dueDate;
                         const status = dueStatus(due);
@@ -918,101 +1037,127 @@ export default function CalibrationList({
               <Input label="Periodicity" value={form.periodicity} onChange={(e) => setForm({ ...form, periodicity: e.target.value })} />
             </FormSection>
 
-            {/* Per-FY editor */}
-            {FY_COLUMNS.map((fy) => {
-              const rec = fyForms[fy] || blankFyRecord();
-              const collapsed = isFyCollapsed(fy);
-              return (
-                <div key={fy} className="space-y-3">
-                  <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
-                    <button
-                      type="button"
-                      onClick={() => toggleFy(fy)}
-                      className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest font-bold text-navy-700 hover:text-navy-900 transition-colors"
-                    >
-                      {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                      <span>{`Calibration · ${fy}`}</span>
-                    </button>
-                    <span className="flex-1 h-px bg-gradient-to-r from-navy-100 to-transparent" />
-                  </div>
-                  {!collapsed && (
-                  <div className="space-y-3">
-                  <div className="grid grid-cols-3 gap-3">
-                    <Input
-                      label="Calibration certificate QC Verification by"
-                      value={rec.qcVerifiedBy}
-                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], qcVerifiedBy: e.target.value } }))}
-                    />
-                    <Input
-                      label="Verified on"
-                      type="date"
-                      value={rec.verifiedOn}
-                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], verifiedOn: e.target.value } }))}
-                    />
-                    <Input
-                      label="Certificate no."
-                      value={rec.certificateNo}
-                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], certificateNo: e.target.value } }))}
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <Input
-                      label="Calibrated on"
-                      type="date"
-                      value={rec.calibratedOn}
-                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], calibratedOn: e.target.value } }))}
-                    />
-                    <Input
-                      label="Calibration due date"
-                      type="date"
-                      value={rec.dueDate}
-                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], dueDate: e.target.value } }))}
-                    />
-                    <Input
-                      label="Recall date"
-                      type="date"
-                      value={rec.recallDate}
-                      onChange={(e) => setFyForms((p) => ({ ...p, [fy]: { ...p[fy], recallDate: e.target.value } }))}
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Certificate PDF</label>
-                      <div className="flex items-center gap-2">
-                        {editing !== 'new' && (
-                          <label className="inline-flex items-center gap-1.5 px-3 py-2 text-xs rounded-md border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer">
-                            <Upload size={12} /> Upload
-                            <input
-                              type="file"
-                              accept="application/pdf"
-                              className="hidden"
-                              onChange={(e) => handleCertUpload(editing.id, fy, e.target.files?.[0])}
-                            />
-                          </label>
-                        )}
-                        {rec.certificateAttachment ? (
-                          <a
-                            href={`${API_ORIGIN}${rec.certificateAttachment}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-navy-600 hover:text-navy-800"
-                          >
-                            <Eye size={12} /> View
-                          </a>
+            <FormSection title="Calibrations">
+              <p className="text-[11px] text-gray-500 -mt-1">
+                Fiscal year is set automatically from the "Calibrated on" date — April → March = FY YY-YY+1.
+              </p>
+              {calibrationRecords.map((rec, idx) => {
+                const fy = targetFyForRecord(rec);
+                const isSaved = !!rec.originalFy;
+                const fyMoved = isSaved && fy && fy !== rec.originalFy;
+                return (
+                  <div
+                    key={idx}
+                    className={`rounded-lg border ${isSaved ? 'border-gray-200 bg-gray-50/60' : 'border-navy-200 bg-navy-50/30'} p-3 space-y-3`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] uppercase tracking-widest font-bold text-navy-700">
+                          {isSaved ? `Calibration · ${rec.originalFy}` : 'New calibration'}
+                        </span>
+                        {fy ? (
+                          <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ring-1 ${
+                            fyMoved
+                              ? 'bg-amber-50 text-amber-700 ring-amber-200'
+                              : 'bg-violet-50 text-violet-700 ring-violet-200'
+                          }`}>
+                            {fyMoved ? `Will move to ${fy}` : `FY: ${fy}`}
+                          </span>
                         ) : (
-                          <span className="text-xs text-gray-400">No file</span>
+                          <span className="text-[10px] text-gray-400 italic">
+                            Set "Calibrated on" — FY will be filled in
+                          </span>
                         )}
                       </div>
+                      {calibrationRecords.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeCalibrationRecord(idx)}
+                          className="p-1 rounded-md hover:bg-rose-100 text-gray-400 hover:text-rose-600 transition-colors"
+                          title={isSaved ? 'Remove this calibration (will be deleted on save)' : 'Remove this row'}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <Input
+                        label="Calibration certificate QC Verification by"
+                        value={rec.qcVerifiedBy}
+                        onChange={(e) => updateCalibrationField(idx, 'qcVerifiedBy', e.target.value)}
+                      />
+                      <Input
+                        label="Verified on"
+                        type="date"
+                        value={rec.verifiedOn}
+                        onChange={(e) => updateCalibrationField(idx, 'verifiedOn', e.target.value)}
+                      />
+                      <Input
+                        label="Certificate no."
+                        value={rec.certificateNo}
+                        onChange={(e) => updateCalibrationField(idx, 'certificateNo', e.target.value)}
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <Input
+                        label="Calibrated on *"
+                        type="date"
+                        value={rec.calibratedOn}
+                        onChange={(e) => updateCalibrationField(idx, 'calibratedOn', e.target.value)}
+                      />
+                      <Input
+                        label="Calibration due date"
+                        type="date"
+                        value={rec.dueDate}
+                        onChange={(e) => updateCalibrationField(idx, 'dueDate', e.target.value)}
+                      />
+                      <Input
+                        label="Recall date"
+                        type="date"
+                        value={rec.recallDate}
+                        onChange={(e) => updateCalibrationField(idx, 'recallDate', e.target.value)}
+                      />
+                    </div>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <label className="block text-sm font-medium text-gray-700">Certificate PDF:</label>
+                      {editing !== 'new' && (
+                        <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer">
+                          <Upload size={12} /> Upload
+                          <input
+                            type="file"
+                            accept="application/pdf"
+                            className="hidden"
+                            onChange={(e) => handleCertUpload(idx, e.target.files?.[0])}
+                          />
+                        </label>
+                      )}
+                      {rec.certificateAttachment ? (
+                        <a
+                          href={`${API_ORIGIN}${rec.certificateAttachment}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-navy-600 hover:text-navy-800"
+                        >
+                          <Eye size={12} /> View
+                        </a>
+                      ) : (
+                        <span className="text-xs text-gray-400">No file</span>
+                      )}
                       {editing === 'new' && (
-                        <p className="text-[10px] text-gray-400 mt-1">Save the entry first, then upload the certificate.</p>
+                        <span className="text-[10px] text-gray-400">Save the entry first, then upload.</span>
                       )}
                     </div>
                   </div>
-                  </div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
+              <button
+                type="button"
+                onClick={addCalibrationRecord}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-dashed border-navy-300 text-navy-700 hover:bg-navy-50 transition-colors"
+              >
+                <Plus size={12} /> Add another calibration
+              </button>
+            </FormSection>
 
             <FormSection title="Notes">
               <Textarea label="Internal notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -1021,7 +1166,7 @@ export default function CalibrationList({
             <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
               <Button variant="secondary" type="button" onClick={closeForm}>Cancel</Button>
               <Button type="submit" disabled={saving}>
-                {saving ? 'Saving...' : (editing === 'new' ? 'Create Entry' : 'Save Changes')}
+                {saving ? 'Saving...' : (editing === 'new' ? 'Create Entry' : 'Update')}
               </Button>
             </div>
           </form>

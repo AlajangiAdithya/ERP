@@ -154,6 +154,14 @@ const closureDocUpload = multer({
   limits: { fileSize: SIZE_DOC },
 });
 
+// AMC contracts / fire-extinguisher service slips attached to the Machinery
+// register. PDFs or scanned images — Safety uploads originals; everyone reads.
+const amcDocUpload = multer({
+  storage: makeStorage('amc-docs'),
+  fileFilter: pdfOrImage,
+  limits: { fileSize: SIZE_PDF },
+});
+
 const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
 
 module.exports = {
@@ -169,6 +177,7 @@ module.exports = {
   fimGpUpload,
   calibrationCertUpload,
   closureDocUpload,
+  amcDocUpload,
   publicUrlFor,
   UPLOAD_ROOT,
 };

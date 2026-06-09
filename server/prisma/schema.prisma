@@ -90,6 +90,10 @@ model User {
   vehicleTripsCreated    VehicleTrip[] @relation("VehicleTripCreator")
   vehicleTripsDispatched VehicleTrip[] @relation("VehicleTripDispatcher")
   vehicleTripsReturned   VehicleTrip[] @relation("VehicleTripReturner")
+
+  // ── Machinery + Fire Extinguisher register (Safety dept owns it; Unit-5 also edits) ──
+  machineryCreated         Machinery[]        @relation("MachineryCreator")
+  fireExtinguishersCreated FireExtinguisher[] @relation("FireExtinguisherCreator")
 }
 
 model Session {
@@ -1935,4 +1939,56 @@ model Notification {
   sentBy       User?    @relation("SentBy", fields: [sentById], references: [id])
   isRead       Boolean  @default(false)
   createdAt    DateTime @default(now())
+}
+
+// ──────────────────────────────────────────────────────────────
+// Machinery register (master list of every machine on the shop floor)
+// Owned by Safety; Unit-5 users also have edit rights. Everyone else views.
+// AMC = Annual Maintenance Contract — status text + optional attachment.
+// ──────────────────────────────────────────────────────────────
+model Machinery {
+  id              String   @id @default(uuid())
+  serialNumber    Int                                          // S. No (display ordering)
+  name            String                                       // Name of Machinery / Equipment
+  capacity        String?                                      // Capacity / Size (multiline OK)
+  makeModel       String?                                      // Make & Model
+  machineSerialNo String?                                      // Serial No printed on the machine
+  rapsId          String   @unique                             // RAPS ID No (e.g. RAMS/HP-01/LM/01)
+  place           String?                                      // Place of Machine (Unit-1, Unit-5, Unit-1A …)
+  remarks         String?
+  amcStatus       String?                                      // ACTIVE / EXPIRED / NA / free-text
+  amcVendor       String?
+  amcExpiry       DateTime?
+  amcAttachment   String?                                      // /uploads/amc-docs/…
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdById     String?
+  createdBy       User?    @relation("MachineryCreator", fields: [createdById], references: [id])
+
+  @@index([serialNumber])
+  @@index([place])
+}
+
+// ──────────────────────────────────────────────────────────────
+// Fire Extinguisher register (separate tab on the Machinery page)
+// Same access rules as Machinery.
+// ──────────────────────────────────────────────────────────────
+model FireExtinguisher {
+  id           String    @id @default(uuid())
+  serialNumber Int                                              // Ser No within the unit list
+  type         String                                           // "Dry Powder ABC" / "Carbon Dioxide"
+  capacity     String                                           // "4 Kgs" / "6 Kgs" / "4.5 Kgs"
+  rapsId       String    @unique                                // RAMS/ABC-01/FE-01
+  refilledOn   DateTime?
+  nextDueOn    DateTime?
+  unit         String                                           // Unit-1, Unit-2, …
+  location     String?                                          // free-text install spot
+  attachment   String?                                          // /uploads/amc-docs/…
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  createdById  String?
+  createdBy    User?     @relation("FireExtinguisherCreator", fields: [createdById], references: [id])
+
+  @@index([unit])
+  @@index([nextDueOn])
 }

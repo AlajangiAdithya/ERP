@@ -45,10 +45,12 @@ import WeighingBalances from './pages/metrology/WeighingBalances';
 import TestingEquipment from './pages/metrology/TestingEquipment';
 import MetrologyInstruments from './pages/metrology/MetrologyInstruments';
 import MMR from './pages/metrology/MMR';
+import MetrologyCategoryView from './pages/metrology/CategoryView';
+import MachineryRegister from './pages/MachineryRegister';
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'LAB', 'METROLOGY', 'NDT'];
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
 
 // Metrology calibration registers access (per access chart RAPS/QSP):
 // Full edit = METROLOGY, QC, MANAGER@UNIT-V.
@@ -196,10 +198,10 @@ export default function App() {
                 <PrivateRoute allowedRoles={CHAIN_ROLES}><QCInspections /></PrivateRoute>
               } />
 
-              {/* Inward Entry — Stores does the work; Manager/QC/Designs/R&D
+              {/* Inward Entry — Stores does the work; Manager/QC/Designs/R&D/Safety
                   get read-only access for traceability. */}
               <Route path="/inward-entry" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'DESIGNS', 'RND']}><InwardEntry /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'SAFETY']}><InwardEntry /></PrivateRoute>
               } />
               <Route path="/stock-movements" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY']}><StockMovements /></PrivateRoute>
@@ -263,6 +265,14 @@ export default function App() {
               } />
               <Route path="/metrology/mmr" element={
                 <PrivateRoute allowedRoles={METROLOGY_VIEW_ROLES}><MMR /></PrivateRoute>
+              } />
+              <Route path="/metrology/category/:slug" element={
+                <PrivateRoute allowedRoles={METROLOGY_VIEW_ROLES}><MetrologyCategoryView /></PrivateRoute>
+              } />
+
+              {/* Safety / HSE — Machinery + Fire Extinguisher register (everyone views, SAFETY + Unit-5 edit) */}
+              <Route path="/machinery" element={
+                <PrivateRoute><MachineryRegister /></PrivateRoute>
               } />
 
               {/* SUPERADMIN-only — owner hatch */}

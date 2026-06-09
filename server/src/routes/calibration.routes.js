@@ -169,7 +169,7 @@ const sanitizeRecord = (body, { partial = false } = {}) => {
     if (!fy) throw new Error('Fiscal year is required');
     data.fiscalYear = fy;
   }
-  ['qcVerifiedBy', 'certificateNo'].forEach((k) => {
+  ['qcVerifiedBy', 'certificateNo', 'certificateAttachment'].forEach((k) => {
     if (body[k] !== undefined) {
       data[k] = body[k] === null || body[k] === '' ? null : String(body[k]).trim();
     }

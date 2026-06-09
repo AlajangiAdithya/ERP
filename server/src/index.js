@@ -30,6 +30,8 @@ const supplierRoutes = require('./routes/supplier.routes');
 const workOrderRoutes = require('./routes/workOrder.routes');
 const superadminRoutes = require('./routes/superadmin.routes');
 const calibrationRoutes = require('./routes/calibration.routes');
+const machineryRoutes = require('./routes/machinery.routes');
+const fireExtinguisherRoutes = require('./routes/fireExtinguisher.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -97,6 +99,8 @@ app.use('/api/suppliers', supplierRoutes);
 app.use('/api/work-orders', workOrderRoutes);
 app.use('/api/superadmin', superadminRoutes);
 app.use('/api/calibration', calibrationRoutes);
+app.use('/api/machinery', machineryRoutes);
+app.use('/api/fire-extinguishers', fireExtinguisherRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

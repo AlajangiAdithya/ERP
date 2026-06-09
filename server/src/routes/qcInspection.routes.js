@@ -106,7 +106,7 @@ const INSPECTION_INCLUDE = {
 // GET /api/qc-inspections — list inspections.
 // Once an inspection report is filled, everyone in the originating PR chain (PR manager and
 // requester roles MANAGER/LAB/SAFETY) can see it scoped to PRs they raised.
-router.get('/', authenticate, authorize('ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING'), async (req, res) => {
+router.get('/', authenticate, authorize('ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'SAFETY'), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -167,7 +167,7 @@ router.get('/', authenticate, authorize('ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RN
 });
 
 // GET /api/qc-inspections/:id
-router.get('/:id', authenticate, authorize('ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING'), async (req, res) => {
+router.get('/:id', authenticate, authorize('ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'SAFETY'), async (req, res) => {
   try {
     const inspection = await prisma.qCInspection.findUnique({
       where: { id: req.params.id },
