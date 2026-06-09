@@ -200,12 +200,14 @@ export default function CalibrationList({
 
   // FY columns rendered in the register table: baseline plus every FY found
   // in the loaded data, so user-entered years outside the baseline still
-  // show up in the table.
+  // show up in the table. FY is derived from calibratedOn so records always
+  // land in the correct column regardless of any stored fiscalYear value.
   const fyColumns = useMemo(() => {
     const set = new Set(BASE_FY_COLUMNS);
     items.forEach((it) => {
       (it.records || []).forEach((r) => {
-        if (r.fiscalYear) set.add(r.fiscalYear);
+        const fy = r.calibratedOn ? computeFiscalYear(r.calibratedOn) : r.fiscalYear;
+        if (fy) set.add(fy);
       });
     });
     return Array.from(set).sort();
@@ -626,36 +628,6 @@ export default function CalibrationList({
             <StatChip active={statusFilter === 'overdue'} onClick={() => setStatusFilter(statusFilter === 'overdue' ? '' : 'overdue')} icon={<AlertTriangle size={14} />} label="Overdue"   value={stats.overdue} tone="rose" />
           </div>
 
-          {/* Category-wise counts */}
-          {bucketOptions && (() => {
-            const counts = {};
-            bucketOptions.forEach((o) => { counts[o.value] = 0; });
-            items.forEach((it) => {
-              const key = unified
-                ? (unifiedCategories.find((g) => matchesUnified(it, g))?.value || 'OTHER')
-                : (it.mmrSubCategory || 'OTHER');
-              if (counts[key] !== undefined) counts[key]++;
-              else counts['OTHER'] = (counts['OTHER'] || 0) + 1;
-            });
-            return (
-              <div className="flex flex-wrap gap-2 mt-4">
-                {bucketOptions.map((o) => (
-                  <div
-                    key={o.value}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                      mmrSub === o.value
-                        ? 'bg-white/25 text-white ring-1 ring-white/40'
-                        : 'bg-white/10 text-white/80 hover:bg-white/15'
-                    }`}
-                    onClick={() => setMmrSub(mmrSub === o.value ? '' : o.value)}
-                  >
-                    <span className="text-sm font-bold tabular-nums">{counts[o.value] || 0}</span>
-                    <span className="truncate max-w-[180px]">{o.label}</span>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
         </div>
       </div>
 
@@ -1218,9 +1190,15 @@ export default function CalibrationList({
 }
 
 // ── helpers ──
+// Bucket records by FY using the calibratedOn date as the source of truth, so
+// each record displays in the FY column its calibration date actually falls in.
+// Falls back to the stored fiscalYear if no calibratedOn is set.
 function recordsByFy(records = []) {
   const m = {};
-  records.forEach((r) => { m[r.fiscalYear] = r; });
+  records.forEach((r) => {
+    const fy = r.calibratedOn ? computeFiscalYear(r.calibratedOn) : r.fiscalYear;
+    if (fy) m[fy] = r;
+  });
   return m;
 }
 

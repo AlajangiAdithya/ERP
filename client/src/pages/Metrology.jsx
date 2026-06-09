@@ -1,9 +1,35 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Gauge, Wind, Scale, FlaskConical, Ruler, Flame, Truck, Search, Box,
   Sparkles, ArrowRight, ListChecks,
+  Activity, CheckCircle2, Clock, AlertTriangle,
 } from 'lucide-react';
+import api from '../api/axios';
 import CalibrationList from './metrology/CalibrationList';
+
+// Pick the latest dueDate across a row's FY records, falling back to the
+// item-level snapshot. Mirrors the logic inside CalibrationList so the
+// dashboard summary matches what each register shows.
+const latestDueDate = (item) => {
+  let latest = null;
+  (item.records || []).forEach((r) => {
+    if (!r.dueDate) return;
+    const d = new Date(r.dueDate);
+    if (!latest || d > latest) latest = d;
+  });
+  return latest || item.calibrationDueDate || null;
+};
+
+const daysUntil = (d) => Math.ceil((new Date(d) - new Date()) / (1000 * 60 * 60 * 24));
+
+const dueTone = (due) => {
+  if (!due) return 'healthy';
+  const days = daysUntil(due);
+  if (days < 0)   return 'overdue';
+  if (days <= 30) return 'dueSoon';
+  return 'healthy';
+};
 
 // Single unified register for every calibrated instrument. Each group below
 // rolls up both the legacy top-level `category` rows (PRESSURE_GAUGE, …) and
@@ -172,6 +198,29 @@ export const CATEGORY_CARDS = [
 ];
 
 export default function Metrology() {
+  const [items, setItems] = useState([]);
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/calibration')
+      .then(({ data }) => { if (!cancelled) setItems(data.items || []); })
+      .catch((err) => console.error('Fetch calibration items failed', err))
+      .finally(() => { if (!cancelled) setLoadingStats(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const stats = useMemo(() => {
+    let overdue = 0, dueSoon = 0, healthy = 0;
+    items.forEach((it) => {
+      const tone = dueTone(latestDueDate(it));
+      if (tone === 'overdue') overdue++;
+      else if (tone === 'dueSoon') dueSoon++;
+      else healthy++;
+    });
+    return { total: items.length, overdue, dueSoon, healthy };
+  }, [items]);
+
   return (
     <div className="space-y-7">
       {/* Hero */}
@@ -193,6 +242,42 @@ export default function Metrology() {
             down for the full list of every monitoring instrument on file.
           </p>
         </div>
+      </div>
+
+      {/* Dashboard summary — totals across every monitoring instrument */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <SummaryCard
+          icon={<Activity size={18} />}
+          label="Total instruments"
+          value={stats.total}
+          loading={loadingStats}
+          gradient="from-navy-600 to-navy-800"
+          iconBg="bg-navy-100 text-navy-700"
+        />
+        <SummaryCard
+          icon={<CheckCircle2 size={18} />}
+          label="Healthy"
+          value={stats.healthy}
+          loading={loadingStats}
+          gradient="from-emerald-500 to-green-600"
+          iconBg="bg-emerald-100 text-emerald-700"
+        />
+        <SummaryCard
+          icon={<Clock size={18} />}
+          label="Due ≤ 30 days"
+          value={stats.dueSoon}
+          loading={loadingStats}
+          gradient="from-amber-500 to-orange-500"
+          iconBg="bg-amber-100 text-amber-700"
+        />
+        <SummaryCard
+          icon={<AlertTriangle size={18} />}
+          label="Overdue"
+          value={stats.overdue}
+          loading={loadingStats}
+          gradient="from-rose-500 to-red-600"
+          iconBg="bg-rose-100 text-rose-700"
+        />
       </div>
 
       {/* Category cards */}
@@ -250,6 +335,27 @@ export default function Metrology() {
           unifiedCategories={UNIFIED_CATEGORIES}
           hideBack
         />
+      </div>
+    </div>
+  );
+}
+
+function SummaryCard({ icon, label, value, loading, gradient, iconBg }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-white border border-navy-100/60 shadow-card p-4">
+      <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${gradient}`} />
+      <div className="flex items-center justify-between gap-3">
+        <div className={`p-2.5 rounded-xl ${iconBg} ring-1 ring-black/5`}>
+          {icon}
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-500">
+            {label}
+          </div>
+          <div className="text-2xl font-bold text-navy-800 tabular-nums leading-tight">
+            {loading ? <span className="text-gray-300">—</span> : value}
+          </div>
+        </div>
       </div>
     </div>
   );
