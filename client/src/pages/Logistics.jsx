@@ -34,6 +34,7 @@ export default function Logistics() {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [multiDispatch, setMultiDispatch] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -68,9 +69,14 @@ export default function Logistics() {
         eyebrow="Dispatch Desk"
         icon={Truck}
         actions={
-          <Button variant="secondary" onClick={refresh}>
-            <RefreshCw size={14} /> Refresh
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setMultiDispatch(true)}>
+              <Package size={14} /> Multi-Dispatch
+            </Button>
+            <Button variant="secondary" onClick={refresh}>
+              <RefreshCw size={14} /> Refresh
+            </Button>
+          </div>
         }
       />
 
@@ -108,6 +114,13 @@ export default function Logistics() {
           gatePass={detail}
           onClose={() => setDetail(null)}
           onAction={() => { refresh(); }}
+        />
+      )}
+
+      {multiDispatch && (
+        <MultiDispatchModal
+          onClose={() => setMultiDispatch(false)}
+          onDone={() => { setMultiDispatch(false); refresh(); }}
         />
       )}
     </div>
@@ -273,7 +286,12 @@ function DispatchModal({ gatePass: initial, onClose, onAction }) {
           <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm">
             <p className="text-xs font-medium text-blue-800 mb-1">Assigned Vehicle</p>
             <p className="font-mono text-blue-900">{g.assignedVehicle.regNumber}</p>
-            {(g.assignedVehicle.driverName || g.assignedVehicle.driverPhone) && (
+            {g.assignedDriver ? (
+              <p className="text-xs text-blue-700 mt-0.5">
+                Driver: {g.assignedDriver.name}
+                {g.assignedDriver.phone && ` · ${g.assignedDriver.phone}`}
+              </p>
+            ) : (g.assignedVehicle.driverName || g.assignedVehicle.driverPhone) && (
               <p className="text-xs text-blue-700 mt-0.5">
                 {g.assignedVehicle.driverName}
                 {g.assignedVehicle.driverPhone && ` · ${g.assignedVehicle.driverPhone}`}
@@ -301,7 +319,9 @@ function DispatchModal({ gatePass: initial, onClose, onAction }) {
 
 function DispatchBox({ g, busy, setBusy, setError, onAssigned, onDispatched }) {
   const [vehicles, setVehicles] = useState([]);
+  const [drivers, setDrivers] = useState([]);
   const [vehicleId, setVehicleId] = useState(g.assignedVehicleId || '');
+  const [driverId, setDriverId] = useState(g.assignedDriverId || '');
   const [signedPdf, setSignedPdf] = useState(null);
   const [remarks, setRemarks] = useState('');
 
@@ -309,6 +329,9 @@ function DispatchBox({ g, busy, setBusy, setError, onAssigned, onDispatched }) {
     api.get('/vehicles', { params: { status: 'ACTIVE' } })
       .then(({ data }) => setVehicles(data.vehicles || []))
       .catch(() => setVehicles([]));
+    api.get('/drivers', { params: { status: 'ACTIVE' } })
+      .then(({ data }) => setDrivers(data.drivers || []))
+      .catch(() => setDrivers([]));
   }, []);
 
   const assigned = !!g.assignedVehicleId;
@@ -317,7 +340,10 @@ function DispatchBox({ g, busy, setBusy, setError, onAssigned, onDispatched }) {
     if (!vehicleId) return setError('Pick a vehicle');
     setError(''); setBusy(true);
     try {
-      await api.put(`/gatepasses/${g.id}/logistics-assign`, { vehicleId });
+      await api.put(`/gatepasses/${g.id}/logistics-assign`, {
+        vehicleId,
+        driverId: driverId || undefined,
+      });
       onAssigned();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to assign vehicle');
@@ -347,22 +373,32 @@ function DispatchBox({ g, busy, setBusy, setError, onAssigned, onDispatched }) {
   return (
     <div className="p-3 bg-amber-50 border border-amber-200 rounded space-y-3">
       <p className="text-xs font-medium text-amber-800">
-        {assigned ? 'Vehicle assigned — confirm dispatch' : 'Assign a vehicle from the register'}
+        {assigned ? 'Vehicle assigned — confirm dispatch' : 'Assign a vehicle + driver from the register'}
       </p>
 
       {!assigned && (
         <>
-          <Select label="Vehicle *" value={vehicleId} onChange={e => setVehicleId(e.target.value)}>
-            <option value="">— Select a vehicle —</option>
-            {vehicles.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.regNumber} · {v.vehicleType || 'Vehicle'} · {v.driverName || 'No driver'}
-              </option>
-            ))}
-          </Select>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Select label="Vehicle *" value={vehicleId} onChange={e => setVehicleId(e.target.value)}>
+              <option value="">— Select a vehicle —</option>
+              {vehicles.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.regNumber} · {v.vehicleType || 'Vehicle'}
+                </option>
+              ))}
+            </Select>
+            <Select label="Driver" value={driverId} onChange={e => setDriverId(e.target.value)}>
+              <option value="">— Select a driver (optional) —</option>
+              {drivers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}{d.phone ? ` · ${d.phone}` : ''}
+                </option>
+              ))}
+            </Select>
+          </div>
           {vehicles.length === 0 && (
             <p className="text-xs text-amber-700">
-              No active vehicles in the register. Add one in <span className="font-medium">Vehicles</span> first.
+              No active vehicles in the register. Add one in <span className="font-medium">Vehicle Movement</span> first.
             </p>
           )}
           <div className="flex justify-end">
@@ -399,6 +435,120 @@ function DispatchBox({ g, busy, setBusy, setError, onAssigned, onDispatched }) {
         </>
       )}
     </div>
+  );
+}
+
+// Multi-dispatch: pick one vehicle + one driver, select multiple pending
+// gatepasses, and create a VehicleTrip that bundles them together.
+function MultiDispatchModal({ onClose, onDone }) {
+  const [vehicles, setVehicles] = useState([]);
+  const [drivers, setDrivers] = useState([]);
+  const [passes, setPasses] = useState([]);
+  const [vehicleId, setVehicleId] = useState('');
+  const [driverId, setDriverId] = useState('');
+  const [selected, setSelected] = useState([]);
+  const [purpose, setPurpose] = useState('');
+  const [destination, setDestination] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/vehicles', { params: { status: 'ACTIVE' } }).then(r => r.data.vehicles || []).catch(() => []),
+      api.get('/drivers', { params: { status: 'ACTIVE' } }).then(r => r.data.drivers || []).catch(() => []),
+      api.get('/gatepasses', { params: { direction: 'OUTWARD', status: 'PENDING_LOGISTICS', limit: 200 } })
+        .then(r => r.data.gatePasses || []).catch(() => []),
+    ]).then(([v, d, p]) => {
+      setVehicles(v); setDrivers(d); setPasses(p);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  const toggle = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+
+  const submit = async () => {
+    setErr('');
+    if (!vehicleId) return setErr('Select a vehicle');
+    if (!selected.length) return setErr('Select at least one gate pass');
+    try {
+      setSaving(true);
+      await api.post('/vehicle-trips', {
+        vehicleId,
+        driverId: driverId || undefined,
+        gatePassIds: selected,
+        purpose: purpose.trim() || undefined,
+        destination: destination.trim() || undefined,
+        remarks: remarks.trim() || undefined,
+        dispatch: true,
+      });
+      onDone?.();
+    } catch (e) {
+      setErr(e.response?.data?.error || 'Failed');
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return (
+    <Modal isOpen onClose={onClose} title="Multi-Dispatch" size="lg">
+      <div className="p-8 text-center text-gray-500 text-sm">Loading…</div>
+    </Modal>
+  );
+
+  return (
+    <Modal isOpen onClose={onClose} title="Multi-Dispatch — Batch Gate Passes" size="lg">
+      <div className="space-y-4">
+        <p className="text-xs text-gray-600">
+          Select 2+ pending gate passes heading to the same destination. They'll share one vehicle trip.
+        </p>
+        {err && <div className="text-sm text-brand-red">{err}</div>}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Select label="Vehicle *" value={vehicleId} onChange={e => setVehicleId(e.target.value)}>
+            <option value="">— Select —</option>
+            {vehicles.map(v => (
+              <option key={v.id} value={v.id}>{v.regNumber} · {v.vehicleType || 'Vehicle'}</option>
+            ))}
+          </Select>
+          <Select label="Driver" value={driverId} onChange={e => setDriverId(e.target.value)}>
+            <option value="">— Optional —</option>
+            {drivers.map(d => (
+              <option key={d.id} value={d.id}>{d.name}{d.phone ? ` · ${d.phone}` : ''}</option>
+            ))}
+          </Select>
+          <Input label="Purpose" value={purpose} onChange={e => setPurpose(e.target.value)} placeholder="e.g. Job delivery" />
+          <Input label="Destination" value={destination} onChange={e => setDestination(e.target.value)} placeholder="Party / place" />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            Pending Gate Passes ({passes.length} available) — select to attach:
+          </label>
+          {passes.length === 0 ? (
+            <p className="text-xs text-gray-500">No pending gate passes available.</p>
+          ) : (
+            <div className="max-h-52 overflow-y-auto border border-gray-200 rounded divide-y divide-gray-100">
+              {passes.map(p => (
+                <label key={p.id} className={`flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 ${selected.includes(p.id) ? 'bg-blue-50' : ''}`}>
+                  <input type="checkbox" checked={selected.includes(p.id)} onChange={() => toggle(p.id)} />
+                  <span className="font-mono text-xs text-navy-700 min-w-[110px]">{p.passNumber}</span>
+                  <span className="text-gray-700 truncate">{p.partyName || '—'}</span>
+                  <Badge color={p.kind === 'OUTSIDE' ? 'blue' : 'purple'}>{p.kind || '—'}</Badge>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <Textarea label="Remarks" rows={2} value={remarks} onChange={e => setRemarks(e.target.value)} />
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>
+            {saving ? 'Dispatching…' : `Dispatch ${selected.length} Pass${selected.length !== 1 ? 'es' : ''}`}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

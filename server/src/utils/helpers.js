@@ -76,6 +76,7 @@ const DOC_NUMBER_MAP = {
   PAY: { model: 'paymentRequest',           field: 'paymentNumber' },
   TRF: { model: 'inventoryTransferRequest', field: 'transferNumber' },
   WO:  { model: 'workOrder',                field: 'workOrderNumber' },
+  TRIP:{ model: 'vehicleTrip',              field: 'tripNumber' },
   INV: { model: 'workOrderClosure',         field: 'invoiceNumber' },
   WOQC:{ model: 'workOrderClosure',         field: 'qcCertificateNumber' },
 };

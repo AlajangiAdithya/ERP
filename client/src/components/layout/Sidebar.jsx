@@ -5,7 +5,7 @@ import {
   BarChart3, Settings, Menu, X,
   CheckSquare, ScrollText, Bell,
   Building2, ShieldCheck, Crown, Boxes, Ruler,
-  ClipboardList, Truck, DoorOpen,
+  ClipboardList, Truck, DoorOpen, IdCard,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -39,9 +39,10 @@ const buildAllItems = () => {
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'] },
     { to: '/gate-pass', icon: DoorOpen, label: 'Gate Pass', roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SITE_OFFICE'] },
     { to: '/logistics', icon: Truck, label: 'Logistics', roles: ['LOGISTICS', 'ADMIN'] },
-    // Vehicle register: LOGISTICS edits; everyone else views (trip history is
-    // useful traceability for managers, stores, accounts, etc.).
-    { to: '/vehicles', icon: Truck, label: 'Vehicles', roles: ALL_ROLES },
+    // Vehicle + Driver registers: LOGISTICS edits; everyone else views (trip
+    // history is useful traceability for managers, stores, accounts, etc.).
+    { to: '/vehicles', icon: Truck, label: 'Vehicle Movement', roles: ALL_ROLES },
+    { to: '/drivers', icon: IdCard, label: 'Driver Movement', roles: ALL_ROLES },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/all-requests', icon: ScrollText, label: 'All MIV Requests', roles: ['ADMIN', 'SAFETY'] },
     { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },

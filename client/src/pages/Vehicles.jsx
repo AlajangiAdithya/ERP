@@ -70,6 +70,7 @@ export default function Vehicles() {
   const [form, setForm] = useState(emptyForm());
   const [error, setError] = useState('');
   const [detail, setDetail] = useState(null);
+  const [showAdhoc, setShowAdhoc] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -144,11 +145,18 @@ export default function Vehicles() {
   return (
     <div className="space-y-6">
       <PageHero
-        title="Vehicle Register"
-        subtitle="Pool of vehicles used for gate-pass dispatches. Trip history per vehicle."
+        title="Vehicle Movement"
+        subtitle="Vehicles used for gate-pass dispatches and ad-hoc trips. Full movement history per vehicle."
         eyebrow="Logistics"
         icon={Truck}
-        actions={canEdit && <Button onClick={openCreate}><Plus size={16} /> Add Vehicle</Button>}
+        actions={canEdit && (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setShowAdhoc(true)}>
+              <Send size={16} /> Log Ad-hoc Trip
+            </Button>
+            <Button onClick={openCreate}><Plus size={16} /> Add Vehicle</Button>
+          </div>
+        )}
       />
 
       <div className="flex flex-wrap gap-3 items-end">
@@ -223,6 +231,14 @@ export default function Vehicles() {
         )}
       </Card>
 
+      {showAdhoc && (
+        <AdhocTripModal
+          vehicles={vehicles}
+          onClose={() => setShowAdhoc(false)}
+          onSaved={() => { setShowAdhoc(false); load(); }}
+        />
+      )}
+
       {showModal && (
         <Modal isOpen onClose={() => setShowModal(false)} title={editing ? 'Edit Vehicle' : 'Add Vehicle'}>
           <div className="space-y-3">
@@ -261,16 +277,20 @@ export default function Vehicles() {
 
 function VehicleDetail({ vehicleId, onBack }) {
   const [v, setV] = useState(null);
+  const [vehicleTrips, setVehicleTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tripFilter, setTripFilter] = useState('ALL');
   const [tripSearch, setTripSearch] = useState('');
 
   useEffect(() => {
     setLoading(true);
-    api.get(`/vehicles/${vehicleId}`)
-      .then(({ data }) => setV(data))
-      .catch(() => setV(null))
-      .finally(() => setLoading(false));
+    Promise.all([
+      api.get(`/vehicles/${vehicleId}`).then((r) => r.data).catch(() => null),
+      api.get('/vehicle-trips', { params: { vehicleId } }).then((r) => r.data?.trips || []).catch(() => []),
+    ]).then(([vehicle, list]) => {
+      setV(vehicle);
+      setVehicleTrips(list);
+    }).finally(() => setLoading(false));
   }, [vehicleId]);
 
   const trips = v?.gatePasses || [];
@@ -351,11 +371,13 @@ function VehicleDetail({ vehicleId, onBack }) {
         <Card><div className="p-4 text-sm whitespace-pre-wrap"><strong>Notes:</strong> {v.notes}</div></Card>
       )}
 
+      <TripsSection trips={vehicleTrips} />
+
       <Card>
         <div className="p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="font-semibold text-navy-700 flex items-center gap-2">
-              <Activity size={16} /> Previous Assignments ({stats.total})
+              <Activity size={16} /> Previous Gate-Pass Assignments ({stats.total})
             </h3>
             <div className="flex flex-wrap items-end gap-2">
               <Input
@@ -457,5 +479,159 @@ function Row({ label, value, mono }) {
       <span className="text-gray-500">{label}</span>
       <span className={`text-gray-800 ${mono ? 'font-mono' : ''}`}>{value || '—'}</span>
     </div>
+  );
+}
+
+const TRIP_BADGE = { SCHEDULED: 'yellow', IN_TRANSIT: 'blue', RETURNED: 'green', CANCELLED: 'gray' };
+
+function TripsSection({ trips }) {
+  if (!trips?.length) {
+    return (
+      <Card>
+        <div className="p-4 text-sm text-gray-500">
+          <h3 className="font-semibold text-navy-700 mb-1 flex items-center gap-2">
+            <Send size={16} /> Vehicle Trips
+          </h3>
+          No trips logged against this vehicle yet (gatepass dispatches and ad-hoc movements appear here).
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <div className="p-4 space-y-3">
+        <h3 className="font-semibold text-navy-700 flex items-center gap-2">
+          <Send size={16} /> Vehicle Trips ({trips.length})
+        </h3>
+        <div className="overflow-x-auto border border-gray-200 rounded">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b">
+              <tr className="text-left text-xs uppercase tracking-wider text-gray-600">
+                <th className="px-3 py-2">Trip No</th>
+                <th className="px-3 py-2">Driver</th>
+                <th className="px-3 py-2">Purpose / Destination</th>
+                <th className="px-3 py-2">Gate Passes</th>
+                <th className="px-3 py-2">Dispatched</th>
+                <th className="px-3 py-2">Returned</th>
+                <th className="px-3 py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {trips.map((t) => (
+                <tr key={t.id} className="hover:bg-gray-50">
+                  <td className="px-3 py-2 font-mono text-navy-700">{t.tripNumber}</td>
+                  <td className="px-3 py-2 text-gray-700">
+                    {t.driver?.name || t.driverNameSnap || '—'}
+                    {(t.driver?.phone || t.driverPhoneSnap) && (
+                      <div className="text-[10px] text-gray-500">{t.driver?.phone || t.driverPhoneSnap}</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-gray-700">
+                    {[t.purpose, t.destination].filter(Boolean).join(' → ') || '—'}
+                  </td>
+                  <td className="px-3 py-2 text-gray-700 text-xs">
+                    {t.gatePasses?.length
+                      ? t.gatePasses.map((g) => g.passNumber).join(', ')
+                      : <span className="italic text-gray-400">ad-hoc</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-gray-600">
+                    {t.dispatchedAt ? formatDateTime(t.dispatchedAt) : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-gray-600">
+                    {t.returnedAt ? formatDateTime(t.returnedAt) : '—'}
+                  </td>
+                  <td className="px-3 py-2">
+                    <Badge color={TRIP_BADGE[t.status] || 'gray'}>{t.status}</Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function AdhocTripModal({ vehicles, onClose, onSaved }) {
+  const [drivers, setDrivers] = useState([]);
+  const [vehicleId, setVehicleId] = useState('');
+  const [driverId, setDriverId] = useState('');
+  const [purpose, setPurpose] = useState('');
+  const [destination, setDestination] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [dispatchNow, setDispatchNow] = useState(true);
+  const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.get('/drivers', { params: { status: 'ACTIVE' } })
+      .then(({ data }) => setDrivers(data.drivers || []))
+      .catch(() => setDrivers([]));
+  }, []);
+
+  const submit = async () => {
+    setErr('');
+    if (!vehicleId) return setErr('Select a vehicle');
+    if (!purpose.trim() && !destination.trim()) return setErr('Enter a purpose or destination');
+    try {
+      setSaving(true);
+      await api.post('/vehicle-trips', {
+        vehicleId,
+        driverId: driverId || undefined,
+        purpose: purpose.trim() || undefined,
+        destination: destination.trim() || undefined,
+        remarks: remarks.trim() || undefined,
+        dispatch: dispatchNow,
+      });
+      onSaved?.();
+    } catch (e) {
+      setErr(e.response?.data?.error || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const activeVehicles = vehicles.filter((v) => v.status === 'ACTIVE');
+
+  return (
+    <Modal isOpen onClose={onClose} title="Log Ad-hoc Trip">
+      <div className="space-y-3">
+        <p className="text-xs text-gray-600">
+          Record a vehicle movement that has no gate pass attached (e.g., admin errand, vendor pickup, owner travel).
+          Captures vehicle + driver + purpose for traceability.
+        </p>
+        {err && <div className="text-sm text-brand-red">{err}</div>}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Select label="Vehicle *" value={vehicleId} onChange={(e) => setVehicleId(e.target.value)}>
+            <option value="">— Select —</option>
+            {activeVehicles.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.regNumber}{v.make ? ` · ${v.make}${v.model ? ' ' + v.model : ''}` : ''}
+              </option>
+            ))}
+          </Select>
+          <Select label="Driver" value={driverId} onChange={(e) => setDriverId(e.target.value)}>
+            <option value="">— Optional —</option>
+            {drivers.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}{d.phone ? ` · ${d.phone}` : ''}
+              </option>
+            ))}
+          </Select>
+          <Input label="Purpose" value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Vendor pickup, document drop…" />
+          <Input label="Destination" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="Place / party" />
+        </div>
+        <Textarea label="Remarks" rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={dispatchNow} onChange={(e) => setDispatchNow(e.target.checked)} />
+          Mark as dispatched now
+        </label>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Log Trip'}</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

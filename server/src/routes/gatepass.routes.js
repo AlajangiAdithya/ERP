@@ -47,6 +47,8 @@ const GATEPASS_INCLUDE = {
   // Gate Pass v2 relations
   requestedBy: USER_SELECT,
   assignedVehicle: VEHICLE_SELECT,
+  assignedDriver: { select: { id: true, name: true, phone: true, licenseNo: true, status: true } },
+  trip: { select: { id: true, tripNumber: true, status: true } },
   logisticsBy: USER_SELECT,
   siteOfficeAckBy: USER_SELECT,
   localReturnedBy: USER_SELECT,
@@ -675,10 +677,12 @@ router.put('/:id/store-review', authenticate, authorize('STORE_MANAGER', 'ADMIN'
 });
 
 // PUT /api/gatepasses/:id/logistics-assign
-// Logistics assigns a vehicle from the vehicle register.
+// Logistics assigns a vehicle (and optionally a driver) from the registers.
+// For multi-gatepass dispatches, callers should hit POST /api/vehicle-trips
+// instead — that creates a single Trip and attaches multiple gatepasses to it.
 router.put('/:id/logistics-assign', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
   try {
-    const { vehicleId } = req.body || {};
+    const { vehicleId, driverId } = req.body || {};
     if (!vehicleId) return res.status(400).json({ error: 'vehicleId is required' });
 
     const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
@@ -692,14 +696,22 @@ router.put('/:id/logistics-assign', authenticate, authorize('LOGISTICS', 'ADMIN'
     if (!vehicle) return res.status(400).json({ error: 'Vehicle not found' });
     if (vehicle.status !== 'ACTIVE') return res.status(400).json({ error: 'Vehicle is not ACTIVE' });
 
+    let driver = null;
+    if (driverId) {
+      driver = await prisma.driver.findUnique({ where: { id: driverId } });
+      if (!driver) return res.status(400).json({ error: 'Driver not found' });
+      if (driver.status !== 'ACTIVE') return res.status(400).json({ error: 'Driver is not ACTIVE' });
+    }
+
     const updated = await prisma.gatePass.update({
       where: { id: req.params.id },
       data: {
         assignedVehicleId: vehicle.id,
+        assignedDriverId: driver?.id || null,
         logisticsById: req.user.id,
         logisticsAt: new Date(),
         vehicleNo: vehicle.regNumber,
-        driverName: vehicle.driverName,
+        driverName: driver?.name || vehicle.driverName,
       },
       include: GATEPASS_INCLUDE,
     });
@@ -710,7 +722,11 @@ router.put('/:id/logistics-assign', authenticate, authorize('LOGISTICS', 'ADMIN'
         action: 'LOGISTICS_ASSIGN_VEHICLE',
         entity: 'GatePass',
         entityId: updated.id,
-        details: { passNumber: updated.passNumber, vehicleId: vehicle.id, regNumber: vehicle.regNumber },
+        details: {
+          passNumber: updated.passNumber,
+          vehicleId: vehicle.id, regNumber: vehicle.regNumber,
+          driverId: driver?.id || null, driverName: driver?.name || null,
+        },
         ipAddress: req.ip,
       },
     });

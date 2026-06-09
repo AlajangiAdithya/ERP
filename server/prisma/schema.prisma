@@ -10,80 +10,86 @@ datasource db {
 
 // ──── USERS & AUTH ────
 model User {
-  id                         String                     @id @default(uuid())
-  username                   String                     @unique
+  id                         String                           @id @default(uuid())
+  username                   String                           @unique
   passwordHash               String
   plainPassword              String?
   name                       String
-  role                       Role                       @default(MANAGER)
+  role                       Role                             @default(MANAGER)
   unitId                     String?
-  unit                       Unit?                      @relation(fields: [unitId], references: [id])
-  isActive                   Boolean                    @default(true)
-  createdAt                  DateTime                   @default(now())
-  updatedAt                  DateTime                   @updatedAt
+  unit                       Unit?                            @relation(fields: [unitId], references: [id])
+  isActive                   Boolean                          @default(true)
+  createdAt                  DateTime                         @default(now())
+  updatedAt                  DateTime                         @updatedAt
   sessions                   Session[]
   auditLogs                  AuditLog[]
   productRequests            ProductRequest[]
-  sentNotifications          Notification[]             @relation("SentBy")
-  purchaseRequests           PurchaseRequest[]          @relation("PurchaseRequestManager")
-  purchaseRequestApprovals   PurchaseRequest[]          @relation("PurchaseRequestApprover")
-  purchaseRequestQcApprovals PurchaseRequest[]          @relation("PurchaseRequestQcApprover")
+  sentNotifications          Notification[]                   @relation("SentBy")
+  purchaseRequests           PurchaseRequest[]                @relation("PurchaseRequestManager")
+  purchaseRequestApprovals   PurchaseRequest[]                @relation("PurchaseRequestApprover")
+  purchaseRequestQcApprovals PurchaseRequest[]                @relation("PurchaseRequestQcApprover")
   // New relations for procurement workflow
-  targetedNotifications      Notification[]             @relation("TargetUser")
-  quotationsCreated          Quotation[]                @relation("QuotationCreator")
-  quotationsSubmittedToAdmin Quotation[]                @relation("QuotationSubmitter")
-  purchaseOrdersCreated      PurchaseOrder[]            @relation("POCreator")
-  purchaseOrdersCreditPlaced PurchaseOrder[]            @relation("POCreditPlacer")
-  purchaseOrdersClosed       PurchaseOrder[]            @relation("POCloser")
-  paymentRequestsCreated     PaymentRequest[]           @relation("PaymentCreator")
-  paymentRequestsProcessed   PaymentRequest[]           @relation("PaymentProcessor")
-  qcInspections              QCInspection[]             @relation("QCInspector")
-  qcInspectionRequests       QCInspection[]             @relation("QCInspectionRequestor")
-  gatePassesCreated          GatePass[]                 @relation("GatePassCreator")
-  gatePassesSiteApproved     GatePass[]                 @relation("GatePassSiteIncharge")
-  gatePassesStoreApproved    GatePass[]                 @relation("GatePassStoreIncharge")
-  gatePassesAccountsApproved GatePass[]                 @relation("GatePassAccountsApprover")
-  gatePassesFinalApproved    GatePass[]                 @relation("GatePassFinalApprover")
-  gatePassesCollected        GatePass[]                 @relation("GatePassCollector")
-  fimBatchesAssigned         ProductBatch[]             @relation("FimAssignedBy")
-  fimBatchesAccepted         ProductBatch[]             @relation("FimAcceptedBy")
-  fimBatchesReadyToSendOut   ProductBatch[]             @relation("FimReadyToSendOutBy")
-  ionsCreated                InterOfficeNote[]          @relation("IONCreator")
-  ionsAssigned               InterOfficeNote[]          @relation("IONAssignee")
-  transferRequestsCreated    InventoryTransferRequest[] @relation("TransferRequester")
-  transferRequestsApproved   InventoryTransferRequest[] @relation("TransferApprover")
-  workOrdersCreated          WorkOrder[]                @relation("WorkOrderCreator")
-  workOrdersAdminAccepted    WorkOrder[]                @relation("WorkOrderAdminAcceptor")
-  workOrdersUnitAccepted     WorkOrder[]                @relation("WorkOrderUnitAcceptor")
-  workOrdersDeliveryUpdated  WorkOrder[]                @relation("WorkOrderDeliveryUpdater")
-  workOrderExtensionsGranted WorkOrderExtension[]       @relation("WorkOrderExtensionGranter")
-  workOrderInvoicesLogged    WorkOrderInvoice[]         @relation("WorkOrderInvoiceCreator")
+  targetedNotifications      Notification[]                   @relation("TargetUser")
+  quotationsCreated          Quotation[]                      @relation("QuotationCreator")
+  quotationsSubmittedToAdmin Quotation[]                      @relation("QuotationSubmitter")
+  purchaseOrdersCreated      PurchaseOrder[]                  @relation("POCreator")
+  purchaseOrdersCreditPlaced PurchaseOrder[]                  @relation("POCreditPlacer")
+  purchaseOrdersClosed       PurchaseOrder[]                  @relation("POCloser")
+  paymentRequestsCreated     PaymentRequest[]                 @relation("PaymentCreator")
+  paymentRequestsProcessed   PaymentRequest[]                 @relation("PaymentProcessor")
+  qcInspections              QCInspection[]                   @relation("QCInspector")
+  qcInspectionRequests       QCInspection[]                   @relation("QCInspectionRequestor")
+  gatePassesCreated          GatePass[]                       @relation("GatePassCreator")
+  gatePassesSiteApproved     GatePass[]                       @relation("GatePassSiteIncharge")
+  gatePassesStoreApproved    GatePass[]                       @relation("GatePassStoreIncharge")
+  gatePassesAccountsApproved GatePass[]                       @relation("GatePassAccountsApprover")
+  gatePassesFinalApproved    GatePass[]                       @relation("GatePassFinalApprover")
+  gatePassesCollected        GatePass[]                       @relation("GatePassCollector")
+  fimBatchesAssigned         ProductBatch[]                   @relation("FimAssignedBy")
+  fimBatchesAccepted         ProductBatch[]                   @relation("FimAcceptedBy")
+  fimBatchesReadyToSendOut   ProductBatch[]                   @relation("FimReadyToSendOutBy")
+  ionsCreated                InterOfficeNote[]                @relation("IONCreator")
+  ionsAssigned               InterOfficeNote[]                @relation("IONAssignee")
+  transferRequestsCreated    InventoryTransferRequest[]       @relation("TransferRequester")
+  transferRequestsApproved   InventoryTransferRequest[]       @relation("TransferApprover")
+  workOrdersCreated          WorkOrder[]                      @relation("WorkOrderCreator")
+  workOrdersAdminAccepted    WorkOrder[]                      @relation("WorkOrderAdminAcceptor")
+  workOrdersUnitAccepted     WorkOrder[]                      @relation("WorkOrderUnitAcceptor")
+  workOrdersDeliveryUpdated  WorkOrder[]                      @relation("WorkOrderDeliveryUpdater")
+  workOrderExtensionsGranted WorkOrderExtension[]             @relation("WorkOrderExtensionGranter")
+  workOrderInvoicesLogged    WorkOrderInvoice[]               @relation("WorkOrderInvoiceCreator")
   // ── Work Order Closure flow (per delivery batch) ──
-  woClosuresOpened           WorkOrderClosure[]         @relation("WOClosureOpener")
-  woClosuresUnitSubmitted    WorkOrderClosure[]         @relation("WOClosureUnitSubmitter")
-  woClosuresQCVerified       WorkOrderClosure[]         @relation("WOClosureQCVerifier")
-  woClosuresMgmtApproved     WorkOrderClosure[]         @relation("WOClosureMgmtApprover")
-  woClosuresInvoiceSent      WorkOrderClosure[]         @relation("WOClosureInvoiceSender")
-  woClosuresDeliveryAcked    WorkOrderClosure[]         @relation("WOClosureDeliveryAcker")
-  woClosuresPaymentLogged    WorkOrderClosure[]         @relation("WOClosurePaymentLogger")
-  woClosureDocsUploaded      WorkOrderClosureDoc[]      @relation("WOClosureDocUploader")
-  woHoldsRaised              WorkOrderHoldRequest[]     @relation("WOHoldRaiser")
-  woHoldsResolved            WorkOrderHoldRequest[]     @relation("WOHoldResolver")
-  woBgEntriesAdded           WorkOrderBgEntry[]         @relation("WOBgEntryAdder")
-  woInsuranceEntriesAdded    WorkOrderInsuranceEntry[]  @relation("WOInsuranceEntryAdder")
-  woPdcAlertsAcknowledged    WorkOrder[]                @relation("WorkOrderPdcAlertAcker")
+  woClosuresOpened           WorkOrderClosure[]               @relation("WOClosureOpener")
+  woClosuresUnitSubmitted    WorkOrderClosure[]               @relation("WOClosureUnitSubmitter")
+  woClosuresQCVerified       WorkOrderClosure[]               @relation("WOClosureQCVerifier")
+  woClosuresMgmtApproved     WorkOrderClosure[]               @relation("WOClosureMgmtApprover")
+  woClosuresInvoiceSent      WorkOrderClosure[]               @relation("WOClosureInvoiceSender")
+  woClosuresDeliveryAcked    WorkOrderClosure[]               @relation("WOClosureDeliveryAcker")
+  woClosuresPaymentLogged    WorkOrderClosure[]               @relation("WOClosurePaymentLogger")
+  woClosureDocsUploaded      WorkOrderClosureDoc[]            @relation("WOClosureDocUploader")
+  woHoldsRaised              WorkOrderHoldRequest[]           @relation("WOHoldRaiser")
+  woHoldsResolved            WorkOrderHoldRequest[]           @relation("WOHoldResolver")
+  woBgEntriesAdded           WorkOrderBgEntry[]               @relation("WOBgEntryAdder")
+  woInsuranceEntriesAdded    WorkOrderInsuranceEntry[]        @relation("WOInsuranceEntryAdder")
+  woPdcAlertsAcknowledged    WorkOrder[]                      @relation("WorkOrderPdcAlertAcker")
   woClosureWeeklyFollowups   WorkOrderClosureWeeklyFollowup[] @relation("WOClosureWeeklyFollowupContact")
-  woAlarmsAcknowledged       WorkOrderAlarm[]           @relation("WOAlarmAcker")
-  woAlarmsResolved           WorkOrderAlarm[]           @relation("WOAlarmResolver")
-  woAlarmNotes               WorkOrderAlarmNote[]       @relation("WOAlarmNoteAuthor")
-  materialPoolsCreated       MaterialPool[]             @relation("MaterialPoolCreator")
+  woAlarmsAcknowledged       WorkOrderAlarm[]                 @relation("WOAlarmAcker")
+  woAlarmsResolved           WorkOrderAlarm[]                 @relation("WOAlarmResolver")
+  woAlarmNotes               WorkOrderAlarmNote[]             @relation("WOAlarmNoteAuthor")
+  materialPoolsCreated       MaterialPool[]                   @relation("MaterialPoolCreator")
 
   // ── Gate Pass v2 (Local Job / Outside) relations ──
-  vehiclesCreated            Vehicle[]                  @relation("VehicleCreator")
-  gatePassesRequested        GatePass[]                 @relation("GatePassRequestedBy")
-  gatePassesLogistics        GatePass[]                 @relation("GatePassLogistics")
-  gatePassesSiteOfficeAck    GatePass[]                 @relation("GatePassSiteOfficeAck")
-  gatePassesLocalReturned    GatePass[]                 @relation("GatePassLocalReturnedBy")
+  vehiclesCreated         Vehicle[]  @relation("VehicleCreator")
+  gatePassesRequested     GatePass[] @relation("GatePassRequestedBy")
+  gatePassesLogistics     GatePass[] @relation("GatePassLogistics")
+  gatePassesSiteOfficeAck GatePass[] @relation("GatePassSiteOfficeAck")
+  gatePassesLocalReturned GatePass[] @relation("GatePassLocalReturnedBy")
+
+  // ── Driver register + Vehicle trips (multi-gatepass dispatches + ad-hoc) ──
+  driversCreated         Driver[]      @relation("DriverCreator")
+  vehicleTripsCreated    VehicleTrip[] @relation("VehicleTripCreator")
+  vehicleTripsDispatched VehicleTrip[] @relation("VehicleTripDispatcher")
+  vehicleTripsReturned   VehicleTrip[] @relation("VehicleTripReturner")
 }
 
 model Session {
@@ -1023,6 +1029,12 @@ model GatePass {
   // Logistics step (both LOCAL_JOB and OUTSIDE).
   assignedVehicleId    String?
   assignedVehicle      Vehicle?           @relation("GatePassVehicle", fields: [assignedVehicleId], references: [id])
+  // Driver chosen at dispatch (from Driver register). May be null for legacy rows.
+  assignedDriverId     String?
+  assignedDriver       Driver?            @relation("GatePassDriver", fields: [assignedDriverId], references: [id])
+  // When two or more gatepasses ride in the same vehicle, they share a VehicleTrip.
+  tripId               String?
+  trip                 VehicleTrip?       @relation("TripGatePasses", fields: [tripId], references: [id])
   logisticsById        String?
   logisticsBy          User?              @relation("GatePassLogistics", fields: [logisticsById], references: [id])
   logisticsAt          DateTime?
@@ -1148,7 +1160,7 @@ enum GatePassDirection {
 
 enum GatePassKind {
   LOCAL_JOB // sent to an external vendor for job-work; returnable or non-returnable
-  OUTSIDE   // sent to one of our other sites (Hyderabad office, etc.)
+  OUTSIDE // sent to one of our other sites (Hyderabad office, etc.)
 }
 
 enum InwardKind {
@@ -1166,12 +1178,12 @@ enum GatePassStatus {
   PENDING_STORE
   PENDING_ACCOUNTS
   PENDING_STORE_REVIEW // OUTWARD v2: stores final review after accounts (OUTSIDE) or after approve (LOCAL_JOB)
-  PENDING_LOGISTICS    // OUTWARD v2: logistics assigns vehicle (+ uploads signed PDF on dispatch for OUTSIDE)
-  IN_TRANSIT           // OUTWARD v2: dispatched, awaiting acknowledgement
-  PENDING_RETURN       // OUTWARD v2 LOCAL_JOB returnable: awaiting stores to ack return
+  PENDING_LOGISTICS // OUTWARD v2: logistics assigns vehicle (+ uploads signed PDF on dispatch for OUTSIDE)
+  IN_TRANSIT // OUTWARD v2: dispatched, awaiting acknowledgement
+  PENDING_RETURN // OUTWARD v2 LOCAL_JOB returnable: awaiting stores to ack return
   PENDING_APPROVAL
-  PENDING_ACCEPTANCE   // INWARD-only: customer's material arrived, awaiting stores to inward into products
-  ACCEPTED             // INWARD-only: stores has inwarded items into products list
+  PENDING_ACCEPTANCE // INWARD-only: customer's material arrived, awaiting stores to inward into products
+  ACCEPTED // INWARD-only: stores has inwarded items into products list
   APPROVED
   RETURNED
   CLOSED
@@ -1271,32 +1283,115 @@ enum TransferStatus {
 // Each gate pass references one vehicle; the vehicle's trip history is the set
 // of gate passes assigned to it.
 model Vehicle {
-  id               String     @id @default(uuid())
-  regNumber        String     @unique // KA01AB1234
-  vehicleType      String? // truck / van / pickup / car / bike
-  make             String?
-  model            String?
-  capacityKg       Float?
-  ownerType        String? // OWNED | HIRED
-  driverName       String?
-  driverPhone      String?
-  insuranceExpiry  DateTime?
-  pucExpiry        DateTime?
-  fitnessExpiry    DateTime?
-  rcUrl            String? // optional RC scan
-  status           VehicleStatus @default(ACTIVE)
-  notes            String?
-  createdById      String
-  createdBy        User       @relation("VehicleCreator", fields: [createdById], references: [id])
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  gatePasses       GatePass[] @relation("GatePassVehicle")
+  id                String        @id @default(uuid())
+  regNumber         String        @unique // KA01AB1234
+  vehicleType       String? // truck / van / pickup / car / bike
+  make              String?
+  model             String?
+  capacityKg        Float?
+  ownerType         String? // OWNED | HIRED
+  driverName        String?
+  driverPhone       String?
+  insuranceExpiry   DateTime?
+  pucExpiry         DateTime?
+  fitnessExpiry     DateTime?
+  rcUrl             String? // optional RC scan
+  status            VehicleStatus @default(ACTIVE)
+  notes             String?
+  createdById       String
+  createdBy         User          @relation("VehicleCreator", fields: [createdById], references: [id])
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  gatePasses        GatePass[]    @relation("GatePassVehicle")
+  // Drivers whose default/preferred vehicle is this one.
+  defaultForDrivers Driver[]      @relation("DriverDefaultVehicle")
+  trips             VehicleTrip[]
 }
 
 enum VehicleStatus {
   ACTIVE
   INACTIVE
   MAINTENANCE
+}
+
+// Driver register — mirrors Vehicle. A driver may be the default for one vehicle,
+// but on any given trip the dispatcher can pair any driver with any vehicle.
+model Driver {
+  id               String       @id @default(uuid())
+  name             String
+  phone            String?
+  licenseNo        String?      @unique
+  licenseExpiry    DateTime?
+  // Optional pointer to the vehicle this driver usually drives. Just a hint
+  // for the dispatch UI — the dispatcher can override per trip.
+  defaultVehicleId String?
+  defaultVehicle   Vehicle?     @relation("DriverDefaultVehicle", fields: [defaultVehicleId], references: [id])
+  status           DriverStatus @default(ACTIVE)
+  notes            String?
+  createdById      String
+  createdBy        User         @relation("DriverCreator", fields: [createdById], references: [id])
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  gatePasses GatePass[]    @relation("GatePassDriver")
+  trips      VehicleTrip[]
+
+  @@index([defaultVehicleId])
+}
+
+enum DriverStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// A VehicleTrip is one physical dispatch of one vehicle + (optionally) one driver.
+// It may carry one or more gate-passes (units pooling consignments into the
+// same vehicle), or zero gate-passes (ad-hoc movement — e.g., admin errand,
+// vendor pickup, owner travel — still logged for traceability).
+model VehicleTrip {
+  id              String  @id @default(uuid())
+  tripNumber      String  @unique // RAPS/TRIP/<FY>/<N>
+  vehicleId       String
+  vehicle         Vehicle @relation(fields: [vehicleId], references: [id])
+  driverId        String?
+  driver          Driver? @relation(fields: [driverId], references: [id])
+  // Snapshot fields — captured at dispatch time so trip history stays accurate
+  // even if the Vehicle/Driver record is later edited.
+  driverNameSnap  String?
+  driverPhoneSnap String?
+  vehicleRegSnap  String?
+
+  // Ad-hoc fields — populated when the trip carries no gatepasses.
+  purpose     String?
+  destination String?
+
+  dispatchedAt   DateTime?
+  dispatchedById String?
+  dispatchedBy   User?     @relation("VehicleTripDispatcher", fields: [dispatchedById], references: [id])
+  returnedAt     DateTime?
+  returnedById   String?
+  returnedBy     User?     @relation("VehicleTripReturner", fields: [returnedById], references: [id])
+
+  status  TripStatus @default(SCHEDULED)
+  remarks String?
+
+  createdById String
+  createdBy   User     @relation("VehicleTripCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  gatePasses GatePass[] @relation("TripGatePasses")
+
+  @@index([vehicleId])
+  @@index([driverId])
+  @@index([status])
+}
+
+enum TripStatus {
+  SCHEDULED
+  IN_TRANSIT
+  RETURNED
+  CANCELLED
 }
 
 // ──── WORK ORDERS (SUPPLY_CHAIN drafts → ADMIN accepts → UNIT executes) ────
@@ -1455,36 +1550,36 @@ model WorkOrderInvoice {
 
 // Bank Guarantee history. Each row = one BG ever attached to this WO. Newest = active.
 model WorkOrderBgEntry {
-  id           String    @id @default(uuid())
-  workOrderId  String
-  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  bgNo         String
-  bgDate       DateTime?
-  validUpto    DateTime?
-  fileUrl      String?
-  fileName     String?
-  note         String?
-  addedAt      DateTime  @default(now())
-  addedById    String?
-  addedBy      User?     @relation("WOBgEntryAdder", fields: [addedById], references: [id])
+  id          String    @id @default(uuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  bgNo        String
+  bgDate      DateTime?
+  validUpto   DateTime?
+  fileUrl     String?
+  fileName    String?
+  note        String?
+  addedAt     DateTime  @default(now())
+  addedById   String?
+  addedBy     User?     @relation("WOBgEntryAdder", fields: [addedById], references: [id])
 
   @@index([workOrderId])
 }
 
 // Insurance history. Each row = one insurance policy ever attached to this WO.
 model WorkOrderInsuranceEntry {
-  id           String    @id @default(uuid())
-  workOrderId  String
-  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  insuranceNo  String
+  id            String    @id @default(uuid())
+  workOrderId   String
+  workOrder     WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  insuranceNo   String
   insuranceDate DateTime?
-  validUpto    DateTime?
-  fileUrl      String?
-  fileName     String?
-  note         String?
-  addedAt      DateTime  @default(now())
-  addedById    String?
-  addedBy      User?     @relation("WOInsuranceEntryAdder", fields: [addedById], references: [id])
+  validUpto     DateTime?
+  fileUrl       String?
+  fileName      String?
+  note          String?
+  addedAt       DateTime  @default(now())
+  addedById     String?
+  addedBy       User?     @relation("WOInsuranceEntryAdder", fields: [addedById], references: [id])
 
   @@index([workOrderId])
 }
@@ -1525,16 +1620,16 @@ enum WorkOrderClosureStage {
 
 // One closure cycle per delivery batch. Multiple may be open per WO at once.
 model WorkOrderClosure {
-  id            String    @id @default(uuid())
-  workOrderId   String
-  workOrder     WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  cycleNumber   Int // 1, 2, 3 … (sequential within a WO)
-  stage         WorkOrderClosureStage @default(UNIT_DOCS_PENDING)
-  deliveryQty   Float // qty covered by this batch
-  deliveryNote  String?
-  deliveredAt   DateTime  @default(now()) // when unit marked the batch delivered
-  openedById    String? // unit user who triggered the cycle
-  openedBy      User?     @relation("WOClosureOpener", fields: [openedById], references: [id])
+  id           String                @id @default(uuid())
+  workOrderId  String
+  workOrder    WorkOrder             @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  cycleNumber  Int // 1, 2, 3 … (sequential within a WO)
+  stage        WorkOrderClosureStage @default(UNIT_DOCS_PENDING)
+  deliveryQty  Float // qty covered by this batch
+  deliveryNote String?
+  deliveredAt  DateTime              @default(now()) // when unit marked the batch delivered
+  openedById   String? // unit user who triggered the cycle
+  openedBy     User?                 @relation("WOClosureOpener", fields: [openedById], references: [id])
 
   // Unit submission
   unitDocsSubmittedAt   DateTime?
@@ -1555,17 +1650,17 @@ model WorkOrderClosure {
   mgmtApprovalNote String?
 
   // Finance — invoice + delivery challan (numbers entered manually, no upload)
-  invoiceNumber          String?   @unique // entered by Finance
-  deliveryChallanNumber  String?   // entered by Finance
-  invoiceDate            DateTime?
-  invoiceDescription     String? // free-text scope description (no amount)
-  invoiceFileUrl         String? // deprecated; kept for back-compat with old rows
-  invoiceSentAt          DateTime? // ← starts the 48h SLA (both numbers entered)
-  invoiceSentById        String?
-  invoiceSentBy          User?     @relation("WOClosureInvoiceSender", fields: [invoiceSentById], references: [id])
-  slaDeadlineAt          DateTime? // = invoiceSentAt + 48h
-  last24hReminderAt      DateTime?
-  slaBreachedAt          DateTime?
+  invoiceNumber         String?   @unique // entered by Finance
+  deliveryChallanNumber String? // entered by Finance
+  invoiceDate           DateTime?
+  invoiceDescription    String? // free-text scope description (no amount)
+  invoiceFileUrl        String? // deprecated; kept for back-compat with old rows
+  invoiceSentAt         DateTime? // ← starts the 48h SLA (both numbers entered)
+  invoiceSentById       String?
+  invoiceSentBy         User?     @relation("WOClosureInvoiceSender", fields: [invoiceSentById], references: [id])
+  slaDeadlineAt         DateTime? // = invoiceSentAt + 48h
+  last24hReminderAt     DateTime?
+  slaBreachedAt         DateTime?
 
   // Finance delivery acknowledgement — stops 48h SLA and starts 45-day payment
   // window. Both ack flags must be set true before deliveryAckAt is stamped.
@@ -1582,7 +1677,7 @@ model WorkOrderClosure {
   // 45-day payment window (starts at deliveryAckAt). Accounts monitor and
   // log weekly customer follow-ups until payment is received.
   paymentDueAt         DateTime? // = deliveryAckAt + 45 days
-  paymentDelayedAt    DateTime? // set by background job when paymentDueAt has passed without payment
+  paymentDelayedAt     DateTime? // set by background job when paymentDueAt has passed without payment
   lastWeeklyReminderAt DateTime?
 
   // Accounts — payment confirmation closes the cycle
@@ -1649,14 +1744,14 @@ model WorkOrderHoldRequest {
 // and acknowledge/resolve to clear the badge. Each transition stores its own
 // remark — full audit trail preserved.
 enum WorkOrderAlarmType {
-  PDC_NEAR           // PDC within 90 days
-  PDC_OVERDUE        // PDC passed, WO not completed
-  LOT_QC_PENDING     // Lot stuck at UNIT_DOCS_PENDING > 7 days
-  LOT_ON_HOLD        // Lot in ON_HOLD stage
-  SLA_BREACH_48H     // Invoice sent > 48h, no delivery ack
-  PAYMENT_DUE_SOON   // ≤ 7 days remaining on 45-day window
-  PAYMENT_OVERDUE    // 45 days passed, no payment
-  BG_EXPIRING        // Bank Guarantee valid-upto ≤ 30 days
+  PDC_NEAR // PDC within 90 days
+  PDC_OVERDUE // PDC passed, WO not completed
+  LOT_QC_PENDING // Lot stuck at UNIT_DOCS_PENDING > 7 days
+  LOT_ON_HOLD // Lot in ON_HOLD stage
+  SLA_BREACH_48H // Invoice sent > 48h, no delivery ack
+  PAYMENT_DUE_SOON // ≤ 7 days remaining on 45-day window
+  PAYMENT_OVERDUE // 45 days passed, no payment
+  BG_EXPIRING // Bank Guarantee valid-upto ≤ 30 days
 }
 
 enum WorkOrderAlarmSeverity {
@@ -1672,27 +1767,27 @@ enum WorkOrderAlarmStatus {
 }
 
 model WorkOrderAlarm {
-  id             String                @id @default(uuid())
+  id             String                 @id @default(uuid())
   workOrderId    String
-  workOrder      WorkOrder             @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  workOrder      WorkOrder              @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
   closureId      String? // optional — alarms tied to a specific lot/cycle
   type           WorkOrderAlarmType
   severity       WorkOrderAlarmSeverity
-  status         WorkOrderAlarmStatus  @default(ACTIVE)
+  status         WorkOrderAlarmStatus   @default(ACTIVE)
   title          String
   // Initial trigger context (computed when the alarm fires).
   triggerContext String?
 
-  createdAt      DateTime              @default(now())
+  createdAt DateTime @default(now())
 
   acknowledgedAt   DateTime?
   acknowledgedById String?
-  acknowledgedBy   User?                @relation("WOAlarmAcker", fields: [acknowledgedById], references: [id])
+  acknowledgedBy   User?     @relation("WOAlarmAcker", fields: [acknowledgedById], references: [id])
   ackRemark        String?
 
   resolvedAt    DateTime?
   resolvedById  String?
-  resolvedBy    User?                  @relation("WOAlarmResolver", fields: [resolvedById], references: [id])
+  resolvedBy    User?     @relation("WOAlarmResolver", fields: [resolvedById], references: [id])
   resolveRemark String?
 
   notes WorkOrderAlarmNote[]
@@ -1717,7 +1812,7 @@ model WorkOrderAlarmNote {
   body      String
   // Optional marker for system-generated rows (e.g. "Acknowledged", "Resolved")
   // vs. plain user comments.
-  kind      String?        // COMMENT | ACK | RESOLVE | SYSTEM
+  kind      String? // COMMENT | ACK | RESOLVE | SYSTEM
   createdAt DateTime       @default(now())
 
   @@index([alarmId])
