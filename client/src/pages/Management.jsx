@@ -14,7 +14,7 @@ const isFixedAdmin = (user) => FIXED_ADMINS.includes(user.username);
 
 const GLOBAL_ONLY_ROLES = [
   'STORE_MANAGER', 'PURCHASE_OFFICER', 'SUPPLY_CHAIN', 'SAFETY',
-  'FINANCE', 'LOGISTICS', 'DESIGNS', 'PLANNING', 'SITE_OFFICE',
+  'FINANCE', 'LOGISTICS', 'DESIGNS', 'PLANNING', 'SITE_OFFICE', 'HR',
 ];
 
 const roleLabel = (role) => ({
@@ -35,6 +35,7 @@ const roleLabel = (role) => ({
   PLANNING: 'Planning',
   LOGISTICS: 'Logistics',
   SITE_OFFICE: 'Site Office',
+  HR: 'HR',
 }[role] || role);
 
 const roleBadgeColor = (role) => ({
@@ -55,6 +56,7 @@ const roleBadgeColor = (role) => ({
   PLANNING: 'navy',
   LOGISTICS: 'blue',
   SITE_OFFICE: 'green',
+  HR: 'blue',
 }[role] || 'gray');
 
 export default function Management() {
@@ -257,6 +259,7 @@ function UsersSection() {
             <option value="LOGISTICS">Logistics</option>
             <option value="SAFETY">Safety</option>
             <option value="SUPPLY_CHAIN">Supply Chain</option>
+            <option value="HR">HR</option>
             <option value="ADMIN">Admin</option>
           </Select>
 
