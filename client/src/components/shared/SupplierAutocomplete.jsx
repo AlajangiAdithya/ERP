@@ -57,19 +57,29 @@ const tokenize = (str) =>
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean);
 
-// Every typed word must prefix-match some word in name / vendor ID / scope.
-export function matchSuppliers(suppliers, query, limit = 8) {
-  const qWords = tokenize(query);
+// Word-by-word prefix matching against name / vendor ID / scope of supply.
+// requireAll=true (typed search): every typed word must match — precise.
+// requireAll=false (product context, e.g. "Acetone 99%"): any word ≥2 chars
+// matching is enough, so multi-word product names still hit scope words.
+export function matchSuppliers(suppliers, query, limit = 8, requireAll = true) {
+  let qWords = tokenize(query);
+  if (!requireAll) qWords = qWords.filter((w) => w.length >= 2);
   if (qWords.length === 0) return [];
   const scored = [];
   for (const s of suppliers) {
     const nameWords = tokenize(s.name);
     const allWords = [...nameWords, ...tokenize(s.vendorIdNo), ...tokenize(s.scopeOfSupply)];
-    if (!qWords.every((q) => allWords.some((w) => w.startsWith(q)))) continue;
+    const matched = qWords.filter((q) => allWords.some((w) => w.startsWith(q)));
+    if (requireAll ? matched.length < qWords.length : matched.length === 0) continue;
     const nameHit = qWords.every((q) => nameWords.some((w) => w.startsWith(q)));
-    scored.push({ s, score: nameHit ? 0 : 1 });
+    scored.push({ s, nameHit, matched: matched.length });
   }
-  scored.sort((a, b) => a.score - b.score || a.s.name.localeCompare(b.s.name));
+  scored.sort(
+    (a, b) =>
+      (a.nameHit ? 0 : 1) - (b.nameHit ? 0 : 1) ||
+      b.matched - a.matched ||
+      a.s.name.localeCompare(b.s.name)
+  );
   return scored.slice(0, limit).map((x) => x.s);
 }
 
@@ -120,8 +130,8 @@ export default function SupplierAutocomplete({
   const usingContext = !query && !!contextQuery.trim();
   const activeQuery = query || contextQuery;
   const results = useMemo(
-    () => matchSuppliers(suppliers, activeQuery),
-    [suppliers, activeQuery]
+    () => matchSuppliers(suppliers, activeQuery, 8, !usingContext),
+    [suppliers, activeQuery, usingContext]
   );
   const qWords = useMemo(() => tokenize(activeQuery), [activeQuery]);
 

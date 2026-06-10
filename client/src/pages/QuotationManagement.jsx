@@ -8,7 +8,7 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
-import SupplierAutocomplete, { supplierContactString } from '../components/shared/SupplierAutocomplete';
+import SupplierAutocomplete, { supplierContactString, matchSuppliers } from '../components/shared/SupplierAutocomplete';
 import { formatDateTime } from '../utils/formatters';
 
 const formatCurrency = (amt) => `₹${Number(amt).toLocaleString('en-IN')}`;
@@ -30,6 +30,9 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
   // overdue.
   const [supplierIndex, setSupplierIndex] = useState({});
   const [currentFY, setCurrentFY] = useState('');
+  // Approved Supplier List (minus rejected/terminated) — merged into each row's
+  // "Existing" dropdown by matching scope of supply against the product name.
+  const [aslSuppliers, setAslSuppliers] = useState([]);
   // history[productKey] = [{ supplierId, supplierName, supplierContact, supplierAddress, lastUnitPrice, lastDate, timesUsed, wasSelected }]
   const [history, setHistory] = useState({});
   // Common supplier fields applied across all rows on demand
@@ -114,24 +117,9 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
           .catch(() => {})
       );
 
-      Promise.all(fetches).then(() => {
-        const finalised = {};
-        for (const [k, m] of Object.entries(acc)) {
-          finalised[k] = [...m.values()].sort((a, b) => new Date(b.lastDate) - new Date(a.lastDate));
-        }
-        setHistory(finalised);
-
-        // Auto-default mode to 'new' for rows with no history; 'existing' if history exists.
-        setItems(prev => prev.map(row => {
-          const key = rowKey(row);
-          const list = finalised[key] || [];
-          return { ...row, supplierMode: list.length > 0 ? 'existing' : 'new' };
-        }));
-      });
-
-      // Load suppliers in parallel so we can flag any whose annual assessment
-      // has expired. Used only for the inline soft-warning banner.
-      api.get('/suppliers?limit=all').then(({ data }) => {
+      // Load suppliers in parallel: the assessment-expired soft-warning index,
+      // plus the Approved Supplier List used to fill the "Existing" dropdowns.
+      const suppliersPromise = api.get('/suppliers?limit=all').then(({ data }) => {
         const idx = {};
         for (const s of data.suppliers || []) {
           idx[s.id] = {
@@ -142,7 +130,29 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
         }
         setSupplierIndex(idx);
         setCurrentFY(data.currentFinancialYear || '');
-      }).catch(() => {});
+        const asl = (data.suppliers || []).filter(
+          s => s.approvalStatus !== 'REJECTED' && s.approvalStatus !== 'TERMINATED'
+        );
+        setAslSuppliers(asl);
+        return asl;
+      }).catch(() => []);
+
+      Promise.all([Promise.all(fetches), suppliersPromise]).then(([, asl]) => {
+        const finalised = {};
+        for (const [k, m] of Object.entries(acc)) {
+          finalised[k] = [...m.values()].sort((a, b) => new Date(b.lastDate) - new Date(a.lastDate));
+        }
+        setHistory(finalised);
+
+        // Default to 'existing' when the row has past suppliers OR ASL suppliers
+        // whose scope of supply covers the product; otherwise 'new'.
+        setItems(prev => prev.map(row => {
+          const key = rowKey(row);
+          const list = finalised[key] || [];
+          const aslHits = matchSuppliers(asl, row.productName, 20, false);
+          return { ...row, supplierMode: (list.length > 0 || aslHits.length > 0) ? 'existing' : 'new' };
+        }));
+      });
     }
   }, [isOpen, purchaseRequest]);
 
@@ -170,16 +180,32 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     setItems(prev => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   };
 
+  // Stable option key for a history entry — id when linked, name otherwise.
+  const historyKey = (s) =>
+    s.supplierId ? s.supplierId.toString().toLowerCase() : `name:${(s.supplierName || '').toLowerCase()}`;
+
   // Select an existing supplier on a row — pre-fills name/contact/address + lastUnitPrice.
+  // Keys: "<supplierId>" / "name:<name>" come from purchase history; "asl:<id>"
+  // comes from the Approved Supplier List (scope-of-supply match, no history).
   const applyExistingSupplier = (idx, supplierKey) => {
     if (!supplierKey) {
-      updateItem(idx, 'supplierId', null);
-      updateItem(idx, 'supplierName', '');
+      patchItem(idx, { supplierId: null, supplierName: '' });
+      return;
+    }
+    if (supplierKey.startsWith('asl:')) {
+      const s = aslSuppliers.find(x => `asl:${x.id}` === supplierKey);
+      if (!s) return;
+      patchItem(idx, {
+        supplierId: s.id,
+        supplierName: s.name,
+        supplierContact: supplierContactString(s),
+        supplierAddress: s.address || '',
+      });
       return;
     }
     const row = items[idx];
     const list = history[rowKey(row)] || [];
-    const s = list.find(x => (x.supplierId || x.supplierName).toString().toLowerCase() === supplierKey);
+    const s = list.find(x => historyKey(x) === supplierKey);
     if (!s) return;
     const updated = [...items];
     updated[idx] = {
@@ -273,7 +299,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
-          For each product below, choose <strong>Existing supplier</strong> (dropdown of past suppliers for that product, with last price) or <strong>New supplier</strong>. In the supplier name box, type a material (e.g. TCE) or a name — matching suppliers from the <strong>Approved Supplier List</strong> (by name or scope of supply) appear; picking one fills their details. Last unit price is pre-filled — edit before submitting.
+          For each product below, choose <strong>Existing supplier</strong> — the dropdown lists past suppliers for that product (with last price) plus <strong>Approved Supplier List</strong> suppliers whose scope of supply covers the material — or <strong>New supplier</strong>. In the supplier name box you can also type a material (e.g. TCE) or a name to search the ASL; picking one fills their details. Last unit price is pre-filled — edit before submitting.
         </div>
 
         {complianceIssues.length > 0 && (
@@ -384,6 +410,18 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
           <div className="space-y-3">
             {items.map((item, idx) => {
               const suggestions = history[rowKey(item)] || [];
+              // ASL suppliers whose scope of supply (or name) covers this row's
+              // product, word-by-word — minus ones already in the history list.
+              const aslMatches = matchSuppliers(aslSuppliers, item.productName, 20, false).filter(
+                s => !suggestions.some(h =>
+                  (h.supplierId && h.supplierId === s.id) ||
+                  (h.supplierName || '').trim().toLowerCase() === s.name.trim().toLowerCase()
+                )
+              );
+              const hasExisting = suggestions.length > 0 || aslMatches.length > 0;
+              const selectValue = item.supplierId
+                ? (aslMatches.some(s => s.id === item.supplierId) ? `asl:${item.supplierId}` : item.supplierId.toString().toLowerCase())
+                : (item.supplierName ? `name:${item.supplierName.toLowerCase()}` : '');
               return (
                 <div key={idx} className="border rounded-md p-3 bg-white space-y-2">
                   {/* Product row */}
@@ -435,9 +473,16 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
                     <div className="flex items-center gap-3 mb-2">
                       <span className="text-xs font-medium text-gray-700">Supplier:</span>
                       <label className="flex items-center gap-1 text-xs cursor-pointer">
-                        <input type="radio" checked={item.supplierMode === 'existing'} onChange={() => switchMode(idx, 'existing')} disabled={suggestions.length === 0} />
-                        <span className={suggestions.length === 0 ? 'text-gray-400' : ''}>
-                          Existing {suggestions.length > 0 && <span className="text-gray-500">({suggestions.length} past)</span>}
+                        <input type="radio" checked={item.supplierMode === 'existing'} onChange={() => switchMode(idx, 'existing')} disabled={!hasExisting} />
+                        <span className={!hasExisting ? 'text-gray-400' : ''}>
+                          Existing {hasExisting && (
+                            <span className="text-gray-500">
+                              ({[
+                                suggestions.length > 0 ? `${suggestions.length} past` : null,
+                                aslMatches.length > 0 ? `${aslMatches.length} approved` : null,
+                              ].filter(Boolean).join(' · ')})
+                            </span>
+                          )}
                         </span>
                       </label>
                       <label className="flex items-center gap-1 text-xs cursor-pointer">
@@ -446,23 +491,36 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
                       </label>
                     </div>
 
-                    {item.supplierMode === 'existing' && suggestions.length > 0 ? (
+                    {item.supplierMode === 'existing' && hasExisting ? (
                       <div className="grid grid-cols-12 gap-2">
                         <div className="col-span-12">
                           <select
-                            value={item.supplierId || (item.supplierName ? `name:${item.supplierName.toLowerCase()}` : '')}
+                            value={selectValue}
                             onChange={(e) => applyExistingSupplier(idx, e.target.value)}
                             className="w-full px-2 py-1.5 border rounded text-sm bg-white"
                           >
-                            <option value="">— Select past supplier —</option>
-                            {suggestions.map(s => {
-                              const key = (s.supplierId || s.supplierName).toString().toLowerCase();
-                              return (
-                                <option key={key} value={key}>
-                                  {s.supplierName} · last @ ₹{Number(s.lastUnitPrice).toLocaleString('en-IN')}/{item.productUnit} on {new Date(s.lastDate).toLocaleDateString('en-IN')} {s.wasPurchased ? '· purchased' : '· quoted'} ({s.timesUsed}×)
-                                </option>
-                              );
-                            })}
+                            <option value="">— Select supplier —</option>
+                            {suggestions.length > 0 && (
+                              <optgroup label="Past suppliers for this product">
+                                {suggestions.map(s => {
+                                  const key = historyKey(s);
+                                  return (
+                                    <option key={key} value={key}>
+                                      {s.supplierName} · last @ ₹{Number(s.lastUnitPrice).toLocaleString('en-IN')}/{item.productUnit} on {new Date(s.lastDate).toLocaleDateString('en-IN')} {s.wasPurchased ? '· purchased' : '· quoted'} ({s.timesUsed}×)
+                                    </option>
+                                  );
+                                })}
+                              </optgroup>
+                            )}
+                            {aslMatches.length > 0 && (
+                              <optgroup label={`Approved Supplier List — scope covers "${item.productName || 'this product'}"`}>
+                                {aslMatches.map(s => (
+                                  <option key={`asl:${s.id}`} value={`asl:${s.id}`}>
+                                    {s.name}{s.vendorIdNo ? ` · ${s.vendorIdNo}` : ''}{s.approvalStatus === 'CONDITIONAL' ? ' · Conditional' : ''} · scope: {s.scopeOfSupply || '—'}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
                           </select>
                         </div>
                         {item.supplierName && (
