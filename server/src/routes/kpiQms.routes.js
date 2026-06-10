@@ -53,6 +53,20 @@ const requireCertWrite = (req, res, next) => {
   next();
 };
 
+// Supplier performance rating (form 04) is editable ONLY by Unit-5 and
+// Purchase (+ SUPERADMIN). Everyone views.
+const canEditSupplierPerf = (user) => {
+  if (!user) return false;
+  if (user.role === 'SUPERADMIN') return true;
+  if (user.role === 'PURCHASE_OFFICER') return true;
+  return isUnit5(user);
+};
+
+const requireSupplierPerfWrite = (req, res, next) => {
+  if (!canEditSupplierPerf(req.user)) return res.status(403).json({ error: 'Forbidden' });
+  next();
+};
+
 const round1 = (n) => Math.round(n * 10) / 10;
 const round2 = (n) => Math.round(n * 100) / 100;
 const toDate = (v) => (v ? new Date(v) : null);
@@ -140,13 +154,57 @@ const marketingKpis = async (from, to) => {
   };
 };
 
-// ── Purchase KPI: supplier performance per the rating form ──
-// Quality Rating (60)  = qty accepted / qty received × 60 (completed inspections)
-// Delivery Rating (40) = deliveries on time / total deliveries × 40
+// ── Purchase KPI: supplier performance per form 04 — SUPPLIER PERFORMANCE RATING ──
+// Form columns: Item Description | Supplier Name | No. of Supplies received |
+// Qty. Accepted | Quality Rating (60) | Total deliveries received | On time |
+// Beyond time | Delivery Rating (40) | TOTAL RATING (100). Min criteria: 85%.
+//
+// If Unit-5/Purchase has saved a manual rating for the FY (stored in the
+// existing SupplierPerformanceRating tables shared with the Approved Supplier
+// List), that is shown. Otherwise rows are auto-computed from QC inward
+// inspections:
+//   Quality Rating (60)  = qty accepted / qty received × 60 (graded inspections)
+//   Delivery Rating (40) = deliveries on time / total deliveries × 40
 // A delivery (= QC lot) is on time when it arrived on/before the earliest
 // "required by" date on the PR items behind its PO; lots with no required-by
 // date breached no commitment and count as on time.
-const supplierPerformanceKpis = async (from, to) => {
+const rowsBelow = (rows, min) => rows.filter((r) => r.totalRating != null && r.totalRating < min).length;
+
+const supplierPerformanceKpis = async (fy, from, to) => {
+  const saved = await prisma.supplierPerformanceRating.findUnique({
+    where: { financialYear: fy },
+    include: { items: { orderBy: { createdAt: 'asc' } } },
+  });
+  if (saved) {
+    const suppliers = saved.items.map((it) => ({
+      supplierId: it.supplierId,
+      supplierName: it.supplierName,
+      itemDescription: it.itemDescription,
+      suppliesReceived: it.suppliesReceived,
+      qtyAccepted: it.qtyAccepted,
+      qualityRating: it.qualityRating,
+      totalDeliveries: it.totalDeliveries,
+      deliveriesOnTime: it.deliveriesOnTime,
+      deliveriesLate: it.deliveriesLate,
+      deliveryRating: it.deliveryRating,
+      totalRating: it.totalRating,
+    }));
+    return {
+      source: 'manual',
+      minimumCriteria: saved.minimumCriteria,
+      periodFrom: saved.periodFrom,
+      periodTo: saved.periodTo,
+      preparedDate: saved.preparedDate,
+      preparedByName: saved.preparedByName,
+      remarks: saved.remarks,
+      suppliers,
+      belowCriteriaCount: rowsBelow(suppliers, saved.minimumCriteria),
+    };
+  }
+  return supplierPerformanceAuto(from, to);
+};
+
+const supplierPerformanceAuto = async (from, to) => {
   const inspections = await prisma.qCInspection.findMany({
     where: {
       createdAt: { gte: from, lt: to },
@@ -200,7 +258,6 @@ const supplierPerformanceKpis = async (from, to) => {
       bySupplier.set(key, {
         supplierId: po.supplierId || null,
         supplierName: po.supplierName,
-        suppliesReceived: 0,
         qtyReceived: 0,
         qtyAccepted: 0,
         gradedLots: 0, // completed inspections feeding the quality rating
@@ -212,7 +269,6 @@ const supplierPerformanceKpis = async (from, to) => {
     const row = bySupplier.get(key);
 
     // Delivery: every lot physically received in the FY counts.
-    row.suppliesReceived += 1;
     row.totalDeliveries += 1;
     const received = toDate(insp.materialReceiptDate) || new Date(insp.createdAt);
     const due = dueDateFor(po);
@@ -240,14 +296,33 @@ const supplierPerformanceKpis = async (from, to) => {
       const totalRating = qualityRating != null && deliveryRating != null
         ? round2(qualityRating + deliveryRating)
         : null;
-      return { ...r, qualityRating, deliveryRating, totalRating };
+      return {
+        supplierId: r.supplierId,
+        supplierName: r.supplierName,
+        itemDescription: null,
+        // Form column "No. of Supplies received" = quantity received.
+        suppliesReceived: r.qtyReceived,
+        qtyAccepted: r.qtyAccepted,
+        qualityRating,
+        totalDeliveries: r.totalDeliveries,
+        deliveriesOnTime: r.deliveriesOnTime,
+        deliveriesLate: r.deliveriesLate,
+        deliveryRating,
+        totalRating,
+      };
     })
     .sort((a, b) => (b.totalRating ?? -1) - (a.totalRating ?? -1));
 
   return {
+    source: 'auto',
     minimumCriteria: 85,
+    periodFrom: null,
+    periodTo: null,
+    preparedDate: null,
+    preparedByName: null,
+    remarks: null,
     suppliers: rows,
-    belowCriteriaCount: rows.filter((r) => r.totalRating != null && r.totalRating < 85).length,
+    belowCriteriaCount: rowsBelow(rows, 85),
   };
 };
 
@@ -319,7 +394,7 @@ router.get('/', authenticate, async (req, res) => {
 
     const [marketing, supplierPerformance, qcRejections, certifications] = await Promise.all([
       marketingKpis(range.from, range.to),
-      supplierPerformanceKpis(range.from, range.to),
+      supplierPerformanceKpis(fy, range.from, range.to),
       qcRejectionKpis(range.from, range.to),
       prisma.qmsCertification.findMany({
         orderBy: { createdAt: 'desc' },
@@ -336,9 +411,149 @@ router.get('/', authenticate, async (req, res) => {
       qcRejections,
       certifications,
       canManageCertifications: canManageCerts(req.user),
+      canEditSupplierPerformance: canEditSupplierPerf(req.user),
     });
   } catch (error) {
     console.error('KPI-QMS error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Mirror of supplier.routes.js: push the new score into each supplier's latest
+// re-eval row for the same FY so the Approved Supplier List column updates too.
+async function syncRatingToReEvals(tx, fy, items) {
+  for (const it of items) {
+    if (!it.supplierId) continue;
+    const latest = await tx.supplierReEvaluation.findFirst({
+      where: { supplierId: it.supplierId, financialYear: fy },
+      orderBy: { evaluationDate: 'desc' },
+    });
+    if (latest) {
+      await tx.supplierReEvaluation.update({
+        where: { id: latest.id },
+        data: { performanceRating: it.totalRating },
+      });
+    }
+  }
+}
+
+const clamp = (v, max) => Math.min(max, Math.max(0, Number(v) || 0));
+
+// PUT /api/kpi-qms/supplier-performance — Unit-5 + Purchase only. Upserts the
+// FY's rating (same tables as the Approved Supplier List's rating form).
+router.put('/supplier-performance', authenticate, requireSupplierPerfWrite, async (req, res) => {
+  try {
+    const fy = trimOrNull(req.body.fy);
+    if (!fy || !fyRange(fy)) return res.status(400).json({ error: 'Invalid financial year' });
+
+    const itemsIn = Array.isArray(req.body.items) ? req.body.items : [];
+    const items = itemsIn
+      .map((it) => {
+        const qualityRating = clamp(it.qualityRating, 60);
+        const deliveryRating = clamp(it.deliveryRating, 40);
+        return {
+          supplierId: trimOrNull(it.supplierId),
+          supplierName: trimOrNull(it.supplierName) || '',
+          itemDescription: trimOrNull(it.itemDescription) || '-',
+          suppliesReceived: Math.round(clamp(it.suppliesReceived, Number.MAX_SAFE_INTEGER)),
+          qtyAccepted: Math.round(clamp(it.qtyAccepted, Number.MAX_SAFE_INTEGER)),
+          qualityRating,
+          totalDeliveries: Math.round(clamp(it.totalDeliveries, Number.MAX_SAFE_INTEGER)),
+          deliveriesOnTime: Math.round(clamp(it.deliveriesOnTime, Number.MAX_SAFE_INTEGER)),
+          deliveriesLate: Math.round(clamp(it.deliveriesLate, Number.MAX_SAFE_INTEGER)),
+          deliveryRating,
+          totalRating: round2(qualityRating + deliveryRating),
+        };
+      })
+      .filter((it) => it.supplierName);
+    if (!items.length) return res.status(400).json({ error: 'At least one supplier row is required' });
+
+    // Link rows to supplier records by exact name when no id was sent.
+    const unlinkedNames = [...new Set(items.filter((i) => !i.supplierId).map((i) => i.supplierName))];
+    if (unlinkedNames.length) {
+      const found = await prisma.supplier.findMany({
+        where: { name: { in: unlinkedNames } },
+        select: { id: true, name: true },
+      });
+      const byName = new Map(found.map((s) => [s.name, s.id]));
+      for (const it of items) {
+        if (!it.supplierId) it.supplierId = byName.get(it.supplierName) || null;
+      }
+    }
+
+    const overallRating = round2(items.reduce((s, it) => s + it.totalRating, 0) / items.length);
+    const headerData = {
+      financialYear: fy,
+      periodFrom: toDate(req.body.periodFrom),
+      periodTo: toDate(req.body.periodTo),
+      preparedDate: toDate(req.body.preparedDate) || new Date(),
+      preparedByName: req.user.name,
+      preparedByUserId: req.user.id,
+      minimumCriteria: 85,
+      overallRating,
+      remarks: trimOrNull(req.body.remarks),
+    };
+
+    const saved = await prisma.$transaction(async (tx) => {
+      const existing = await tx.supplierPerformanceRating.findUnique({ where: { financialYear: fy } });
+      let header;
+      if (existing) {
+        header = await tx.supplierPerformanceRating.update({ where: { id: existing.id }, data: headerData });
+        await tx.supplierPerformanceRatingItem.deleteMany({ where: { ratingId: header.id } });
+      } else {
+        header = await tx.supplierPerformanceRating.create({ data: headerData });
+      }
+      await tx.supplierPerformanceRatingItem.createMany({
+        data: items.map((it) => ({ ...it, ratingId: header.id })),
+      });
+      await syncRatingToReEvals(tx, fy, items);
+      return tx.supplierPerformanceRating.findUnique({
+        where: { id: header.id },
+        include: { items: { orderBy: { createdAt: 'asc' } } },
+      });
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'UPSERT',
+        entity: 'Supplier.PerformanceRating',
+        entityId: saved.id,
+        details: { fiscalYear: fy, overallRating: saved.overallRating, items: saved.items.length, via: 'KPI-QMS' },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(saved);
+  } catch (error) {
+    console.error('Save supplier performance error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/kpi-qms/supplier-performance/:fy — Unit-5 + Purchase only.
+// Removes the manual rating so the panel falls back to auto-computed values.
+router.delete('/supplier-performance/:fy', authenticate, requireSupplierPerfWrite, async (req, res) => {
+  try {
+    const existing = await prisma.supplierPerformanceRating.findUnique({ where: { financialYear: req.params.fy } });
+    if (!existing) return res.status(404).json({ error: 'No manual rating recorded for that FY' });
+
+    await prisma.supplierPerformanceRating.delete({ where: { id: existing.id } });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'DELETE',
+        entity: 'Supplier.PerformanceRating',
+        entityId: existing.id,
+        details: { fiscalYear: req.params.fy, via: 'KPI-QMS' },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete supplier performance error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
