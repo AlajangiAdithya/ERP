@@ -43,7 +43,7 @@ export default function Header() {
   const roleLabel = ROLE_LABELS[user?.role] || user?.role?.replace(/_/g, ' ');
 
   return (
-    <header className="bg-white border-b border-navy-100 px-4 sm:px-6 h-16 flex items-center justify-between sticky top-0 z-30 shadow-[0_1px_0_rgba(16,36,82,0.04)]">
+    <header className="bg-white/85 backdrop-blur-md border-b border-navy-100 px-4 sm:px-6 h-16 flex items-center justify-between sticky top-0 z-30 shadow-[0_1px_3px_rgba(16,36,82,0.06)]">
       <div className="flex items-center gap-3 min-w-0">
         <div className="lg:hidden w-10 flex-shrink-0" />
       </div>
@@ -67,7 +67,7 @@ export default function Header() {
         <Dropdown
           trigger={
             <button className="flex items-center gap-2.5 pl-1 pr-2 sm:pr-3 py-1 rounded-full hover:bg-navy-50 transition-colors">
-              <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-navy-700 rounded-full flex items-center justify-center text-white text-[13px] font-semibold shadow-sm ring-2 ring-white">
+              <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-navy-700 rounded-full flex items-center justify-center text-white text-[13px] font-semibold shadow-md ring-2 ring-white ring-offset-1 ring-offset-navy-100">
                 {getInitials(user?.name)}
               </div>
               <div className="hidden sm:block text-left leading-tight">

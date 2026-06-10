@@ -45,9 +45,9 @@ function HubBackBar() {
     <div className="mb-4">
       <Link
         to={hub.hubPath}
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-navy-700 bg-white hover:bg-navy-50 border border-navy-200 rounded-md px-2.5 py-1.5 shadow-sm transition-colors"
+        className="group inline-flex items-center gap-1.5 text-xs font-semibold text-navy-700 bg-white hover:bg-navy-50 border border-navy-200 hover:border-navy-300 rounded-lg px-3 py-1.5 shadow-sm transition-all"
       >
-        <ArrowLeft size={14} />
+        <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" />
         Back to {hub.hubLabel}
       </Link>
     </div>
@@ -56,7 +56,7 @@ function HubBackBar() {
 
 export default function MainLayout({ children }) {
   return (
-    <div className="min-h-screen bg-brand-gray">
+    <div className="min-h-screen">
       <Sidebar />
       <div className="flex flex-col min-w-0 lg:pl-56">
         <Header />

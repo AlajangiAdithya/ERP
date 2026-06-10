@@ -28,10 +28,10 @@ export default function StatsCard({ title, value, subtitle, icon: Icon, trend, c
 
   return (
     <div
-      className={`relative overflow-hidden bg-white rounded-xl shadow-card border border-navy-100/60 p-5 pl-6 transition-all duration-200
+      className={`relative overflow-hidden bg-white rounded-2xl shadow-card border border-navy-100/70 p-5 pl-6 transition-all duration-200
         before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${accentBar[color] || accentBar.navy}
         after:absolute after:-right-10 after:-top-10 after:w-32 after:h-32 after:rounded-full after:blur-2xl ${glow[color] || glow.navy}
-        ${onClick ? 'group cursor-pointer hover:shadow-cardHover hover:-translate-y-0.5 hover:border-navy-200 active:scale-[0.99]' : ''}`}
+        ${onClick ? 'group cursor-pointer hover:shadow-cardHover hover:-translate-y-0.5 hover:border-navy-200 active:scale-[0.99]' : 'hover:shadow-cardHover'}`}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
@@ -39,8 +39,8 @@ export default function StatsCard({ title, value, subtitle, icon: Icon, trend, c
     >
       <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-wider font-semibold text-gray-500 mb-1.5">{title}</p>
-          <p className="text-[28px] leading-none font-bold text-navy-800">{value}</p>
+          <p className="text-[11px] uppercase tracking-[0.1em] font-semibold text-gray-500 mb-1.5">{title}</p>
+          <p className="text-[28px] leading-none font-bold text-navy-800 font-display tnum tracking-tight">{value}</p>
           {subtitle && (
             <p className="text-[11px] text-gray-500 mt-1.5 font-medium">{subtitle}</p>
           )}

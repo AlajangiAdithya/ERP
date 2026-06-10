@@ -170,6 +170,14 @@ const trainingDocUpload = multer({
   limits: { fileSize: SIZE_PDF },
 });
 
+// Company certification documents (ISO etc.) on the KPI-QMS dashboard panel.
+// Unit-5 uploads originals; everyone views.
+const qmsCertUpload = multer({
+  storage: makeStorage('qms-certs'),
+  fileFilter: pdfOrImage,
+  limits: { fileSize: SIZE_PDF },
+});
+
 const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
 
 module.exports = {
@@ -187,6 +195,7 @@ module.exports = {
   closureDocUpload,
   amcDocUpload,
   trainingDocUpload,
+  qmsCertUpload,
   publicUrlFor,
   UPLOAD_ROOT,
 };

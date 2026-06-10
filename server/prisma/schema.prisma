@@ -105,6 +105,9 @@ model User {
   // Attendance register (managers maintain per-unit workforce + daily IN/OUT)
   attendanceEmployeesCreated AttendanceEmployee[]          @relation("AttEmpCreator")
   attendanceMonthSubmissions AttendanceMonthSubmission[]   @relation("AttMonthSubmitter")
+
+  // KPI-QMS certifications (Unit-5 uploads; everyone views)
+  qmsCertificationsUploaded  QmsCertification[]            @relation("QmsCertUploader")
 }
 
 model Session {
@@ -2287,3 +2290,23 @@ model AttendanceMonthSubmission {
   @@index([year, month])
 }
 
+
+// ──── KPI-QMS CERTIFICATIONS ────
+// Company certifications (ISO etc.) shown read-only on every dashboard's
+// KPI-QMS panel. Only Unit-5 users (and SUPERADMIN) upload/replace/delete;
+// mirrors the Machinery-register Unit-5 detection.
+model QmsCertification {
+  id            String    @id @default(uuid())
+  title         String // e.g. "ISO 9001:2015"
+  certificateNo String?
+  issuedBy      String? // certification body
+  validFrom     DateTime?
+  validTill     DateTime?
+  fileUrl       String? // uploaded certificate (PDF/image)
+  fileName      String?
+  notes         String?
+  uploadedById  String?
+  uploadedBy    User?     @relation("QmsCertUploader", fields: [uploadedById], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}

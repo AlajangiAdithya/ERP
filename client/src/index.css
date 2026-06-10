@@ -4,32 +4,88 @@
 
 body {
   font-family: 'DM Sans', system-ui, sans-serif;
-  background-color: #EEF1F6;
+  background-color: #EDF0F7;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(58, 107, 224, 0.06), transparent),
+    radial-gradient(rgba(30, 58, 138, 0.045) 1px, transparent 1px);
+  background-size: 100% 100%, 22px 22px;
+  background-attachment: fixed;
   color: #16306E;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3 {
+  font-family: 'Sora', 'DM Sans', system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+::selection {
+  background: #1E3A8A;
+  color: #fff;
+}
+
+/* Keyboard focus — visible, consistent, never on mouse click */
+:focus-visible {
+  outline: 2px solid #3A6BE0;
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 @layer utilities {
   .animate-fade-in {
-    animation: fadeIn 0.3s ease-in-out;
+    animation: fadeIn 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .animate-scale-in {
+    animation: scaleIn 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .animate-rise {
+    animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  /* Aligned figures in tables & stat blocks */
+  .tnum {
+    font-variant-numeric: tabular-nums;
   }
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.97) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #EEF1F6;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #AEBFE2;
-  border-radius: 3px;
+  background: #B9C5DF;
+  border-radius: 8px;
+  border: 2px solid #EDF0F7;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #1E3A8A;
+  background: #506FAF;
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

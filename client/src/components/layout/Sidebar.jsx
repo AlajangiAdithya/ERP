@@ -113,14 +113,14 @@ export default function Sidebar() {
             end={item.to === '/'}
             onClick={() => setMobileOpen(false)}
             className={({ isActive }) =>
-              `group flex items-center gap-2.5 px-3 py-2 mx-2 rounded-lg text-[13px] transition-all duration-150 mb-0.5
+              `group relative flex items-center gap-2.5 px-3 py-2 mx-2 rounded-lg text-[13px] transition-all duration-150 mb-0.5
               ${isActive
-                ? 'bg-white/15 text-white font-medium shadow-[inset_3px_0_0_theme(colors.blue.400)]'
-                : 'text-white/90 hover:bg-white/[0.08] hover:text-white'
+                ? 'bg-gradient-to-r from-blue-500/25 to-white/[0.06] text-white font-semibold ring-1 ring-white/15 shadow-[inset_3px_0_0_theme(colors.blue.400)]'
+                : 'text-white/85 hover:bg-white/[0.08] hover:text-white hover:translate-x-0.5'
               }`
             }
           >
-            <item.icon size={17} className="flex-shrink-0" strokeWidth={2} />
+            <item.icon size={17} className="flex-shrink-0 transition-transform duration-150 group-hover:scale-110" strokeWidth={2} />
             <span className="truncate">{item.label}</span>
           </NavLink>
         ))}

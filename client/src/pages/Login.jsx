@@ -49,6 +49,16 @@ export default function Login() {
       />
       {/* Dark gradient overlay for legibility */}
       <div className="absolute inset-0 bg-gradient-to-br from-navy-900/85 via-navy-800/75 to-navy-900/95" aria-hidden="true" />
+      {/* Fine blueprint grid */}
+      <div
+        className="absolute inset-0 opacity-[0.06] pointer-events-none"
+        style={{
+          backgroundImage:
+            'linear-gradient(rgba(255,255,255,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.7) 1px, transparent 1px)',
+          backgroundSize: '48px 48px',
+        }}
+        aria-hidden="true"
+      />
       {/* Decorative blur orbs */}
       <div className="absolute -top-24 -left-24 w-[28rem] h-[28rem] bg-blue-500/20 rounded-full blur-3xl" aria-hidden="true" />
       <div className="absolute -bottom-32 -right-24 w-[32rem] h-[32rem] bg-blue-400/15 rounded-full blur-3xl" aria-hidden="true" />

@@ -2,10 +2,24 @@ import { Sparkles, LayoutDashboard } from 'lucide-react';
 
 export default function DashboardHero({ title, subtitle, actions, eyebrow = 'Workspace Overview' }) {
   return (
-    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-900 via-navy-800 to-indigo-900 px-7 py-7 text-white shadow-2xl">
+    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-900 via-navy-800 to-indigo-900 px-7 py-7 text-white shadow-2xl ring-1 ring-white/10">
+      {/* Fine blueprint grid */}
+      <div
+        className="absolute inset-0 opacity-[0.07] pointer-events-none"
+        style={{
+          backgroundImage:
+            'linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)',
+          backgroundSize: '44px 44px',
+          maskImage: 'radial-gradient(ellipse 90% 100% at 50% 0%, black 30%, transparent 95%)',
+          WebkitMaskImage: 'radial-gradient(ellipse 90% 100% at 50% 0%, black 30%, transparent 95%)',
+        }}
+        aria-hidden="true"
+      />
       {/* Soft decorative orbs */}
-      <div className="absolute -top-20 -right-20 w-80 h-80 bg-blue-500/20 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
+      <div className="absolute -top-20 -right-20 w-80 h-80 bg-blue-500/25 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
       <div className="absolute -bottom-24 -left-10 w-72 h-72 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
+      {/* Top edge highlight */}
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-300/50 to-transparent pointer-events-none" aria-hidden="true" />
 
       {/* Faint rocket photo to the right */}
       <div

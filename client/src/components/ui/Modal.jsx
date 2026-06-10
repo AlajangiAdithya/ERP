@@ -23,15 +23,19 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' })
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-      <div className={`relative bg-white rounded-lg shadow-xl w-full ${sizeClasses[size]} max-h-[90vh] flex flex-col animate-fade-in`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold text-navy-700">{title}</h2>
-          <button onClick={onClose} className="p-1 rounded-md hover:bg-gray-100 transition-colors">
-            <X size={20} className="text-gray-500" />
+      <div className="fixed inset-0 bg-navy-900/55 backdrop-blur-[3px]" onClick={onClose} />
+      <div className={`relative bg-white rounded-2xl shadow-pop ring-1 ring-navy-100 w-full ${sizeClasses[size]} max-h-[90vh] flex flex-col animate-scale-in overflow-hidden`}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-navy-100 bg-gradient-to-b from-navy-50/60 to-white">
+          <h2 className="text-lg font-bold text-navy-800 tracking-tight">{title}</h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-navy-700 hover:bg-navy-100/70 transition-colors"
+          >
+            <X size={18} />
           </button>
         </div>
-        <div className="px-6 py-4 overflow-y-auto flex-1">
+        <div className="px-6 py-5 overflow-y-auto flex-1">
           {children}
         </div>
       </div>

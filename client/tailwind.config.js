@@ -43,19 +43,27 @@ export default {
       },
       fontFamily: {
         sans: ['"DM Sans"', 'system-ui', 'sans-serif'],
+        display: ['"Sora"', '"DM Sans"', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        card: '0 1px 2px rgba(16, 36, 82, 0.04), 0 4px 12px rgba(16, 36, 82, 0.06)',
-        cardHover: '0 4px 8px rgba(16, 36, 82, 0.08), 0 12px 24px rgba(16, 36, 82, 0.10)',
+        card: '0 1px 2px rgba(16, 36, 82, 0.05), 0 4px 16px -2px rgba(16, 36, 82, 0.07)',
+        cardHover: '0 4px 12px rgba(16, 36, 82, 0.08), 0 16px 32px -8px rgba(16, 36, 82, 0.14)',
+        pop: '0 8px 24px -6px rgba(16, 36, 82, 0.18), 0 2px 6px rgba(16, 36, 82, 0.08)',
+        btn: '0 1px 2px rgba(16, 36, 82, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.12)',
       },
       keyframes: {
         marquee: {
           '0%':   { transform: 'translateX(0)' },
           '100%': { transform: 'translateX(-50%)' },
         },
+        shimmer: {
+          '0%':   { backgroundPosition: '-400px 0' },
+          '100%': { backgroundPosition: '400px 0' },
+        },
       },
       animation: {
         marquee: 'marquee 40s linear infinite',
+        shimmer: 'shimmer 1.6s linear infinite',
       },
     },
   },
