@@ -9,3 +9,8 @@ ALTER TABLE "ProductBatch" ADD COLUMN IF NOT EXISTS "supplierName" TEXT;
 ALTER TABLE "ProductBatch" ADD COLUMN IF NOT EXISTS "supplierContact" TEXT;
 ALTER TABLE "ProductBatch" ADD COLUMN IF NOT EXISTS "supplierAddress" TEXT;
 ALTER TABLE "ProductBatch" ADD COLUMN IF NOT EXISTS "assignedDept" TEXT;
+
+-- Mfg / expiry entered by Stores on direct entries (PO-flow batches read these
+-- from the linked QC inspection instead).
+ALTER TABLE "ProductBatch" ADD COLUMN IF NOT EXISTS "dateOfManufacturing" TIMESTAMP(3);
+ALTER TABLE "ProductBatch" ADD COLUMN IF NOT EXISTS "dateOfExpiry" TIMESTAMP(3);

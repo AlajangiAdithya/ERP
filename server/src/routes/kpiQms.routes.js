@@ -18,7 +18,7 @@
 const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
-const { qmsCertUpload, publicUrlFor } = require('../middleware/upload');
+const { qmsCertUpload, qmsDocUpload, publicUrlFor } = require('../middleware/upload');
 const { getFinancialYear } = require('../utils/helpers');
 
 const router = express.Router();
@@ -554,6 +554,123 @@ router.delete('/supplier-performance/:fy', authenticate, requireSupplierPerfWrit
     res.json({ success: true });
   } catch (error) {
     console.error('Delete supplier performance error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── QMS document library (SOPs + Work Instructions) ──
+const DOC_CATEGORIES = ['SOP', 'WORK_INSTRUCTION'];
+
+// GET /api/kpi-qms/documents?category=SOP — everyone views.
+router.get('/documents', authenticate, async (req, res) => {
+  try {
+    const category = trimOrNull(req.query.category);
+    if (category && !DOC_CATEGORIES.includes(category)) {
+      return res.status(400).json({ error: 'Invalid category' });
+    }
+    const documents = await prisma.qmsDocument.findMany({
+      where: category ? { category } : {},
+      orderBy: { createdAt: 'desc' },
+      include: { uploadedBy: { select: { name: true } } },
+    });
+    res.json({ documents, canManage: canManageCerts(req.user) });
+  } catch (error) {
+    console.error('List QMS documents error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/kpi-qms/documents — Unit-5 only. Multipart: file + fields.
+router.post('/documents', authenticate, requireCertWrite, qmsDocUpload.single('file'), async (req, res) => {
+  try {
+    const title = trimOrNull(req.body.title);
+    const category = trimOrNull(req.body.category);
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+    if (!DOC_CATEGORIES.includes(category)) return res.status(400).json({ error: 'Invalid category' });
+
+    const doc = await prisma.qmsDocument.create({
+      data: {
+        category,
+        title,
+        docNo: trimOrNull(req.body.docNo),
+        revision: trimOrNull(req.body.revision),
+        notes: trimOrNull(req.body.notes),
+        fileUrl: req.file ? publicUrlFor('qms-docs', req.file.filename) : null,
+        fileName: req.file ? req.file.originalname : null,
+        uploadedById: req.user.id,
+      },
+      include: { uploadedBy: { select: { name: true } } },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id, action: 'CREATE', entity: 'QmsDocument', entityId: doc.id,
+        details: { category, title }, ipAddress: req.ip,
+      },
+    });
+    res.status(201).json(doc);
+  } catch (error) {
+    console.error('Create QMS document error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/kpi-qms/documents/:id — Unit-5 only. Optionally replaces the file.
+router.put('/documents/:id', authenticate, requireCertWrite, qmsDocUpload.single('file'), async (req, res) => {
+  try {
+    const existing = await prisma.qmsDocument.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Document not found' });
+
+    const data = {};
+    if (req.body.title !== undefined) {
+      const title = trimOrNull(req.body.title);
+      if (!title) return res.status(400).json({ error: 'Title is required' });
+      data.title = title;
+    }
+    if (req.body.docNo !== undefined) data.docNo = trimOrNull(req.body.docNo);
+    if (req.body.revision !== undefined) data.revision = trimOrNull(req.body.revision);
+    if (req.body.notes !== undefined) data.notes = trimOrNull(req.body.notes);
+    if (req.file) {
+      data.fileUrl = publicUrlFor('qms-docs', req.file.filename);
+      data.fileName = req.file.originalname;
+    }
+
+    const doc = await prisma.qmsDocument.update({
+      where: { id: existing.id },
+      data,
+      include: { uploadedBy: { select: { name: true } } },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id, action: 'UPDATE', entity: 'QmsDocument', entityId: doc.id,
+        details: { title: doc.title }, ipAddress: req.ip,
+      },
+    });
+    res.json(doc);
+  } catch (error) {
+    console.error('Update QMS document error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/kpi-qms/documents/:id — Unit-5 only.
+router.delete('/documents/:id', authenticate, requireCertWrite, async (req, res) => {
+  try {
+    const existing = await prisma.qmsDocument.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Document not found' });
+
+    await prisma.qmsDocument.delete({ where: { id: existing.id } });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id, action: 'DELETE', entity: 'QmsDocument', entityId: existing.id,
+        details: { title: existing.title }, ipAddress: req.ip,
+      },
+    });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete QMS document error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

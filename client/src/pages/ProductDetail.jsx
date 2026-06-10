@@ -1208,13 +1208,13 @@ export default function ProductDetail() {
                                 : <Badge color="green">Full</Badge>}
                             </td>
                             <td className="px-3 py-2 text-xs">
-                              {insp?.dateOfManufacturing
-                                ? formatDate(insp.dateOfManufacturing)
+                              {(insp?.dateOfManufacturing || b.dateOfManufacturing)
+                                ? formatDate(insp?.dateOfManufacturing || b.dateOfManufacturing)
                                 : <span className="text-gray-300 italic">—</span>}
                             </td>
                             <td className="px-3 py-2 text-xs">
-                              {insp?.dateOfExpiry
-                                ? <ExpiryBadge dateOfExpiry={insp.dateOfExpiry} />
+                              {(insp?.dateOfExpiry || b.dateOfExpiry)
+                                ? <ExpiryBadge dateOfExpiry={insp?.dateOfExpiry || b.dateOfExpiry} />
                                 : <span className="text-gray-300 italic">—</span>}
                             </td>
                             <td className="px-3 py-2 text-xs">
@@ -1226,10 +1226,10 @@ export default function ProductDetail() {
                                     <span className="ml-1 text-amber-700">· Lot {insp.lotNumber}</span>
                                   )}
                                 </button>
-                              ) : poBatch ? (
+                              ) : b.referenceType === 'PurchaseOrder' ? (
                                 <span className="text-gray-400 italic">PO (no QC link)</span>
                               ) : (
-                                <span className="text-gray-400">{b.isFim ? 'FIM' : 'Direct'}</span>
+                                <span className="text-gray-400">{b.isFim ? 'FIM' : 'Direct Entry'}</span>
                               )}
                             </td>
                           </tr>

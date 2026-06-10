@@ -40,9 +40,6 @@ const DISPATCH_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY' && r !== 'QC');
 const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
-    // KPI — QMS — auto-generated indicators, view-only for everyone.
-    // Certifications upload gated to Unit-5 server-side.
-    { to: '/kpi-qms', icon: Gauge, label: 'KPI — QMS', roles: ALL_ROLES },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'] },
     { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: PROCUREMENT_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
@@ -52,16 +49,16 @@ const buildAllItems = () => {
     // Hidden from Metrology and QC — they don't run dispatch.
     { to: '/transport', icon: Navigation, label: 'Gate Pass & Vehicles', roles: DISPATCH_ROLES },
     { to: '/metrology', icon: Ruler, label: 'Measuring and Monitoring Resources', roles: METROLOGY_VIEW_ROLES },
-    // Safety register — view-only for everyone, edit for SAFETY + Unit-5 (gated server-side).
+    // Machinery register — view-only for everyone, edit for SAFETY + Unit-5 (gated server-side).
     // Hidden from Accounting and Supply Chain — not part of their workflow.
-    { to: '/machinery', icon: Wrench, label: 'Machinery & Safety Register', roles: ALL_ROLES.filter((r) => r !== 'ACCOUNTING' && r !== 'SUPPLY_CHAIN') },
+    { to: '/machinery', icon: Wrench, label: 'Machinery Register', roles: ALL_ROLES.filter((r) => r !== 'ACCOUNTING' && r !== 'SUPPLY_CHAIN') },
     // HR hub — employees, skill matrix, annual training plan, training records.
     // HR + ADMIN edit; Managers can append training items for their unit; all view.
     // Hidden from Metrology — not part of their workflow.
     { to: '/hr', icon: GraduationCap, label: 'Human Resources', roles: NON_METROLOGY_ROLES },
     // Attendance register — Unit managers edit their own unit; ADMIN + SAFETY
     // can view all units; ACCOUNTING sees only months submitted to them.
-    { to: '/attendance', icon: CalendarClock, label: 'Attendance', roles: ['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING'] },
+    { to: '/attendance', icon: CalendarClock, label: 'Attendance', roles: ['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING', 'HR'] },
     // Monitoring hub — Stock Movements, All MIV Requests, Audit Logs, Unit Usage Logs.
     { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
     { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
@@ -69,6 +66,9 @@ const buildAllItems = () => {
     { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY'] },
+    // QMS hub (SOPs, Work Instructions, KPIs) — last entry for everyone.
+    // Document uploads gated to Unit-5 server-side.
+    { to: '/qms', icon: Gauge, label: 'QMS', roles: ALL_ROLES },
     // SUPERADMIN-only owner hatch — invisible to everyone else. One entry
     // takes the owner to the hub; deeper pages link from there.
     { to: '/superadmin', icon: Crown, label: 'Control Hub', roles: ['SUPERADMIN'] },

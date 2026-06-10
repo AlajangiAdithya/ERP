@@ -178,6 +178,13 @@ const qmsCertUpload = multer({
   limits: { fileSize: SIZE_PDF },
 });
 
+// QMS document library (SOPs + Work Instructions). Unit-5 uploads; everyone views.
+const qmsDocUpload = multer({
+  storage: makeStorage('qms-docs'),
+  fileFilter: pdfOrImage,
+  limits: { fileSize: SIZE_DOC },
+});
+
 const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
 
 module.exports = {
@@ -196,6 +203,7 @@ module.exports = {
   amcDocUpload,
   trainingDocUpload,
   qmsCertUpload,
+  qmsDocUpload,
   publicUrlFor,
   UPLOAD_ROOT,
 };

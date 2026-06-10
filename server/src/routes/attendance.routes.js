@@ -29,13 +29,13 @@ const canEditUnit = (user, unitId) => {
   return isManagerOfUnit(user, unitId);
 };
 
-const VIEW_ROLES = new Set(['ADMIN', 'SAFETY', 'ACCOUNTING', 'SUPERADMIN', 'MANAGER']);
+const VIEW_ROLES = new Set(['ADMIN', 'SAFETY', 'ACCOUNTING', 'HR', 'SUPERADMIN', 'MANAGER']);
 const canViewUnit = (user, unitId) => {
   if (!user || !unitId) return false;
   if (user.role === 'SUPERADMIN' || user.role === 'ADMIN' || user.role === 'SAFETY') return true;
   if (user.role === 'MANAGER') return user.unitId === unitId;
-  // ACCOUNTING handled separately per-month (only sees submitted months).
-  if (user.role === 'ACCOUNTING') return true;
+  // ACCOUNTING + HR handled separately per-month (only see submitted months).
+  if (user.role === 'ACCOUNTING' || user.role === 'HR') return true;
   return false;
 };
 
@@ -88,7 +88,7 @@ router.get('/permissions', authenticate, async (req, res) => {
   res.json({
     role: user.role,
     unitId: user.unitId,
-    canSeeAllUnits: ['ADMIN', 'SAFETY', 'SUPERADMIN', 'ACCOUNTING'].includes(user.role),
+    canSeeAllUnits: ['ADMIN', 'SAFETY', 'SUPERADMIN', 'ACCOUNTING', 'HR'].includes(user.role),
     canEditOwnUnit: user.role === 'MANAGER' || user.role === 'SUPERADMIN',
   });
 });
@@ -98,7 +98,7 @@ router.get('/units', authenticate, async (req, res) => {
   try {
     const user = req.user;
     let units;
-    if (['ADMIN', 'SAFETY', 'SUPERADMIN', 'ACCOUNTING'].includes(user.role)) {
+    if (['ADMIN', 'SAFETY', 'SUPERADMIN', 'ACCOUNTING', 'HR'].includes(user.role)) {
       units = await prisma.unit.findMany({
         where: { isActive: true },
         select: { id: true, name: true, code: true },
@@ -243,13 +243,13 @@ router.get('/grid', authenticate, async (req, res) => {
     const ym = parseYearMonth(req);
     if (!ym) return res.status(400).json({ error: 'Valid year & month required' });
 
-    // ACCOUNTING gating — they only see a unit-month after submission.
+    // ACCOUNTING + HR gating — they only see a unit-month after submission.
     const user = req.user;
-    if (user.role === 'ACCOUNTING') {
+    if (user.role === 'ACCOUNTING' || user.role === 'HR') {
       const sub = await prisma.attendanceMonthSubmission.findUnique({
         where: { unitId_year_month: { unitId, year: ym.year, month: ym.month } },
       });
-      if (!sub) return res.status(403).json({ error: 'Accounts can only view submitted months' });
+      if (!sub) return res.status(403).json({ error: 'Accounts/HR can only view submitted months' });
     } else if (!canViewUnit(user, unitId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -509,11 +509,11 @@ router.get('/monthly-summary', authenticate, async (req, res) => {
     if (!ym) return res.status(400).json({ error: 'Valid year & month required' });
 
     const user = req.user;
-    if (user.role === 'ACCOUNTING') {
+    if (user.role === 'ACCOUNTING' || user.role === 'HR') {
       const sub = await prisma.attendanceMonthSubmission.findUnique({
         where: { unitId_year_month: { unitId, year: ym.year, month: ym.month } },
       });
-      if (!sub) return res.status(403).json({ error: 'Accounts can only view submitted months' });
+      if (!sub) return res.status(403).json({ error: 'Accounts/HR can only view submitted months' });
     } else if (!canViewUnit(user, unitId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -592,15 +592,15 @@ router.post('/submit', authenticate, async (req, res) => {
       },
     });
 
-    // Best-effort notification to ACCOUNTING + ADMIN.
+    // Best-effort notification to ACCOUNTING + HR + ADMIN.
     try {
       const targets = await prisma.user.findMany({
-        where: { role: { in: ['ACCOUNTING', 'ADMIN'] }, isActive: true },
+        where: { role: { in: ['ACCOUNTING', 'HR', 'ADMIN'] }, isActive: true },
         select: { id: true },
       });
       const unit = await prisma.unit.findUnique({ where: { id: unitId }, select: { name: true, code: true } });
       const monthName = new Date(y, m - 1, 1).toLocaleString('en-US', { month: 'long' });
-      const msg = `${unit?.name || 'Unit'} attendance for ${monthName} ${y} has been sent to accounts.`;
+      const msg = `${unit?.name || 'Unit'} attendance for ${monthName} ${y} has been sent to Accounts & HR.`;
       await prisma.notification.createMany({
         data: targets.map((u) => ({
           targetUserId: u.id,

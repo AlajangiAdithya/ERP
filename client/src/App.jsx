@@ -46,6 +46,7 @@ import TestingEquipment from './pages/metrology/TestingEquipment';
 import MetrologyInstruments from './pages/metrology/MetrologyInstruments';
 import MMR from './pages/metrology/MMR';
 import MetrologyCategoryView from './pages/metrology/CategoryView';
+import FireExtinguishers from './pages/metrology/FireExtinguishers';
 import MachineryRegister from './pages/MachineryRegister';
 import HumanResources from './pages/HumanResources';
 import HrEmployees from './pages/hr/Employees';
@@ -55,6 +56,8 @@ import HrTrainingRecords from './pages/hr/TrainingRecords';
 import Attendance from './pages/Attendance';
 import Transport from './pages/Transport';
 import KpiQms from './pages/KpiQms';
+import Qms from './pages/Qms';
+import QmsDocuments from './pages/qms/QmsDocuments';
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
@@ -279,17 +282,24 @@ export default function App() {
               <Route path="/metrology/category/:slug" element={
                 <PrivateRoute allowedRoles={METROLOGY_VIEW_ROLES}><MetrologyCategoryView /></PrivateRoute>
               } />
+              {/* Fire Extinguisher register — moved here from Machinery. Keeps the
+                  machinery access model: everyone views, SAFETY + Unit-5 edit
+                  (enforced server-side), so no role guard on the route. */}
+              <Route path="/metrology/fire-extinguishers" element={
+                <PrivateRoute><FireExtinguishers /></PrivateRoute>
+              } />
 
-              {/* Safety / HSE — Machinery + Fire Extinguisher register (everyone views, SAFETY + Unit-5 edit) */}
+              {/* Safety / HSE — Machinery register (everyone views, SAFETY + Unit-5 edit) */}
               <Route path="/machinery" element={
                 <PrivateRoute><MachineryRegister /></PrivateRoute>
               } />
 
-              {/* KPI — QMS — auto-generated indicators, everyone views.
-                  Certifications upload gated to Unit-5 server-side. */}
-              <Route path="/kpi-qms" element={
-                <PrivateRoute><KpiQms /></PrivateRoute>
-              } />
+              {/* QMS hub — SOPs, Work Instructions, KPIs. Everyone views;
+                  document/certification uploads gated to Unit-5 server-side. */}
+              <Route path="/qms" element={<PrivateRoute><Qms /></PrivateRoute>} />
+              <Route path="/qms/sops" element={<PrivateRoute><QmsDocuments category="SOP" /></PrivateRoute>} />
+              <Route path="/qms/work-instructions" element={<PrivateRoute><QmsDocuments category="WORK_INSTRUCTION" /></PrivateRoute>} />
+              <Route path="/qms/kpis" element={<PrivateRoute><KpiQms /></PrivateRoute>} />
 
               {/* HR hub + sub-modules — everyone views; HR/ADMIN edit. Managers
                   can append training items for their team. Server enforces. */}
@@ -303,7 +313,7 @@ export default function App() {
                   SAFETY view all; ACCOUNTING only sees submitted months
                   (gated server-side). */}
               <Route path="/attendance" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING']}><Attendance /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING', 'HR']}><Attendance /></PrivateRoute>
               } />
 
               {/* SUPERADMIN-only — owner hatch */}

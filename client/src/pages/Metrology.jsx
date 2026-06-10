@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Gauge, Wind, Scale, FlaskConical, Ruler, Flame, Truck, Search, Box,
-  Sparkles, ArrowRight, ListChecks,
+  FireExtinguisher, Sparkles, ArrowRight, ListChecks,
   Activity, CheckCircle2, Clock, AlertTriangle,
 } from 'lucide-react';
 import api from '../api/axios';
@@ -197,6 +197,21 @@ export const CATEGORY_CARDS = [
   },
 ];
 
+// Fire extinguishers live in their own register (not the calibration list),
+// so this card is kept out of CATEGORY_CARDS — CategoryView resolves slugs
+// against that list — and links straight to its dedicated page instead.
+const FIRE_EXTINGUISHER_CARD = {
+  slug: 'fire-extinguishers',
+  to: '/metrology/fire-extinguishers',
+  label: 'Fire extinguishers',
+  icon: FireExtinguisher,
+  description: 'Active fire-extinguisher inventory with refill due dates.',
+  gradient: 'from-red-500 via-rose-600 to-red-700',
+  glow: 'group-hover:shadow-red-500/40',
+  iconBg: 'bg-gradient-to-br from-red-100 to-rose-200 text-red-700',
+  ringColor: 'ring-red-200/60',
+};
+
 export default function Metrology() {
   const [items, setItems] = useState([]);
   const [loadingStats, setLoadingStats] = useState(true);
@@ -282,12 +297,12 @@ export default function Metrology() {
 
       {/* Category cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        {CATEGORY_CARDS.map((m) => {
+        {[...CATEGORY_CARDS, FIRE_EXTINGUISHER_CARD].map((m) => {
           const Icon = m.icon;
           return (
             <Link
               key={m.slug}
-              to={`/metrology/category/${m.slug}`}
+              to={m.to || `/metrology/category/${m.slug}`}
               className={`group relative block rounded-2xl bg-white border border-navy-100/60 shadow-card
                 hover:-translate-y-1 hover:shadow-2xl ${m.glow}
                 transition-all duration-300 overflow-hidden`}

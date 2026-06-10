@@ -47,6 +47,24 @@ const TABLES = [
 // Convert PascalCase table name to camelCase Prisma model accessor.
 const modelKey = (table) => table.charAt(0).toLowerCase() + table.slice(1);
 
+// Raw Prisma errors are multi-line stack-like blobs; translate the common
+// codes into something readable in the Realtime Corrections error banner.
+const prismaErrorMessage = (e) => {
+  switch (e.code) {
+    case 'P2002': {
+      const fields = Array.isArray(e.meta?.target) ? e.meta.target.join(', ') : e.meta?.target;
+      return `Unique constraint failed${fields ? ` on: ${fields}` : ''} — another row already has this value.`;
+    }
+    case 'P2003':
+      return 'Row is referenced by other records (foreign key constraint). Delete or re-point the dependent rows first.';
+    case 'P2025':
+      return 'Row not found — it may have been deleted already.';
+    default:
+      // Validation errors: keep only the explanation after the last newline block.
+      return (e.message || 'Operation failed').split('\n').filter(Boolean).pop().trim();
+  }
+};
+
 // GET /api/superadmin/tables — table names with row counts
 router.get('/tables', async (req, res) => {
   try {
@@ -105,7 +123,7 @@ router.put('/table/:name/row/:id', async (req, res) => {
     res.json(updated);
   } catch (e) {
     console.error(`superadmin update ${name}/${id} error:`, e);
-    res.status(400).json({ error: e.message });
+    res.status(400).json({ error: prismaErrorMessage(e) });
   }
 });
 
@@ -119,7 +137,7 @@ router.post('/table/:name/row', async (req, res) => {
     res.status(201).json(created);
   } catch (e) {
     console.error(`superadmin create ${name} error:`, e);
-    res.status(400).json({ error: e.message });
+    res.status(400).json({ error: prismaErrorMessage(e) });
   }
 });
 
@@ -133,7 +151,7 @@ router.delete('/table/:name/row/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error(`superadmin delete ${name}/${id} error:`, e);
-    res.status(400).json({ error: e.message });
+    res.status(400).json({ error: prismaErrorMessage(e) });
   }
 });
 

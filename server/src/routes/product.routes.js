@@ -19,10 +19,15 @@ async function annotateMirAndExpiry(products) {
   if (!products.length) return;
   const ids = products.map((p) => p.id);
   const rows = await prisma.productBatch.findMany({
-    where: { productId: { in: ids }, sourceQcInspectionId: { not: null } },
+    // Direct entries carry their own dateOfExpiry (no inspection) — include them.
+    where: {
+      productId: { in: ids },
+      OR: [{ sourceQcInspectionId: { not: null } }, { dateOfExpiry: { not: null } }],
+    },
     select: {
       productId: true,
       remaining: true,
+      dateOfExpiry: true,
       sourceQcInspection: {
         select: {
           dateOfExpiry: true,
@@ -37,7 +42,7 @@ async function annotateMirAndExpiry(products) {
     if (!agg) { agg = { mirs: new Set(), earliestExpiry: null }; perProduct.set(r.productId, agg); }
     const mir = r.sourceQcInspection?.purchaseOrder?.mirNo;
     if (mir) agg.mirs.add(mir);
-    const exp = r.sourceQcInspection?.dateOfExpiry;
+    const exp = r.sourceQcInspection?.dateOfExpiry || r.dateOfExpiry;
     if (exp && (r.remaining ?? 0) > 0) {
       if (!agg.earliestExpiry || new Date(exp) < new Date(agg.earliestExpiry)) {
         agg.earliestExpiry = exp;
@@ -531,9 +536,10 @@ router.get('/:id', authenticate, async (req, res) => {
     const mirCount = mirSet.size;
 
     // Earliest expiry across batches with remaining stock — drives the warning badge.
+    // Direct entries carry their own dateOfExpiry (no inspection).
     let earliestExpiry = null;
     for (const b of poBatches) {
-      const exp = b.sourceQcInspection?.dateOfExpiry;
+      const exp = b.sourceQcInspection?.dateOfExpiry || b.dateOfExpiry;
       if (exp && (b.remaining ?? 0) > 0) {
         if (!earliestExpiry || new Date(exp) < new Date(earliestExpiry)) earliestExpiry = exp;
       }

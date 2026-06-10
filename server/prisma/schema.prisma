@@ -106,8 +106,9 @@ model User {
   attendanceEmployeesCreated AttendanceEmployee[]          @relation("AttEmpCreator")
   attendanceMonthSubmissions AttendanceMonthSubmission[]   @relation("AttMonthSubmitter")
 
-  // KPI-QMS certifications (Unit-5 uploads; everyone views)
+  // KPI-QMS certifications + QMS documents (Unit-5 uploads; everyone views)
   qmsCertificationsUploaded  QmsCertification[]            @relation("QmsCertUploader")
+  qmsDocumentsUploaded       QmsDocument[]                 @relation("QmsDocUploader")
 }
 
 model Session {
@@ -253,6 +254,10 @@ model ProductBatch {
   // Non-unit department this purchase was made for (Safety, QC, Designs …).
   // Unit assignments go through StockMovement.unitId + ProductUnitStock instead.
   assignedDept    String?
+  // Mfg / expiry entered by Stores on direct entries. PO-flow batches read
+  // these from the linked QC inspection instead.
+  dateOfManufacturing DateTime?
+  dateOfExpiry        DateTime?
 
   // FIM (Free Issue Material — customer's property) linkage.
   // Set when this batch was inwarded via an INWARD gate pass.
@@ -2323,4 +2328,24 @@ model QmsCertification {
   uploadedBy    User?     @relation("QmsCertUploader", fields: [uploadedById], references: [id])
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+}
+
+// ──── QMS DOCUMENTS (SOPs + Work Instructions) ────
+// Document library on the QMS hub. Everyone views; only Unit-5 users
+// (and SUPERADMIN) upload/replace/delete — same gate as certifications.
+model QmsDocument {
+  id           String   @id @default(uuid())
+  category     String // "SOP" | "WORK_INSTRUCTION"
+  title        String
+  docNo        String?
+  revision     String?
+  fileUrl      String?
+  fileName     String?
+  notes        String?
+  uploadedById String?
+  uploadedBy   User?    @relation("QmsDocUploader", fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([category])
 }

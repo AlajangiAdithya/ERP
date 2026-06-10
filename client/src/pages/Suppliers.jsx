@@ -63,17 +63,6 @@ export default function Suppliers() {
   const [uploadingFor, setUploadingFor] = useState(null);
   const [showRatingModal, setShowRatingModal] = useState(false);
 
-  // Click "Vendor ID" header to cycle: none → asc → desc → none.
-  // Sort is natural (numeric-aware) so V2 sorts before V10.
-  const [vendorSort, setVendorSort] = useState('none');
-  const cycleVendorSort = () => setVendorSort((p) => (p === 'none' ? 'asc' : p === 'asc' ? 'desc' : 'none'));
-  const sortedSuppliers = useMemo(() => {
-    if (vendorSort === 'none') return suppliers;
-    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-    const sign = vendorSort === 'asc' ? 1 : -1;
-    return [...suppliers].sort((a, b) => sign * collator.compare(a.vendorIdNo || '', b.vendorIdNo || ''));
-  }, [suppliers, vendorSort]);
-
   const fetchSuppliers = () => {
     setLoading(true);
     const params = { page, limit: 25, search: search || undefined, fy: selectedFY || undefined };
@@ -220,6 +209,17 @@ export default function Suppliers() {
 // Two-banner layout matching the client format: left = master register,
 // right = evaluation details for the selected FY.
 function ApprovedSupplierTable({ suppliers, currentFY, canEdit, onEditSupplier, onReEvaluate, onAssess, onUpload }) {
+  // Click "Vendor ID" header to cycle: none → asc → desc → none.
+  // Sort is natural (numeric-aware) so V2 sorts before V10.
+  const [vendorSort, setVendorSort] = useState('none');
+  const cycleVendorSort = () => setVendorSort((p) => (p === 'none' ? 'asc' : p === 'asc' ? 'desc' : 'none'));
+  const sortedSuppliers = useMemo(() => {
+    if (vendorSort === 'none') return suppliers;
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    const sign = vendorSort === 'asc' ? 1 : -1;
+    return [...suppliers].sort((a, b) => sign * collator.compare(a.vendorIdNo || '', b.vendorIdNo || ''));
+  }, [suppliers, vendorSort]);
+
   if (!suppliers.length) {
     return <div className="text-center py-10 text-gray-400 text-sm">No suppliers yet.</div>;
   }

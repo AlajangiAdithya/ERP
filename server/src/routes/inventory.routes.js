@@ -17,6 +17,7 @@ router.post('/inward', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async 
     const {
       productId, quantity, batchNumber, notes, unitId,
       assignedDept, supplierName, supplierContact, supplierAddress, unitPrice,
+      dateOfManufacturing, dateOfExpiry,
     } = req.body;
     const qty = parseFloat(quantity);
 
@@ -24,6 +25,11 @@ router.post('/inward', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async 
       return res.status(400).json({ error: 'Product and valid quantity are required' });
     }
     const cost = parseFloat(unitPrice);
+    const mfgDate = dateOfManufacturing ? new Date(dateOfManufacturing) : null;
+    const expDate = dateOfExpiry ? new Date(dateOfExpiry) : null;
+    if ((mfgDate && isNaN(mfgDate)) || (expDate && isNaN(expDate))) {
+      return res.status(400).json({ error: 'Invalid mfg / expiry date' });
+    }
 
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product) return res.status(404).json({ error: 'Product not found' });
@@ -72,6 +78,8 @@ router.post('/inward', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async 
           supplierContact: supplierContact?.trim() || null,
           supplierAddress: supplierAddress?.trim() || null,
           assignedDept: assignedDept?.trim() || null,
+          dateOfManufacturing: mfgDate,
+          dateOfExpiry: expDate,
         },
       });
 
@@ -197,6 +205,8 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
       supplierContact: z.string().optional().nullable(),
       supplierAddress: z.string().optional().nullable(),
       unitPrice: z.number().positive().optional().nullable(),
+      dateOfManufacturing: z.coerce.date().optional().nullable(),
+      dateOfExpiry: z.coerce.date().optional().nullable(),
     });
     const data = schema.parse(req.body);
 
@@ -251,6 +261,8 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
             supplierContact: data.supplierContact?.trim() || null,
             supplierAddress: data.supplierAddress?.trim() || null,
             assignedDept: data.assignedDept?.trim() || null,
+            dateOfManufacturing: data.dateOfManufacturing || null,
+            dateOfExpiry: data.dateOfExpiry || null,
           },
         });
 

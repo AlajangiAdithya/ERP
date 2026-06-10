@@ -567,10 +567,15 @@ function directEntryExtras(form) {
     supplierContact: form.supplierContact.trim() || undefined,
     supplierAddress: form.supplierAddress.trim() || undefined,
     unitPrice: form.unitPrice && parseFloat(form.unitPrice) > 0 ? parseFloat(form.unitPrice) : undefined,
+    dateOfManufacturing: form.mfgDate || undefined,
+    dateOfExpiry: form.expiryDate || undefined,
   };
 }
 
-const blankDirectExtras = { assignTo: '', supplierName: '', supplierContact: '', supplierAddress: '', unitPrice: '' };
+const blankDirectExtras = {
+  assignTo: '', supplierName: '', supplierContact: '', supplierAddress: '', unitPrice: '',
+  mfgDate: '', expiryDate: '',
+};
 
 function DirectEntryMode({ onSuccess, canEdit }) {
   const [subMode, setSubMode] = useState('existing');
@@ -711,6 +716,10 @@ function ExistingProductForm({ onSuccess, units }) {
             onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} />
           <AssignToSelect units={units} value={form.assignTo}
             onChange={(e) => setForm({ ...form, assignTo: e.target.value })} />
+          <Input label="Mfg Date" type="date" value={form.mfgDate}
+            onChange={(e) => setForm({ ...form, mfgDate: e.target.value })} />
+          <Input label="Expiry Date" type="date" value={form.expiryDate} min={form.mfgDate || undefined}
+            onChange={(e) => setForm({ ...form, expiryDate: e.target.value })} />
         </div>
 
         <SupplierDetailsFields form={form} setForm={setForm} />
@@ -802,6 +811,10 @@ function NewProductForm({ onSuccess, units }) {
             onChange={(e) => setForm({ ...form, quantity: e.target.value })} required />
           <Input label="Batch Number" value={form.batchNumber}
             onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} />
+          <Input label="Mfg Date" type="date" value={form.mfgDate}
+            onChange={(e) => setForm({ ...form, mfgDate: e.target.value })} />
+          <Input label="Expiry Date" type="date" value={form.expiryDate} min={form.mfgDate || undefined}
+            onChange={(e) => setForm({ ...form, expiryDate: e.target.value })} />
           <AssignToSelect units={units} value={form.assignTo}
             onChange={(e) => setForm({ ...form, assignTo: e.target.value })} />
         </div>

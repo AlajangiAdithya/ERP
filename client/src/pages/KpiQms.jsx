@@ -9,8 +9,8 @@ export default function KpiQms() {
   return (
     <div className="space-y-5">
       <PageHero
-        title="KPI — QMS"
-        eyebrow="Quality Management System"
+        title="KPIs"
+        eyebrow="QMS — Key Performance Indicators"
         subtitle="On-time deliveries, tender vs order conversion, supplier performance rating, QC product rejections and company certifications — auto-generated from system records. Certifications maintained by Unit-5; everyone views."
         icon={Gauge}
       />

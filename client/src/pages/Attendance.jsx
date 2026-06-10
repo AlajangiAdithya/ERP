@@ -18,7 +18,7 @@ import Input from '../components/ui/Input';
 //   • Month view — pick one employee, see the whole month vertically with
 //     one calendar row per day. Easy to scan a person's pattern.
 //
-// "Send to Accounts" finalizes the month and locks edits.
+// "Send to Accounts & HR" finalizes the month and locks edits.
 // Modification trail (dot + history) is shown to the unit's manager only.
 // ──────────────────────────────────────────────────────────────
 
@@ -193,7 +193,7 @@ export default function Attendance() {
   };
 
   const sendToAccounts = async () => {
-    if (!confirm(`Send ${MONTH_NAMES[activeYM.month - 1]} ${activeYM.year} attendance to Accounts? The month will be locked from edits.`)) return;
+    if (!confirm(`Send ${MONTH_NAMES[activeYM.month - 1]} ${activeYM.year} attendance to Accounts & HR? The month will be locked from edits.`)) return;
     try {
       await api.post('/attendance/submit', { unitId, year: activeYM.year, month: activeYM.month });
       reloadGrid();
@@ -258,7 +258,7 @@ export default function Attendance() {
                   <Plus size={14} /> Employee
                 </Button>
                 <Button variant="primary" size="sm" onClick={sendToAccounts}>
-                  <Send size={14} /> Send to Accounts
+                  <Send size={14} /> Send to Accounts & HR
                 </Button>
               </>
             )}
@@ -343,7 +343,7 @@ export default function Attendance() {
         {submission && (
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
             <Lock size={12} />
-            Locked — sent to Accounts on {new Date(submission.submittedAt).toLocaleDateString()}
+            Locked — sent to Accounts & HR on {new Date(submission.submittedAt).toLocaleDateString()}
           </span>
         )}
       </div>
@@ -947,11 +947,11 @@ function MonthlySummary({ unitId, year, month }) {
     <div className="space-y-3 text-sm">
       {data.submission ? (
         <div className="bg-green-50 border border-green-200 text-green-800 text-xs rounded px-3 py-2">
-          Submitted to Accounts on {new Date(data.submission.submittedAt).toLocaleString()} by {data.submission.submittedBy?.name || '—'}.
+          Submitted to Accounts & HR on {new Date(data.submission.submittedAt).toLocaleString()} by {data.submission.submittedBy?.name || '—'}.
         </div>
       ) : (
         <div className="bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded px-3 py-2">
-          Not yet sent to Accounts. Totals shown are live.
+          Not yet sent to Accounts & HR. Totals shown are live.
         </div>
       )}
       <div className="overflow-x-auto">
