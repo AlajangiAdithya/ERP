@@ -244,6 +244,16 @@ model ProductBatch {
   createdById   String?
   createdAt     DateTime @default(now())
 
+  // Direct / cash-purchase inward (Stores → Direct Entry). Supplier is free
+  // text because cash purchases often come from unregistered local vendors —
+  // surfaced in the product's supplier history alongside PO purchases.
+  supplierName    String?
+  supplierContact String?
+  supplierAddress String?
+  // Non-unit department this purchase was made for (Safety, QC, Designs …).
+  // Unit assignments go through StockMovement.unitId + ProductUnitStock instead.
+  assignedDept    String?
+
   // FIM (Free Issue Material — customer's property) linkage.
   // Set when this batch was inwarded via an INWARD gate pass.
   isFim                      Boolean       @default(false)
@@ -316,8 +326,10 @@ model ProductRequest {
   issueDate      DateTime? // Issue Date
   managerId      String?
   manager        User?         @relation(fields: [managerId], references: [id], onDelete: SetNull)
-  unitId         String
-  unit           Unit          @relation(fields: [unitId], references: [id])
+  // Null for global requester roles (QC, LAB, SAFETY, DESIGNS …) who draw from
+  // the unassigned pool rather than a unit's bucket.
+  unitId         String?
+  unit           Unit?         @relation(fields: [unitId], references: [id])
   status         RequestStatus @default(PENDING)
   notes          String?
   remarks        String? // Remarks field from MIV form
@@ -360,8 +372,10 @@ model PurchaseRequest {
   requestId            String? // Legacy order-name column (kept for backward compat; new PRs leave this null and use requestNumber as the identifier)
   managerId            String?
   manager              User?                 @relation("PurchaseRequestManager", fields: [managerId], references: [id], onDelete: SetNull)
-  unitId               String
-  unit                 Unit                  @relation(fields: [unitId], references: [id])
+  // Null for global requester roles (STORE_MANAGER, DESIGNS, PLANNING, QC,
+  // LAB, METROLOGY, NDT, SAFETY) — they raise PRs in their own name.
+  unitId               String?
+  unit                 Unit?                 @relation(fields: [unitId], references: [id])
   status               PurchaseRequestStatus @default(PENDING_ADMIN)
   notes                String?
   materialSpecsPdfUrl  String? // Optional material specs PDF attached at PR creation

@@ -288,7 +288,7 @@ router.get('/:id/supplier-history', authenticate, async (req, res) => {
       orderBy: { purchaseOrder: { createdAt: 'desc' } },
     });
 
-    const purchased = purchasedItems.map(it => ({
+    const purchasedPo = purchasedItems.map(it => ({
       id: it.id,
       poId: it.purchaseOrder.id,
       poNumber: it.purchaseOrder.orderNumber,
@@ -306,6 +306,38 @@ router.get('/:id/supplier-history', authenticate, async (req, res) => {
       receivedQty: it.receivedQty,
       itemStatus: it.itemStatus,
     }));
+
+    // ── Direct / cash purchases: inward batches recorded by Stores with
+    // supplier details filled in (Inward Entry → Direct Entry) ──
+    const directBatches = await prisma.productBatch.findMany({
+      where: { productId: product.id, supplierName: { not: null } },
+      orderBy: { receivedDate: 'desc' },
+    });
+
+    const direct = directBatches.map(b => ({
+      id: b.id,
+      direct: true,
+      poId: null,
+      poNumber: 'Direct / Cash',
+      poStatus: null,
+      date: b.receivedDate,
+      supplierId: null,
+      supplierName: b.supplierName,
+      supplierContact: b.supplierContact,
+      supplierAddress: b.supplierAddress,
+      productName: product.name,
+      productUnit: product.unit,
+      quantity: b.quantity,
+      unitPrice: b.unitCost,
+      totalPrice: b.unitCost != null ? b.unitCost * b.quantity : null,
+      receivedQty: b.quantity,
+      itemStatus: 'DIRECT',
+      assignedDept: b.assignedDept,
+      batchNo: b.batchNo,
+    }));
+
+    const purchased = [...purchasedPo, ...direct]
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
 
     // ── Quoted but not bought: QuotationItem where the parent quotation was NOT selected ──
     const quotedItems = await prisma.quotationItem.findMany({
@@ -357,8 +389,10 @@ router.get('/:id/supplier-history', authenticate, async (req, res) => {
     ].filter(Boolean));
 
     const lastBought = purchased[0] || null;
-    const cheapest = purchased.length
-      ? [...purchased].sort((a, b) => a.unitPrice - b.unitPrice)[0]
+    // Direct entries may have no price — exclude them from the cheapest calc.
+    const priced = purchased.filter(p => p.unitPrice != null);
+    const cheapest = priced.length
+      ? [...priced].sort((a, b) => a.unitPrice - b.unitPrice)[0]
       : null;
 
     res.json({

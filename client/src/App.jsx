@@ -158,9 +158,9 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><UnitUsageLogs /></PrivateRoute>
               } />
 
-              {/* MIV requesters — Manager / Lab / QC / R&D */}
+              {/* MIV requesters — Manager / Lab / QC / R&D / Safety / Designs */}
               <Route path="/my-requests" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND']}><MyRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS']}><MyRequests /></PrivateRoute>
               } />
 
               {/* Store Manager only */}

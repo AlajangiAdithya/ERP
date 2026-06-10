@@ -8,7 +8,10 @@ const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation }
 const router = express.Router();
 
 // Roles that can create/manage their own MIV requests (same privileges as MANAGER)
-const REQUESTER_ROLES = ['MANAGER', 'LAB', 'QC', 'RND'];
+const REQUESTER_ROLES = ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS'];
+// Unit-bound roles must belong to a unit; everyone else (QC, LAB, SAFETY,
+// DESIGNS …) may file without one — their MIV draws from the unassigned pool.
+const UNIT_BOUND_ROLES = ['MANAGER', 'RND'];
 
 const createRequestSchema = z.object({
   notes: z.string().optional(),
@@ -105,7 +108,7 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
   try {
     const data = createRequestSchema.parse(req.body);
 
-    if (!req.user.unitId) {
+    if (!req.user.unitId && UNIT_BOUND_ROLES.includes(req.user.role)) {
       return res.status(400).json({ error: 'You must be assigned to a unit to create requests' });
     }
 
@@ -115,7 +118,7 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
       data: {
         requestNumber,
         managerId: req.user.id,
-        unitId: req.user.unitId,
+        unitId: req.user.unitId || null,
         notes: data.notes || null,
         remarks: data.remarks || null,
         // referenceNo auto-mirrors the MIV request number — no manual entry.
@@ -158,7 +161,7 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
       data: {
         type: 'NEW_REQUEST',
         title: `New Request: ${requestNumber}`,
-        message: `${req.user.name} (${req.user.unit?.name}) has submitted a new product request with ${data.items.length} item(s).`,
+        message: `${req.user.name}${req.user.unit ? ` (${req.user.unit.name})` : ` (${req.user.role})`} has submitted a new product request with ${data.items.length} item(s).`,
         targetRole: 'STORE_MANAGER',
         sentById: req.user.id,
       },
@@ -204,10 +207,13 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
     const availabilityByItem = {};
     for (const ri of request.items) {
       if (ri.quantity <= 0) continue;
+      // Unit-less (global-role) MIVs have no own bucket — unassigned pool only.
       const [ownBucket, allBuckets] = await Promise.all([
-        prisma.productUnitStock.findUnique({
-          where: { productId_unitId: { productId: ri.productId, unitId: request.unitId } },
-        }),
+        request.unitId
+          ? prisma.productUnitStock.findUnique({
+              where: { productId_unitId: { productId: ri.productId, unitId: request.unitId } },
+            })
+          : Promise.resolve(null),
         prisma.productUnitStock.findMany({
           where: { productId: ri.productId },
           select: { quantity: true },
@@ -299,7 +305,7 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
             referenceType: 'ProductRequest',
             referenceId: request.id,
             batchNumber: batchNoString,
-            notes: `MIV ${request.requestNumber} accepted by ${req.user.name} for ${request.unit.name} [FIFO: ${slices.map(s => `${s.batchNo || 'NO-BATCH'}×${s.quantity}`).join(', ') || 'none'}]`,
+            notes: `MIV ${request.requestNumber} accepted by ${req.user.name} for ${request.unit?.name || request.manager?.name || 'requester'} [FIFO: ${slices.map(s => `${s.batchNo || 'NO-BATCH'}×${s.quantity}`).join(', ') || 'none'}]`,
             performedBy: req.user.id,
             unitId: request.unitId,
           },
@@ -529,17 +535,21 @@ router.put('/:id/collect', authenticate, authorize(...REQUESTER_ROLES), async (r
           data: { currentStock: { decrement: take } },
         });
 
-        // Phase 6: decrement per-unit stock (issuing from the requesting unit's bucket)
-        const pus = await tx.productUnitStock.findUnique({
-          where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
-        });
-        if (!pus || pus.quantity < take - 0.001) {
-          throw new Error(`Unit ${request.unit?.code || request.unitId} stock for ${item.product?.name || 'product'} is insufficient — please raise an inventory transfer first.`);
+        // Phase 6: decrement per-unit stock (issuing from the requesting unit's
+        // bucket). Unit-less (global-role) MIVs draw from the unassigned pool —
+        // only Product.currentStock is decremented (done above).
+        if (request.unitId) {
+          const pus = await tx.productUnitStock.findUnique({
+            where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
+          });
+          if (!pus || pus.quantity < take - 0.001) {
+            throw new Error(`Unit ${request.unit?.code || request.unitId} stock for ${item.product?.name || 'product'} is insufficient — please raise an inventory transfer first.`);
+          }
+          await tx.productUnitStock.update({
+            where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
+            data: { quantity: { decrement: take } },
+          });
         }
-        await tx.productUnitStock.update({
-          where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
-          data: { quantity: { decrement: take } },
-        });
 
         await tx.requestItem.update({
           where: { id: item.id },
@@ -558,7 +568,7 @@ router.put('/:id/collect', authenticate, authorize(...REQUESTER_ROLES), async (r
             referenceType: 'ProductRequest',
             referenceId: request.id,
             batchNumber: issuedSlices.map(s => s.batchNo).filter(Boolean).join(', ') || null,
-            notes: `Collected by ${req.user.name} for ${request.unit.name} (${request.requestNumber})${batchNote}`,
+            notes: `Collected by ${req.user.name} for ${request.unit?.name || request.manager?.name || 'requester'} (${request.requestNumber})${batchNote}`,
             performedBy: req.user.id,
             unitId: request.unitId,
           },
@@ -586,7 +596,7 @@ router.put('/:id/collect', authenticate, authorize(...REQUESTER_ROLES), async (r
         entityId: request.id,
         details: {
           requestNumber: request.requestNumber,
-          unit: request.unit.code,
+          unit: request.unit?.code || null,
           items: plan.map(({ item, take }) => ({
             product: item.product.name,
             qtyTaken: take,

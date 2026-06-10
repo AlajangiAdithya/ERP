@@ -6,7 +6,7 @@ const { authorize, authorizeMinRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
 const {
   paginate, applyDateFilter,
-  generateProductSku, normalizeMaterialType, isUniqueViolation,
+  normalizeMaterialType, isUniqueViolation,
 } = require('../utils/helpers');
 
 const router = express.Router();
@@ -14,12 +14,16 @@ const router = express.Router();
 // POST /api/inventory/inward — Core inward entry flow
 router.post('/inward', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async (req, res) => {
   try {
-    const { productId, quantity, batchNumber, notes, unitId } = req.body;
+    const {
+      productId, quantity, batchNumber, notes, unitId,
+      assignedDept, supplierName, supplierContact, supplierAddress, unitPrice,
+    } = req.body;
     const qty = parseFloat(quantity);
 
     if (!productId || !qty || qty <= 0) {
       return res.status(400).json({ error: 'Product and valid quantity are required' });
     }
+    const cost = parseFloat(unitPrice);
 
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product) return res.status(404).json({ error: 'Product not found' });
@@ -59,10 +63,15 @@ router.post('/inward', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async 
           batchNo: batchNumber || null,
           quantity: qty,
           remaining: qty,
+          unitCost: Number.isFinite(cost) && cost > 0 ? cost : null,
           referenceType: 'InwardEntry',
           referenceId: movement.id,
           notes: notes || null,
           createdById: req.user.id,
+          supplierName: supplierName?.trim() || null,
+          supplierContact: supplierContact?.trim() || null,
+          supplierAddress: supplierAddress?.trim() || null,
+          assignedDept: assignedDept?.trim() || null,
         },
       });
 
@@ -84,7 +93,12 @@ router.post('/inward', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async 
         action: 'CREATE',
         entity: 'InwardEntry',
         entityId: result.movement.id,
-        details: { productId, quantity: qty, batchNumber },
+        details: {
+          productId, quantity: qty, batchNumber,
+          unitId: owningUnitId || undefined,
+          assignedDept: assignedDept?.trim() || undefined,
+          supplierName: supplierName?.trim() || undefined,
+        },
         ipAddress: req.ip,
       },
     });
@@ -168,8 +182,9 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
   try {
     const schema = z.object({
       name: z.string().min(1),
-      // SKU is now auto-generated from materialType — incoming sku is ignored.
-      sku: z.string().optional(),
+      // ID No. — the identification number from the Products list. Stored as
+      // materialCode and mirrored into sku, same as POST /api/products.
+      materialCode: z.string().trim().min(1),
       category: z.string().optional(), // legacy
       materialType: z.string().optional(),
       unit: z.string().default('pcs'),
@@ -177,6 +192,11 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
       batchNumber: z.string().optional(),
       notes: z.string().optional(),
       unitId: z.string().uuid().optional().nullable(),
+      assignedDept: z.string().optional().nullable(),
+      supplierName: z.string().optional().nullable(),
+      supplierContact: z.string().optional().nullable(),
+      supplierAddress: z.string().optional().nullable(),
+      unitPrice: z.number().positive().optional().nullable(),
     });
     const data = schema.parse(req.body);
 
@@ -189,61 +209,70 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
     }
 
     let result = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        result = await prisma.$transaction(async (tx) => {
-          const sku = await generateProductSku(tx, matType);
-          const product = await tx.product.create({
-            data: {
-              name: data.name,
-              sku,
-              category: matType,
-              unit: data.unit,
-              currentStock: data.quantity,
-              isActive: true,
-            },
-          });
-
-          const movement = await tx.stockMovement.create({
-            data: {
-              productId: product.id,
-              type: 'IN',
-              quantity: data.quantity,
-              batchNumber: data.batchNumber || null,
-              referenceType: 'InwardEntry',
-              notes: data.notes || null,
-              performedBy: req.user.id,
-              unitId: owningUnitId,
-            },
-          });
-
-          const batch = await tx.productBatch.create({
-            data: {
-              productId: product.id,
-              batchNo: data.batchNumber || null,
-              quantity: data.quantity,
-              remaining: data.quantity,
-              referenceType: 'InwardEntryNewProduct',
-              referenceId: movement.id,
-              notes: data.notes || null,
-              createdById: req.user.id,
-            },
-          });
-
-          if (owningUnitId) {
-            await tx.productUnitStock.upsert({
-              where: { productId_unitId: { productId: product.id, unitId: owningUnitId } },
-              update: { quantity: { increment: data.quantity } },
-              create: { productId: product.id, unitId: owningUnitId, quantity: data.quantity },
-            });
-          }
-
-          return { product, movement, batch };
+    try {
+      result = await prisma.$transaction(async (tx) => {
+        const product = await tx.product.create({
+          data: {
+            name: data.name,
+            sku: data.materialCode,
+            materialCode: data.materialCode,
+            category: matType,
+            unit: data.unit,
+            currentStock: data.quantity,
+            isActive: true,
+          },
         });
-        break;
-      } catch (err) {
-        if (!isUniqueViolation(err) || attempt === 4) throw err;
+
+        const movement = await tx.stockMovement.create({
+          data: {
+            productId: product.id,
+            type: 'IN',
+            quantity: data.quantity,
+            batchNumber: data.batchNumber || null,
+            referenceType: 'InwardEntry',
+            notes: data.notes || null,
+            performedBy: req.user.id,
+            unitId: owningUnitId,
+          },
+        });
+
+        const batch = await tx.productBatch.create({
+          data: {
+            productId: product.id,
+            batchNo: data.batchNumber || null,
+            quantity: data.quantity,
+            remaining: data.quantity,
+            unitCost: data.unitPrice || null,
+            referenceType: 'InwardEntryNewProduct',
+            referenceId: movement.id,
+            notes: data.notes || null,
+            createdById: req.user.id,
+            supplierName: data.supplierName?.trim() || null,
+            supplierContact: data.supplierContact?.trim() || null,
+            supplierAddress: data.supplierAddress?.trim() || null,
+            assignedDept: data.assignedDept?.trim() || null,
+          },
+        });
+
+        if (owningUnitId) {
+          await tx.productUnitStock.upsert({
+            where: { productId_unitId: { productId: product.id, unitId: owningUnitId } },
+            update: { quantity: { increment: data.quantity } },
+            create: { productId: product.id, unitId: owningUnitId, quantity: data.quantity },
+          });
+        }
+
+        return { product, movement, batch };
+      });
+    } catch (err) {
+      // ID No. is user-supplied and unique (materialCode + sku) — duplicates
+      // mean the product already exists; point Stores at the Existing Product tab.
+      if (isUniqueViolation(err)) {
+        return res.status(400).json({
+          error: `A product with ID No. "${data.materialCode}" already exists — use the Existing Product tab to add stock to it.`,
+        });
       }
+      throw err;
     }
 
     await prisma.auditLog.create({
@@ -252,7 +281,13 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
         action: 'CREATE',
         entity: 'InwardEntryNewProduct',
         entityId: result.product.id,
-        details: { name: data.name, sku: result.product.sku, quantity: data.quantity, batchNumber: data.batchNumber },
+        details: {
+          name: data.name, materialCode: data.materialCode,
+          quantity: data.quantity, batchNumber: data.batchNumber,
+          unitId: owningUnitId || undefined,
+          assignedDept: data.assignedDept?.trim() || undefined,
+          supplierName: data.supplierName?.trim() || undefined,
+        },
         ipAddress: req.ip,
       },
     });

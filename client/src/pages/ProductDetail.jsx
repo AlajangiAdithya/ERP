@@ -244,7 +244,8 @@ function SupplierHistoryTab({ product, onRequote }) {
             <>
               <div className="font-semibold text-navy-700 mt-1">{summary.lastBoughtFrom.supplierName}</div>
               <div className="text-xs text-gray-600 mt-0.5">
-                {formatDate(summary.lastBoughtFrom.date)} · @ {formatCurrency(summary.lastBoughtFrom.unitPrice)}/{product.unit}
+                {formatDate(summary.lastBoughtFrom.date)}
+                {summary.lastBoughtFrom.unitPrice != null && <> · @ {formatCurrency(summary.lastBoughtFrom.unitPrice)}/{product.unit}</>}
               </div>
               <div className="text-[10px] text-gray-400 font-mono mt-0.5">{summary.lastBoughtFrom.poNumber}</div>
             </>
@@ -325,12 +326,15 @@ function SupplierHistoryTab({ product, onRequote }) {
                     <td className="px-3 py-2 font-medium text-gray-800">{row.supplierName}</td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600">{row.poNumber}</td>
                     <td className="px-3 py-2 text-right">{row.quantity} {row.productUnit}</td>
-                    <td className="px-3 py-2 text-right text-gray-700">{formatCurrency(row.unitPrice)}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-navy-700">{formatCurrency(row.totalPrice)}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{row.unitPrice != null ? formatCurrency(row.unitPrice) : '—'}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-navy-700">{row.totalPrice != null ? formatCurrency(row.totalPrice) : '—'}</td>
                     <td className="px-3 py-2 text-center">
-                      <Badge color={row.itemStatus === 'RECEIVED' ? 'green' : row.itemStatus === 'CANCELLED' ? 'red' : 'yellow'}>
+                      <Badge color={row.itemStatus === 'RECEIVED' ? 'green' : row.itemStatus === 'CANCELLED' ? 'red' : row.itemStatus === 'DIRECT' ? 'blue' : 'yellow'}>
                         {row.itemStatus}
                       </Badge>
+                      {row.assignedDept && (
+                        <div className="text-[10px] text-gray-400 mt-0.5">for {row.assignedDept}</div>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-center">
                       <button

@@ -504,8 +504,84 @@ function POInwardForm({ order, onCancel, onComplete, canEdit }) {
 }
 
 // ─── Direct Entry Mode ───
+// Non-unit departments Stores can buy for (global requesters). Stock stays in
+// the general pool; the department is stamped on the batch for traceability.
+const ASSIGN_DEPTS = ['Safety', 'QC', 'Designs', 'Lab', 'Metrology', 'NDT', 'Planning', 'R&D', 'Others'];
+
+// "Assign to" select value is 'unit:<id>' | 'dept:<name>' | '' (general stock).
+function assignmentPayload(assignTo) {
+  if (assignTo.startsWith('unit:')) return { unitId: assignTo.slice('unit:'.length) };
+  if (assignTo.startsWith('dept:')) return { assignedDept: assignTo.slice('dept:'.length) };
+  return {};
+}
+
+function assignmentLabel(assignTo, units) {
+  if (assignTo.startsWith('unit:')) {
+    const u = units.find(u => u.id === assignTo.slice('unit:'.length));
+    return u ? `${u.name} (${u.code})` : 'unit';
+  }
+  if (assignTo.startsWith('dept:')) return assignTo.slice('dept:'.length);
+  return '';
+}
+
+function AssignToSelect({ units, value, onChange }) {
+  return (
+    <Select label="Assign to (bought for)" value={value} onChange={onChange}>
+      <option value="">Stores — general stock</option>
+      <optgroup label="Units">
+        {units.map(u => <option key={u.id} value={`unit:${u.id}`}>{u.name} ({u.code})</option>)}
+      </optgroup>
+      <optgroup label="Departments">
+        {ASSIGN_DEPTS.map(d => <option key={d} value={`dept:${d}`}>{d}</option>)}
+      </optgroup>
+    </Select>
+  );
+}
+
+function SupplierDetailsFields({ form, setForm }) {
+  return (
+    <div className="p-3 bg-gray-50 border border-gray-200 rounded-md space-y-3">
+      <p className="text-xs font-medium text-gray-600">
+        Supplier details (optional) — fill these for cash / direct purchases so they
+        appear in the product's supplier history.
+      </p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Input label="Supplier Name" value={form.supplierName}
+          onChange={(e) => setForm({ ...form, supplierName: e.target.value })} placeholder="e.g. Local vendor" />
+        <Input label="Supplier Contact" value={form.supplierContact}
+          onChange={(e) => setForm({ ...form, supplierContact: e.target.value })} placeholder="Person / phone" />
+        <Input label="Supplier Address" value={form.supplierAddress}
+          onChange={(e) => setForm({ ...form, supplierAddress: e.target.value })} />
+        <Input label="Unit Price (₹)" type="number" min="0" step="any" value={form.unitPrice}
+          onChange={(e) => setForm({ ...form, unitPrice: e.target.value })} />
+      </div>
+    </div>
+  );
+}
+
+// Shared submit payload bits for both direct-entry forms.
+function directEntryExtras(form) {
+  return {
+    ...assignmentPayload(form.assignTo),
+    supplierName: form.supplierName.trim() || undefined,
+    supplierContact: form.supplierContact.trim() || undefined,
+    supplierAddress: form.supplierAddress.trim() || undefined,
+    unitPrice: form.unitPrice && parseFloat(form.unitPrice) > 0 ? parseFloat(form.unitPrice) : undefined,
+  };
+}
+
+const blankDirectExtras = { assignTo: '', supplierName: '', supplierContact: '', supplierAddress: '', unitPrice: '' };
+
 function DirectEntryMode({ onSuccess, canEdit }) {
   const [subMode, setSubMode] = useState('existing');
+  const [units, setUnits] = useState([]);
+
+  useEffect(() => {
+    if (!canEdit) return;
+    api.get('/units')
+      .then(({ data }) => setUnits(Array.isArray(data) ? data : (data.units || [])))
+      .catch(() => setUnits([]));
+  }, [canEdit]);
 
   if (!canEdit) {
     return (
@@ -536,16 +612,16 @@ function DirectEntryMode({ onSuccess, canEdit }) {
         {subBtn('new', 'New Product', Plus)}
       </div>
 
-      {subMode === 'existing' && <ExistingProductForm onSuccess={onSuccess} />}
-      {subMode === 'new' && <NewProductForm onSuccess={onSuccess} />}
+      {subMode === 'existing' && <ExistingProductForm onSuccess={onSuccess} units={units} />}
+      {subMode === 'new' && <NewProductForm onSuccess={onSuccess} units={units} />}
     </div>
   );
 }
 
-function ExistingProductForm({ onSuccess }) {
+function ExistingProductForm({ onSuccess, units }) {
   const [products, setProducts] = useState([]);
   const [productSearch, setProductSearch] = useState('');
-  const [form, setForm] = useState({ productId: '', quantity: '', batchNumber: '', notes: '' });
+  const [form, setForm] = useState({ productId: '', quantity: '', batchNumber: '', notes: '', ...blankDirectExtras });
   const [saving, setSaving] = useState(false);
 
   const loadProducts = () =>
@@ -563,14 +639,16 @@ function ExistingProductForm({ onSuccess }) {
         quantity: parseFloat(form.quantity),
         batchNumber: form.batchNumber || undefined,
         notes: form.notes || undefined,
+        ...directEntryExtras(form),
       });
+      const assignedLabel = assignmentLabel(form.assignTo, units);
       onSuccess({
         title: 'Inward entry recorded',
-        message: `${data.product?.name} — ${data.movement?.quantity} ${data.product?.unit} added. New stock: ${data.product?.currentStock}.`,
+        message: `${data.product?.name} — ${data.movement?.quantity} ${data.product?.unit} added. New stock: ${data.product?.currentStock}.${assignedLabel ? ` Assigned to ${assignedLabel}.` : ''}`,
         pdfData: {
           mivNumber: `MIV-DIRECT-${Date.now().toString().slice(-6)}`,
           date: new Date().toISOString(),
-          supplierName: 'Direct Entry',
+          supplierName: form.supplierName.trim() || 'Direct Entry',
           batchNumber: form.batchNumber,
           notes: form.notes,
           items: [{
@@ -581,7 +659,7 @@ function ExistingProductForm({ onSuccess }) {
           }],
         },
       });
-      setForm({ productId: '', quantity: '', batchNumber: '', notes: '' });
+      setForm({ productId: '', quantity: '', batchNumber: '', notes: '', ...blankDirectExtras });
       loadProducts();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to record inward entry');
@@ -592,6 +670,7 @@ function ExistingProductForm({ onSuccess }) {
   const selectedProduct = products.find(p => p.id === form.productId);
   const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+    (p.materialCode || '').toLowerCase().includes(productSearch.toLowerCase()) ||
     p.sku.toLowerCase().includes(productSearch.toLowerCase())
   );
 
@@ -600,7 +679,7 @@ function ExistingProductForm({ onSuccess }) {
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Select Product *</label>
-          <SearchBar value={productSearch} onChange={setProductSearch} placeholder="Search by name or SKU..." />
+          <SearchBar value={productSearch} onChange={setProductSearch} placeholder="Search by name or ID No..." />
           <div className="mt-2 max-h-40 overflow-y-auto border rounded-md">
             {filteredProducts.map(p => (
               <div
@@ -612,7 +691,7 @@ function ExistingProductForm({ onSuccess }) {
               >
                 <div>
                   <span className="text-sm font-medium">{p.name}</span>
-                  <span className="text-xs text-gray-400 ml-2">{p.sku}</span>
+                  <span className="text-xs text-gray-400 ml-2">{p.materialCode || p.sku}</span>
                 </div>
                 <span className="text-xs text-gray-500">Stock: {p.currentStock} {p.unit}</span>
               </div>
@@ -625,12 +704,16 @@ function ExistingProductForm({ onSuccess }) {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <Input label="Quantity *" type="number" min="0.01" step="any" value={form.quantity}
             onChange={(e) => setForm({ ...form, quantity: e.target.value })} required />
           <Input label="Batch Number" value={form.batchNumber}
             onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} />
+          <AssignToSelect units={units} value={form.assignTo}
+            onChange={(e) => setForm({ ...form, assignTo: e.target.value })} />
         </div>
+
+        <SupplierDetailsFields form={form} setForm={setForm} />
 
         <Input label="Notes" value={form.notes}
           onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -645,34 +728,36 @@ function ExistingProductForm({ onSuccess }) {
   );
 }
 
-function NewProductForm({ onSuccess }) {
+function NewProductForm({ onSuccess, units }) {
   const [form, setForm] = useState({
-    name: '', sku: '', category: '', unit: 'pcs',
-    quantity: '', batchNumber: '', notes: '',
+    name: '', materialCode: '', category: 'Others', unit: 'pcs',
+    quantity: '', batchNumber: '', notes: '', ...blankDirectExtras,
   });
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.sku || !form.quantity) return;
+    if (!form.name || !form.materialCode.trim() || !form.quantity) return;
     setSaving(true);
     try {
       const { data } = await api.post('/inventory/inward-new', {
         name: form.name,
-        sku: form.sku,
-        category: form.category || undefined,
+        materialCode: form.materialCode.trim(),
+        materialType: form.category || undefined,
         unit: form.unit || 'pcs',
         quantity: parseFloat(form.quantity),
         batchNumber: form.batchNumber || undefined,
         notes: form.notes || undefined,
+        ...directEntryExtras(form),
       });
+      const assignedLabel = assignmentLabel(form.assignTo, units);
       onSuccess({
         title: 'New product created & stocked',
-        message: `${data.product.name} (${data.product.sku}) — ${data.movement.quantity} ${data.product.unit} added.`,
+        message: `${data.product.name} (ID No. ${data.product.materialCode || data.product.sku}) — ${data.movement.quantity} ${data.product.unit} added.${assignedLabel ? ` Assigned to ${assignedLabel}.` : ''}`,
         pdfData: {
           mivNumber: `MIV-NEW-${Date.now().toString().slice(-6)}`,
           date: new Date().toISOString(),
-          supplierName: 'Direct Entry (New Product)',
+          supplierName: form.supplierName.trim() || 'Direct Entry (New Product)',
           batchNumber: form.batchNumber,
           notes: form.notes,
           items: [{
@@ -683,7 +768,7 @@ function NewProductForm({ onSuccess }) {
           }],
         },
       });
-      setForm({ name: '', sku: '', category: '', unit: 'pcs', quantity: '', batchNumber: '', notes: '' });
+      setForm({ name: '', materialCode: '', category: 'Others', unit: 'pcs', quantity: '', batchNumber: '', notes: '', ...blankDirectExtras });
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to create product');
     }
@@ -691,6 +776,7 @@ function NewProductForm({ onSuccess }) {
   };
 
   const unitOptions = ['kg', 'litre', 'pcs', 'meter', 'Sq. mtr', 'ton', 'box', 'drum', 'bag', 'roll', 'set'];
+  const materialTypes = ['Raw Material', 'Consumable', 'Hand Tools & Fastners', 'Tools & Fixtures', 'Stationery', 'Others'];
 
   return (
     <Card>
@@ -698,10 +784,16 @@ function NewProductForm({ onSuccess }) {
         <div className="grid grid-cols-2 gap-4">
           <Input label="Product Name *" value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          <Input label="SKU *" value={form.sku}
-            onChange={(e) => setForm({ ...form, sku: e.target.value })} required />
-          <Input label="Category" value={form.category}
-            onChange={(e) => setForm({ ...form, category: e.target.value })} />
+          <div>
+            <Input label="ID No. *" value={form.materialCode}
+              onChange={(e) => setForm({ ...form, materialCode: e.target.value })} required
+              placeholder="e.g. 1000" />
+            <p className="mt-1 text-xs text-gray-400">Identification number — same as the ID No. column in the Products list.</p>
+          </div>
+          <Select label="Category" value={form.category}
+            onChange={(e) => setForm({ ...form, category: e.target.value })}>
+            {materialTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </Select>
           <Select label="Unit" value={form.unit}
             onChange={(e) => setForm({ ...form, unit: e.target.value })}>
             {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
@@ -710,13 +802,17 @@ function NewProductForm({ onSuccess }) {
             onChange={(e) => setForm({ ...form, quantity: e.target.value })} required />
           <Input label="Batch Number" value={form.batchNumber}
             onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} />
+          <AssignToSelect units={units} value={form.assignTo}
+            onChange={(e) => setForm({ ...form, assignTo: e.target.value })} />
         </div>
+
+        <SupplierDetailsFields form={form} setForm={setForm} />
 
         <Input label="Notes" value={form.notes}
           onChange={(e) => setForm({ ...form, notes: e.target.value })} />
 
         <div className="flex justify-end">
-          <Button type="submit" disabled={saving || !form.name || !form.sku || !form.quantity}>
+          <Button type="submit" disabled={saving || !form.name || !form.materialCode.trim() || !form.quantity}>
             {saving ? 'Creating…' : 'Create Product & Record Inward'}
           </Button>
         </div>

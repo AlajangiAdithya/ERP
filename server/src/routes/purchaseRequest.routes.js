@@ -1179,7 +1179,7 @@ router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, r
         {
           type: 'NEW_PURCHASE_ASSIGNMENT',
           title: `New Purchase Assignment: ${request.requestNumber}`,
-          message: `Purchase request ${request.requestNumber} from ${request.manager.name} (${request.unit.name}) has been approved. Please proceed with procurement.`,
+          message: `Purchase request ${request.requestNumber} from ${request.manager?.name || 'requester'}${request.unit ? ` (${request.unit.name})` : ''} has been approved. Please proceed with procurement.`,
           targetRole: 'PURCHASE_OFFICER',
           sentById: req.user.id,
         },
