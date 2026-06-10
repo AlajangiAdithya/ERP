@@ -5,7 +5,7 @@ import {
   BarChart3, Settings, Menu, X,
   CheckSquare, ScrollText, Bell,
   Building2, ShieldCheck, Crown, Boxes, Ruler,
-  ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation,
+  ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation, Gauge,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -40,6 +40,9 @@ const DISPATCH_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY' && r !== 'QC');
 const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
+    // KPI — QMS — auto-generated indicators, view-only for everyone.
+    // Certifications upload gated to Unit-5 server-side.
+    { to: '/kpi-qms', icon: Gauge, label: 'KPI — QMS', roles: ALL_ROLES },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'] },
     { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: PROCUREMENT_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },

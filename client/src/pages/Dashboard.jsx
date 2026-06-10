@@ -4,7 +4,6 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import StatsCard from '../components/shared/StatsCard';
-import KpiQmsSection from '../components/shared/KpiQmsSection';
 import DashboardHero from '../components/shared/DashboardHero';
 import SlaTicker from '../components/shared/SlaTicker';
 import Card from '../components/ui/Card';
@@ -3136,8 +3135,6 @@ export default function Dashboard() {
     <div className="space-y-4">
       <SlaTicker />
       {inner}
-      {/* KPI-QMS panel — auto-generated, shown to every role */}
-      <KpiQmsSection />
     </div>
   );
 }

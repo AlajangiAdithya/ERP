@@ -54,6 +54,7 @@ import HrTrainingPlan from './pages/hr/TrainingPlan';
 import HrTrainingRecords from './pages/hr/TrainingRecords';
 import Attendance from './pages/Attendance';
 import Transport from './pages/Transport';
+import KpiQms from './pages/KpiQms';
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
@@ -282,6 +283,12 @@ export default function App() {
               {/* Safety / HSE — Machinery + Fire Extinguisher register (everyone views, SAFETY + Unit-5 edit) */}
               <Route path="/machinery" element={
                 <PrivateRoute><MachineryRegister /></PrivateRoute>
+              } />
+
+              {/* KPI — QMS — auto-generated indicators, everyone views.
+                  Certifications upload gated to Unit-5 server-side. */}
+              <Route path="/kpi-qms" element={
+                <PrivateRoute><KpiQms /></PrivateRoute>
               } />
 
               {/* HR hub + sub-modules — everyone views; HR/ADMIN edit. Managers

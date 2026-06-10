@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BarChart3, Truck, Target, ClipboardCheck, Award, FileText, Upload, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { Truck, Target, ClipboardCheck, Award, FileText, Upload, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import api from '../../api/axios';
 import Card from '../ui/Card';
 import Badge from '../ui/Badge';
@@ -143,20 +143,12 @@ export default function KpiQmsSection() {
 
   return (
     <div className="space-y-4">
-      {/* Section header */}
-      <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
-        <div>
-          <h2 className="text-lg font-bold text-navy-800 tracking-tight flex items-center gap-2">
-            <BarChart3 size={18} className="text-navy-600" /> KPI — QMS
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">Quality Management System indicators · auto-generated from system records · view-only</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-navy-700">Financial Year</span>
-          <Select value={fy} onChange={(e) => { setFy(e.target.value); load(e.target.value); }} className="w-28">
-            {(data.availableFys || [data.fy]).map((f) => <option key={f} value={f}>{f}</option>)}
-          </Select>
-        </div>
+      {/* FY picker */}
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-xs font-semibold text-navy-700">Financial Year</span>
+        <Select value={fy} onChange={(e) => { setFy(e.target.value); load(e.target.value); }} className="w-28">
+          {(data.availableFys || [data.fy]).map((f) => <option key={f} value={f}>{f}</option>)}
+        </Select>
       </div>
 
       {/* Headline stats */}
