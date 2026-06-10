@@ -8,6 +8,7 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
+import SupplierAutocomplete, { supplierContactString } from '../components/shared/SupplierAutocomplete';
 import { formatDateTime } from '../utils/formatters';
 
 const formatCurrency = (amt) => `₹${Number(amt).toLocaleString('en-IN')}`;
@@ -32,7 +33,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
   // history[productKey] = [{ supplierId, supplierName, supplierContact, supplierAddress, lastUnitPrice, lastDate, timesUsed, wasSelected }]
   const [history, setHistory] = useState({});
   // Common supplier fields applied across all rows on demand
-  const [common, setCommon] = useState({ supplierName: '', supplierContact: '', supplierAddress: '' });
+  const [common, setCommon] = useState({ supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '' });
 
   // Normalised key for a row's product: prefer productId, fall back to name-lower.
   const rowKey = (row) => row.productId ? `id:${row.productId}` : `name:${(row.productName || '').toLowerCase().trim()}`;
@@ -41,7 +42,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     if (isOpen && purchaseRequest) {
       setNotes('');
       setQuotationPdf(null);
-      setCommon({ supplierName: '', supplierContact: '', supplierAddress: '' });
+      setCommon({ supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '' });
       // Show items still open for quoting (AWAITING / SUBMITTED / HELD). Items
       // already covered by a competing quote can still receive another one —
       // only APPROVED (already on a PO) and CANCELLED items are hidden.
@@ -164,6 +165,11 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     setItems(updated);
   };
 
+  // Patch several fields on one row atomically (used by the ASL autocomplete).
+  const patchItem = (idx, patch) => {
+    setItems(prev => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  };
+
   // Select an existing supplier on a row — pre-fills name/contact/address + lastUnitPrice.
   const applyExistingSupplier = (idx, supplierKey) => {
     if (!supplierKey) {
@@ -267,7 +273,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
-          For each product below, choose <strong>Existing supplier</strong> (dropdown of past suppliers for that product, with last price) or <strong>New supplier</strong> (type a name). Last unit price is pre-filled — edit before submitting.
+          For each product below, choose <strong>Existing supplier</strong> (dropdown of past suppliers for that product, with last price) or <strong>New supplier</strong>. In the supplier name box, type a material (e.g. TCE) or a name — matching suppliers from the <strong>Approved Supplier List</strong> (by name or scope of supply) appear; picking one fills their details. Last unit price is pre-filled — edit before submitting.
         </div>
 
         {complianceIssues.length > 0 && (
@@ -330,8 +336,19 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
             <span className="text-[11px] text-blue-700">Fill these once, then "Apply to all items".</span>
           </div>
           <div className="grid grid-cols-12 gap-2">
-            <input value={common.supplierName} onChange={(e) => setCommon({ ...common, supplierName: e.target.value })}
-              className="col-span-4 px-2 py-1.5 border rounded text-sm" placeholder="Supplier name" />
+            <SupplierAutocomplete
+              className="col-span-4"
+              inputClassName="w-full px-2 py-1.5 border rounded text-sm"
+              placeholder="Supplier name (type material or name)"
+              value={common.supplierName}
+              onChange={(v) => setCommon({ ...common, supplierName: v, supplierId: null })}
+              onSelect={(s) => setCommon({
+                supplierId: s.id,
+                supplierName: s.name,
+                supplierContact: supplierContactString(s),
+                supplierAddress: s.address || '',
+              })}
+            />
             <input value={common.supplierContact} onChange={(e) => setCommon({ ...common, supplierContact: e.target.value })}
               className="col-span-3 px-2 py-1.5 border rounded text-sm" placeholder="Phone/Email" />
             <input value={common.supplierAddress} onChange={(e) => setCommon({ ...common, supplierAddress: e.target.value })}
@@ -345,7 +362,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
                 setItems(items.map(row => ({
                   ...row,
                   supplierMode: 'new',
-                  supplierId: null,
+                  supplierId: common.supplierId || null,
                   supplierName: common.supplierName.trim(),
                   supplierContact: common.supplierContact.trim(),
                   supplierAddress: common.supplierAddress.trim(),
@@ -459,8 +476,18 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
                     ) : (
                       <div className="grid grid-cols-12 gap-2">
                         <div className="col-span-4">
-                          <input value={item.supplierName} onChange={(e) => updateItem(idx, 'supplierName', e.target.value)}
-                            className="w-full px-2 py-1.5 border rounded text-sm" placeholder="Supplier name *" />
+                          <SupplierAutocomplete
+                            value={item.supplierName}
+                            contextQuery={item.productName}
+                            placeholder="Supplier name *"
+                            onChange={(v) => patchItem(idx, { supplierName: v, supplierId: null })}
+                            onSelect={(s) => patchItem(idx, {
+                              supplierId: s.id,
+                              supplierName: s.name,
+                              supplierContact: supplierContactString(s),
+                              supplierAddress: s.address || '',
+                            })}
+                          />
                         </div>
                         <div className="col-span-3">
                           <input value={item.supplierContact} onChange={(e) => updateItem(idx, 'supplierContact', e.target.value)}
@@ -553,6 +580,7 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
             productName: item.productName,
             productUnit: item.productUnit || 'pcs',
             unitPrice: 0,
+            supplierId: null,
             supplierName: '',
             supplierContact: '',
             supplierAddress: '',
@@ -580,6 +608,11 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
 
   const updateLine = (key, field, value) => {
     setUnionLines((lines) => lines.map(l => l.key === key ? { ...l, [field]: value } : l));
+  };
+
+  // Patch several fields on one line atomically (used by the ASL autocomplete).
+  const patchLine = (key, patch) => {
+    setUnionLines((lines) => lines.map(l => l.key === key ? { ...l, ...patch } : l));
   };
 
   const toggleSource = (key, idx) => {
@@ -639,6 +672,7 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
             productUnit: l.productUnit,
             quantity: lineTotalQty(l),
             unitPrice: parseFloat(l.unitPrice) || 0,
+            supplierId: l.supplierId || undefined,
             supplierName: l.supplierName.trim(),
             supplierContact: l.supplierContact?.trim() || undefined,
             supplierAddress: l.supplierAddress?.trim() || undefined,
@@ -815,11 +849,17 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
                     </div>
                     <div>
                       <label className="text-[11px] uppercase text-gray-500">Supplier *</label>
-                      <input
+                      <SupplierAutocomplete
                         value={line.supplierName}
-                        onChange={(e) => updateLine(line.key, 'supplierName', e.target.value)}
-                        className="w-full px-2 py-1 border rounded text-sm"
-                        placeholder="Supplier name"
+                        contextQuery={line.productName}
+                        inputClassName="w-full px-2 py-1 border rounded text-sm"
+                        onChange={(v) => patchLine(line.key, { supplierName: v, supplierId: null })}
+                        onSelect={(s) => patchLine(line.key, {
+                          supplierId: s.id,
+                          supplierName: s.name,
+                          supplierContact: supplierContactString(s),
+                          supplierAddress: s.address || '',
+                        })}
                       />
                     </div>
                     <div>
@@ -1961,8 +2001,16 @@ function OpenPoolsSection({ onUpdated, reloadKey }) {
                   <div className="grid grid-cols-12 gap-2">
                     <div className="col-span-4">
                       <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Supplier name *</label>
-                      <input value={s.supplierName} onChange={(e) => updateState(pool.id, { supplierName: e.target.value })}
-                        className="w-full px-2 py-1.5 border rounded text-sm" placeholder="Supplier name" />
+                      <SupplierAutocomplete
+                        value={s.supplierName}
+                        contextQuery={pool.productName}
+                        onChange={(v) => updateState(pool.id, { supplierName: v })}
+                        onSelect={(sup) => updateState(pool.id, {
+                          supplierName: sup.name,
+                          supplierContact: supplierContactString(sup),
+                          supplierAddress: sup.address || '',
+                        })}
+                      />
                     </div>
                     <div className="col-span-3">
                       <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Phone/Email</label>
@@ -2287,11 +2335,16 @@ function PoolByMaterialSection({ onUpdated }) {
               </div>
               <div>
                 <label className="text-[11px] uppercase text-gray-500">Supplier *</label>
-                <input
+                <SupplierAutocomplete
                   value={s.supplierName}
-                  onChange={(e) => updateState(group.key, { supplierName: e.target.value })}
-                  className="w-full px-2 py-1 border rounded text-sm"
-                  placeholder="Supplier name"
+                  contextQuery={group.productName}
+                  inputClassName="w-full px-2 py-1 border rounded text-sm"
+                  onChange={(v) => updateState(group.key, { supplierName: v })}
+                  onSelect={(sup) => updateState(group.key, {
+                    supplierName: sup.name,
+                    supplierContact: supplierContactString(sup),
+                    supplierAddress: sup.address || '',
+                  })}
                 />
               </div>
               <div>
