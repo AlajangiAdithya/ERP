@@ -6,7 +6,7 @@ const { authorize, authorizeMinRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
 const {
   paginate, applyDateFilter,
-  normalizeMaterialType, isUniqueViolation,
+  normalizeMaterialType, isUniqueViolation, OWNER_DEPTS,
 } = require('../utils/helpers');
 
 const router = express.Router();
@@ -88,6 +88,16 @@ router.post('/inward', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async 
           where: { productId_unitId: { productId, unitId: owningUnitId } },
           update: { quantity: { increment: qty } },
           create: { productId, unitId: owningUnitId, quantity: qty },
+        });
+      }
+
+      // Reserve to a department when assigned to a recognised owner dept (not Stores/Others).
+      const reservedDept = OWNER_DEPTS.includes((assignedDept || '').trim()) ? assignedDept.trim() : null;
+      if (reservedDept) {
+        await tx.productDeptStock.upsert({
+          where: { productId_dept: { productId, dept: reservedDept } },
+          update: { quantity: { increment: qty } },
+          create: { productId, dept: reservedDept, quantity: qty },
         });
       }
 
@@ -271,6 +281,16 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
             where: { productId_unitId: { productId: product.id, unitId: owningUnitId } },
             update: { quantity: { increment: data.quantity } },
             create: { productId: product.id, unitId: owningUnitId, quantity: data.quantity },
+          });
+        }
+
+        // Reserve to a department when assigned to a recognised owner dept (not Stores/Others).
+        const reservedDept = OWNER_DEPTS.includes((data.assignedDept || '').trim()) ? data.assignedDept.trim() : null;
+        if (reservedDept) {
+          await tx.productDeptStock.upsert({
+            where: { productId_dept: { productId: product.id, dept: reservedDept } },
+            update: { quantity: { increment: data.quantity } },
+            create: { productId: product.id, dept: reservedDept, quantity: data.quantity },
           });
         }
 

@@ -69,6 +69,7 @@ const typeRoutes = {
   GATE_PASS_REJECTED: '/gate-pass',
   GATE_PASS_INWARD: '/gate-pass',
   GATE_PASS_COLLECTED: '/gate-pass',
+  MESSAGE_RECEIVED: '/',
 };
 
 const typeColors = {
@@ -130,6 +131,7 @@ const typeColors = {
   GATE_PASS_REJECTED: 'red',
   GATE_PASS_INWARD: 'yellow',
   GATE_PASS_COLLECTED: 'green',
+  MESSAGE_RECEIVED: 'blue',
 };
 
 export default function Notifications() {

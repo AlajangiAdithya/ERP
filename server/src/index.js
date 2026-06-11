@@ -38,6 +38,8 @@ const trainingPlanRoutes = require('./routes/trainingPlan.routes');
 const trainingSessionRoutes = require('./routes/trainingSession.routes');
 const attendanceRoutes = require('./routes/attendance.routes');
 const kpiQmsRoutes = require('./routes/kpiQms.routes');
+const messageRoutes = require('./routes/message.routes');
+const calendarRoutes = require('./routes/calendar.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -113,6 +115,8 @@ app.use('/api/training-plans', trainingPlanRoutes);
 app.use('/api/training-sessions', trainingSessionRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/kpi-qms', kpiQmsRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/calendar', calendarRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

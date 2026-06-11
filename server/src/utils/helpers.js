@@ -148,6 +148,29 @@ const generateProductSku = async (prisma, materialType) => {
   return `${prefix}${next}`;
 };
 
+// ──── DEPARTMENT OWNERSHIP ────
+// Non-unit requester roles that "own" the stock they raise PRs for. Their inwarded
+// stock is reserved to the department (ProductDeptStock) and excluded from the
+// unassigned pool, so only they can issue it; others must raise an inventory
+// transfer. STORE_MANAGER is intentionally absent — Stores-raised stock stays the
+// shared/general pool. Unit-bound roles (MANAGER, RND) reserve to a unit instead.
+// Labels match the Direct-Entry ASSIGN_DEPTS list so PO-flow and cash-flow agree.
+const DEPT_BY_ROLE = {
+  DESIGNS: 'Designs',
+  PLANNING: 'Planning',
+  QC: 'QC',
+  LAB: 'Lab',
+  METROLOGY: 'Metrology',
+  NDT: 'NDT',
+  SAFETY: 'Safety',
+};
+
+// Canonical set of department owner labels (the values of DEPT_BY_ROLE).
+const OWNER_DEPTS = Object.values(DEPT_BY_ROLE);
+
+// Department label a given role owns stock under, or null for unit-bound / non-owner roles.
+const deptForRole = (role) => DEPT_BY_ROLE[role] || null;
+
 const isUniqueViolation = (err) => err && err.code === 'P2002';
 
 // Retry wrapper for doc-number races. Reads the existing max, builds the next
@@ -177,4 +200,7 @@ module.exports = {
   generateProductSku,
   isUniqueViolation,
   withDocRetry,
+  DEPT_BY_ROLE,
+  OWNER_DEPTS,
+  deptForRole,
 };

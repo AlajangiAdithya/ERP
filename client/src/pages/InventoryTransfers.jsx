@@ -11,16 +11,45 @@ import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { useAuth } from '../context/AuthContext';
 import { formatDateTime } from '../utils/formatters';
 
+// Mirror of server utils/helpers DEPT_BY_ROLE — non-unit roles that own reserved
+// stock. Stores is intentionally absent (its stock is the shared pool).
+const DEPT_BY_ROLE = {
+  DESIGNS: 'Designs', PLANNING: 'Planning', QC: 'QC', LAB: 'Lab',
+  METROLOGY: 'Metrology', NDT: 'NDT', SAFETY: 'Safety',
+};
+const OWNER_DEPTS = Object.values(DEPT_BY_ROLE);
+
 const TABS = [
-  { key: 'incoming', label: 'Incoming', Icon: ArrowDownToLine, hint: 'Requests where my unit receives stock' },
-  { key: 'outgoing', label: 'Outgoing', Icon: ArrowUpFromLine, hint: 'Requests where my unit ships stock' },
-  { key: 'all', label: 'All', Icon: ListOrdered, hint: 'Every transfer across units' },
+  { key: 'incoming', label: 'Incoming', Icon: ArrowDownToLine, hint: 'Requests where I receive stock' },
+  { key: 'outgoing', label: 'Outgoing', Icon: ArrowUpFromLine, hint: 'Requests where I release stock' },
+  { key: 'all', label: 'All', Icon: ListOrdered, hint: 'Every transfer across units and departments' },
 ];
 
 const statusColor = (s) => ({ PENDING: 'yellow', APPROVED: 'blue', REJECTED: 'red', TRANSFERRED: 'green' }[s] || 'gray');
 
+// Owner-token helpers: a token is `unit:<id>` or `dept:<Label>`.
+const parseOwner = (token) => {
+  if (!token) return null;
+  if (token.startsWith('unit:')) return { unitId: token.slice(5), dept: null };
+  if (token.startsWith('dept:')) return { unitId: null, dept: token.slice(5) };
+  return null;
+};
+// Short label for a transfer's from/to side, straight off the transfer record.
+const fromLabel = (t) => (t.fromUnit ? `${t.fromUnit.code}` : (t.fromDept ? `${t.fromDept} (dept)` : '—'));
+const toLabel = (t) => (t.toUnit ? `${t.toUnit.code}` : (t.toDept ? `${t.toDept} (dept)` : '—'));
+const fromFull = (t) => (t.fromUnit ? `${t.fromUnit.name} (${t.fromUnit.code})` : (t.fromDept ? `${t.fromDept} (department)` : '—'));
+const toFull = (t) => (t.toUnit ? `${t.toUnit.name} (${t.toUnit.code})` : (t.toDept ? `${t.toDept} (department)` : '—'));
+
 export default function InventoryTransfers() {
   const { user } = useAuth();
+
+  // The owner the current user represents (their own unit, or their department).
+  const myOwnerToken = useMemo(() => {
+    if (user?.role === 'MANAGER' && user?.unitId) return `unit:${user.unitId}`;
+    if (DEPT_BY_ROLE[user?.role]) return `dept:${DEPT_BY_ROLE[user.role]}`;
+    return '';
+  }, [user]);
+  const myOwner = useMemo(() => parseOwner(myOwnerToken), [myOwnerToken]);
 
   const [tab, setTab] = useState('incoming');
   const [statusFilter, setStatusFilter] = useState('');
@@ -36,13 +65,35 @@ export default function InventoryTransfers() {
   const [formError, setFormError] = useState('');
 
   const [form, setForm] = useState({
-    fromUnitId: '',
-    toUnitId: user?.unitId || '',
+    fromOwner: '',
+    toOwner: myOwnerToken,
     productId: '',
     quantity: '',
     reason: '',
     notes: '',
   });
+
+  // Every selectable owner (units + the 7 owner departments).
+  const ownerOptions = useMemo(() => ([
+    ...units.map((u) => ({ token: `unit:${u.id}`, label: `${u.name} (${u.code})`, group: 'Units' })),
+    ...OWNER_DEPTS.map((d) => ({ token: `dept:${d}`, label: `${d} (department)`, group: 'Departments' })),
+  ]), [units]);
+
+  // How much of a product an owner currently holds (unit ledger or dept ledger).
+  const ownerStockOf = (product, owner) => {
+    if (!product || !owner) return 0;
+    if (owner.unitId) return (product.unitStocks || []).find((u) => u.unitId === owner.unitId)?.quantity ?? 0;
+    if (owner.dept) return (product.deptStocks || []).find((d) => d.dept === owner.dept)?.quantity ?? 0;
+    return 0;
+  };
+
+  // Does the current user own a given (unitId/dept) side?
+  const userOwnsSide = (unitId, dept) => {
+    if (user?.role === 'ADMIN') return true;
+    if (unitId) return user?.role === 'MANAGER' && user?.unitId === unitId;
+    if (dept) return DEPT_BY_ROLE[user?.role] === dept;
+    return false;
+  };
 
   const load = () => {
     setLoading(true);
@@ -65,41 +116,37 @@ export default function InventoryTransfers() {
   }, []);
 
   const openCreate = () => {
-    setForm({
-      fromUnitId: '',
-      toUnitId: user?.unitId || '',
-      productId: '',
-      quantity: '',
-      reason: '',
-      notes: '',
-    });
+    setForm({ fromOwner: '', toOwner: myOwnerToken, productId: '', quantity: '', reason: '', notes: '' });
     setFormError('');
     setShowCreate(true);
   };
 
   const submitCreate = async () => {
     setFormError('');
-    if (!form.fromUnitId || !form.toUnitId || !form.productId || !form.quantity) {
-      return setFormError('From unit, to unit, product and quantity are required.');
+    const src = parseOwner(form.fromOwner);
+    const dst = parseOwner(form.toOwner);
+    if (!src || !dst || !form.productId || !form.quantity) {
+      return setFormError('Source owner, destination owner, product and quantity are required.');
     }
-    if (form.fromUnitId === form.toUnitId) {
-      return setFormError('Source and destination units must be different.');
+    if (form.fromOwner === form.toOwner) {
+      return setFormError('Source and destination must be different.');
     }
     const qty = parseFloat(form.quantity);
     if (!Number.isFinite(qty) || qty <= 0) {
       return setFormError('Quantity must be a positive number.');
     }
-    // Block if source unit doesn't hold enough of this product
-    const selectedProduct = products.find(p => p.id === form.productId);
-    const sourceQty = (selectedProduct?.unitStocks || []).find(u => u.unitId === form.fromUnitId)?.quantity ?? 0;
+    const selectedProduct = products.find((p) => p.id === form.productId);
+    const sourceQty = ownerStockOf(selectedProduct, src);
     if (qty > sourceQty) {
-      return setFormError(`Source unit only holds ${sourceQty} ${selectedProduct?.unit || ''}. Cannot transfer ${qty}.`);
+      return setFormError(`Source only holds ${sourceQty} ${selectedProduct?.unit || ''}. Cannot transfer ${qty}.`);
     }
     setSaving(true);
     try {
       await api.post('/inventory-transfers', {
-        fromUnitId: form.fromUnitId,
-        toUnitId: form.toUnitId,
+        fromUnitId: src.unitId || undefined,
+        fromDept: src.dept || undefined,
+        toUnitId: dst.unitId || undefined,
+        toDept: dst.dept || undefined,
         productId: form.productId,
         quantity: qty,
         reason: form.reason || undefined,
@@ -114,7 +161,7 @@ export default function InventoryTransfers() {
   };
 
   const approve = async (id) => {
-    if (!confirm('Approve this transfer? Ownership of the stock will move to the destination unit immediately — this cannot be undone.')) return;
+    if (!confirm('Approve this transfer? Ownership of the stock will move to the destination immediately — this cannot be undone.')) return;
     try {
       await api.put(`/inventory-transfers/${id}/approve`);
       setDetail(null);
@@ -134,30 +181,31 @@ export default function InventoryTransfers() {
 
   const activeTabMeta = useMemo(() => TABS.find((t) => t.key === tab), [tab]);
 
-  // Per-unit stock helper for the source unit in the create form
-  const stockAtFromUnit = useMemo(() => {
-    if (!form.fromUnitId || !form.productId) return null;
-    const product = products.find(p => p.id === form.productId);
+  // Holdings of the chosen source owner for the selected product (info box).
+  const stockAtSource = useMemo(() => {
+    const src = parseOwner(form.fromOwner);
+    if (!src || !form.productId) return null;
+    const product = products.find((p) => p.id === form.productId);
     if (!product) return null;
-    const us = (product.unitStocks || []).find(u => u.unitId === form.fromUnitId);
-    return { qty: us?.quantity ?? 0, unit: product.unit, total: product.currentStock };
-  }, [products, form.fromUnitId, form.productId]);
+    return { qty: ownerStockOf(product, src), unit: product.unit, total: product.currentStock };
+    // eslint-disable-next-line
+  }, [products, form.fromOwner, form.productId]);
 
-  const canApprove = (t) => t.status === 'PENDING' && (user?.role === 'ADMIN' || t.fromUnitId === user?.unitId);
+  const canApprove = (t) => t.status === 'PENDING' && (user?.role === 'ADMIN' || userOwnsSide(t.fromUnitId, t.fromDept));
 
   return (
     <div className="space-y-6">
       <PageHero
         title="Inventory Transfers"
-        subtitle="Request and track stock movements between units."
-        eyebrow="Inter-Unit Movement"
+        subtitle="Request and track reserved-stock movements between units and departments."
+        eyebrow="Owner-to-Owner Movement"
         icon={ArrowLeftRight}
         actions={
           <>
             <Button variant="secondary" onClick={load} disabled={loading}>
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
             </Button>
-            <Button onClick={openCreate}><Plus size={16} /> New Transfer Request</Button>
+            {myOwner && <Button onClick={openCreate}><Plus size={16} /> New Transfer Request</Button>}
           </>
         }
       />
@@ -220,9 +268,9 @@ export default function InventoryTransfers() {
                       {t.transferNumber}
                     </td>
                     <td className="px-4 py-2 text-gray-700">
-                      <span className="text-xs">{t.fromUnit?.code}</span>
+                      <span className="text-xs">{fromLabel(t)}</span>
                       <span className="mx-1 text-gray-400">→</span>
-                      <span className="text-xs">{t.toUnit?.code}</span>
+                      <span className="text-xs">{toLabel(t)}</span>
                     </td>
                     <td className="px-4 py-2 text-gray-700">{t.product?.name}</td>
                     <td className="px-4 py-2 text-gray-700">{t.quantity} {t.product?.unit}</td>
@@ -244,32 +292,33 @@ export default function InventoryTransfers() {
       <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="New Transfer Request" size="lg">
         <div className="space-y-4">
           <p className="text-xs text-gray-500">
-            As a Unit Manager, you can only pull stock INTO your own unit. The source unit's Manager (or an Admin) must approve.
-            Stock is tracked <strong>per unit</strong> — you can only request what the source unit actually holds.
-            Once approved, ownership moves immediately and the request is final. To request more later, raise a new transfer.
+            You can only pull stock INTO your own unit/department. The source owner (the unit's Manager
+            or the owning department — or an Admin) must approve. Stock is reserved <strong>per owner</strong> —
+            you can only request what the source actually holds. Once approved, ownership moves immediately
+            and the request is final.
           </p>
           <div className="grid grid-cols-2 gap-4">
             <Select
-              label="From Unit (source)"
-              value={form.fromUnitId}
-              onChange={(e) => setForm({ ...form, fromUnitId: e.target.value, productId: '' })}
+              label="From (source owner)"
+              value={form.fromOwner}
+              onChange={(e) => setForm({ ...form, fromOwner: e.target.value, productId: '' })}
             >
-              <option value="">Select source unit…</option>
-              {units
-                .filter((u) => u.id !== form.toUnitId)
-                .map((u) => (
-                  <option key={u.id} value={u.id}>{u.name} ({u.code})</option>
+              <option value="">Select source…</option>
+              {ownerOptions
+                .filter((o) => o.token !== form.toOwner)
+                .map((o) => (
+                  <option key={o.token} value={o.token}>{o.label}</option>
                 ))}
             </Select>
             <Select
-              label="To Unit (destination — your unit)"
-              value={form.toUnitId}
-              onChange={(e) => setForm({ ...form, toUnitId: e.target.value })}
+              label="To (destination — yours)"
+              value={form.toOwner}
+              onChange={(e) => setForm({ ...form, toOwner: e.target.value })}
               disabled
             >
-              <option value="">Select destination unit…</option>
-              {units.map((u) => (
-                <option key={u.id} value={u.id}>{u.name} ({u.code})</option>
+              <option value="">Select destination…</option>
+              {ownerOptions.map((o) => (
+                <option key={o.token} value={o.token}>{o.label}</option>
               ))}
             </Select>
           </div>
@@ -278,16 +327,13 @@ export default function InventoryTransfers() {
             label="Product"
             value={form.productId}
             onChange={(e) => setForm({ ...form, productId: e.target.value })}
-            disabled={!form.fromUnitId}
+            disabled={!form.fromOwner}
           >
             <option value="">
-              {form.fromUnitId ? 'Select product…' : 'Select a source unit first'}
+              {form.fromOwner ? 'Select product…' : 'Select a source owner first'}
             </option>
-            {form.fromUnitId && products
-              .map((p) => ({
-                p,
-                atSource: (p.unitStocks || []).find(u => u.unitId === form.fromUnitId)?.quantity ?? 0,
-              }))
+            {form.fromOwner && products
+              .map((p) => ({ p, atSource: ownerStockOf(p, parseOwner(form.fromOwner)) }))
               .filter(({ atSource }) => atSource > 0)
               .map(({ p, atSource }) => (
                 <option key={p.id} value={p.id}>
@@ -295,25 +341,25 @@ export default function InventoryTransfers() {
                 </option>
               ))}
           </Select>
-          {form.fromUnitId && products.every(p => ((p.unitStocks || []).find(u => u.unitId === form.fromUnitId)?.quantity ?? 0) <= 0) && (
-            <p className="text-xs text-amber-600 -mt-2">This source unit currently holds no products.</p>
+          {form.fromOwner && products.every((p) => ownerStockOf(p, parseOwner(form.fromOwner)) <= 0) && (
+            <p className="text-xs text-amber-600 -mt-2">This source currently holds no reserved products.</p>
           )}
 
-          {stockAtFromUnit && (
+          {stockAtSource && (
             <div className={`text-xs px-3 py-2 rounded-md border ${
-              stockAtFromUnit.qty <= 0
+              stockAtSource.qty <= 0
                 ? 'bg-red-50 border-red-200 text-red-800'
                 : 'bg-blue-50 border-blue-200 text-blue-800'
             }`}>
-              {stockAtFromUnit.qty <= 0 ? (
+              {stockAtSource.qty <= 0 ? (
                 <>
-                  <strong>Source unit has 0 {stockAtFromUnit.unit} on hand.</strong>{' '}
-                  This unit cannot ship what it does not hold. Total across all units: {stockAtFromUnit.total} {stockAtFromUnit.unit}.
+                  <strong>Source has 0 {stockAtSource.unit} on hand.</strong>{' '}
+                  It cannot ship what it does not hold. Total across all owners: {stockAtSource.total} {stockAtSource.unit}.
                 </>
               ) : (
                 <>
-                  Source unit currently holds <strong>{stockAtFromUnit.qty} {stockAtFromUnit.unit}</strong> of this product.
-                  Total across all units: {stockAtFromUnit.total} {stockAtFromUnit.unit}.
+                  Source currently holds <strong>{stockAtSource.qty} {stockAtSource.unit}</strong> of this product.
+                  Total across all owners: {stockAtSource.total} {stockAtSource.unit}.
                 </>
               )}
             </div>
@@ -340,7 +386,7 @@ export default function InventoryTransfers() {
             label="Notes"
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            placeholder="Anything the source unit should know"
+            placeholder="Anything the source owner should know"
           />
 
           {formError && <p className="text-sm text-red-600">{formError}</p>}
@@ -361,8 +407,8 @@ export default function InventoryTransfers() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(detail.status)}>{detail.status}</Badge></div>
               <div><span className="text-gray-500">Created:</span> {formatDateTime(detail.createdAt)}</div>
-              <div><span className="text-gray-500">From:</span> <span className="font-medium">{detail.fromUnit?.name} ({detail.fromUnit?.code})</span></div>
-              <div><span className="text-gray-500">To:</span> <span className="font-medium">{detail.toUnit?.name} ({detail.toUnit?.code})</span></div>
+              <div><span className="text-gray-500">From:</span> <span className="font-medium">{fromFull(detail)}</span></div>
+              <div><span className="text-gray-500">To:</span> <span className="font-medium">{toFull(detail)}</span></div>
               <div><span className="text-gray-500">Product:</span> <span className="font-medium">{detail.product?.name}</span></div>
               <div><span className="text-gray-500">Quantity:</span> <span className="font-medium">{detail.quantity} {detail.product?.unit}</span></div>
               <div><span className="text-gray-500">Requested by:</span> {detail.requestedBy?.name}</div>

@@ -3,14 +3,17 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, deptForRole } = require('../utils/helpers');
 
 const router = express.Router();
 
-// Roles that can create/manage their own MIV requests (same privileges as MANAGER)
-const REQUESTER_ROLES = ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS'];
+// Roles that can create/manage their own MIV requests (same privileges as MANAGER).
+// Includes the non-unit owner departments (QC, LAB, SAFETY, DESIGNS, PLANNING,
+// METROLOGY, NDT) so they can issue the stock reserved to their department.
+const REQUESTER_ROLES = ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'PLANNING', 'METROLOGY', 'NDT'];
 // Unit-bound roles must belong to a unit; everyone else (QC, LAB, SAFETY,
-// DESIGNS …) may file without one — their MIV draws from the unassigned pool.
+// DESIGNS …) may file without one — their MIV draws from their department's
+// reserved bucket and the unassigned pool.
 const UNIT_BOUND_ROLES = ['MANAGER', 'RND'];
 
 const createRequestSchema = z.object({
@@ -200,43 +203,52 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
       return res.status(400).json({ error: 'Only pending requests can be approved' });
     }
 
-    // Pre-check: each item is fulfilled from (a) the requesting unit's own bucket
-    // and/or (b) the unassigned pool — stock in Product.currentStock not held by
-    // any unit's ProductUnitStock. Stock assigned to a *different* unit is off-limits.
+    // Pre-check: each item is fulfilled from (a) the requester's own bucket — a unit
+    // bucket (ProductUnitStock) for unit requesters, or a department bucket
+    // (ProductDeptStock) for non-unit owner roles (QC, Designs, …) — and/or (b) the
+    // unassigned pool = currentStock minus every unit AND department reservation.
+    // Stock reserved to a *different* unit or department is off-limits.
+    const requesterDept = request.unitId ? null : deptForRole(request.manager?.role);
     const stockShortages = [];
     const availabilityByItem = {};
     for (const ri of request.items) {
       if (ri.quantity <= 0) continue;
-      // Unit-less (global-role) MIVs have no own bucket — unassigned pool only.
-      const [ownBucket, allBuckets] = await Promise.all([
+      const [ownUnitBucket, ownDeptBucket, allUnitBuckets, allDeptBuckets] = await Promise.all([
         request.unitId
           ? prisma.productUnitStock.findUnique({
               where: { productId_unitId: { productId: ri.productId, unitId: request.unitId } },
             })
           : Promise.resolve(null),
-        prisma.productUnitStock.findMany({
-          where: { productId: ri.productId },
-          select: { quantity: true },
-        }),
+        requesterDept
+          ? prisma.productDeptStock.findUnique({
+              where: { productId_dept: { productId: ri.productId, dept: requesterDept } },
+            })
+          : Promise.resolve(null),
+        prisma.productUnitStock.findMany({ where: { productId: ri.productId }, select: { quantity: true } }),
+        prisma.productDeptStock.findMany({ where: { productId: ri.productId }, select: { quantity: true } }),
       ]);
-      const ownQty = ownBucket?.quantity || 0;
-      const assignedTotal = allBuckets.reduce((s, b) => s + b.quantity, 0);
+      const ownUnitQty = ownUnitBucket?.quantity || 0;
+      const ownDeptQty = ownDeptBucket?.quantity || 0;
+      const ownQty = ownUnitQty + ownDeptQty; // only one is ever non-zero
+      const assignedTotal =
+        allUnitBuckets.reduce((s, b) => s + b.quantity, 0) +
+        allDeptBuckets.reduce((s, b) => s + b.quantity, 0);
       const unassignedQty = Math.max(0, (ri.product?.currentStock || 0) - assignedTotal);
       const available = ownQty + unassignedQty;
-      availabilityByItem[ri.id] = { ownQty, unassignedQty };
+      availabilityByItem[ri.id] = { ownUnitQty, ownDeptQty, unassignedQty };
       if (available < ri.quantity - 0.001) {
         stockShortages.push({
           product: ri.product?.name || 'Unknown',
           sku: ri.product?.sku,
           requested: ri.quantity,
-          availableInYourUnit: ownQty,
+          availableToYou: ownQty,
           availableUnassigned: unassignedQty,
         });
       }
     }
     if (stockShortages.length > 0) {
       return res.status(400).json({
-        error: 'Not enough stock available to your unit (own + unassigned) for one or more items. Raise an Inventory Transfer Request from a unit that holds the stock.',
+        error: 'Not enough stock available to you (own reserved + unassigned pool) for one or more items. Raise an Inventory Transfer Request from the unit or department that holds the stock.',
         shortages: stockShortages,
       });
     }
@@ -285,17 +297,28 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
           data: { currentStock: { decrement: take } },
         });
 
-        // Draw from the unit's own bucket first, then from the unassigned pool.
-        const ownQty = availabilityByItem[item.id]?.ownQty || 0;
-        const fromOwn = Math.min(ownQty, take);
-        if (fromOwn > 0) {
-          await tx.productUnitStock.update({
-            where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
-            data: { quantity: { decrement: fromOwn } },
-          });
+        // Draw from the requester's own bucket first (unit OR department ledger),
+        // then from the unassigned pool.
+        const av = availabilityByItem[item.id] || {};
+        if (request.unitId) {
+          const fromOwn = Math.min(av.ownUnitQty || 0, take);
+          if (fromOwn > 0) {
+            await tx.productUnitStock.update({
+              where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
+              data: { quantity: { decrement: fromOwn } },
+            });
+          }
+        } else if (requesterDept) {
+          const fromOwn = Math.min(av.ownDeptQty || 0, take);
+          if (fromOwn > 0) {
+            await tx.productDeptStock.update({
+              where: { productId_dept: { productId: item.productId, dept: requesterDept } },
+              data: { quantity: { decrement: fromOwn } },
+            });
+          }
         }
-        // Remainder (take - fromOwn) comes from the unassigned pool — only
-        // Product.currentStock is decremented (already done above), no PUS row to update.
+        // Remainder comes from the unassigned pool — only Product.currentStock is
+        // decremented (already done above), no reservation ledger to update.
 
         await tx.stockMovement.create({
           data: {
@@ -470,6 +493,10 @@ router.put('/:id/collect', authenticate, authorize(...REQUESTER_ROLES), async (r
       return res.status(400).json({ error: 'Only approved or partially collected requests can be collected' });
     }
 
+    // The collector is the requester (checked above), so their role gives the
+    // owning department for non-unit MIVs.
+    const requesterDept = request.unitId ? null : deptForRole(req.user.role);
+
     // Build collect-plan: how much each item takes this round (delta)
     const bodyItems = Array.isArray(req.body?.items) ? req.body.items : null;
     const plan = [];
@@ -535,8 +562,9 @@ router.put('/:id/collect', authenticate, authorize(...REQUESTER_ROLES), async (r
           data: { currentStock: { decrement: take } },
         });
 
-        // Phase 6: decrement per-unit stock (issuing from the requesting unit's
-        // bucket). Unit-less (global-role) MIVs draw from the unassigned pool —
+        // Decrement the requester's own reserved bucket. Unit requesters draw from
+        // their unit bucket; non-unit owner departments (QC, Designs, …) from their
+        // department bucket. Unit-less non-owner MIVs draw the unassigned pool —
         // only Product.currentStock is decremented (done above).
         if (request.unitId) {
           const pus = await tx.productUnitStock.findUnique({
@@ -547,6 +575,17 @@ router.put('/:id/collect', authenticate, authorize(...REQUESTER_ROLES), async (r
           }
           await tx.productUnitStock.update({
             where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
+            data: { quantity: { decrement: take } },
+          });
+        } else if (requesterDept) {
+          const pds = await tx.productDeptStock.findUnique({
+            where: { productId_dept: { productId: item.productId, dept: requesterDept } },
+          });
+          if (!pds || pds.quantity < take - 0.001) {
+            throw new Error(`${requesterDept} department stock for ${item.product?.name || 'product'} is insufficient — please raise an inventory transfer first.`);
+          }
+          await tx.productDeptStock.update({
+            where: { productId_dept: { productId: item.productId, dept: requesterDept } },
             data: { quantity: { decrement: take } },
           });
         }

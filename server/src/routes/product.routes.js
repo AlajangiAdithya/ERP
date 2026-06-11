@@ -56,33 +56,25 @@ async function annotateMirAndExpiry(products) {
   }
 }
 
-// Attaches `deptStocks: [{ dept, quantity }]` to each product — the in-stock total
-// held on behalf of each non-unit department (QC, Designs, Safety, Lab, …). This is
-// the department counterpart to unitStocks (per-unit ownership): PRs raised by a
-// non-unit role have their inward batches stamped with ProductBatch.assignedDept,
-// so we sum the remaining qty per department here. Non-FIM only — FIM is its own tab.
+// Attaches `deptStocks: [{ dept, quantity }]` to each product — the stock reserved
+// to each non-unit department (QC, Designs, Safety, Lab, Metrology, NDT, Planning).
+// This is the department counterpart to unitStocks (per-unit ownership), read from
+// the ProductDeptStock ledger — the single source of truth that MIV issue and
+// inventory transfers both move against.
 async function annotateDeptStocks(products) {
   if (!products.length) {
     return;
   }
   const ids = products.map((p) => p.id);
-  const grouped = await prisma.productBatch.groupBy({
-    by: ['productId', 'assignedDept'],
-    where: {
-      productId: { in: ids },
-      assignedDept: { not: null },
-      isFim: false,
-      remaining: { gt: 0 },
-    },
-    _sum: { remaining: true },
+  const rows = await prisma.productDeptStock.findMany({
+    where: { productId: { in: ids }, quantity: { gt: 0 } },
+    select: { productId: true, dept: true, quantity: true },
   });
   const perProduct = new Map();
-  for (const g of grouped) {
-    const qty = g._sum.remaining || 0;
-    if (qty <= 0) continue;
-    const list = perProduct.get(g.productId) || [];
-    list.push({ dept: g.assignedDept, quantity: qty });
-    perProduct.set(g.productId, list);
+  for (const r of rows) {
+    const list = perProduct.get(r.productId) || [];
+    list.push({ dept: r.dept, quantity: r.quantity });
+    perProduct.set(r.productId, list);
   }
   for (const p of products) {
     p.deptStocks = perProduct.get(p.id) || [];

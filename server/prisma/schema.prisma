@@ -109,6 +109,13 @@ model User {
   // KPI-QMS certifications + QMS documents (Unit-5 uploads; everyone views)
   qmsCertificationsUploaded  QmsCertification[]            @relation("QmsCertUploader")
   qmsDocumentsUploaded       QmsDocument[]                 @relation("QmsDocUploader")
+
+  // Team Chat — primary in-house messaging channel (dashboard).
+  messagesSent      Message[] @relation("MessageSender")
+  messagesReceived  Message[] @relation("MessageRecipient")
+
+  // Personal calendar — private per-user events/reminders.
+  calendarEvents    CalendarEvent[] @relation("CalendarOwner")
 }
 
 model Session {
@@ -208,6 +215,7 @@ model Product {
   quotationItems       QuotationItem[]
   purchaseOrderItems   PurchaseOrderItem[]
   unitStocks           ProductUnitStock[]
+  deptStocks           ProductDeptStock[]
   materialPools        MaterialPool[]
 }
 
@@ -227,6 +235,26 @@ model ProductUnitStock {
 
   @@unique([productId, unitId])
   @@index([unitId])
+}
+
+// ──── PER-DEPARTMENT INVENTORY ────
+// Counterpart to ProductUnitStock for non-unit owners. When a PR raised by a
+// non-unit department (QC, Designs, Safety, Lab, Metrology, NDT, Planning) is
+// inwarded, the quantity is reserved to that department here. Reserved dept stock
+// is excluded from the "unassigned pool", so no other role can issue it via a MIV —
+// they must raise an InventoryTransferRequest to the owning department to get it.
+// Stores is intentionally NOT an owner: Stores-raised stock stays the shared pool.
+model ProductDeptStock {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  dept      String // canonical label: QC / Designs / Safety / Lab / Metrology / NDT / Planning
+  quantity  Float    @default(0)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([productId, dept])
+  @@index([dept])
 }
 
 // ──── PRODUCT BATCHES (FIFO lot tracking) ────
@@ -1294,10 +1322,15 @@ enum IONStatus {
 model InventoryTransferRequest {
   id              String         @id @default(uuid())
   transferNumber  String         @unique
-  fromUnitId      String
-  fromUnit        Unit           @relation("TransferFromUnit", fields: [fromUnitId], references: [id])
-  toUnitId        String
-  toUnit          Unit           @relation("TransferToUnit", fields: [toUnitId], references: [id])
+  // An owner is EITHER a unit (unitId) OR a department (dept string) — exactly one
+  // per side, enforced in the route. Unit FKs are nullable so dept↔dept / dept↔unit
+  // transfers are possible; dept owners use the canonical labels (QC, Designs, …).
+  fromUnitId      String?
+  fromUnit        Unit?          @relation("TransferFromUnit", fields: [fromUnitId], references: [id])
+  fromDept        String?
+  toUnitId        String?
+  toUnit          Unit?          @relation("TransferToUnit", fields: [toUnitId], references: [id])
+  toDept          String?
   productId       String
   product         Product        @relation(fields: [productId], references: [id])
   quantity        Float
@@ -1982,6 +2015,31 @@ model Notification {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Team Chat — the in-house messaging channel shown on every dashboard.
+// Replaces ad-hoc WhatsApp coordination. A message is either a broadcast
+// (`@everyone`, isBroadcast = true, recipientId null) seen by all users, or a
+// direct message (`@username`, recipientId set) seen only by sender + recipient.
+// Soft-deleted by the sender once the work is done (deletedAt set): the row
+// stays for the "deleted history" view but drops out of the active feed.
+// ──────────────────────────────────────────────────────────────
+model Message {
+  id          String    @id @default(uuid())
+  body        String
+  senderId    String
+  sender      User      @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  isBroadcast Boolean   @default(false)
+  recipientId String?
+  recipient   User?     @relation("MessageRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  // Soft delete: only the sender can set this; row is retained for history.
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([isBroadcast, createdAt])
+  @@index([recipientId, createdAt])
+  @@index([senderId, createdAt])
+}
+
+// ──────────────────────────────────────────────────────────────
 // Machinery register (master list of every machine on the shop floor)
 // Owned by Safety; Unit-5 users also have edit rights. Everyone else views.
 // AMC = Annual Maintenance Contract — status text + optional attachment.
@@ -2348,4 +2406,32 @@ model QmsDocument {
   updatedAt    DateTime @updatedAt
 
   @@index([category])
+}
+
+// ──────────────────────────────────────────────────────────────
+// Personal Calendar — private per-user events / reminders.
+// Each row is owned by one user; nobody else can see it.
+// Recurrence stored on the base row (NONE/DAILY/WEEKLY/MONTHLY/YEARLY
+// + optional recurUntil). Occurrences are expanded on read within the
+// requested date window — no per-occurrence rows. Editing/deleting a
+// recurring event affects the whole series (v1).
+// ──────────────────────────────────────────────────────────────
+model CalendarEvent {
+  id          String    @id @default(uuid())
+  ownerId     String
+  owner       User      @relation("CalendarOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  location    String?
+  startAt     DateTime
+  endAt       DateTime
+  allDay      Boolean   @default(false)
+  category    String?                          // label, e.g. "Work" / "Personal"
+  color       String    @default("blue")       // palette token (blue/green/red/amber/purple/pink/teal/gray)
+  recurrence  String    @default("NONE")        // NONE | DAILY | WEEKLY | MONTHLY | YEARLY
+  recurUntil  DateTime?                          // inclusive last date a recurring event may fire
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([ownerId, startAt])
 }

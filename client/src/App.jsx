@@ -16,6 +16,7 @@ import AllRequests from './pages/AllRequests';
 import AuditLogs from './pages/AuditLogs';
 import UnitUsageLogs from './pages/UnitUsageLogs';
 import Notifications from './pages/Notifications';
+import Calendar from './pages/Calendar';
 import PurchaseRequests from './pages/PurchaseRequests';
 import QuotationManagement from './pages/QuotationManagement';
 import Suppliers from './pages/Suppliers';
@@ -161,9 +162,10 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><UnitUsageLogs /></PrivateRoute>
               } />
 
-              {/* MIV requesters — Manager / Lab / QC / R&D / Safety / Designs */}
+              {/* MIV requesters — Manager / Lab / QC / R&D / Safety / Designs / Planning / Metrology / NDT.
+                  The non-unit owner depts can issue the stock reserved to their department. */}
               <Route path="/my-requests" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS']}><MyRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'PLANNING', 'METROLOGY', 'NDT']}><MyRequests /></PrivateRoute>
               } />
 
               {/* Store Manager only */}
@@ -230,9 +232,9 @@ export default function App() {
               <Route path="/logistics" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'LOGISTICS']}><Logistics /></PrivateRoute>
               } />
-              {/* Inventory Transfers — MANAGER + LOGISTICS + SAFETY monitor */}
+              {/* Inventory Transfers — unit MANAGERs + owner depts (QC/Designs/Lab/Metrology/NDT/Planning/Safety) + LOGISTICS/ADMIN monitor */}
               <Route path="/inventory-transfers" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LOGISTICS', 'SAFETY']}><InventoryTransfers /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LOGISTICS', 'SAFETY', 'ADMIN', 'QC', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'PLANNING']}><InventoryTransfers /></PrivateRoute>
               } />
 
               {/* ION — MANAGER / LAB / METROLOGY / NDT / RND (creators + recipients) */}
@@ -343,6 +345,7 @@ export default function App() {
               <Route path="/products" element={<Products />} />
               <Route path="/products/:id" element={<ProductDetail />} />
               <Route path="/notifications" element={<Notifications />} />
+              <Route path="/calendar" element={<Calendar />} />
               <Route path="/settings" element={<Settings />} />
 
               <Route path="*" element={<Navigate to="/" replace />} />

@@ -3,9 +3,23 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation } = require('../utils/helpers');
+const {
+  generateSequentialNumber, paginate, applyDateFilter,
+  deptForRole, DEPT_BY_ROLE, OWNER_DEPTS,
+} = require('../utils/helpers');
 
 const router = express.Router();
+
+// An "owner" of stock is EITHER a unit OR a department. Transfers move a reserved
+// quantity from one owner's ledger (ProductUnitStock / ProductDeptStock) to
+// another. The destination owner raises the request; the source owner (or an
+// admin) approves the release.
+const OWNER_DEPT_ROLES = Object.keys(DEPT_BY_ROLE); // QC, DESIGNS, SAFETY, LAB, METROLOGY, NDT, PLANNING
+// Roles that may touch transfers at all (route guard). Monitors (LOGISTICS) get
+// read-only oversight; ownership is enforced per-action below.
+const TRANSFER_ROLES = ['MANAGER', 'ADMIN', 'LOGISTICS', ...OWNER_DEPT_ROLES];
+// Monitors see every transfer (read-only oversight), like the old unit behaviour.
+const MONITOR_ROLES = ['ADMIN', 'SAFETY', 'LOGISTICS'];
 
 const TRANSFER_INCLUDE = {
   fromUnit: { select: { id: true, name: true, code: true } },
@@ -15,17 +29,84 @@ const TRANSFER_INCLUDE = {
   approvedBy: { select: { id: true, name: true, role: true } },
 };
 
+// ─── Owner-side helpers ───────────────────────────────────────────────
+// A "side" is { unitId, dept } where exactly one is set. We carry the loaded
+// unit relation along for labelling.
+const fromSide = (t) => ({ unitId: t.fromUnitId || null, dept: t.fromDept || null, unit: t.fromUnit || null });
+const toSide = (t) => ({ unitId: t.toUnitId || null, dept: t.toDept || null, unit: t.toUnit || null });
+const sameSide = (a, b) => (!!a.unitId && a.unitId === b.unitId) || (!!a.dept && a.dept === b.dept);
+const sideLabel = (s) => (s.unitId ? (s.unit?.name || s.unit?.code || 'Unit') : (s.dept ? `${s.dept} (dept)` : 'Unknown'));
+const sideCode = (s) => (s.unitId ? (s.unit?.code || s.unitId) : (s.dept || ''));
+
+// Does this user own/represent the given side? Admin always; a unit side → the
+// MANAGER of that unit; a dept side → a user whose role maps to that department.
+function userOwnsSide(user, side) {
+  if (user.role === 'ADMIN') return true;
+  if (side.unitId) return user.role === 'MANAGER' && user.unitId === side.unitId;
+  if (side.dept) return deptForRole(user.role) === side.dept;
+  return false;
+}
+
+// The owner side the current user represents (for scoping/creation), or null.
+function userOwnSide(user) {
+  if (user.role === 'MANAGER' && user.unitId) return { unitId: user.unitId, dept: null };
+  const dept = deptForRole(user.role);
+  if (dept) return { unitId: null, dept };
+  return null;
+}
+
+const readOwnerStock = (tx, productId, side) =>
+  side.unitId
+    ? tx.productUnitStock.findUnique({ where: { productId_unitId: { productId, unitId: side.unitId } } })
+    : tx.productDeptStock.findUnique({ where: { productId_dept: { productId, dept: side.dept } } });
+
+const decrementOwner = (tx, productId, side, qty) =>
+  side.unitId
+    ? tx.productUnitStock.update({ where: { productId_unitId: { productId, unitId: side.unitId } }, data: { quantity: { decrement: qty } } })
+    : tx.productDeptStock.update({ where: { productId_dept: { productId, dept: side.dept } }, data: { quantity: { decrement: qty } } });
+
+const incrementOwner = (tx, productId, side, qty) =>
+  side.unitId
+    ? tx.productUnitStock.upsert({ where: { productId_unitId: { productId, unitId: side.unitId } }, update: { quantity: { increment: qty } }, create: { productId, unitId: side.unitId, quantity: qty } })
+    : tx.productDeptStock.upsert({ where: { productId_dept: { productId, dept: side.dept } }, update: { quantity: { increment: qty } }, create: { productId, dept: side.dept, quantity: qty } });
+
+// Active users who represent a side (notification / approval targets).
+async function ownerUserIds(side) {
+  if (side.unitId) {
+    return prisma.user.findMany({ where: { role: 'MANAGER', unitId: side.unitId, isActive: true }, select: { id: true } });
+  }
+  const roles = OWNER_DEPT_ROLES.filter((r) => DEPT_BY_ROLE[r] === side.dept);
+  return prisma.user.findMany({ where: { role: { in: roles }, isActive: true }, select: { id: true } });
+}
+
+// ─── Validation ───────────────────────────────────────────────────────
+const ownerInput = {
+  fromUnitId: z.string().uuid().optional().nullable(),
+  fromDept: z.string().optional().nullable(),
+  toUnitId: z.string().uuid().optional().nullable(),
+  toDept: z.string().optional().nullable(),
+};
 const createSchema = z.object({
-  fromUnitId: z.string().uuid(),
-  toUnitId: z.string().uuid(),
+  ...ownerInput,
   productId: z.string().uuid(),
   quantity: z.number().positive(),
   reason: z.string().optional(),
   notes: z.string().optional(),
 });
 
-// GET /api/inventory-transfers — list (scope: MANAGER sees only their own unit's in/out; ADMIN sees all)
-router.get('/', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY', 'LOGISTICS'), async (req, res) => {
+// Resolve a validated side from raw input, or an error string.
+function resolveSide(unitId, dept) {
+  const hasUnit = !!unitId;
+  const hasDept = !!dept;
+  if (hasUnit === hasDept) return { error: 'Each side must be exactly one of a unit or a department' };
+  if (hasDept && !OWNER_DEPTS.includes(dept)) return { error: `Unknown department "${dept}"` };
+  return { side: { unitId: unitId || null, dept: dept || null } };
+}
+
+// ─── Routes ─────────────────────────────────────────────────────────────
+
+// GET /api/inventory-transfers — list (monitors see all; owners see their own in/out)
+router.get('/', authenticate, authorize(...TRANSFER_ROLES), async (req, res) => {
   try {
     const { status, direction, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -36,20 +117,15 @@ router.get('/', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY', 'LOGISTICS
       where.status = status;
     }
 
-    const isAdmin = req.user.role === 'ADMIN';
-    if (!isAdmin) {
-      if (!req.user.unitId) return res.json({ transfers: [], total: 0, page: 1, totalPages: 0 });
-      if (direction === 'incoming') {
-        where.toUnitId = req.user.unitId;
-      } else if (direction === 'outgoing') {
-        where.fromUnitId = req.user.unitId;
-      } else {
-        where.OR = [{ fromUnitId: req.user.unitId }, { toUnitId: req.user.unitId }];
-      }
-    } else if (direction === 'incoming' && req.user.unitId) {
-      where.toUnitId = req.user.unitId;
-    } else if (direction === 'outgoing' && req.user.unitId) {
-      where.fromUnitId = req.user.unitId;
+    const isMonitor = MONITOR_ROLES.includes(req.user.role);
+    if (!isMonitor) {
+      const mine = userOwnSide(req.user);
+      if (!mine) return res.json({ transfers: [], total: 0, page: 1, totalPages: 0 });
+      const incoming = mine.unitId ? { toUnitId: mine.unitId } : { toDept: mine.dept };
+      const outgoing = mine.unitId ? { fromUnitId: mine.unitId } : { fromDept: mine.dept };
+      if (direction === 'incoming') Object.assign(where, incoming);
+      else if (direction === 'outgoing') Object.assign(where, outgoing);
+      else where.OR = [incoming, outgoing];
     }
 
     const [transfers, total] = await Promise.all([
@@ -71,7 +147,7 @@ router.get('/', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY', 'LOGISTICS
 });
 
 // GET /api/inventory-transfers/:id
-router.get('/:id', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY', 'LOGISTICS'), async (req, res) => {
+router.get('/:id', authenticate, authorize(...TRANSFER_ROLES), async (req, res) => {
   try {
     const t = await prisma.inventoryTransferRequest.findUnique({
       where: { id: req.params.id },
@@ -79,8 +155,8 @@ router.get('/:id', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY', 'LOGIST
     });
     if (!t) return res.status(404).json({ error: 'Transfer not found' });
 
-    const isMonitor = req.user.role === 'ADMIN' || req.user.role === 'SAFETY';
-    if (!isMonitor && t.fromUnitId !== req.user.unitId && t.toUnitId !== req.user.unitId) {
+    const isMonitor = MONITOR_ROLES.includes(req.user.role);
+    if (!isMonitor && !userOwnsSide(req.user, fromSide(t)) && !userOwnsSide(req.user, toSide(t))) {
       return res.status(403).json({ error: 'Access denied' });
     }
     res.json(t);
@@ -90,34 +166,42 @@ router.get('/:id', authenticate, authorize('MANAGER', 'ADMIN', 'SAFETY', 'LOGIST
   }
 });
 
-// POST /api/inventory-transfers — Store Manager of the destination unit creates a request
-router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
+// POST /api/inventory-transfers — the DESTINATION owner requests the stock.
+router.post('/', authenticate, authorize('MANAGER', ...OWNER_DEPT_ROLES), async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
 
-    if (data.fromUnitId === data.toUnitId) {
-      return res.status(400).json({ error: 'Source and destination units must be different' });
+    const src = resolveSide(data.fromUnitId, data.fromDept);
+    const dst = resolveSide(data.toUnitId, data.toDept);
+    if (src.error) return res.status(400).json({ error: src.error });
+    if (dst.error) return res.status(400).json({ error: dst.error });
+    if (sameSide(src.side, dst.side)) {
+      return res.status(400).json({ error: 'Source and destination must be different' });
     }
 
-    if (!req.user.unitId || data.toUnitId !== req.user.unitId) {
-      return res.status(403).json({ error: 'You can only request transfers into your own unit' });
+    // You may only request stock INTO your own unit/department.
+    if (!userOwnsSide(req.user, dst.side)) {
+      return res.status(403).json({ error: 'You can only request transfers into your own unit or department' });
     }
 
-    const [fromUnit, toUnit, product] = await Promise.all([
-      prisma.unit.findUnique({ where: { id: data.fromUnitId } }),
-      prisma.unit.findUnique({ where: { id: data.toUnitId } }),
-      prisma.product.findUnique({ where: { id: data.productId } }),
-    ]);
-    if (!fromUnit || !toUnit) return res.status(400).json({ error: 'Invalid unit reference' });
+    // Validate references exist.
+    const product = await prisma.product.findUnique({ where: { id: data.productId } });
     if (!product) return res.status(400).json({ error: 'Invalid product reference' });
+    for (const side of [src.side, dst.side]) {
+      if (side.unitId) {
+        const u = await prisma.unit.findUnique({ where: { id: side.unitId }, select: { id: true } });
+        if (!u) return res.status(400).json({ error: 'Invalid unit reference' });
+      }
+    }
 
     const transferNumber = await generateSequentialNumber(prisma, 'TRF');
-
     const created = await prisma.inventoryTransferRequest.create({
       data: {
         transferNumber,
-        fromUnitId: data.fromUnitId,
-        toUnitId: data.toUnitId,
+        fromUnitId: src.side.unitId,
+        fromDept: src.side.dept,
+        toUnitId: dst.side.unitId,
+        toDept: dst.side.dept,
         productId: data.productId,
         quantity: data.quantity,
         reason: data.reason || null,
@@ -135,8 +219,8 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
         entityId: created.id,
         details: {
           transferNumber,
-          from: fromUnit.code,
-          to: toUnit.code,
+          from: sideCode(fromSide(created)),
+          to: sideCode(toSide(created)),
           product: product.name,
           quantity: data.quantity,
         },
@@ -144,17 +228,14 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
       },
     });
 
-    // Notify source-unit manager(s)
-    const sourceManagers = await prisma.user.findMany({
-      where: { role: 'MANAGER', unitId: data.fromUnitId, isActive: true },
-      select: { id: true },
-    });
-    if (sourceManagers.length) {
+    // Notify the source owner(s) that a release has been requested.
+    const sourceOwners = await ownerUserIds(src.side);
+    if (sourceOwners.length) {
       await prisma.notification.createMany({
-        data: sourceManagers.map((m) => ({
+        data: sourceOwners.map((m) => ({
           type: 'TRANSFER_REQUEST',
           title: `Transfer Request: ${transferNumber}`,
-          message: `${toUnit.name} is requesting ${data.quantity} ${product.unit} of ${product.name} from ${fromUnit.name}.`,
+          message: `${sideLabel(toSide(created))} is requesting ${data.quantity} ${product.unit} of ${product.name} from ${sideLabel(fromSide(created))}.`,
           productId: product.id,
           targetUserId: m.id,
           sentById: req.user.id,
@@ -172,9 +253,8 @@ router.post('/', authenticate, authorize('MANAGER'), async (req, res) => {
   }
 });
 
-// PUT /api/inventory-transfers/:id/approve — single-step approve: stock moves atomically.
-// Allowed: source-unit manager OR any ADMIN (admin override).
-router.put('/:id/approve', authenticate, authorize('MANAGER'), async (req, res) => {
+// PUT /api/inventory-transfers/:id/approve — the SOURCE owner (or admin) releases.
+router.put('/:id/approve', authenticate, authorize('MANAGER', 'ADMIN', ...OWNER_DEPT_ROLES), async (req, res) => {
   try {
     const t = await prisma.inventoryTransferRequest.findUnique({
       where: { id: req.params.id },
@@ -183,27 +263,20 @@ router.put('/:id/approve', authenticate, authorize('MANAGER'), async (req, res) 
     if (!t) return res.status(404).json({ error: 'Transfer not found' });
     if (t.status !== 'PENDING') return res.status(400).json({ error: 'Only pending transfers can be approved' });
 
+    const src = fromSide(t);
+    const dst = toSide(t);
     const isAdmin = req.user.role === 'ADMIN';
-    if (!isAdmin && t.fromUnitId !== req.user.unitId) {
-      return res.status(403).json({ error: 'Only the source unit manager or an admin can approve a transfer' });
+    if (!isAdmin && !userOwnsSide(req.user, src)) {
+      return res.status(403).json({ error: 'Only the source unit/department owner or an admin can approve a transfer' });
     }
 
     await prisma.$transaction(async (tx) => {
-      const fromStock = await tx.productUnitStock.findUnique({
-        where: { productId_unitId: { productId: t.productId, unitId: t.fromUnitId } },
-      });
-      if (!fromStock || fromStock.quantity < t.quantity - 0.001) {
-        throw new Error(`Source unit ${t.fromUnit.code} no longer holds ${t.quantity} ${t.product.unit} of ${t.product.name}`);
+      const stock = await readOwnerStock(tx, t.productId, src);
+      if (!stock || stock.quantity < t.quantity - 0.001) {
+        throw new Error(`${sideLabel(src)} no longer holds ${t.quantity} ${t.product.unit} of ${t.product.name}`);
       }
-      await tx.productUnitStock.update({
-        where: { productId_unitId: { productId: t.productId, unitId: t.fromUnitId } },
-        data: { quantity: { decrement: t.quantity } },
-      });
-      await tx.productUnitStock.upsert({
-        where: { productId_unitId: { productId: t.productId, unitId: t.toUnitId } },
-        update: { quantity: { increment: t.quantity } },
-        create: { productId: t.productId, unitId: t.toUnitId, quantity: t.quantity },
-      });
+      await decrementOwner(tx, t.productId, src, t.quantity);
+      await incrementOwner(tx, t.productId, dst, t.quantity);
 
       await tx.stockMovement.create({
         data: {
@@ -212,9 +285,9 @@ router.put('/:id/approve', authenticate, authorize('MANAGER'), async (req, res) 
           quantity: t.quantity,
           referenceType: 'InventoryTransfer',
           referenceId: t.id,
-          notes: `Unit transfer: ${t.fromUnit.code} → ${t.toUnit.code} (${t.transferNumber})`,
+          notes: `Transfer: ${sideCode(src)} → ${sideCode(dst)} (${t.transferNumber})`,
           performedBy: req.user.id,
-          unitId: t.fromUnitId,
+          unitId: src.unitId,
         },
       });
       await tx.stockMovement.create({
@@ -224,9 +297,9 @@ router.put('/:id/approve', authenticate, authorize('MANAGER'), async (req, res) 
           quantity: t.quantity,
           referenceType: 'InventoryTransfer',
           referenceId: t.id,
-          notes: `Unit transfer received: ${t.fromUnit.code} → ${t.toUnit.code} (${t.transferNumber})`,
+          notes: `Transfer received: ${sideCode(src)} → ${sideCode(dst)} (${t.transferNumber})`,
           performedBy: req.user.id,
-          unitId: t.toUnitId,
+          unitId: dst.unitId,
         },
       });
 
@@ -249,11 +322,11 @@ router.put('/:id/approve', authenticate, authorize('MANAGER'), async (req, res) 
         entityId: t.id,
         details: {
           transferNumber: t.transferNumber,
-          from: t.fromUnit.code,
-          to: t.toUnit.code,
+          from: sideCode(src),
+          to: sideCode(dst),
           product: t.product.name,
           quantity: t.quantity,
-          adminOverride: isAdmin && t.fromUnitId !== req.user.unitId,
+          adminOverride: isAdmin && !userOwnsSide(req.user, src),
         },
         ipAddress: req.ip,
       },
@@ -263,7 +336,7 @@ router.put('/:id/approve', authenticate, authorize('MANAGER'), async (req, res) 
       data: {
         type: 'TRANSFER_APPROVED',
         title: `Transfer ${t.transferNumber} Approved`,
-        message: `${t.fromUnit.name} → ${t.toUnit.name}: ${t.quantity} ${t.product.unit} of ${t.product.name} have been transferred.`,
+        message: `${sideLabel(src)} → ${sideLabel(dst)}: ${t.quantity} ${t.product.unit} of ${t.product.name} have been transferred.`,
         targetUserId: t.requestedById,
         sentById: req.user.id,
       },
@@ -280,8 +353,8 @@ router.put('/:id/approve', authenticate, authorize('MANAGER'), async (req, res) 
   }
 });
 
-// PUT /api/inventory-transfers/:id/reject
-router.put('/:id/reject', authenticate, authorize('MANAGER'), async (req, res) => {
+// PUT /api/inventory-transfers/:id/reject — source owner or admin
+router.put('/:id/reject', authenticate, authorize('MANAGER', 'ADMIN', ...OWNER_DEPT_ROLES), async (req, res) => {
   try {
     const { reason } = req.body || {};
     const t = await prisma.inventoryTransferRequest.findUnique({
@@ -291,9 +364,10 @@ router.put('/:id/reject', authenticate, authorize('MANAGER'), async (req, res) =
     if (!t) return res.status(404).json({ error: 'Transfer not found' });
     if (t.status !== 'PENDING') return res.status(400).json({ error: 'Only pending transfers can be rejected' });
 
+    const src = fromSide(t);
     const isAdmin = req.user.role === 'ADMIN';
-    if (!isAdmin && t.fromUnitId !== req.user.unitId) {
-      return res.status(403).json({ error: 'Only the source unit manager or an admin can reject a transfer' });
+    if (!isAdmin && !userOwnsSide(req.user, src)) {
+      return res.status(403).json({ error: 'Only the source unit/department owner or an admin can reject a transfer' });
     }
 
     const updated = await prisma.inventoryTransferRequest.update({
@@ -322,7 +396,7 @@ router.put('/:id/reject', authenticate, authorize('MANAGER'), async (req, res) =
       data: {
         type: 'TRANSFER_REJECTED',
         title: `Transfer ${t.transferNumber} Rejected`,
-        message: `${t.fromUnit.name} rejected the transfer request. Reason: ${reason || 'Not specified'}`,
+        message: `${sideLabel(fromSide(t))} rejected the transfer request. Reason: ${reason || 'Not specified'}`,
         targetUserId: t.requestedById,
         sentById: req.user.id,
       },

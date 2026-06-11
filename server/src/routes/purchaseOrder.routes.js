@@ -9,6 +9,7 @@ const { poDocumentUpload, goodsArrivedUpload, publicUrlFor, UPLOAD_ROOT } = requ
 const {
   generateSequentialNumber, generateMirNumber, generateProductSku,
   normalizeMaterialType, paginate, applyDateFilter, isUniqueViolation,
+  DEPT_BY_ROLE,
 } = require('../utils/helpers');
 const { cancelLeftoverPRItems } = require('../utils/prClosure');
 
@@ -51,23 +52,10 @@ const router = express.Router();
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'SAFETY'];
 
-// Friendly department label for each non-unit (global) requester role. When a PR
-// is raised by one of these roles it carries no unit, so at inward we stamp the
-// resulting ProductBatch with this label (ProductBatch.assignedDept) so the
-// product list can show "owned by <Dept>" instead of "Unassigned". Labels match
-// the Direct-Entry ASSIGN_DEPTS list so PO-flow and cash-flow attribution agree.
-// Unit-bound roles (MANAGER, RND) are intentionally absent — their material is
-// indented to a unit via ProductUnitStock, not a department.
-const DEPT_BY_ROLE = {
-  STORE_MANAGER: 'Stores',
-  DESIGNS: 'Designs',
-  PLANNING: 'Planning',
-  QC: 'QC',
-  LAB: 'Lab',
-  METROLOGY: 'Metrology',
-  NDT: 'NDT',
-  SAFETY: 'Safety',
-};
+// DEPT_BY_ROLE (role → owning department label) is imported from utils/helpers so
+// inward, MIV issue, and inventory transfers all share one source of truth. When a
+// non-unit PR is inwarded we both stamp ProductBatch.assignedDept (lot provenance)
+// and reserve the qty in ProductDeptStock so only that department can issue it.
 
 const ORDER_INCLUDE = {
   createdBy: { select: { id: true, name: true } },
@@ -1113,6 +1101,16 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
               where: { productId_unitId: { productId, unitId: owningUnitId } },
               update: { quantity: { increment: share } },
               create: { productId, unitId: owningUnitId, quantity: share },
+            });
+          }
+
+          // Department reservation: when this share belongs to a non-unit department,
+          // reserve the qty in ProductDeptStock so only that department can issue it.
+          if (assignedDept) {
+            await tx.productDeptStock.upsert({
+              where: { productId_dept: { productId, dept: assignedDept } },
+              update: { quantity: { increment: share } },
+              create: { productId, dept: assignedDept, quantity: share },
             });
           }
         }

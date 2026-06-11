@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import StatsCard from '../components/shared/StatsCard';
 import DashboardHero from '../components/shared/DashboardHero';
 import SlaTicker from '../components/shared/SlaTicker';
+import TeamChat from '../components/shared/TeamChat';
 import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
@@ -3134,6 +3135,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-4">
       <SlaTicker />
+      <TeamChat />
       {inner}
     </div>
   );
