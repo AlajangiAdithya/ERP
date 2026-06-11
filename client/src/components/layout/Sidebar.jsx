@@ -59,16 +59,19 @@ const buildAllItems = () => {
     // Attendance register — Unit managers edit their own unit; ADMIN + SAFETY
     // can view all units; ACCOUNTING sees only months submitted to them.
     { to: '/attendance', icon: CalendarClock, label: 'Attendance', roles: ['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING', 'HR'] },
-    // Monitoring hub — Stock Movements, All MIV Requests, Audit Logs, Unit Usage Logs.
-    { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
-    { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
-    { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
-    { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },
+    // Role-specific action hubs.
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY'] },
-    // QMS hub (SOPs, Work Instructions, KPIs) — last entry for everyone.
+    // Monitoring hub — Stock Movements, All MIV Requests, Audit Logs, Unit Usage Logs.
+    { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
+    // QMS hub (SOPs, Work Instructions, KPIs).
     // Document uploads gated to Unit-5 server-side.
     { to: '/qms', icon: Gauge, label: 'QMS', roles: ALL_ROLES },
+    // Utility — available to everyone.
+    { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
+    { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
+    // Admin-only.
+    { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },
     // SUPERADMIN-only owner hatch — invisible to everyone else. One entry
     // takes the owner to the hub; deeper pages link from there.
     { to: '/superadmin', icon: Crown, label: 'Control Hub', roles: ['SUPERADMIN'] },
