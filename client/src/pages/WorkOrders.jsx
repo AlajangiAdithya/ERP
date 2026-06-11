@@ -4,7 +4,7 @@ import {
   CalendarClock, TrendingUp, ShieldCheck, PauseCircle,
   LayoutGrid, Table as TableIcon,
   FileText, Receipt, ShieldAlert, Upload, AlertTriangle, Timer, Trash2, Check,
-  GitBranch, ArrowRight, ArrowDown, Download, Paperclip, BellRing, Stamp,
+  GitBranch, ArrowRight, ArrowDown, Download, Paperclip, BellRing,
   Banknote, Wallet, FilePlus2, FileCheck2, UserCheck, Truck, RefreshCw,
 } from 'lucide-react';
 import api from '../api/axios';
@@ -40,32 +40,24 @@ const STATUS_TABS = [
   'UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'CANCELLED', 'REJECTED',
 ];
 
-// Closure cycle stage display + ordering. Finance-side stages are only shown
-// to L5 admins / FINANCE / ACCOUNTING (server sanitises them for MANAGER/QC).
+// Lot (closure cycle) stage display. Finance-side stages are only shown to
+// admins / FINANCE / ACCOUNTING (server sanitises them for MANAGER/QC).
 const CYCLE_STAGE_META = {
-  UNIT_DOCS_PENDING:     { color: 'gray',   label: 'Unit Docs Pending' },
-  QC_VERIFIED:           { color: 'blue',   label: 'QC Verified' },
-  MGMT_APPROVED:         { color: 'blue',   label: 'Mgmt Approved' },
-  ON_HOLD:               { color: 'red',    label: 'On Hold' },
-  INVOICE_SENT:          { color: 'yellow', label: 'Invoice Sent (48h SLA)' },
-  DELIVERY_ACKNOWLEDGED: { color: 'amber',  label: 'Delivery Ack (45d pay window)' },
-  PAYMENT_RECEIVED:      { color: 'green',  label: 'Payment Received' },
+  UNIT_DOCS_PENDING:     { color: 'yellow', label: 'With QC — verification pending' },
+  QC_VERIFIED:           { color: 'blue',   label: 'QC Approved — Finance pending' },
+  MGMT_APPROVED:         { color: 'blue',   label: 'Finance pending' }, // legacy stage, same treatment
+  ON_HOLD:               { color: 'red',    label: 'On Hold — back with unit' },
+  INVOICE_SENT:          { color: 'amber',  label: 'Invoice + DC Sent (48h goods-ack)' },
+  DELIVERY_ACKNOWLEDGED: { color: 'purple', label: 'Goods Acked (45-day payment countdown)' },
+  PAYMENT_RECEIVED:      { color: 'green',  label: 'Paid — Lot Closed' },
 };
 
-const UNIT_DOC_TYPES = [
-  { value: 'WORK_COMPLETION_REPORT', label: 'Work Completion Report', required: true },
-  { value: 'TEST_REPORT',            label: 'Test Report',            required: true },
-  { value: 'DISPATCH_CHECKLIST',     label: 'Dispatch Checklist',     required: true },
-  { value: 'AS_BUILT_DRAWING',       label: 'As-Built Drawing',       required: false },
-  { value: 'COMPLETION_PHOTOS',      label: 'Completion Photos',      required: false },
-];
+// One lot = one report PDF. That single document is what QC verifies.
+const DOC_TYPE_LABELS = { LOT_REPORT: 'Lot Report' };
 
 // Roles allowed to see closure invoice / SLA / payment fields. Mirrors the
 // server's FINANCE_HIDDEN_ROLES sanitizer.
 const canSeeFinance = (role) => !['MANAGER', 'QC'].includes(role);
-
-const L5_USERNAMES = new Set(['sureshbabu', 'rameshbabu', 'madhubabu']);
-const isL5 = (user) => user?.role === 'ADMIN' && L5_USERNAMES.has(user?.username);
 
 // Flatten the WO + closure cycle into the shape QCVerificationCertificatePdf
 // expects: top-level WO scope fields plus the cycle's QC + submission audit.
@@ -550,8 +542,24 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // BG date auto-tracks PDC + 2 months until the user types their own date.
+  const [bgDateTouched, setBgDateTouched] = useState(false);
 
-  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  // PDC + 2 calendar months, as yyyy-mm-dd for the date input.
+  const pdcPlus2Months = (pdcStr) => {
+    if (!pdcStr) return '';
+    const d = new Date(pdcStr);
+    if (Number.isNaN(d.getTime())) return '';
+    d.setMonth(d.getMonth() + 2);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const setField = (k, v) => setForm((f) => {
+    const next = { ...f, [k]: v };
+    // Auto-derive BG date from PDC unless the user already overrode it.
+    if (k === 'pdcDate' && !bgDateTouched) next.bankGuaranteeDate = pdcPlus2Months(v);
+    return next;
+  });
 
   const submit = async (e) => {
     e.preventDefault();
@@ -561,11 +569,10 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
       const payload = { ...form };
       payload.orderQuantity = Number(form.orderQuantity);
       payload.lotsExpected = form.lotsExpected ? Number(form.lotsExpected) : null;
-      if (!payload.assignedUnitId) delete payload.assignedUnitId;
       await api.post('/work-orders', payload);
       onCreated();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to log supply order');
+      setError(err.response?.data?.error || 'Failed to log work order');
     } finally {
       setSubmitting(false);
     }
@@ -603,10 +610,15 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
           </div>
         </Section>
 
-        <Section title="Bank Guarantee & Insurance (Accounts / Supply Chain may also edit later)">
+        <Section title="Bank Guarantee & Insurance (BG date auto = PDC + 2 months — editable)">
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <Input label="Bank Guarantee No" value={form.bankGuaranteeNo} onChange={(e) => setField('bankGuaranteeNo', e.target.value)} />
-            <Input label="BG Date" type="date" value={form.bankGuaranteeDate} onChange={(e) => setField('bankGuaranteeDate', e.target.value)} />
+            <Input
+              label={`BG Date ${bgDateTouched ? '(manual)' : '(auto: PDC + 2 months)'}`}
+              type="date"
+              value={form.bankGuaranteeDate}
+              onChange={(e) => { setBgDateTouched(true); setField('bankGuaranteeDate', e.target.value); }}
+            />
             <Input label="Insurance No" value={form.insuranceNo} onChange={(e) => setField('insuranceNo', e.target.value)} />
             <Input label="Insurance Date" type="date" value={form.insuranceDate} onChange={(e) => setField('insuranceDate', e.target.value)} />
           </div>
@@ -630,9 +642,9 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
           <Textarea label="Remarks" rows={2} value={form.remarks} onChange={(e) => setField('remarks', e.target.value)} />
         </Section>
 
-        <Section title="Suggested Unit Assignment (admin can change)">
-          <Select label="Assign Unit (optional)" value={form.assignedUnitId} onChange={(e) => setField('assignedUnitId', e.target.value)}>
-            <option value="">— Decide on admin acceptance —</option>
+        <Section title="Unit Assignment (admin can change it while verifying)">
+          <Select label="Assign Unit Manager *" value={form.assignedUnitId} onChange={(e) => setField('assignedUnitId', e.target.value)} required>
+            <option value="">Select unit...</option>
             {units.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.code})</option>)}
           </Select>
         </Section>
@@ -658,9 +670,10 @@ function Section({ title, children }) {
 // ────────────────────────────────────────────────────────────────────
 // Detail / action modal
 // ────────────────────────────────────────────────────────────────────
-// Red blinking button shown on the WO header when PDC is ≤ 90 days away and
-// admin hasn't acknowledged yet. Only admins can stop the alert.
-function PdcAlertButton({ wo, canAck, busy, onAck }) {
+// Red blinking alert shown on the WO header when PDC is ≤ 90 days away.
+// BOTH the admin AND the assigned unit manager must each file their own
+// status remark (extension needed / issues) before the blinking stops.
+function PdcAlertButton({ wo, canAck, pendingLabel, busy, onAck }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
 
@@ -669,8 +682,8 @@ function PdcAlertButton({ wo, canAck, busy, onAck }) {
     : null;
 
   const label = daysToPdc != null
-    ? `PDC in ${daysToPdc}d — acknowledge`
-    : 'PDC alert — acknowledge';
+    ? `PDC in ${daysToPdc}d — ${pendingLabel}`
+    : `PDC alert — ${pendingLabel}`;
 
   if (!canAck) {
     return (
@@ -686,23 +699,24 @@ function PdcAlertButton({ wo, canAck, busy, onAck }) {
         type="button"
         onClick={() => setOpen(true)}
         className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded bg-red-600 text-white animate-pulse hover:bg-red-700"
-        title="3-month PDC alert — click to acknowledge with a remark"
+        title="3-month PDC alert — click to file your status remark"
       >
         <AlertTriangle size={11} /> {label}
       </button>
       {open && (
-        <Modal isOpen onClose={() => setOpen(false)} title="Acknowledge 3-month PDC alert" size="md">
+        <Modal isOpen onClose={() => setOpen(false)} title="3-month PDC alert — file your remark" size="md">
           <div className="space-y-3">
             <p className="text-sm text-navy-600">
               Effective PDC for <strong>{wo.workOrderNumber}</strong> is {formatDate(wo.effectivePdcDate)}
-              {daysToPdc != null ? ` (${daysToPdc} day${daysToPdc === 1 ? '' : 's'} left)` : ''}. Write a
-              remark explaining the follow-up action — this stops the blinking alert.
+              {daysToPdc != null ? ` (${daysToPdc} day${daysToPdc === 1 ? '' : 's'} left)` : ''}. Write your
+              status remark — is an extension needed, any issue, anything blocking? Both admin and the unit
+              manager must file a remark before the alert stops. All remarks are saved on the WO permanently.
             </p>
             <Textarea
-              label="Remark *"
+              label="Status remark *"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Action taken / follow-up plan"
+              placeholder="e.g. Extension needed — material delay at supplier / On track, no issues"
               rows={3}
             />
             <div className="flex justify-end gap-2">
@@ -711,7 +725,7 @@ function PdcAlertButton({ wo, canAck, busy, onAck }) {
                 disabled={busy || !note.trim()}
                 onClick={async () => { await onAck(note.trim()); setOpen(false); setNote(''); }}
               >
-                Acknowledge & Stop Alert
+                Save Remark
               </Button>
             </div>
           </div>
@@ -757,7 +771,6 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
   const canManageExtensions = isSupplyChain || isAdmin;
   const canEditDelivery = isSupplyChain || isAdmin || isAccounting;
   const canEditBgInsurance = isSupplyChain || isAdmin;
-  const canAckPdcAlert = isAdmin;
   // Anyone who can see the WO can edit remarks.
   const canEditRemarks = true;
   const meta = STATUS_META[wo.status];
@@ -787,23 +800,38 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
           {wo.onTime === false && <Badge color="red">Late</Badge>}
           {wo.overdue && <Badge color="red">Overdue</Badge>}
           {wo.ionNumber && <span className="text-xs text-navy-500 font-mono">ION: {wo.ionNumber}</span>}
-          {wo.pdc3MonthAlertActive && (
+          {wo.pdc3MonthAdminAckPending && (
             <PdcAlertButton
               wo={wo}
-              canAck={canAckPdcAlert}
+              canAck={isAdmin}
+              pendingLabel="admin remark needed"
+              busy={busy}
+              onAck={(note) => handleAction(() => api.post(`/work-orders/${wo.id}/pdc-alert/acknowledge`, { note }))}
+            />
+          )}
+          {wo.pdc3MonthMgrAckPending && (
+            <PdcAlertButton
+              wo={wo}
+              canAck={isUnitManager}
+              pendingLabel="unit manager remark needed"
               busy={busy}
               onAck={(note) => handleAction(() => api.post(`/work-orders/${wo.id}/pdc-alert/acknowledge`, { note }))}
             />
           )}
           {wo.pdc3MonthAckAt && wo.pdc3MonthAckBy && (
             <span className="text-[11px] text-navy-500 inline-flex items-center gap-1" title={wo.pdc3MonthAckNote || ''}>
-              <ShieldCheck size={11} /> PDC alert acked by {wo.pdc3MonthAckBy.name}
+              <ShieldCheck size={11} /> PDC remark (admin): {wo.pdc3MonthAckBy.name}
+            </span>
+          )}
+          {wo.pdc3MonthMgrAckAt && wo.pdc3MonthMgrAckBy && (
+            <span className="text-[11px] text-navy-500 inline-flex items-center gap-1" title={wo.pdc3MonthMgrAckNote || ''}>
+              <ShieldCheck size={11} /> PDC remark (unit): {wo.pdc3MonthMgrAckBy.name}
             </span>
           )}
         </div>
 
         <div className="border-b flex gap-2 flex-wrap">
-          {['overview', 'bg-insurance', 'extensions', 'invoices', 'closures', 'delivery', 'remarks', 'alarms'].map((s) => {
+          {['overview', 'bg-insurance', 'extensions', 'closures', 'delivery', 'remarks', 'alarms'].map((s) => {
             const activeAlarmCount = (wo.alarms || []).filter((a) => a.status === 'ACTIVE').length;
             const isAlarms = s === 'alarms';
             return (
@@ -813,8 +841,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
                 className={`px-3 py-2 text-xs uppercase tracking-wider font-semibold inline-flex items-center gap-1.5 ${section === s ? 'border-b-2 border-navy-700 text-navy-800' : 'text-navy-400'} ${isAlarms && activeAlarmCount > 0 ? 'text-red-600' : ''}`}
               >
                 {s === 'extensions' ? `Extensions (${wo.extensions.length})`
-                  : s === 'invoices' ? `Invoices (${wo.invoices.length})`
-                  : s === 'closures' ? `Closures (${(wo.closures || []).length})`
+                  : s === 'closures' ? `Lots (${(wo.closures || []).length})`
                   : s === 'bg-insurance' ? 'BG / Insurance'
                   : s === 'alarms' ? (
                     <>Alarms {activeAlarmCount > 0 && (
@@ -844,9 +871,6 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
             onAdd={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/extensions`, payload))}
             onUpdate={(extId, payload) => handleAction(() => api.patch(`/work-orders/${wo.id}/extensions/${extId}`, payload))}
           />
-        )}
-        {section === 'invoices' && (
-          <InvoicesTab wo={wo} canLog={isUnitManager || isSupplyChain} busy={busy} onAdd={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/invoices`, payload))} />
         )}
         {section === 'closures' && (
           <ClosuresTab
@@ -961,7 +985,7 @@ function OverviewTab({ wo }) {
       <Row label="PDC (effective)" value={`${formatDate(wo.effectivePdcDate)}${wo.extensions.length ? ` (after ${wo.extensions.length} extension${wo.extensions.length > 1 ? 's' : ''})` : ''}`} />
       <Row label="Original PDC" value={formatDate(wo.pdcDate)} />
       <Row label="Delivery Clause" value={wo.deliveryClause} />
-      <Row label="Delivered / Invoiced" value={`${wo.deliveredQty} / ${wo.invoicedQty} ${wo.orderUnit}`} />
+      <Row label="Delivered (across lots)" value={`${wo.deliveredQty} / ${wo.orderQuantity} ${wo.orderUnit}`} />
       <Row label="Assigned Unit" value={wo.assignedUnit ? `${wo.assignedUnit.name} (${wo.assignedUnit.code})` : null} />
       <Row label="FIM Details" value={wo.fimDetails} />
       <Row label="Inspection Agency" value={wo.inspectionAgency} />
@@ -1491,80 +1515,6 @@ function AlarmCard({ wo, alarm, canManage, busy, onAck, onResolve, onAddNote }) 
   );
 }
 
-function InvoicesTab({ wo, canLog, busy, onAdd }) {
-  const [form, setForm] = useState({ invoiceNo: '', invoiceDate: '', quantity: '', remarks: '' });
-  const remaining = Math.max(0, wo.orderQuantity - wo.deliveredQty);
-
-  const submit = (e) => {
-    e.preventDefault();
-    if (!form.invoiceNo || !form.invoiceDate || !form.quantity) return;
-    onAdd({
-      ...form,
-      quantity: Number(form.quantity),
-    });
-    setForm({ invoiceNo: '', invoiceDate: '', quantity: '', remarks: '' });
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-2 text-sm">
-        <div className="p-3 bg-navy-50 rounded-md">
-          <p className="text-xs text-navy-500">Ordered</p>
-          <p className="font-bold text-navy-800">{wo.orderQuantity} {wo.orderUnit}</p>
-        </div>
-        <div className="p-3 bg-green-50 rounded-md">
-          <p className="text-xs text-green-700">Delivered</p>
-          <p className="font-bold text-green-800">{wo.deliveredQty} {wo.orderUnit}</p>
-        </div>
-        <div className="p-3 bg-yellow-50 rounded-md">
-          <p className="text-xs text-yellow-700">Remaining</p>
-          <p className="font-bold text-yellow-800">{remaining} {wo.orderUnit}</p>
-        </div>
-      </div>
-
-      {wo.invoices.length === 0 ? (
-        <p className="text-sm text-navy-500">No delivery invoices logged yet.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-navy-50 text-navy-700">
-              <tr>
-                <th className="text-left px-2 py-1.5">Invoice No</th>
-                <th className="text-left px-2 py-1.5">Date</th>
-                <th className="text-right px-2 py-1.5">Qty</th>
-                <th className="text-left px-2 py-1.5">Remarks</th>
-              </tr>
-            </thead>
-            <tbody>
-              {wo.invoices.map((inv) => (
-                <tr key={inv.id} className="border-b border-navy-50">
-                  <td className="px-2 py-1.5 font-mono text-xs">{inv.invoiceNo}</td>
-                  <td className="px-2 py-1.5">{formatDate(inv.invoiceDate)}</td>
-                  <td className="px-2 py-1.5 text-right">{inv.quantity}</td>
-                  <td className="px-2 py-1.5 text-navy-600">{inv.remarks || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {canLog && remaining > 0 && (
-        <form onSubmit={submit} className="border-t pt-3 space-y-2">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Log Delivery Invoice (qty-wise, no amount)</p>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <Input label="Invoice No *" value={form.invoiceNo} onChange={(e) => setForm({ ...form, invoiceNo: e.target.value })} required />
-            <Input label="Invoice Date *" type="date" value={form.invoiceDate} onChange={(e) => setForm({ ...form, invoiceDate: e.target.value })} required />
-            <Input label="Quantity *" type="number" step="any" min="0.01" max={remaining} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} required />
-            <Input label="Remarks" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
-          </div>
-          <Button type="submit" disabled={busy}>Log Invoice</Button>
-        </form>
-      )}
-    </div>
-  );
-}
-
 function AdminAcceptControls({ wo, units, busy, onAccept, onReject }) {
   const [note, setNote] = useState('');
   const [assignedUnitId, setAssignedUnitId] = useState(wo.assignedUnitId || '');
@@ -1649,21 +1599,28 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
   const closures = wo.closures || [];
   const alreadyCovered = closures.reduce((s, c) => s + (c.deliveryQty || 0), 0);
   const remaining = Math.max(0, wo.orderQuantity - alreadyCovered);
+  const lotsOpenLimit = wo.lotsExpected ? closures.length < wo.lotsExpected : true;
   const canStartCycle = canOpenCycle
     && remaining > 0
+    && lotsOpenLimit
     && ['UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED'].includes(wo.status);
 
   const [openForm, setOpenForm] = useState({ deliveryQty: '', deliveryNote: '', deliveredAt: '' });
+  const [lotFile, setLotFile] = useState(null);
 
   const submitOpen = (e) => {
     e.preventDefault();
-    if (!openForm.deliveryQty) return;
-    onAction(() => api.post(`/work-orders/${wo.id}/closures`, {
-      deliveryQty: Number(openForm.deliveryQty),
-      deliveryNote: openForm.deliveryNote || null,
-      deliveredAt: openForm.deliveredAt || null,
+    if (!openForm.deliveryQty || !lotFile) return;
+    const fd = new FormData();
+    fd.append('file', lotFile);
+    fd.append('deliveryQty', openForm.deliveryQty);
+    if (openForm.deliveryNote) fd.append('deliveryNote', openForm.deliveryNote);
+    if (openForm.deliveredAt) fd.append('deliveredAt', openForm.deliveredAt);
+    onAction(() => api.post(`/work-orders/${wo.id}/closures`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
     }));
     setOpenForm({ deliveryQty: '', deliveryNote: '', deliveredAt: '' });
+    setLotFile(null);
   };
 
   const lotsSent = closures.length;
@@ -1720,9 +1677,9 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
       {canStartCycle && (
         <form onSubmit={submitOpen} className="border-t pt-3 space-y-2">
           <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">
-            Mark Lot {nextLotNo}{lotsExpected ? ` of ${lotsExpected}` : ''} ready → send to QC
+            Work Done — Lot {nextLotNo}{lotsExpected ? ` of ${lotsExpected}` : ''}: fill the lot details, upload the ONE lot report PDF, and it goes straight to QC
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
             <Input
               label={`Lot Qty * (max ${remaining})`}
               type="number"
@@ -1734,21 +1691,28 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
               required
             />
             <Input
-              label="Delivered On"
+              label="Work Done On"
               type="date"
               value={openForm.deliveredAt}
               onChange={(e) => setOpenForm({ ...openForm, deliveredAt: e.target.value })}
             />
             <Input
-              label="Lot Note"
+              label="Lot Details / Note"
               value={openForm.deliveryNote}
               onChange={(e) => setOpenForm({ ...openForm, deliveryNote: e.target.value })}
-              placeholder={`e.g. Lot ${nextLotNo}${lotsExpected ? ` of ${lotsExpected}` : ''}`}
+              placeholder={`e.g. Lot ${nextLotNo}${lotsExpected ? ` of ${lotsExpected}` : ''} details`}
+            />
+            <Input
+              label="Lot Report PDF *"
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={(e) => setLotFile(e.target.files?.[0] || null)}
             />
           </div>
-          <Button type="submit" disabled={busy || !openForm.deliveryQty}>
-            Lot {nextLotNo} Ready
+          <Button type="submit" disabled={busy || !openForm.deliveryQty || !lotFile}>
+            <Check size={12} className="mr-1" /> Work Done — Send Lot {nextLotNo} to QC
           </Button>
+          {!lotFile && <p className="text-[11px] text-navy-500 italic">Upload exactly one lot report PDF to enable.</p>}
         </form>
       )}
     </div>
@@ -1762,38 +1726,35 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
   const isQc = role === 'QC';
   const isFinance = role === 'FINANCE';
   const isAccounting = role === 'ACCOUNTING';
-  const l5 = isL5(currentUser);
   const showFinance = canSeeFinance(role);
 
   const meta = CYCLE_STAGE_META[cycle.stage] || { color: 'gray', label: cycle.stage };
   const docs = cycle.docs || [];
-  const docTypes = new Set(docs.map((d) => d.docType));
-  const missingRequired = UNIT_DOC_TYPES.filter((d) => d.required && !docTypes.has(d.value));
 
   const openHold = (cycle.holdRequests || []).find((h) => !h.resolvedAt);
 
-  const [docType, setDocType] = useState(UNIT_DOC_TYPES[0].value);
-  const [docFile, setDocFile] = useState(null);
-  const [docNote, setDocNote] = useState('');
   const [qcNote, setQcNote] = useState('');
   const [qcCertUrl, setQcCertUrl] = useState('');
-  const [mgmtNote, setMgmtNote] = useState('');
-  const [invForm, setInvForm] = useState({ invoiceNumber: '', deliveryChallanNumber: '', invoiceDate: '', description: '' });
+  const [invSentForm, setInvSentForm] = useState({ invoiceNumber: '', invoiceDate: '', description: '' });
+  const [dcSentForm, setDcSentForm] = useState({ deliveryChallanNumber: '' });
   const [payNote, setPayNote] = useState('');
   const [deliveryAckForm, setDeliveryAckForm] = useState({ note: '', signedUrl: '' });
-  const [ackBusy, setAckBusy] = useState(null);
   const [followupForm, setFollowupForm] = useState({ customerResponse: '', note: '' });
   const [holdItems, setHoldItems] = useState([{ docType: '', note: '' }]);
   const [holdReason, setHoldReason] = useState('');
-  const [resolveNote, setResolveNote] = useState('');
+  const [resubmitFile, setResubmitFile] = useState(null);
+  const [resubmitNote, setResubmitNote] = useState('');
 
-  // 48h SLA chip — only meaningful while INVOICE_SENT (until Finance acks delivery)
+  // Finance-pending = QC approved (or legacy MGMT_APPROVED rows).
+  const financePending = ['QC_VERIFIED', 'MGMT_APPROVED'].includes(cycle.stage);
+
+  // 48h goods-ack countdown — only meaningful while INVOICE_SENT.
   const hoursLeft = cycle.slaDeadlineAt
     ? Math.round((new Date(cycle.slaDeadlineAt).getTime() - Date.now()) / (1000 * 60 * 60))
     : null;
   const breached = cycle.stage === 'INVOICE_SENT' && hoursLeft != null && hoursLeft <= 0;
 
-  // 45-day payment window chip — meaningful while DELIVERY_ACKNOWLEDGED
+  // 45-day payment countdown — day-by-day while DELIVERY_ACKNOWLEDGED.
   const paymentDaysLeft = cycle.paymentDueAt
     ? Math.ceil((new Date(cycle.paymentDueAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
     : null;
@@ -1806,58 +1767,30 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
       : null);
   const followupDueNow = cycle.stage === 'DELIVERY_ACKNOWLEDGED' && nextFollowupDueIn != null && nextFollowupDueIn <= 0;
 
-  const canUploadDoc = isUnitManager || isAdmin || (isQc && cycle.stage === 'UNIT_DOCS_PENDING')
-    || (isFinance && ['MGMT_APPROVED', 'INVOICE_SENT', 'DELIVERY_ACKNOWLEDGED'].includes(cycle.stage))
-    || (isAccounting && ['INVOICE_SENT', 'DELIVERY_ACKNOWLEDGED'].includes(cycle.stage));
-
-  const uploadDoc = (e) => {
-    e.preventDefault();
-    if (!docFile || !docType) return;
-    const fd = new FormData();
-    fd.append('file', docFile);
-    fd.append('docType', docType);
-    if (docNote) fd.append('note', docNote);
-    onAction(() => api.post(
-      `/work-orders/${wo.id}/closures/${cycle.id}/docs`,
-      fd,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
-    ));
-    setDocFile(null);
-    setDocNote('');
-  };
-
   const deleteDoc = (docId) => {
     if (!confirm('Delete this document?')) return;
     onAction(() => api.delete(`/work-orders/${wo.id}/closures/${cycle.id}/docs/${docId}`));
   };
 
-  const submitToQc = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/submit-to-qc`));
-  const qcVerify = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/qc-verify`, {
-    certificateUrl: qcCertUrl || null,
-    note: qcNote || null,
-  }));
-  const mgmtApprove = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/mgmt-approve`, { note: mgmtNote || null }));
-  const sendInvoice = () => {
-    if (!invForm.invoiceNumber.trim() || !invForm.deliveryChallanNumber.trim()) return;
-    onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/send-invoice`, {
-      invoiceNumber: invForm.invoiceNumber.trim(),
-      deliveryChallanNumber: invForm.deliveryChallanNumber.trim(),
-      invoiceDate: invForm.invoiceDate || null,
-      description: invForm.description || null,
+  const qcVerify = () => {
+    if (!qcNote.trim()) return;
+    onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/qc-verify`, {
+      certificateUrl: qcCertUrl || null,
+      note: qcNote.trim(),
     }));
   };
-  const toggleAck = async (which) => {
-    setAckBusy(which);
-    try {
-      await onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/mark-${which}-ack`));
-    } finally {
-      setAckBusy(null);
-    }
-  };
+  const markInvoiceSent = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/mark-invoice-sent`, {
+    invoiceNumber: invSentForm.invoiceNumber.trim() || null,
+    invoiceDate: invSentForm.invoiceDate || null,
+    description: invSentForm.description || null,
+  }));
+  const markDcSent = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/mark-dc-sent`, {
+    deliveryChallanNumber: dcSentForm.deliveryChallanNumber.trim() || null,
+  }));
   const paymentReceived = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/payment-received`, { note: payNote || null }));
   const deliveryAck = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/delivery-ack`, {
     note: deliveryAckForm.note || null,
-    signedUrl: deliveryAckForm.signedUrl || null,
+    signedDocUrl: deliveryAckForm.signedUrl || null,
   }));
   const submitFollowup = () => onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/weekly-followup`, {
     customerResponse: followupForm.customerResponse || null,
@@ -1871,12 +1804,16 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
       reason: holdReason || null,
     }));
   };
-  const resolveHold = () => {
-    if (!openHold) return;
-    onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/resolve-hold`, {
-      holdId: openHold.id,
-      note: resolveNote || null,
+  const resubmitLot = () => {
+    if (!resubmitFile) return;
+    const fd = new FormData();
+    fd.append('file', resubmitFile);
+    if (resubmitNote) fd.append('note', resubmitNote);
+    onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/resubmit`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
     }));
+    setResubmitFile(null);
+    setResubmitNote('');
   };
 
   return (
@@ -1893,15 +1830,15 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
           {showFinance && cycle.stage === 'INVOICE_SENT' && hoursLeft != null && (
             <Badge color={breached ? 'red' : hoursLeft <= 12 ? 'yellow' : 'blue'}>
               {breached
-                ? <><AlertTriangle size={11} className="inline mr-1" />Breached {Math.abs(hoursLeft)}h</>
-                : <><Timer size={11} className="inline mr-1" />{hoursLeft}h left for delivery ack</>}
+                ? <><AlertTriangle size={11} className="inline mr-1" />48h breached — {Math.abs(hoursLeft)}h over, no goods ack</>
+                : <><Timer size={11} className="inline mr-1" />{hoursLeft}h left of 48h for goods ack</>}
             </Badge>
           )}
           {showFinance && cycle.stage === 'DELIVERY_ACKNOWLEDGED' && paymentDaysLeft != null && (
             <Badge color={paymentDelayed ? 'red' : paymentDaysLeft <= 7 ? 'yellow' : 'green'}>
               {paymentDelayed
-                ? <><AlertTriangle size={11} className="inline mr-1" />Payment delayed {Math.abs(paymentDaysLeft)}d</>
-                : <><Wallet size={11} className="inline mr-1" />{paymentDaysLeft}d left for payment</>}
+                ? <><AlertTriangle size={11} className="inline mr-1" />Payment delayed {Math.abs(paymentDaysLeft)} day(s)</>
+                : <><Wallet size={11} className="inline mr-1" />{paymentDaysLeft} days left of 45</>}
             </Badge>
           )}
           {cycle.qcVerifiedAt && (
@@ -1935,17 +1872,26 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
 
       {/* Audit chain */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[11px] text-navy-600">
-        <div>Opened by: {cycle.openedBy?.name || '—'}</div>
-        {cycle.unitDocsSubmittedBy && <div>Docs submitted: {cycle.unitDocsSubmittedBy.name} ({formatDate(cycle.unitDocsSubmittedAt)})</div>}
-        {cycle.qcVerifiedBy && <div>QC verified: {cycle.qcVerifiedBy.name} ({formatDate(cycle.qcVerifiedAt)}) {cycle.qcCertificateNumber && <span className="text-navy-400 font-mono">[{cycle.qcCertificateNumber}]</span>}</div>}
-        {cycle.mgmtApprovedBy && <div>Mgmt approved: {cycle.mgmtApprovedBy.name} ({formatDate(cycle.mgmtApprovedAt)})</div>}
+        <div>Work done by: {cycle.openedBy?.name || '—'}</div>
+        {cycle.unitDocsSubmittedBy && <div>Lot report sent to QC: {cycle.unitDocsSubmittedBy.name} ({formatDate(cycle.unitDocsSubmittedAt)})</div>}
+        {cycle.qcVerifiedBy && <div>QC approved: {cycle.qcVerifiedBy.name} ({formatDate(cycle.qcVerifiedAt)}) {cycle.qcCertificateNumber && <span className="text-navy-400 font-mono">[{cycle.qcCertificateNumber}]</span>}</div>}
         {showFinance && cycle.invoiceSentBy && <div>Invoice sent: {cycle.invoiceSentBy.name} ({formatDate(cycle.invoiceSentAt)}) {cycle.invoiceNumber && <span className="text-navy-400 font-mono">[{cycle.invoiceNumber}]</span>}</div>}
-        {showFinance && cycle.deliveryAckBy && <div>Delivery acked: {cycle.deliveryAckBy.name} ({formatDate(cycle.deliveryAckAt)})</div>}
+        {showFinance && cycle.dcSentBy && <div>DC sent: {cycle.dcSentBy.name} ({formatDate(cycle.dcSentAt)}) {cycle.deliveryChallanNumber && <span className="text-navy-400 font-mono">[{cycle.deliveryChallanNumber}]</span>}</div>}
+        {showFinance && cycle.deliveryAckBy && <div>Goods ack received: {cycle.deliveryAckBy.name} ({formatDate(cycle.deliveryAckAt)})</div>}
         {showFinance && cycle.paymentDueAt && cycle.stage === 'DELIVERY_ACKNOWLEDGED' && <div>Payment due by: {formatDate(cycle.paymentDueAt)}</div>}
         {showFinance && cycle.paymentReceivedBy && <div>Payment received: {cycle.paymentReceivedBy.name} ({formatDate(cycle.paymentReceivedAt)})</div>}
       </div>
 
-      {/* Open hold banner */}
+      {/* QC remark — permanent record, visible to all roles on the lot */}
+      {cycle.qcRemark && (
+        <div className="text-[11px] p-2 rounded border border-blue-200 bg-blue-50">
+          <span className="font-semibold text-blue-800">QC remark:</span>{' '}
+          <span className="text-blue-900 whitespace-pre-wrap">{cycle.qcRemark}</span>
+        </div>
+      )}
+
+      {/* Open hold banner — unit finishes the pending work, uploads a fresh
+          lot report and resends the lot to QC */}
       {openHold && (
         <div className="p-3 bg-red-50 border border-red-200 rounded text-xs space-y-1">
           <div className="flex items-center gap-1 font-semibold text-red-800">
@@ -1960,20 +1906,24 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
             </ul>
           )}
           {(isUnitManager || isAdmin) && (
-            <div className="flex gap-2 items-end mt-2">
-              <div className="flex-1">
-                <Input label="Resolution note (after re-uploading missing docs)" value={resolveNote} onChange={(e) => setResolveNote(e.target.value)} />
+            <div className="mt-2 space-y-2 border-t border-red-200 pt-2">
+              <p className="font-semibold text-red-800">Finish the work, then upload the corrected lot report and resend to QC:</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <Input label="New Lot Report PDF *" type="file" accept=".pdf,application/pdf" onChange={(e) => setResubmitFile(e.target.files?.[0] || null)} />
+                <Input label="Note (what was fixed)" value={resubmitNote} onChange={(e) => setResubmitNote(e.target.value)} />
               </div>
-              <Button disabled={busy} onClick={resolveHold}>Resolve Hold</Button>
+              <Button disabled={busy || !resubmitFile} onClick={resubmitLot}>
+                <Upload size={12} className="mr-1" /> Upload New Lot Report &amp; Resend to QC
+              </Button>
             </div>
           )}
         </div>
       )}
 
-      {/* Documents */}
+      {/* Lot report(s) — one per submission; newest is the live one */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Documents ({docs.length})</p>
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Lot Report{docs.length === 1 ? '' : 's'} ({docs.length})</p>
           {cycle.qcCertificateUrl && (
             <a href={cycle.qcCertificateUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-700 hover:underline inline-flex items-center gap-1">
               <FileText size={11} /> QC Certificate
@@ -1981,18 +1931,19 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
           )}
         </div>
         {docs.length === 0 ? (
-          <p className="text-xs text-navy-400">No docs uploaded.</p>
+          <p className="text-xs text-navy-400">No lot report uploaded.</p>
         ) : (
           <ul className="text-xs space-y-1">
-            {docs.map((d) => (
+            {docs.map((d, i) => (
               <li key={d.id} className="flex items-center justify-between border border-navy-100 rounded px-2 py-1">
                 <div className="flex items-center gap-2 min-w-0">
                   <FileText size={11} className="text-navy-500 flex-shrink-0" />
-                  <span className="font-mono text-[10px] text-navy-500 flex-shrink-0">{d.docType}</span>
+                  <span className="font-mono text-[10px] text-navy-500 flex-shrink-0">{DOC_TYPE_LABELS[d.docType] || d.docType}</span>
+                  {i === docs.length - 1 && docs.length > 1 && <span className="text-[10px] text-green-700 flex-shrink-0">(latest)</span>}
                   <a href={d.fileUrl} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline truncate">{d.fileName}</a>
-                  <span className="text-navy-400 flex-shrink-0">· {d.uploadedBy?.name || '—'}</span>
+                  <span className="text-navy-400 flex-shrink-0">· {d.uploadedBy?.name || '—'} · {formatDate(d.uploadedAt)}</span>
                 </div>
-                {(d.uploadedById === currentUser?.id || isAdmin) && (
+                {(d.uploadedById === currentUser?.id || isAdmin) && cycle.stage === 'UNIT_DOCS_PENDING' && (
                   <button onClick={() => deleteDoc(d.id)} className="text-red-500 hover:text-red-700 flex-shrink-0">
                     <Trash2 size={12} />
                   </button>
@@ -2001,150 +1952,125 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
             ))}
           </ul>
         )}
-        {canUploadDoc && (
-          <form onSubmit={uploadDoc} className="grid grid-cols-1 sm:grid-cols-[1fr_2fr_2fr_auto] gap-2 items-end pt-1">
-            <Select label="Doc Type" value={docType} onChange={(e) => setDocType(e.target.value)}>
-              {UNIT_DOC_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}{d.required ? ' *' : ''}</option>)}
-            </Select>
-            <Input label="File" type="file" onChange={(e) => setDocFile(e.target.files?.[0] || null)} />
-            <Input label="Note" value={docNote} onChange={(e) => setDocNote(e.target.value)} />
-            <Button type="submit" disabled={busy || !docFile}><Upload size={12} className="mr-1" />Upload</Button>
-          </form>
-        )}
       </div>
 
       {/* Stage-specific actions */}
-      {cycle.stage === 'UNIT_DOCS_PENDING' && (isUnitManager || isAdmin) && (
-        <div className="border-t pt-3 space-y-2">
-          {missingRequired.length > 0 ? (
-            <p className="text-xs text-red-600">
-              Missing required docs: {missingRequired.map((d) => d.label).join(', ')}
-            </p>
-          ) : (
-            <Button onClick={submitToQc} disabled={busy}><Check size={12} className="mr-1" />Submit to QC</Button>
-          )}
-        </div>
+      {cycle.stage === 'UNIT_DOCS_PENDING' && (isUnitManager || isAdmin) && !isQc && (
+        <p className="text-[11px] text-navy-500 italic border-t pt-2">
+          Lot report is with QC for verification. QC will approve with a remark or send the lot back on hold.
+        </p>
       )}
 
       {cycle.stage === 'UNIT_DOCS_PENDING' && cycle.unitDocsSubmittedAt && (isQc || isAdmin) && (
         <div className="border-t pt-3 space-y-2">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">QC Verification</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <Input label="Certificate URL (optional, paste link if PDF lives elsewhere)" value={qcCertUrl} onChange={(e) => setQcCertUrl(e.target.value)} />
-            <Input label="Note" value={qcNote} onChange={(e) => setQcNote(e.target.value)} />
-          </div>
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">QC Verification — remark is mandatory</p>
+          <Textarea
+            label="QC Remark *"
+            rows={2}
+            value={qcNote}
+            onChange={(e) => setQcNote(e.target.value)}
+            placeholder="Verification findings — saved permanently on this lot"
+          />
+          <Input label="Certificate URL (optional, paste link if PDF lives elsewhere)" value={qcCertUrl} onChange={(e) => setQcCertUrl(e.target.value)} />
           <div className="flex gap-2">
-            <Button onClick={qcVerify} disabled={busy}>Issue Certificate & Verify</Button>
-            <HoldControls items={holdItems} setItems={setHoldItems} reason={holdReason} setReason={setHoldReason} onSubmit={holdCycle} busy={busy} />
-          </div>
-        </div>
-      )}
-
-      {cycle.stage === 'QC_VERIFIED' && l5 && (
-        <div className="border-t pt-3 space-y-2">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Level-5 Approval</p>
-          <Input label="Approval Note" value={mgmtNote} onChange={(e) => setMgmtNote(e.target.value)} />
-          <div className="flex gap-2">
-            <Button onClick={mgmtApprove} disabled={busy}>Approve & Send to Finance</Button>
-          </div>
-        </div>
-      )}
-      {cycle.stage === 'QC_VERIFIED' && isAdmin && !l5 && (
-        <p className="text-[11px] text-navy-500 italic border-t pt-2">
-          Awaiting Level-5 management sign-off (sureshbabu / rameshbabu / madhubabu).
-        </p>
-      )}
-
-      {cycle.stage === 'MGMT_APPROVED' && (isFinance || isAdmin) && (
-        <div className="border-t pt-3 space-y-2">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Record Invoice & Delivery Challan (starts 48h SLA — no amount)</p>
-          <p className="text-[11px] text-navy-500">
-            Enter the physical invoice number and delivery challan number being dispatched to the customer. No file upload — these are physical documents tracked by number only.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <Input label="Invoice Number *" value={invForm.invoiceNumber} onChange={(e) => setInvForm({ ...invForm, invoiceNumber: e.target.value })} placeholder="e.g. INV/26-27/0042" required />
-            <Input label="Delivery Challan No *" value={invForm.deliveryChallanNumber} onChange={(e) => setInvForm({ ...invForm, deliveryChallanNumber: e.target.value })} placeholder="e.g. DC/26-27/0042" required />
-            <Input label="Invoice Date" type="date" value={invForm.invoiceDate} onChange={(e) => setInvForm({ ...invForm, invoiceDate: e.target.value })} />
-            <Input label="Description (scope)" value={invForm.description} onChange={(e) => setInvForm({ ...invForm, description: e.target.value })} />
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={sendInvoice} disabled={busy || !invForm.invoiceNumber.trim() || !invForm.deliveryChallanNumber.trim()}>
-              <Receipt size={12} className="mr-1" />Invoice & DC Sent — Start 48h SLA
+            <Button onClick={qcVerify} disabled={busy || !qcNote.trim()}>
+              <FileCheck2 size={12} className="mr-1" /> Approve &amp; Forward to Finance
             </Button>
             <HoldControls items={holdItems} setItems={setHoldItems} reason={holdReason} setReason={setHoldReason} onSubmit={holdCycle} busy={busy} />
+          </div>
+          {!qcNote.trim() && <p className="text-[11px] text-navy-500 italic">Write your remark to enable approval.</p>}
+        </div>
+      )}
+
+      {financePending && (isFinance || isAdmin) && (
+        <div className="border-t pt-3 space-y-2">
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">
+            Finance Dispatch — attach the physical invoice &amp; delivery challan to the material (no upload), then click each button
+          </p>
+          <p className="text-[11px] text-navy-500">
+            The 48-hour goods-ack timer starts automatically the moment BOTH buttons are clicked.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Invoice Sent */}
+            <div className={`p-3 rounded border ${cycle.invoiceSentAt ? 'bg-green-50 border-green-300' : 'bg-white border-navy-200'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-sm text-navy-800 inline-flex items-center gap-1"><Receipt size={13} /> Invoice</span>
+                {cycle.invoiceSentAt && <Badge color="green"><Check size={11} className="inline mr-1" />Sent {formatDate(cycle.invoiceSentAt)}</Badge>}
+              </div>
+              {cycle.invoiceSentAt ? (
+                cycle.invoiceNumber && <p className="text-[11px] font-mono text-navy-500">#{cycle.invoiceNumber}</p>
+              ) : (
+                <div className="space-y-2">
+                  <Input label="Invoice No (optional)" value={invSentForm.invoiceNumber} onChange={(e) => setInvSentForm({ ...invSentForm, invoiceNumber: e.target.value })} placeholder="e.g. INV/26-27/0042" />
+                  <Input label="Invoice Date" type="date" value={invSentForm.invoiceDate} onChange={(e) => setInvSentForm({ ...invSentForm, invoiceDate: e.target.value })} />
+                  <Button onClick={markInvoiceSent} disabled={busy} className="w-full">
+                    <Receipt size={12} className="mr-1" /> Invoice Sent
+                  </Button>
+                </div>
+              )}
+            </div>
+            {/* DC Sent */}
+            <div className={`p-3 rounded border ${cycle.dcSentAt ? 'bg-green-50 border-green-300' : 'bg-white border-navy-200'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-sm text-navy-800 inline-flex items-center gap-1"><Truck size={13} /> Delivery Challan</span>
+                {cycle.dcSentAt && <Badge color="green"><Check size={11} className="inline mr-1" />Sent {formatDate(cycle.dcSentAt)}</Badge>}
+              </div>
+              {cycle.dcSentAt ? (
+                cycle.deliveryChallanNumber && <p className="text-[11px] font-mono text-navy-500">#{cycle.deliveryChallanNumber}</p>
+              ) : (
+                <div className="space-y-2">
+                  <Input label="DC No (optional)" value={dcSentForm.deliveryChallanNumber} onChange={(e) => setDcSentForm({ deliveryChallanNumber: e.target.value })} placeholder="e.g. DC/26-27/0042" />
+                  <Button onClick={markDcSent} disabled={busy} className="w-full">
+                    <Truck size={12} className="mr-1" /> DC Sent
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {cycle.stage === 'INVOICE_SENT' && (isFinance || isAdmin) && (
         <div className="border-t pt-3 space-y-2">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Customer Delivery Acknowledgement</p>
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Goods Acknowledgement — 48h timer running</p>
           <p className="text-[11px] text-navy-500">
-            Tick both boxes once the signed copies come back. Both required before "Acknowledge Delivery" can stop the 48h SLA and open the 45-day payment window.
+            The driver must come back with the customer-signed receipt within 48 hours. When it's in your hand, click the button — the timer stops and Accounts' 45-day payment countdown starts.
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 bg-navy-50 rounded">
-            <label className={`flex items-center gap-2 p-2 rounded border cursor-pointer ${cycle.invoiceAckReceived ? 'bg-green-50 border-green-300' : 'bg-white border-navy-200'} ${ackBusy === 'invoice' ? 'opacity-50' : ''}`}>
-              <input
-                type="checkbox"
-                checked={!!cycle.invoiceAckReceived}
-                disabled={!!cycle.invoiceAckReceived || busy}
-                onChange={() => toggleAck('invoice')}
-                className="w-4 h-4"
-              />
-              <div className="flex-1">
-                <div className="font-semibold text-sm text-navy-800">Invoice signed-copy received</div>
-                {cycle.invoiceAckReceived && cycle.invoiceAckAt && (
-                  <div className="text-[11px] text-navy-500">Ticked {formatDate(cycle.invoiceAckAt)}</div>
-                )}
-                {cycle.invoiceNumber && <div className="text-[10px] font-mono text-navy-400">#{cycle.invoiceNumber}</div>}
-              </div>
-              {cycle.invoiceAckReceived && <Check size={16} className="text-green-600" />}
-            </label>
-            <label className={`flex items-center gap-2 p-2 rounded border cursor-pointer ${cycle.dcAckReceived ? 'bg-green-50 border-green-300' : 'bg-white border-navy-200'} ${ackBusy === 'dc' ? 'opacity-50' : ''}`}>
-              <input
-                type="checkbox"
-                checked={!!cycle.dcAckReceived}
-                disabled={!!cycle.dcAckReceived || busy}
-                onChange={() => toggleAck('dc')}
-                className="w-4 h-4"
-              />
-              <div className="flex-1">
-                <div className="font-semibold text-sm text-navy-800">DC signed-copy received</div>
-                {cycle.dcAckReceived && cycle.dcAckAt && (
-                  <div className="text-[11px] text-navy-500">Ticked {formatDate(cycle.dcAckAt)}</div>
-                )}
-                {cycle.deliveryChallanNumber && <div className="text-[10px] font-mono text-navy-400">#{cycle.deliveryChallanNumber}</div>}
-              </div>
-              {cycle.dcAckReceived && <Check size={16} className="text-green-600" />}
-            </label>
-          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <Input label="Signed paper URL (optional)" value={deliveryAckForm.signedUrl} onChange={(e) => setDeliveryAckForm({ ...deliveryAckForm, signedUrl: e.target.value })} />
-            <Input label="Ack note" value={deliveryAckForm.note} onChange={(e) => setDeliveryAckForm({ ...deliveryAckForm, note: e.target.value })} placeholder="Who confirmed, date received, etc." />
+            <Input label="Signed receipt URL (optional)" value={deliveryAckForm.signedUrl} onChange={(e) => setDeliveryAckForm({ ...deliveryAckForm, signedUrl: e.target.value })} />
+            <Input label="Ack note" value={deliveryAckForm.note} onChange={(e) => setDeliveryAckForm({ ...deliveryAckForm, note: e.target.value })} placeholder="Who signed, when the driver returned, etc." />
           </div>
-          <Button onClick={deliveryAck} disabled={busy || !cycle.invoiceAckReceived || !cycle.dcAckReceived}>
-            <Truck size={12} className="mr-1" /> Acknowledge Delivery — Start 45-day Payment Window
+          <Button onClick={deliveryAck} disabled={busy}>
+            <UserCheck size={12} className="mr-1" /> Goods Ack Received — Stop 48h Timer, Start 45-day Window
           </Button>
-          {(!cycle.invoiceAckReceived || !cycle.dcAckReceived) && (
-            <p className="text-[11px] text-navy-500 italic">Tick both boxes above to enable.</p>
-          )}
         </div>
       )}
 
       {cycle.stage === 'INVOICE_SENT' && isAccounting && (
         <p className="text-[11px] text-navy-500 italic border-t pt-2">
-          Awaiting Finance to acknowledge customer delivery before the 45-day payment window opens.
+          Awaiting Finance's goods acknowledgement before the 45-day payment countdown opens.
         </p>
       )}
 
       {cycle.stage === 'DELIVERY_ACKNOWLEDGED' && (
         <div className="border-t pt-3 space-y-3">
-          {/* Weekly follow-up */}
+          {/* 45-day countdown — moves day by day (45 → 44 → 43 …) */}
+          {showFinance && paymentDaysLeft != null && (
+            <div className={`p-3 rounded-lg border text-center ${paymentDelayed ? 'bg-red-50 border-red-300' : paymentDaysLeft <= 7 ? 'bg-yellow-50 border-yellow-300' : 'bg-purple-50 border-purple-200'}`}>
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-500">45-day Payment Countdown</p>
+              <p className={`text-2xl font-bold ${paymentDelayed ? 'text-red-700' : paymentDaysLeft <= 7 ? 'text-yellow-700' : 'text-purple-700'}`}>
+                {paymentDelayed ? `${Math.abs(paymentDaysLeft)} day(s) OVERDUE` : `${paymentDaysLeft} days left`}
+              </p>
+              <p className="text-[11px] text-navy-500">Due by {formatDate(cycle.paymentDueAt)} · started at goods ack ({formatDate(cycle.deliveryAckAt)})</p>
+            </div>
+          )}
+
+          {/* Weekly incoming-money status update (Accounts) */}
           {(isAccounting || isAdmin) && (
             <div className={`p-3 rounded border ${followupDueNow ? 'bg-yellow-50 border-yellow-300 animate-pulse' : 'bg-navy-50 border-navy-200'}`}>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs uppercase tracking-wider font-semibold text-navy-700">
-                  Weekly Customer Follow-up
+                  Weekly Incoming-Money Status Update
                   {followupDueNow && <span className="ml-2 text-red-700">· DUE NOW</span>}
                 </p>
                 {nextFollowupDueIn != null && !followupDueNow && (
@@ -2152,7 +2078,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
                 )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <Input label="Customer response" value={followupForm.customerResponse} onChange={(e) => setFollowupForm({ ...followupForm, customerResponse: e.target.value })} placeholder="What did the customer say" />
+                <Input label="Money status / customer response" value={followupForm.customerResponse} onChange={(e) => setFollowupForm({ ...followupForm, customerResponse: e.target.value })} placeholder="e.g. Payment in process, expected next week" />
                 <Input label="Internal note" value={followupForm.note} onChange={(e) => setFollowupForm({ ...followupForm, note: e.target.value })} />
               </div>
               <Button
@@ -2160,15 +2086,15 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
                 disabled={busy}
                 className="mt-2"
               >
-                <BellRing size={12} className="mr-1" /> Log This Week's Follow-up
+                <BellRing size={12} className="mr-1" /> Log This Week's Status
               </Button>
             </div>
           )}
 
-          {/* Follow-up history */}
+          {/* Weekly status history — every update saved */}
           {(cycle.weeklyFollowups || []).length > 0 && (
             <div className="text-xs">
-              <p className="uppercase tracking-wider font-semibold text-navy-500 mb-1">Follow-up history</p>
+              <p className="uppercase tracking-wider font-semibold text-navy-500 mb-1">Weekly status history</p>
               <ul className="space-y-1">
                 {cycle.weeklyFollowups.map((f) => (
                   <li key={f.id} className="border border-navy-100 rounded px-2 py-1">
@@ -2176,7 +2102,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
                       <span className="font-semibold text-navy-700">Week {f.weekNumber} · {f.contactedBy?.name || '—'}</span>
                       <span className="text-navy-400">{formatDate(f.contactedAt)}</span>
                     </div>
-                    {f.customerResponse && <p className="text-navy-600 mt-1">Customer: {f.customerResponse}</p>}
+                    {f.customerResponse && <p className="text-navy-600 mt-1">Status: {f.customerResponse}</p>}
                     {f.note && <p className="text-navy-500">Note: {f.note}</p>}
                   </li>
                 ))}
@@ -2184,14 +2110,17 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
             </div>
           )}
 
-          {/* Payment-received (after delivery ack) */}
+          {/* Payment-received (Accounts) */}
           {(isAccounting || isAdmin) && (
             <div className="space-y-2 border-t pt-3">
               <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Confirm Payment Received</p>
               <Input label="Payment note" value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="UTR / payment reference" />
               <Button onClick={paymentReceived} disabled={busy}>
-                <Check size={12} className="mr-1" /> Payment Received — Close Cycle
+                <Check size={12} className="mr-1" /> Payment Received — Close Lot
               </Button>
+              <p className="text-[11px] text-navy-500 italic">
+                If this is the final lot and the full quantity is covered, the whole Work Order closes automatically.
+              </p>
             </div>
           )}
         </div>
@@ -2199,7 +2128,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
 
       {cycle.stage === 'PAYMENT_RECEIVED' && (
         <div className="border-t pt-2">
-          <Badge color="green"><Check size={11} className="inline mr-1" />Cycle closed</Badge>
+          <Badge color="green"><Check size={11} className="inline mr-1" />Lot closed — payment received</Badge>
           {showFinance && cycle.paymentNote && <p className="text-xs text-navy-600 mt-1">Note: {cycle.paymentNote}</p>}
         </div>
       )}
@@ -2251,162 +2180,108 @@ function HoldControls({ items, setItems, reason, setReason, onSubmit, busy }) {
 const WO_FLOW_STEPS = [
   {
     icon: FilePlus2,
-    title: '1. Log the Supply Order',
+    title: '1. Supply Chain Fills the Work Order',
     who: 'Supply Chain (or Admin)',
-    what: 'Open the "Log Supply Order" form on this page and fill in the customer order details — customer name, supply order number and date, quantity, delivery date (PDC), drawings, packing, transport, etc.',
+    what: 'Fill the Work Order form (same fields as the printed WORK ORDER format — customer, SO number/date, quantity, terms & scope, PDC date, delivery clause, inspection agency, QAP, tooling, FIM, packing, transport, site, coordinator) and assign the unit manager who will execute it. The Bank Guarantee date auto-fills as PDC + 2 months — you can edit it.',
     statusBefore: '—',
     statusAfter: 'PENDING_ADMIN',
-    uploads: ['Bank Guarantee number/date (optional, can be added later from the BG tab)', 'Insurance details (optional, from the Insurance tab)'],
-    downloads: ['Work Order PDF — auto-generated and printable from the WO row once admin accepts'],
+    uploads: ['All WO form fields', 'Unit assignment (required)', 'BG / Insurance details (BG date auto = PDC + 2 months, editable)'],
+    downloads: ['Work Order PDF — printable from the WO row'],
     color: 'from-sky-500 to-blue-600',
     ring: 'ring-sky-200',
   },
   {
     icon: ShieldCheck,
-    title: '2. Admin Accepts',
+    title: '2. Admin Verifies the Whole Thing',
     who: 'Admin',
-    what: 'Admin opens the WO from the dashboard, picks the unit that will execute the work, and clicks Accept. Without this step the unit cannot see the WO.',
+    what: 'Admin opens the WO, checks every field, and can CHANGE the unit manager assignment if needed. Then clicks Accept — the WO goes to the assigned unit. Admin can also reject it.',
     statusBefore: 'PENDING_ADMIN',
-    statusAfter: 'ADMIN_ACCEPTED',
-    uploads: ['Acceptance note (optional)'],
-    downloads: ['Admin Acceptance form (visible in the WO detail panel)'],
+    statusAfter: 'ADMIN_ACCEPTED  (or REJECTED)',
+    uploads: ['Acceptance note (optional)', 'Unit change (optional)'],
+    downloads: ['—'],
     color: 'from-blue-500 to-indigo-600',
     ring: 'ring-blue-200',
   },
   {
     icon: UserCheck,
-    title: '3. Unit Manager Accepts',
+    title: '3. Unit Manager Accepts or Rejects',
     who: 'Manager of the assigned unit',
-    what: 'The unit manager reviews the WO and either Accepts (work starts) or Rejects (work goes On Hold). If rejected, Supply Chain re-assigns it to a different unit using the Reassign button.',
+    what: 'The unit manager either Accepts (work starts) or Rejects (WO goes ON_HOLD). When on hold, the Admin/Supply Chain changes the unit — or keeps the same unit — and sends it again. The next manager then accepts and starts the work.',
     statusBefore: 'ADMIN_ACCEPTED',
-    statusAfter: 'UNIT_ACCEPTED  (or ON_HOLD if rejected)',
+    statusAfter: 'UNIT_ACCEPTED  (or ON_HOLD if rejected → reassigned → ADMIN_ACCEPTED again)',
     uploads: ['Acceptance / rejection note'],
     downloads: ['—'],
     color: 'from-indigo-500 to-violet-600',
     ring: 'ring-indigo-200',
   },
   {
-    icon: Truck,
-    title: '4. Deliver in Batches and Log Each Delivery',
-    who: 'Manager (or Supply Chain)',
-    what: 'When the unit ships a batch to the customer, log it under the Invoices tab: invoice number, date and quantity shipped. Each entry adds to the delivered quantity. Once delivered = ordered, the WO flips to COMPLETED automatically.',
-    statusBefore: 'UNIT_ACCEPTED',
-    statusAfter: 'IN_PROGRESS  →  COMPLETED (when fully delivered)',
-    uploads: ['Invoice reference number + date (file upload is part of the closure cycle below)'],
-    downloads: ['Delivery history visible inline on the Invoices tab'],
-    color: 'from-emerald-500 to-green-600',
-    ring: 'ring-emerald-200',
-  },
-  {
-    icon: GitBranch,
-    title: '5. Open a Closure Cycle for the Batch',
+    icon: Upload,
+    title: '4. Work Done — Lot by Lot: One Lot Report PDF → QC',
     who: 'Manager (or Admin)',
-    what: 'For every delivered batch, open a new closure cycle from the Closures tab and enter how many units this cycle covers. You can run several cycles in parallel — one per batch.',
-    statusBefore: 'WO is UNIT_ACCEPTED / IN_PROGRESS / COMPLETED',
-    statusAfter: 'Cycle starts at  UNIT_DOCS_PENDING',
-    uploads: ['Delivery note (optional text)'],
-    downloads: ['—'],
+    what: 'The work goes out in lots (e.g. 2 lots). When a lot\'s work is done, the manager clicks "Work Done", fills the lot details (quantity, date, note) and uploads ONE lot report PDF. That single click sends the lot straight to QC. The final lot is the final closure of the work order.',
+    statusBefore: 'WO is UNIT_ACCEPTED / IN_PROGRESS',
+    statusAfter: 'Lot created at UNIT_DOCS_PENDING — already with QC',
+    uploads: ['Lot quantity + details', 'ONE Lot Report PDF (required)'],
+    downloads: ['The lot report is re-downloadable from the lot card'],
     color: 'from-violet-500 to-purple-600',
     ring: 'ring-violet-200',
   },
   {
-    icon: Upload,
-    title: '6. Upload the 3 Required Docs and Send to QC',
-    who: 'Manager',
-    what: 'Inside the cycle, upload these three files (the system will not let you continue without them). Then click Submit to QC. QC will be notified automatically.',
-    statusBefore: 'UNIT_DOCS_PENDING',
-    statusAfter: 'still UNIT_DOCS_PENDING but now awaiting QC',
-    uploads: [
-      'Work Completion Report  (required)',
-      'Test Report  (required)',
-      'Dispatch Checklist  (required)',
-      'As-Built Drawing  (optional)',
-      'Completion Photos  (optional)',
-    ],
-    downloads: ['Each uploaded doc can be re-downloaded from the cycle panel'],
-    color: 'from-fuchsia-500 to-pink-600',
-    ring: 'ring-fuchsia-200',
-  },
-  {
     icon: FileCheck2,
-    title: '7. QC Verifies the Batch',
+    title: '5. QC Verifies — Remark Mandatory — Forwards to Finance (or Holds)',
     who: 'QC (or Admin)',
-    what: 'QC opens the cycle, checks the uploaded docs and the physical work, and clicks QC Verify. The system generates a QC Verification Certificate number automatically. QC can attach a certificate file URL.',
-    statusBefore: 'UNIT_DOCS_PENDING (with docs submitted)',
-    statusAfter: 'QC_VERIFIED',
-    uploads: ['Optional: link to the signed QC certificate file'],
-    downloads: ['QC Verification Certificate PDF — "QC Cert" button on the cycle row'],
+    what: 'QC checks the lot report and the work. To approve, QC MUST write a remark — it is saved on the lot forever — then the lot goes straight to Finance (no management step). If something is wrong, QC puts the lot ON HOLD with a missing-items checklist; the unit finishes the work, uploads a fresh lot report and resends it to QC.',
+    statusBefore: 'UNIT_DOCS_PENDING',
+    statusAfter: 'QC_VERIFIED  (or ON_HOLD → resubmit → UNIT_DOCS_PENDING again)',
+    uploads: ['QC remark (mandatory)', 'Certificate URL (optional)'],
+    downloads: ['QC Verification Certificate PDF — "QC Cert" button on the lot card'],
     color: 'from-amber-500 to-orange-500',
     ring: 'ring-amber-200',
   },
   {
-    icon: Stamp,
-    title: '8. Management (L5) Approves',
-    who: 'Only the 3 Level-5 Admins (sureshbabu, rameshbabu, madhubabu)',
-    what: 'One of the L5 admins reviews the QC sign-off and clicks Mgmt Approve. Finance is notified to raise the invoice.',
-    statusBefore: 'QC_VERIFIED',
-    statusAfter: 'MGMT_APPROVED',
-    uploads: ['Approval note (optional)'],
-    downloads: ['—'],
-    color: 'from-orange-500 to-red-500',
-    ring: 'ring-orange-200',
-  },
-  {
     icon: Banknote,
-    title: '9. Finance Sends Invoice + Delivery Challan  →  starts the 48-hour delivery-ack timer',
+    title: '6. Finance Clicks "Invoice Sent" + "DC Sent" → 48h Timer Starts',
     who: 'Finance (or Admin)',
-    what: 'Finance sends the invoice AND the delivery challan to the customer, then clicks "Send Invoice" in this app. The system creates an Invoice number, stamps the time, and starts the 48-hour timer — this timer now ends when Finance acknowledges delivery, not when payment arrives.',
-    statusBefore: 'MGMT_APPROVED',
-    statusAfter: 'INVOICE_SENT  (48-hour delivery-ack clock starts)',
-    uploads: ['Invoice date', 'Invoice description (optional)', 'Link to the invoice PDF file (optional)'],
-    downloads: ['Invoice PDF — "Invoice" button on the cycle row (visible to Finance / Accounting / L5 only)'],
+    what: 'Finance attaches the physical invoice and delivery challan WITH the material going to the customer (nothing is uploaded into the ERP — numbers are optional records). Finance clicks the "Invoice Sent" button and the "DC Sent" button as each goes out. The moment BOTH are clicked, the 48-hour goods-acknowledgement timer starts.',
+    statusBefore: 'QC_VERIFIED',
+    statusAfter: 'INVOICE_SENT  (48-hour goods-ack clock running)',
+    uploads: ['Invoice number / date (optional)', 'DC number (optional)'],
+    downloads: ['Invoice PDF — "Invoice" button on the lot card (Finance / Accounting / Admin only)'],
     color: 'from-yellow-500 to-amber-600',
     ring: 'ring-yellow-200',
   },
   {
     icon: Truck,
-    title: '10. Finance Acknowledges Customer Delivery  →  stops 48h, starts 45-day payment window',
+    title: '7. Goods Ack Received → 48h Timer Stops, 45-day Countdown Starts',
     who: 'Finance (or Admin)',
-    what: 'When the customer signs the delivery paper and sends it back, Finance clicks "Delivery Ack". This stops the 48-hour SLA clock and starts a 45-day payment window. The money-collection chase begins from this point.',
+    what: 'In real life the driver comes back with the customer-signed receipt that the goods were received. Before the 48 hours run out, Finance clicks "Goods Ack Received" — the 48h timer ends and the Accounts function begins: a 45-day payment countdown.',
     statusBefore: 'INVOICE_SENT',
-    statusAfter: 'DELIVERY_ACKNOWLEDGED  (45-day payment window starts)',
-    uploads: ['Signed delivery paper URL (optional)', 'Ack note'],
+    statusAfter: 'DELIVERY_ACKNOWLEDGED  (45-day payment countdown starts)',
+    uploads: ['Signed receipt URL (optional)', 'Ack note'],
     downloads: ['—'],
     color: 'from-amber-500 to-orange-500',
     ring: 'ring-amber-200',
   },
   {
-    icon: BellRing,
-    title: '11. Weekly Customer Follow-up  (during the 45-day window)',
-    who: 'Accounting + Admin',
-    what: 'Each week during the 45-day window a flashing reminder appears. Accounts/Admin contacts the customer, enters what the customer said, and logs the follow-up. The system tracks each week separately.',
-    statusBefore: 'DELIVERY_ACKNOWLEDGED',
-    statusAfter: 'DELIVERY_ACKNOWLEDGED  (follow-up logged, next week reminder armed)',
-    uploads: ['Customer response', 'Internal note'],
-    downloads: ['Follow-up history visible on the cycle card'],
-    color: 'from-pink-500 to-rose-600',
-    ring: 'ring-rose-200',
-  },
-  {
     icon: Wallet,
-    title: '12. Accounts Confirms Payment Received',
+    title: '8. Accounts: 45-day Countdown + Weekly Money-Status Updates',
     who: 'Accounting (or Admin)',
-    what: 'When the customer pays, Accounting clicks Payment Received and adds a note. This closes the 45-day window and the cycle. If the 45 days expired without payment, the cycle is marked DELAYED and management is escalated.',
+    what: 'The lot card shows the countdown moving day by day — 45, 44, 43… Every week Accounts must log the status of the incoming money (flashing reminder until they do). Every weekly status is saved. When the money lands, Accounts clicks "Payment Received" — the lot closes.',
     statusBefore: 'DELIVERY_ACKNOWLEDGED',
-    statusAfter: 'PAYMENT_RECEIVED  (cycle is now closed)',
-    uploads: ['Payment note (e.g. UTR / cheque #)'],
-    downloads: ['Invoice PDF still available'],
+    statusAfter: 'PAYMENT_RECEIVED  (lot closed)',
+    uploads: ['Weekly money-status updates', 'Payment note (UTR / reference)'],
+    downloads: ['Weekly status history on the lot card'],
     color: 'from-lime-500 to-green-600',
     ring: 'ring-lime-200',
   },
   {
     icon: CheckCircle2,
-    title: '13. Close the Whole Work Order',
-    who: 'Supply Chain (or Admin)',
-    what: 'Once every cycle has reached Payment Received AND delivered quantity equals ordered quantity, the WO can be closed. If anything is short, the system will warn you and ask for a reason before allowing a "short close".',
-    statusBefore: 'COMPLETED  (with all cycles paid)',
+    title: '9. Final Lot Paid → Work Order Auto-Closes',
+    who: 'System (automatic)',
+    what: 'The remaining lots repeat the same chain: manager → QC → finance → goods ack → accounts. When the FINAL lot\'s payment is received and the full order quantity is covered, the whole Work Order closes automatically. Admin/Supply Chain can still short-close manually if ever needed.',
+    statusBefore: 'All lots PAYMENT_RECEIVED',
     statusAfter: 'CLOSED',
-    uploads: ['Reason text (mandatory only when short-closing)'],
+    uploads: ['—'],
     downloads: ['Final WO PDF reflects CLOSED status'],
     color: 'from-navy-600 to-slate-800',
     ring: 'ring-slate-200',
@@ -2415,57 +2290,57 @@ const WO_FLOW_STEPS = [
 
 const WO_HOLD_LOOP = {
   title: 'If something is wrong: the On-Hold loop',
-  who: 'Anyone in QC / Finance / Admin can put a cycle on hold',
+  who: 'QC (or Admin) can put a lot on hold during verification',
   body: [
-    'If QC finds the docs are wrong, or Finance sees the batch is not ready for invoicing, they click "Send Back on Hold" and write a checklist of what is missing.',
-    'The cycle moves to ON_HOLD and the Manager gets notified.',
-    'The Manager fixes the issue, re-uploads docs and clicks Resolve Hold. The cycle goes back to "UNIT_DOCS_PENDING" — QC and Mgmt have to approve again.',
-    'A cycle that has already reached INVOICE_SENT cannot be put on hold — at that point any change is handled through Finance / Accounts directly.',
+    'If QC finds the work or the lot report is not right, they click "Send Back on Hold" and write a checklist of what is missing.',
+    'The lot moves to ON_HOLD and the unit Manager gets notified.',
+    'The Manager finishes the pending work, uploads a FRESH lot report PDF and clicks "Resend to QC". The lot goes back to QC for a new verification with a new remark.',
+    'A lot that has already reached INVOICE_SENT cannot be put on hold — from there it is handled by Finance / Accounts directly.',
   ],
 };
 
 const WO_TIMERS = [
   {
     icon: Timer,
-    title: '48-hour SLA — Delivery Ack Window',
+    title: '48-hour Goods-Ack Timer',
     color: 'from-yellow-500 to-amber-600',
     rows: [
-      ['Starts when', 'Finance clicks "Send Invoice" (invoice + delivery challan sent to customer).'],
-      ['Ends when',   'Finance clicks "Delivery Ack" (customer signed paper received back).'],
-      ['Where to see it', 'Each INVOICE_SENT cycle shows a coloured badge: blue = plenty of time, yellow = under 12h left, red = breached.'],
-      ['If breached',  'The cycle is marked SLA Breached. Management, Finance and Accounting all get an escalation notification automatically.'],
+      ['Starts when', 'Finance has clicked BOTH "Invoice Sent" and "DC Sent" (physical docs travel with the material).'],
+      ['Ends when',   'Finance clicks "Goods Ack Received" (the driver returned with the customer-signed receipt).'],
+      ['Where to see it', 'Each INVOICE_SENT lot shows a coloured badge: blue = plenty of time, yellow = under 12h left, red = breached.'],
+      ['If breached',  'The lot is marked SLA Breached. Management, Finance and Accounting all get an escalation notification automatically.'],
     ],
   },
   {
     icon: Wallet,
-    title: '45-day Window — Payment Collection',
+    title: '45-day Payment Countdown (Accounts)',
     color: 'from-amber-500 to-orange-600',
     rows: [
-      ['Starts when', 'Finance clicks "Delivery Ack" — cycle moves to DELIVERY_ACKNOWLEDGED.'],
-      ['Ends when',   'Accounting clicks "Payment Received" — cycle moves to PAYMENT_RECEIVED.'],
-      ['Where to see it', 'Each DELIVERY_ACKNOWLEDGED cycle shows a days-left badge. Red badge once the 45 days expire.'],
-      ['If breached',  'Cycle is flagged "Payment Delayed". L5, Finance, Accounting and Admin all get a notification.'],
+      ['Starts when', 'Finance clicks "Goods Ack Received" — lot moves to DELIVERY_ACKNOWLEDGED.'],
+      ['How it shows', 'Day-by-day countdown on the lot card: 45 days → 44 → 43 … red once expired.'],
+      ['Ends when',   'Accounts clicks "Payment Received" — lot moves to PAYMENT_RECEIVED. Final lot paid = WO auto-closed.'],
+      ['If breached',  'Lot is flagged "Payment Delayed". Management, Finance, Accounting and Admin all get a notification.'],
     ],
   },
   {
     icon: BellRing,
-    title: 'Weekly Customer Follow-up',
+    title: 'Weekly Incoming-Money Status (Accounts)',
     color: 'from-pink-500 to-rose-600',
     rows: [
-      ['What it does', 'Every 7 days while a cycle is in DELIVERY_ACKNOWLEDGED, a flashing reminder appears for Accounting + Admin.'],
-      ['How to clear it', 'Click into the cycle, log what the customer said, and submit the weekly follow-up. The reminder re-arms 7 days later.'],
-      ['Who is NOT notified', 'Manager and QC — collections is not their scope.'],
-      ['When it stops', 'As soon as Accounting clicks "Payment Received".'],
+      ['What it does', 'Every 7 days while a lot is in the 45-day window, a flashing reminder appears for Accounting + Admin.'],
+      ['How to clear it', 'Open the lot, write the status of the incoming money (what the customer said), and log it. The reminder re-arms 7 days later.'],
+      ['Where it is saved', 'Every weekly update is stored permanently in the lot\'s weekly status history.'],
+      ['When it stops', 'As soon as Accounts clicks "Payment Received".'],
     ],
   },
   {
     icon: AlertTriangle,
-    title: '3-month PDC Alert',
+    title: '3-month PDC Alert — BOTH Admin + Unit Manager',
     color: 'from-red-500 to-rose-700',
     rows: [
-      ['What it does', 'When the effective PDC date is 90 days away or closer and the WO is still open, a red blinking button appears in the WO header. Only Admin can click and acknowledge it with a remark.'],
-      ['How to clear it', 'Admin opens the WO, clicks the red button, writes a remark, and confirms. The alert stops permanently for that WO (unless a PDC extension pushes PDC out beyond 90 days again).'],
-      ['Who sees it', 'All admins receive the notification when the alert first fires (once per WO).'],
+      ['What it does', 'When the effective PDC date is 90 days (3 months) away, a red blinking alert appears on the WO for the Admin AND the assigned unit manager.'],
+      ['How to clear it', 'EACH of them must write their own status remark — extension needed? any issue? anything else? The alert keeps blinking until BOTH remarks are filed.'],
+      ['Where it is saved', 'Both remarks are saved permanently on the WO (visible in the header), alongside all alarm remarks in the Alarms tab.'],
     ],
   },
   {
@@ -2473,37 +2348,38 @@ const WO_TIMERS = [
     title: 'Background jobs that run on their own',
     color: 'from-slate-500 to-gray-700',
     rows: [
-      ['Hourly (:05)',  'INVOICE_SENT cycles — 24-hour reminder if due.'],
-      ['Every 30 min',  '48-hour SLA breach check.'],
+      ['Hourly (:05)',  'INVOICE_SENT lots — 24-hour reminder if due.'],
+      ['Every 30 min',  '48-hour goods-ack breach check.'],
       ['Every 30 min (:15/:45)', '45-day payment-window breach check.'],
-      ['Hourly (:20)',  'Weekly follow-up nudge for DELIVERY_ACKNOWLEDGED cycles.'],
-      ['Daily (09:10)', '3-month PDC alert notification.'],
-      ['Safe to re-run', 'All jobs are idempotent — they will never duplicate a reminder in the same window.'],
+      ['Hourly (:20)',  'Weekly money-status nudge for lots in the 45-day window.'],
+      ['Daily (09:10)', '3-month PDC alert notification (Admin + Managers).'],
+      ['Every 10 min',  'Work-order alarms recompute (PDC near/overdue, lot stuck at QC, lot on hold, SLA breach, payment due/overdue, BG expiring).'],
     ],
   },
 ];
 
 const WO_FILE_INDEX = {
   uploads: [
-    { what: 'Bank Guarantee entry (number + valid-upto)', where: 'WO detail → BG tab → "Add BG" (Supply Chain / Admin only)' },
-    { what: 'Insurance entry (number + valid-upto)',     where: 'WO detail → Insurance tab → "Add Insurance" (Supply Chain / Admin only)' },
-    { what: 'Delivery invoice (qty-wise, doc-only)',     where: 'WO detail → Invoices tab → "Log Invoice"' },
-    { what: 'Closure docs — 3 required + 2 optional',    where: 'WO detail → Closures tab → cycle row → "Upload File"' },
-    { what: 'QC certificate file URL (optional)',        where: 'Closure cycle → "QC Verify" form' },
-    { what: 'Invoice file URL (optional)',                where: 'Closure cycle → "Send Invoice" form' },
-    { what: 'PDC extension request',                       where: 'WO detail → Extensions tab → "Add Extension" (also extends BG; Supply Chain / Admin only)' },
-    { what: '3-month PDC alert acknowledgement (remark)', where: 'WO header → red blinking "PDC ≤ 3 months" button (Admin only)' },
-    { what: 'Signed delivery paper URL + ack note',      where: 'Closure cycle (INVOICE_SENT) → "Delivery Ack" form (Finance / Admin)' },
-    { what: 'Weekly customer follow-up (response + note)', where: 'Closure cycle (DELIVERY_ACKNOWLEDGED) → flashing "Weekly Customer Follow-up" panel (Accounting / Admin)' },
-    { what: 'Payment received note (UTR / cheque #)',     where: 'Closure cycle (DELIVERY_ACKNOWLEDGED) → "Confirm Payment Received" (Accounting / Admin)' },
+    { what: 'Work Order form (all WORK ORDER.docx fields) + unit assignment', where: '"Log Work Order" button on this page (Supply Chain / Admin)' },
+    { what: 'Bank Guarantee entry (number + valid-upto)', where: 'WO detail → BG / Insurance tab → "Add BG" (Supply Chain / Admin only)' },
+    { what: 'Insurance entry (number + valid-upto)',     where: 'WO detail → BG / Insurance tab → "Add Insurance" (Supply Chain / Admin only)' },
+    { what: 'ONE Lot Report PDF per lot (work done)',    where: 'WO detail → Lots tab → "Work Done" form (Manager)' },
+    { what: 'Fresh Lot Report PDF after a hold',         where: 'Lot card (ON_HOLD) → "Upload New Lot Report & Resend to QC" (Manager)' },
+    { what: 'QC remark (mandatory) + certificate URL',   where: 'Lot card → "QC Verification" panel (QC / Admin)' },
+    { what: 'Invoice / DC numbers (optional, physical docs travel with material)', where: 'Lot card → "Invoice Sent" + "DC Sent" buttons (Finance / Admin)' },
+    { what: 'Goods ack note + signed receipt URL',       where: 'Lot card (INVOICE_SENT) → "Goods Ack Received" (Finance / Admin)' },
+    { what: 'Weekly incoming-money status',              where: 'Lot card (45-day window) → flashing weekly panel (Accounting / Admin)' },
+    { what: 'Payment received note (UTR / cheque #)',    where: 'Lot card (45-day window) → "Payment Received" (Accounting / Admin)' },
+    { what: 'PDC extension request (BG must extend too)', where: 'WO detail → Extensions tab → "Add Extension" (Supply Chain / Admin only)' },
+    { what: '3-month PDC status remark (Admin AND Unit Manager)', where: 'WO header → red blinking PDC button (each files their own remark)' },
   ],
   downloads: [
     { what: 'Work Order PDF',                where: 'WO detail header → "Download PDF"' },
-    { what: 'QC Verification Certificate',   where: 'Closure cycle row → "QC Cert" button' },
-    { what: 'Customer Invoice PDF',          where: 'Closure cycle row → "Invoice" button (Finance / Accounting / L5 only)' },
-    { what: 'Hold Checklist PDF',            where: 'Closure cycle row → "Hold Checklist" button (only when a hold is open)' },
-    { what: 'Weekly follow-up history',      where: 'Closure cycle (DELIVERY_ACKNOWLEDGED) → "Follow-up history" list' },
-    { what: 'Any uploaded closure doc',      where: 'Closure cycle panel → docs list → click filename' },
+    { what: 'QC Verification Certificate',   where: 'Lot card → "QC Cert" button' },
+    { what: 'Customer Invoice PDF',          where: 'Lot card → "Invoice" button (Finance / Accounting / Admin only)' },
+    { what: 'Hold Checklist PDF',            where: 'Lot card → "Hold Checklist" button (only when a hold is open)' },
+    { what: 'Weekly money-status history',   where: 'Lot card (45-day window) → "Weekly status history" list' },
+    { what: 'Any uploaded lot report',       where: 'Lot card → lot reports list → click filename' },
   ],
 };
 
@@ -2514,26 +2390,28 @@ function WorkOrderWorkflowModal({ onClose }) {
         <p className="text-sm text-gray-700 leading-relaxed">
           This is the full journey of a Work Order, written in plain English. Each step lists
           <strong> who acts</strong>, <strong>what they need to upload</strong>, <strong>what they can download</strong>,
-          and the status the WO (or closure cycle) is in before and after. The four timers
-          (48-hour delivery-ack, 45-day payment, weekly follow-up, 3-month PDC alert) and the
+          and the status the WO (or lot) is in before and after. The timers
+          (48-hour goods-ack, 45-day payment countdown, weekly money-status, 3-month PDC alert) and the
           on-hold loop are explained at the bottom.
         </p>
 
         <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-900 leading-relaxed">
           <p className="font-semibold mb-1">Quick rules to remember</p>
           <ul className="list-disc list-inside space-y-1 text-[13px]">
-            <li><strong>PDC date, Bank Guarantee, Insurance</strong> can only be set/modified by <strong>Supply Chain</strong> (Admin override available).</li>
-            <li><strong>Bank Guarantee date</strong> auto-defaults to <strong>PDC date + 2 months</strong> when not provided.</li>
-            <li>When effective PDC is ≤ 90 days away, a <strong>red blinking button</strong> appears on the WO. Only <strong>Admin</strong> can stop it (by clicking, writing a remark, and acknowledging).</li>
-            <li>The <strong>48-hour SLA</strong> now stops when Finance acknowledges customer delivery (not when payment is received).</li>
-            <li>The <strong>45-day payment window</strong> starts from Delivery Ack. After 45 days the cycle is marked <strong>DELAYED</strong>.</li>
-            <li>Weekly during that window, Accounts/Admin must contact the customer, log the response, and close that week's reminder.</li>
+            <li><strong>Supply Chain</strong> fills the Work Order and assigns the unit manager; <strong>Admin</strong> verifies everything and may change the unit before accepting.</li>
+            <li><strong>Bank Guarantee date</strong> auto-fills as <strong>PDC date + 2 months</strong> and stays editable. PDC / BG / Insurance are Supply Chain (Admin override).</li>
+            <li>Work goes out in <strong>lots</strong>. Each lot = one lot-report PDF → QC → Finance → goods ack → Accounts. The <strong>final lot</strong> is the final closure of the WO.</li>
+            <li><strong>QC remark is mandatory</strong> to approve a lot. QC can instead put a lot on hold; the unit re-uploads the lot report and resends to QC.</li>
+            <li>The <strong>48-hour goods-ack timer</strong> starts when Finance has clicked BOTH "Invoice Sent" and "DC Sent", and stops at "Goods Ack Received".</li>
+            <li>The <strong>45-day payment countdown</strong> starts at goods ack and shows day-by-day. Accounts log a weekly money-status update and confirm payment.</li>
+            <li>The <strong>3-month PDC alert</strong> needs BOTH the Admin AND the unit manager to each file their own status remark before it stops.</li>
+            <li>When the <strong>final lot is paid</strong> and full quantity is covered, the Work Order <strong>closes automatically</strong>.</li>
           </ul>
         </div>
 
         {/* MAIN CHAIN */}
         <section>
-          <h2 className="text-xs uppercase tracking-wider font-bold text-navy-700 mb-3">The 13-step journey</h2>
+          <h2 className="text-xs uppercase tracking-wider font-bold text-navy-700 mb-3">The 9-step journey</h2>
           <div className="space-y-3">
             {WO_FLOW_STEPS.map((step, idx) => {
               const Icon = step.icon;

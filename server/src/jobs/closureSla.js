@@ -220,13 +220,14 @@ async function runWeeklyFollowupNotify(now = new Date()) {
 }
 
 // 3-month PDC alert — fires once per WO when PDC date enters the alert window.
-// Admin clears it via the acknowledgement endpoint (pdc3MonthAckAt set).
+// BOTH the admin AND the assigned unit's manager must each file a remark
+// (extension needed / issues / status) to clear the blinking alert.
 async function runPdcAlertNotify(now = new Date()) {
   const alertCutoff = new Date(now.getTime() + PDC_ALERT_DAYS * 24 * 60 * 60 * 1000);
   const candidates = await prisma.workOrder.findMany({
     where: {
       pdcDate: { not: null, gt: now, lte: alertCutoff },
-      pdc3MonthAckAt: null,
+      OR: [{ pdc3MonthAckAt: null }, { pdc3MonthMgrAckAt: null }],
       status: { notIn: ['CLOSED', 'CANCELLED', 'REJECTED'] },
     },
     select: {
@@ -244,9 +245,10 @@ async function runPdcAlertNotify(now = new Date()) {
     if (wo.pdc3MonthAlertNotifiedAt) continue; // one-shot
     const daysLeft = Math.ceil((new Date(wo.pdcDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     const title = `WO ${wo.workOrderNumber} — PDC due in ${daysLeft} day(s)`;
-    const message = `PDC for ${wo.customerName} expires on ${new Date(wo.pdcDate).toLocaleDateString('en-IN')}. Acknowledge from the Work Order to stop the alert.`;
+    const message = `PDC for ${wo.customerName} expires on ${new Date(wo.pdcDate).toLocaleDateString('en-IN')}. Admin AND the unit manager must each write a status remark (extension needed / issues) from the Work Order to stop the alert.`;
     const rows = [
       { type: 'WO_PDC_3MONTH_ALERT', title, message, targetRole: 'ADMIN', sentById: SYSTEM_USER_ID },
+      { type: 'WO_PDC_3MONTH_ALERT', title, message, targetRole: 'MANAGER', sentById: SYSTEM_USER_ID },
     ];
     await prisma.notification.createMany({ data: rows });
     await prisma.workOrder.update({

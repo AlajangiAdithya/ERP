@@ -72,6 +72,8 @@ model User {
   woBgEntriesAdded           WorkOrderBgEntry[]               @relation("WOBgEntryAdder")
   woInsuranceEntriesAdded    WorkOrderInsuranceEntry[]        @relation("WOInsuranceEntryAdder")
   woPdcAlertsAcknowledged    WorkOrder[]                      @relation("WorkOrderPdcAlertAcker")
+  woPdcAlertsMgrAcknowledged WorkOrder[]                      @relation("WorkOrderPdcAlertMgrAcker")
+  woClosuresDcSent           WorkOrderClosure[]               @relation("WOClosureDcSender")
   woClosureWeeklyFollowups   WorkOrderClosureWeeklyFollowup[] @relation("WOClosureWeeklyFollowupContact")
   woAlarmsAcknowledged       WorkOrderAlarm[]                 @relation("WOAlarmAcker")
   woAlarmsResolved           WorkOrderAlarm[]                 @relation("WOAlarmResolver")
@@ -103,19 +105,19 @@ model User {
   trainingSessionsCreated  TrainingSession[]  @relation("TrainingSessionCreator")
 
   // Attendance register (managers maintain per-unit workforce + daily IN/OUT)
-  attendanceEmployeesCreated AttendanceEmployee[]          @relation("AttEmpCreator")
-  attendanceMonthSubmissions AttendanceMonthSubmission[]   @relation("AttMonthSubmitter")
+  attendanceEmployeesCreated AttendanceEmployee[]        @relation("AttEmpCreator")
+  attendanceMonthSubmissions AttendanceMonthSubmission[] @relation("AttMonthSubmitter")
 
   // KPI-QMS certifications + QMS documents (Unit-5 uploads; everyone views)
-  qmsCertificationsUploaded  QmsCertification[]            @relation("QmsCertUploader")
-  qmsDocumentsUploaded       QmsDocument[]                 @relation("QmsDocUploader")
+  qmsCertificationsUploaded QmsCertification[] @relation("QmsCertUploader")
+  qmsDocumentsUploaded      QmsDocument[]      @relation("QmsDocUploader")
 
   // Team Chat — primary in-house messaging channel (dashboard).
-  messagesSent      Message[] @relation("MessageSender")
-  messagesReceived  Message[] @relation("MessageRecipient")
+  messagesSent     Message[] @relation("MessageSender")
+  messagesReceived Message[] @relation("MessageRecipient")
 
   // Personal calendar — private per-user events/reminders.
-  calendarEvents    CalendarEvent[] @relation("CalendarOwner")
+  calendarEvents CalendarEvent[] @relation("CalendarOwner")
 }
 
 model Session {
@@ -158,23 +160,23 @@ enum Role {
 
 // ──── UNITS ────
 model Unit {
-  id                 String                     @id @default(uuid())
-  name               String                     @unique
-  code               String                     @unique
-  isActive           Boolean                    @default(true)
-  createdAt          DateTime                   @default(now())
-  updatedAt          DateTime                   @updatedAt
-  users              User[]
-  productRequests    ProductRequest[]
-  purchaseRequests   PurchaseRequest[]
-  transfersFrom      InventoryTransferRequest[] @relation("TransferFromUnit")
-  transfersTo        InventoryTransferRequest[] @relation("TransferToUnit")
-  productStocks      ProductUnitStock[]
-  workOrders         WorkOrder[]                @relation("WorkOrderAssignedUnit")
-  inwardGatePasses   GatePass[]                 @relation("GatePassDestinationUnit")
-  fimBatchesAssigned ProductBatch[]             @relation("FimAssignedToUnit")
-  trainingPlanItems  TrainingPlanItem[]         @relation("TrainingPlanItemUnit")
-  attendanceEmployees       AttendanceEmployee[]
+  id                         String                      @id @default(uuid())
+  name                       String                      @unique
+  code                       String                      @unique
+  isActive                   Boolean                     @default(true)
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  users                      User[]
+  productRequests            ProductRequest[]
+  purchaseRequests           PurchaseRequest[]
+  transfersFrom              InventoryTransferRequest[]  @relation("TransferFromUnit")
+  transfersTo                InventoryTransferRequest[]  @relation("TransferToUnit")
+  productStocks              ProductUnitStock[]
+  workOrders                 WorkOrder[]                 @relation("WorkOrderAssignedUnit")
+  inwardGatePasses           GatePass[]                  @relation("GatePassDestinationUnit")
+  fimBatchesAssigned         ProductBatch[]              @relation("FimAssignedToUnit")
+  trainingPlanItems          TrainingPlanItem[]          @relation("TrainingPlanItemUnit")
+  attendanceEmployees        AttendanceEmployee[]
   attendanceMonthSubmissions AttendanceMonthSubmission[]
 }
 
@@ -276,12 +278,12 @@ model ProductBatch {
   // Direct / cash-purchase inward (Stores → Direct Entry). Supplier is free
   // text because cash purchases often come from unregistered local vendors —
   // surfaced in the product's supplier history alongside PO purchases.
-  supplierName    String?
-  supplierContact String?
-  supplierAddress String?
+  supplierName        String?
+  supplierContact     String?
+  supplierAddress     String?
   // Non-unit department this purchase was made for (Safety, QC, Designs …).
   // Unit assignments go through StockMovement.unitId + ProductUnitStock instead.
-  assignedDept    String?
+  assignedDept        String?
   // Mfg / expiry entered by Stores on direct entries. PO-flow batches read
   // these from the linked QC inspection instead.
   dateOfManufacturing DateTime?
@@ -1569,14 +1571,17 @@ model WorkOrder {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // ── 3-month PDC alert (admin-only acknowledge) ──
-  // When effective PDC is ≤ 90 days away, admins see a red blinking button
-  // until they acknowledge it with a remark. One-shot per WO (resets if a PDC
-  // extension pushes PDC out beyond 90 days again — handled at decorate time).
-  pdc3MonthAckAt           DateTime?
+  // ── 3-month PDC alert — BOTH admin AND the assigned unit manager must each
+  // acknowledge with their own remark (extension needed / issues / status).
+  // The red blinking alert stays active until both remarks are filed.
+  pdc3MonthAckAt           DateTime? // admin's ack
   pdc3MonthAckById         String?
   pdc3MonthAckBy           User?     @relation("WorkOrderPdcAlertAcker", fields: [pdc3MonthAckById], references: [id])
   pdc3MonthAckNote         String?
+  pdc3MonthMgrAckAt        DateTime? // unit manager's ack
+  pdc3MonthMgrAckById      String?
+  pdc3MonthMgrAckBy        User?     @relation("WorkOrderPdcAlertMgrAcker", fields: [pdc3MonthMgrAckById], references: [id])
+  pdc3MonthMgrAckNote      String?
   pdc3MonthAlertNotifiedAt DateTime? // stamped by the daily cron once the alert fires, to keep it one-shot
 
   extensions       WorkOrderExtension[]
@@ -1685,18 +1690,22 @@ enum WorkOrderDeliveryStatus {
   DELAYED
 }
 
-// ──── WORK ORDER CLOSURE WORKFLOW ────
-// Per delivery batch. A WO can have many closures running in parallel: the unit
-// head finishes a batch → opens a closure → docs → QC → ADMIN (L5) → FINANCE
-// sends invoice (starts 48h SLA) → ACCOUNTS confirms payment → CLOSED.
+// ──── WORK ORDER LOT (CLOSURE) WORKFLOW ────
+// Per delivery lot. Unit manager finishes the lot's work → fills lot details +
+// uploads ONE lot report PDF (goes straight to QC) → QC verifies with a
+// mandatory remark (or holds the lot) → FINANCE clicks "Invoice Sent" + "DC
+// Sent" (both done = 48h ack SLA starts) → FINANCE clicks "Goods Ack" when the
+// driver returns the signed receipt (45-day payment window starts) → ACCOUNTS
+// follows up weekly and confirms payment → lot CLOSED. When the final lot's
+// payment lands and full qty is covered, the WO auto-closes.
 enum WorkOrderClosureStage {
-  UNIT_DOCS_PENDING
-  QC_VERIFIED
-  MGMT_APPROVED
+  UNIT_DOCS_PENDING // lot report with QC for verification
+  QC_VERIFIED // QC approved — Finance must send invoice + DC
+  MGMT_APPROVED // legacy stage (old cycles only) — new flow goes QC → Finance directly
   ON_HOLD
-  INVOICE_SENT // ← Finance sent invoice + delivery challan to customer; 48h SLA running
-  DELIVERY_ACKNOWLEDGED // ← Customer signed receipt; Finance acked. 48h SLA stops, 45-day payment window starts
-  PAYMENT_RECEIVED // ← Accounts confirmed; cycle CLOSED
+  INVOICE_SENT // ← both Invoice Sent + DC Sent clicked; 48h ack SLA running
+  DELIVERY_ACKNOWLEDGED // ← goods ack received; 48h SLA stops, 45-day payment window starts
+  PAYMENT_RECEIVED // ← Accounts confirmed; lot CLOSED
 }
 
 // One closure cycle per delivery batch. Multiple may be open per WO at once.
@@ -1717,12 +1726,13 @@ model WorkOrderClosure {
   unitDocsSubmittedById String?
   unitDocsSubmittedBy   User?     @relation("WOClosureUnitSubmitter", fields: [unitDocsSubmittedById], references: [id])
 
-  // QC verification
+  // QC verification — remark is mandatory in the new flow and stored here.
   qcVerifiedAt        DateTime?
   qcVerifiedById      String?
   qcVerifiedBy        User?     @relation("WOClosureQCVerifier", fields: [qcVerifiedById], references: [id])
   qcCertificateUrl    String?
   qcCertificateNumber String?
+  qcRemark            String?
 
   // Mgmt L5 approval (sureshbabu / rameshbabu / madhubabu)
   mgmtApprovedAt   DateTime?
@@ -1736,10 +1746,14 @@ model WorkOrderClosure {
   invoiceDate           DateTime?
   invoiceDescription    String? // free-text scope description (no amount)
   invoiceFileUrl        String? // deprecated; kept for back-compat with old rows
-  invoiceSentAt         DateTime? // ← starts the 48h SLA (both numbers entered)
+  invoiceSentAt         DateTime? // ← Finance clicked "Invoice Sent"
   invoiceSentById       String?
   invoiceSentBy         User?     @relation("WOClosureInvoiceSender", fields: [invoiceSentById], references: [id])
-  slaDeadlineAt         DateTime? // = invoiceSentAt + 48h
+  // Finance clicked "DC Sent". 48h SLA starts only when BOTH buttons are done.
+  dcSentAt              DateTime?
+  dcSentById            String?
+  dcSentBy              User?     @relation("WOClosureDcSender", fields: [dcSentById], references: [id])
+  slaDeadlineAt         DateTime? // = when both invoice + DC sent, + 48h
   last24hReminderAt     DateTime?
   slaBreachedAt         DateTime?
 
@@ -2054,23 +2068,23 @@ model Message {
 // AMC = Annual Maintenance Contract — status text + optional attachment.
 // ──────────────────────────────────────────────────────────────
 model Machinery {
-  id              String   @id @default(uuid())
-  serialNumber    Int                                          // S. No (display ordering)
-  name            String                                       // Name of Machinery / Equipment
-  capacity        String?                                      // Capacity / Size (multiline OK)
-  makeModel       String?                                      // Make & Model
-  machineSerialNo String?                                      // Serial No printed on the machine
-  rapsId          String   @unique                             // RAPS ID No (e.g. RAMS/HP-01/LM/01)
-  place           String?                                      // Place of Machine (Unit-1, Unit-5, Unit-1A …)
+  id              String    @id @default(uuid())
+  serialNumber    Int // S. No (display ordering)
+  name            String // Name of Machinery / Equipment
+  capacity        String? // Capacity / Size (multiline OK)
+  makeModel       String? // Make & Model
+  machineSerialNo String? // Serial No printed on the machine
+  rapsId          String    @unique // RAPS ID No (e.g. RAMS/HP-01/LM/01)
+  place           String? // Place of Machine (Unit-1, Unit-5, Unit-1A …)
   remarks         String?
-  amcStatus       String?                                      // ACTIVE / EXPIRED / NA / free-text
+  amcStatus       String? // ACTIVE / EXPIRED / NA / free-text
   amcVendor       String?
   amcExpiry       DateTime?
-  amcAttachment   String?                                      // /uploads/amc-docs/…
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  amcAttachment   String? // /uploads/amc-docs/…
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   createdById     String?
-  createdBy       User?    @relation("MachineryCreator", fields: [createdById], references: [id])
+  createdBy       User?     @relation("MachineryCreator", fields: [createdById], references: [id])
 
   @@index([serialNumber])
   @@index([place])
@@ -2082,15 +2096,15 @@ model Machinery {
 // ──────────────────────────────────────────────────────────────
 model FireExtinguisher {
   id           String    @id @default(uuid())
-  serialNumber Int                                              // Ser No within the unit list
-  type         String                                           // "Dry Powder ABC" / "Carbon Dioxide"
-  capacity     String                                           // "4 Kgs" / "6 Kgs" / "4.5 Kgs"
-  rapsId       String    @unique                                // RAMS/ABC-01/FE-01
+  serialNumber Int // Ser No within the unit list
+  type         String // "Dry Powder ABC" / "Carbon Dioxide"
+  capacity     String // "4 Kgs" / "6 Kgs" / "4.5 Kgs"
+  rapsId       String    @unique // RAMS/ABC-01/FE-01
   refilledOn   DateTime?
   nextDueOn    DateTime?
-  unit         String                                           // Unit-1, Unit-2, …
-  location     String?                                          // free-text install spot
-  attachment   String?                                          // /uploads/amc-docs/…
+  unit         String // Unit-1, Unit-2, …
+  location     String? // free-text install spot
+  attachment   String? // /uploads/amc-docs/…
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   createdById  String?
@@ -2123,14 +2137,14 @@ enum EmployeeStatus {
 
 model Employee {
   id            String         @id @default(uuid())
-  empCode       String         @unique           // e.g. "RAPSPL-3"
-  serialNo      Int                              // running S.No in the printed register
+  empCode       String         @unique // e.g. "RAPSPL-3"
+  serialNo      Int // running S.No in the printed register
   name          String
   designation   String?
   qualification String?
-  experience    Int?                             // years
-  category      String?                          // "QA-QC" / "Production UNIT 1" / "Adminstration" …
-  department    String?                          // free-text fallback when category isn't enough
+  experience    Int? // years
+  category      String? // "QA-QC" / "Production UNIT 1" / "Adminstration" …
+  department    String? // free-text fallback when category isn't enough
   phone         String?
   email         String?
   dateOfJoining DateTime?
@@ -2138,13 +2152,13 @@ model Employee {
   notes         String?
 
   // Optional link if this employee also has an ERP login account.
-  userId        String?        @unique
-  user          User?          @relation("EmployeeAccount", fields: [userId], references: [id], onDelete: SetNull)
+  userId String? @unique
+  user   User?   @relation("EmployeeAccount", fields: [userId], references: [id], onDelete: SetNull)
 
-  createdById   String
-  createdBy     User           @relation("EmployeeCreator", fields: [createdById], references: [id])
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdById String
+  createdBy   User     @relation("EmployeeCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   skillMatrix      SkillMatrix?
   trainingAttended TrainingAttendee[]
@@ -2157,35 +2171,35 @@ model Employee {
 // Skill levels are stored 0-4 where 0 = "N.A." and 1-4 is the rating. Using
 // Float to allow the 3.5 half-step the latest sheet uses.
 model SkillMatrix {
-  id          String   @id @default(uuid())
-  employeeId  String   @unique
-  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid())
+  employeeId String   @unique
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   // 16 fixed skill area columns (mirrors the Excel — change with a migration
   // if/when the org adds/removes a skill).
-  qmsAwareness                 Float?
-  risksOpportunities           Float?
-  processKnowledge             Float?
-  inspectionTesting            Float?
-  qualityAnalytical            Float?
-  nonconformityAnalysis        Float?
-  customerRelations            Float?
-  supplierManagement           Float?
-  projectPlanning              Float?
-  equipmentMaintenance         Float?
-  materialInventory            Float?
-  internalAuditing             Float?
-  crisisManagement             Float?
-  communicationSkills          Float?
-  interPersonalRelations       Float?
+  qmsAwareness           Float?
+  risksOpportunities     Float?
+  processKnowledge       Float?
+  inspectionTesting      Float?
+  qualityAnalytical      Float?
+  nonconformityAnalysis  Float?
+  customerRelations      Float?
+  supplierManagement     Float?
+  projectPlanning        Float?
+  equipmentMaintenance   Float?
+  materialInventory      Float?
+  internalAuditing       Float?
+  crisisManagement       Float?
+  communicationSkills    Float?
+  interPersonalRelations Float?
 
-  trainingNeeds String?       // free-text "Risks & opportunities, Internal auditing"
+  trainingNeeds String? // free-text "Risks & opportunities, Internal auditing"
   remarks       String?
-  headOfDeptSig String?       // signature image / pdf url
-  ratedOn       DateTime?     // when this rating was last given
+  headOfDeptSig String? // signature image / pdf url
+  ratedOn       DateTime? // when this rating was last given
 
-  updatedAt     DateTime      @updatedAt
-  createdAt     DateTime      @default(now())
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
 }
 
 enum TrainingPlanStatus {
@@ -2195,58 +2209,58 @@ enum TrainingPlanStatus {
 }
 
 model TrainingPlan {
-  id            String              @id @default(uuid())
-  fiscalYear    String              @unique                  // "2026-27"
-  title         String                                       // "Annual Training Plan FY 2026-27"
-  reference     String?                                      // "F.No. RAMS/ATP/00, Dt. 06-04-2026"
-  preparedBy    String?
-  approvedBy    String?
-  status        TrainingPlanStatus  @default(DRAFT)
+  id         String             @id @default(uuid())
+  fiscalYear String             @unique // "2026-27"
+  title      String // "Annual Training Plan FY 2026-27"
+  reference  String? // "F.No. RAMS/ATP/00, Dt. 06-04-2026"
+  preparedBy String?
+  approvedBy String?
+  status     TrainingPlanStatus @default(DRAFT)
 
-  createdById   String
-  createdBy     User                @relation("TrainingPlanCreator", fields: [createdById], references: [id])
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  createdById String
+  createdBy   User     @relation("TrainingPlanCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  items         TrainingPlanItem[]
-  sessions      TrainingSession[]
+  items    TrainingPlanItem[]
+  sessions TrainingSession[]
 
   @@index([status])
 }
 
 enum TrainingItemStatus {
-  PLANNED       // entered in the plan but not yet held
-  SCHEDULED     // date locked
-  COMPLETED     // session done
+  PLANNED // entered in the plan but not yet held
+  SCHEDULED // date locked
+  COMPLETED // session done
   CANCELLED
 }
 
 model TrainingPlanItem {
-  id              String             @id @default(uuid())
-  planId          String
-  plan            TrainingPlan       @relation(fields: [planId], references: [id], onDelete: Cascade)
-  serialNo        Int                                          // running # in the plan
-  subject         String                                       // "AS 9100D Requirements – QMS"
-  participants    String                                       // free-text list of names / "All staff"
-  faculty         String?                                      // "External (K. Vijaya Krishna)"
-  scheduledMonth  String?                                      // "Nov 2026 for 01 day @ 3 hrs"
-  actualMonth     String?                                      // filled when held
-  hoursPerMonth   Float?
-  remarks         String?
-  status          TrainingItemStatus @default(PLANNED)
+  id             String             @id @default(uuid())
+  planId         String
+  plan           TrainingPlan       @relation(fields: [planId], references: [id], onDelete: Cascade)
+  serialNo       Int // running # in the plan
+  subject        String // "AS 9100D Requirements – QMS"
+  participants   String // free-text list of names / "All staff"
+  faculty        String? // "External (K. Vijaya Krishna)"
+  scheduledMonth String? // "Nov 2026 for 01 day @ 3 hrs"
+  actualMonth    String? // filled when held
+  hoursPerMonth  Float?
+  remarks        String?
+  status         TrainingItemStatus @default(PLANNED)
 
   // The unit / dept this item is tagged to. Managers can add items for
   // their own unit; HR sees everything.
-  unitId          String?
-  unit            Unit?              @relation("TrainingPlanItemUnit", fields: [unitId], references: [id], onDelete: SetNull)
-  category        String?                                      // free-text dept tag if no unit
+  unitId   String?
+  unit     Unit?   @relation("TrainingPlanItemUnit", fields: [unitId], references: [id], onDelete: SetNull)
+  category String? // free-text dept tag if no unit
 
-  createdById     String
-  createdBy       User               @relation("TrainingPlanItemCreator", fields: [createdById], references: [id])
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  createdById String
+  createdBy   User     @relation("TrainingPlanItemCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  sessions        TrainingSession[]
+  sessions TrainingSession[]
 
   @@index([planId])
   @@index([unitId])
@@ -2254,21 +2268,21 @@ model TrainingPlanItem {
 }
 
 model TrainingSession {
-  id              String              @id @default(uuid())
-  sessionNumber   String              @unique                  // auto e.g. "TS-2026-0001"
-  planId          String?
-  plan            TrainingPlan?       @relation(fields: [planId], references: [id], onDelete: SetNull)
-  planItemId      String?
-  planItem        TrainingPlanItem?   @relation(fields: [planItemId], references: [id], onDelete: SetNull)
+  id            String            @id @default(uuid())
+  sessionNumber String            @unique // auto e.g. "TS-2026-0001"
+  planId        String?
+  plan          TrainingPlan?     @relation(fields: [planId], references: [id], onDelete: SetNull)
+  planItemId    String?
+  planItem      TrainingPlanItem? @relation(fields: [planItemId], references: [id], onDelete: SetNull)
 
-  subject         String                                       // "Lab testing chemical analysis and reporting"
+  subject          String // "Lab testing chemical analysis and reporting"
   trainingDateFrom DateTime
-  trainingDateTo   DateTime?                                   // null when single-day
-  duration         String?                                     // "5 days @ 2hrs/day"
-  place            String?                                     // "Unit-2"
-  faculty          String                                      // "P. Ashok Babu"
-  facultySign      String?                                     // file url
-  reference        String?                                     // "F. No. RAMS/TAER, Rev.00 Dt. 10-11-2023"
+  trainingDateTo   DateTime? // null when single-day
+  duration         String? // "5 days @ 2hrs/day"
+  place            String? // "Unit-2"
+  faculty          String // "P. Ashok Babu"
+  facultySign      String? // file url
+  reference        String? // "F. No. RAMS/TAER, Rev.00 Dt. 10-11-2023"
 
   // Per-session uploads
   trainingNotesUrl String?
@@ -2276,12 +2290,12 @@ model TrainingSession {
   feedbackUrl      String?
   notes            String?
 
-  createdById     String
-  createdBy       User                @relation("TrainingSessionCreator", fields: [createdById], references: [id])
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdById String
+  createdBy   User     @relation("TrainingSessionCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  attendees       TrainingAttendee[]
+  attendees TrainingAttendee[]
 
   @@index([planId])
   @@index([planItemId])
@@ -2294,10 +2308,10 @@ model TrainingAttendee {
   session           TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   employeeId        String
   employee          Employee        @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  signUrl           String?                                    // attendee sign image
-  evaluationDetails String?                                    // "Awareness about preparation of reports …"
+  signUrl           String? // attendee sign image
+  evaluationDetails String? // "Awareness about preparation of reports …"
   dateOfEvaluation  DateTime?
-  evaluatedBy       String?                                    // free-text or signature url
+  evaluatedBy       String? // free-text or signature url
   createdAt         DateTime        @default(now())
 
   @@unique([sessionId, employeeId])
@@ -2311,20 +2325,20 @@ model TrainingAttendee {
 // can view the data but never see the per-cell modification trail —
 // `modifiedAt`/`modifiedBy`/`history` are stripped server-side for non-managers.
 model AttendanceEmployee {
-  id          String   @id @default(uuid())
-  unitId      String
-  unit        Unit     @relation(fields: [unitId], references: [id])
-  serialNo    Int                                              // SL NO in the register
-  name        String
-  empCode     String?                                          // "E.ID" column
-  isActive    Boolean  @default(true)
+  id       String  @id @default(uuid())
+  unitId   String
+  unit     Unit    @relation(fields: [unitId], references: [id])
+  serialNo Int // SL NO in the register
+  name     String
+  empCode  String? // "E.ID" column
+  isActive Boolean @default(true)
 
   createdById String
   createdBy   User     @relation("AttEmpCreator", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  entries     AttendanceEntry[]
+  entries AttendanceEntry[]
 
   @@unique([unitId, serialNo])
   @@index([unitId, isActive])
@@ -2334,26 +2348,26 @@ model AttendanceEmployee {
 // status code is stored — `statusCode` covers leave / holiday / off-site
 // values like "L", "HYD", "BAKRID", "H".
 model AttendanceEntry {
-  id           String   @id @default(uuid())
-  employeeId   String
-  employee     AttendanceEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  date         DateTime @db.Date
+  id         String             @id @default(uuid())
+  employeeId String
+  employee   AttendanceEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date       DateTime           @db.Date
 
-  inTime       String?                                         // "HH:mm" — stored as text to dodge timezone math
-  outTime      String?                                         // "HH:mm"
-  statusCode   String?                                         // "L", "HYD", "BAKRID", "H" …
+  inTime     String? // "HH:mm" — stored as text to dodge timezone math
+  outTime    String? // "HH:mm"
+  statusCode String? // "L", "HYD", "BAKRID", "H" …
 
   // Audit trail for manager edits. The icon shown to managers under a cell
   // lights up whenever this entry has been modified after first save.
   // Stripped from the API response for ADMIN/SAFETY/ACCOUNTING viewers.
-  firstSavedAt DateTime @default(now())
-  modifiedAt   DateTime?
-  modifiedById String?
+  firstSavedAt   DateTime  @default(now())
+  modifiedAt     DateTime?
+  modifiedById   String?
   modifiedByName String?
-  history      Json?                                           // [{ at, byId, byName, from, to }]
+  history        Json? // [{ at, byId, byName, from, to }]
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([employeeId, date])
   @@index([date])
@@ -2367,7 +2381,7 @@ model AttendanceMonthSubmission {
   unitId        String
   unit          Unit     @relation(fields: [unitId], references: [id])
   year          Int
-  month         Int                                            // 1..12
+  month         Int // 1..12
   submittedAt   DateTime @default(now())
   submittedById String
   submittedBy   User     @relation("AttMonthSubmitter", fields: [submittedById], references: [id])
@@ -2375,7 +2389,6 @@ model AttendanceMonthSubmission {
   @@unique([unitId, year, month])
   @@index([year, month])
 }
-
 
 // ──── KPI-QMS CERTIFICATIONS ────
 // Company certifications (ISO etc.) shown read-only on every dashboard's
@@ -2435,11 +2448,11 @@ model CalendarEvent {
   startAt     DateTime
   endAt       DateTime
   allDay      Boolean   @default(false)
-  category    String?                          // label, e.g. "Work" / "Personal"
-  color       String    @default("blue")       // palette token (blue/green/red/amber/purple/pink/teal/gray)
-  visibility  String    @default("PERSONAL")    // PERSONAL (owner-only) | EVERYONE (shared, read-only to others)
-  recurrence  String    @default("NONE")        // NONE | DAILY | WEEKLY | MONTHLY | YEARLY
-  recurUntil  DateTime?                          // inclusive last date a recurring event may fire
+  category    String? // label, e.g. "Work" / "Personal"
+  color       String    @default("blue") // palette token (blue/green/red/amber/purple/pink/teal/gray)
+  visibility  String    @default("PERSONAL") // PERSONAL (owner-only) | EVERYONE (shared, read-only to others)
+  recurrence  String    @default("NONE") // NONE | DAILY | WEEKLY | MONTHLY | YEARLY
+  recurUntil  DateTime? // inclusive last date a recurring event may fire
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

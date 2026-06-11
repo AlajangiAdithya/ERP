@@ -1,9 +1,9 @@
 import { Document, Page, View, Text } from '@react-pdf/renderer';
 import { styles, formatDate, formatDateTime, CompanyHeader, AuditTrail } from './shared';
 
-// Closure-cycle invoice. No monetary amount — this is the doc Finance sends
-// to the customer to start the 48h payment-confirmation window. Pair it with
-// the QC Verification Certificate + closure docs as proof of completion.
+// Per-lot invoice. No monetary amount — this is the doc Finance attaches to
+// the material going to the customer. Pair it with the QC Verification
+// Certificate + lot report as proof of completion.
 export default function InvoicePdf({ data }) {
   const c = data || {};
   const wo = c.workOrder || {};
@@ -31,10 +31,14 @@ export default function InvoicePdf({ data }) {
             <View style={[styles.cell, { width: '28%' }]}><Text>{wo.supplyOrderNo || '—'}</Text></View>
           </View>
           <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '22%' }]}><Text>Closure Cycle</Text></View>
+            <View style={[styles.cellLabel, { width: '22%' }]}><Text>Lot No.</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>#{c.cycleNumber || '—'}</Text></View>
-            <View style={[styles.cellLabel, { width: '22%' }]}><Text>Batch Qty</Text></View>
+            <View style={[styles.cellLabel, { width: '22%' }]}><Text>Lot Qty</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>{c.deliveryQty != null ? `${c.deliveryQty} ${wo.orderUnit || ''}` : '—'}</Text></View>
+          </View>
+          <View style={styles.row}>
+            <View style={[styles.cellLabel, { width: '22%' }]}><Text>Delivery Challan No.</Text></View>
+            <View style={[styles.cell, { width: '78%' }]}><Text>{c.deliveryChallanNumber || '—'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Customer</Text></View>
@@ -47,7 +51,7 @@ export default function InvoicePdf({ data }) {
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>QC Certificate</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>{c.qcCertificateNumber || '—'}</Text></View>
-            <View style={[styles.cellLabel, { width: '22%' }]}><Text>SLA Deadline</Text></View>
+            <View style={[styles.cellLabel, { width: '22%' }]}><Text>Goods-Ack Deadline</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>{formatDateTime(c.slaDeadlineAt)}</Text></View>
           </View>
         </View>
@@ -57,28 +61,29 @@ export default function InvoicePdf({ data }) {
           <View style={[styles.cell, { padding: 8 }]}>
             <Text>
               {c.invoiceDescription
-                || `Delivery batch of ${c.deliveryQty ?? '—'} ${wo.orderUnit || ''} against Work Order ${wo.workOrderNumber || ''} for ${wo.customerName || ''}. Closure documentation verified by QC and approved by Level-5 management.`}
+                || `Delivery lot of ${c.deliveryQty ?? '—'} ${wo.orderUnit || ''} against Work Order ${wo.workOrderNumber || ''} for ${wo.customerName || ''}. Lot report verified by QC.`}
             </Text>
           </View>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Payment Window</Text>
+          <Text style={styles.sectionTitle}>Goods Acknowledgement</Text>
           <View style={[styles.cell, { padding: 8 }]}>
             <Text>
-              This invoice is issued under the RAPS closure SLA. Customer is
-              requested to confirm receipt of payment within 48 hours of issue
-              to allow Accounts to close this delivery cycle. Monetary value is
-              not included on this document — refer to the underlying Supply
-              Order / contract for commercial terms.
+              This invoice and the delivery challan travel with the material.
+              Customer is requested to sign the goods-received acknowledgement
+              and hand it back to the driver within 48 hours of dispatch.
+              Monetary value is not included on this document — refer to the
+              underlying Supply Order / contract for commercial terms.
             </Text>
           </View>
         </View>
 
         <AuditTrail entries={[
-          { label: 'QC Verified',     value: c.qcVerifiedBy?.name ? `${c.qcVerifiedBy.name} • ${formatDateTime(c.qcVerifiedAt)}` : null },
-          { label: 'Mgmt Approved',   value: c.mgmtApprovedBy?.name ? `${c.mgmtApprovedBy.name} • ${formatDateTime(c.mgmtApprovedAt)}` : null },
-          { label: 'Invoice Sent',    value: c.invoiceSentBy?.name ? `${c.invoiceSentBy.name} • ${formatDateTime(c.invoiceSentAt)}` : null },
+          { label: 'QC Verified',      value: c.qcVerifiedBy?.name ? `${c.qcVerifiedBy.name} • ${formatDateTime(c.qcVerifiedAt)}` : null },
+          { label: 'Invoice Sent',     value: c.invoiceSentBy?.name ? `${c.invoiceSentBy.name} • ${formatDateTime(c.invoiceSentAt)}` : null },
+          { label: 'DC Sent',          value: c.dcSentBy?.name ? `${c.dcSentBy.name} • ${formatDateTime(c.dcSentAt)}` : null },
+          { label: 'Goods Ack',        value: c.deliveryAckBy?.name ? `${c.deliveryAckBy.name} • ${formatDateTime(c.deliveryAckAt)}` : null },
           { label: 'Payment Received', value: c.paymentReceivedBy?.name ? `${c.paymentReceivedBy.name} • ${formatDateTime(c.paymentReceivedAt)}` : null },
         ]} />
 

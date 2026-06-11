@@ -1,17 +1,25 @@
 // ──────────────────────────────────────────────────────────────
-// Work Order — Supply Chain workflow + per-batch closure cycles.
+// Work Order — Supply Chain workflow + per-lot closure cycles.
 //
-// Order flow (no SC review step):
-//   SUPPLY_CHAIN logs the external Supply Order → status PENDING_ADMIN
-//   (ADMIN notified) → ADMIN accepts (acceptance form) → WO assigned to a unit →
-//   That unit's MANAGER accepts → unit logs qty-wise invoices until delivered.
+// Order flow:
+//   SUPPLY_CHAIN fills the Work Order form (WORK ORDER.docx fields) and assigns
+//   a unit → status PENDING_ADMIN → ADMIN verifies (may change the unit) and
+//   accepts → that unit's MANAGER accepts (work starts) or rejects (ON_HOLD →
+//   admin/SC reassigns or resends to the same unit).
 //
-// Closure flow (one cycle per delivery batch; multiple cycles can run per WO):
-//   Unit head opens a closure cycle for the delivered batch → uploads docs →
-//   QC verifies (issues QC Verification Certificate) → ADMIN (L5) approves →
-//   FINANCE sends invoice + delivery challan to customer → 48h SLA starts →
-//   FINANCE acks customer-signed receipt (stops 48h SLA, starts 45-day window) →
-//   ACCOUNTS confirms payment received → cycle CLOSED.
+// Lot flow (one cycle per delivery lot; final lot = final WO closure):
+//   MANAGER clicks "Work Done" for the lot → fills lot details + uploads ONE
+//   lot report PDF → goes straight to QC →
+//   QC verifies with a MANDATORY remark and forwards to Finance, or puts the
+//   lot ON_HOLD (unit finishes the work, re-uploads the lot report, resends) →
+//   FINANCE attaches physical invoice + delivery challan to the material (no
+//   upload) and clicks "Invoice Sent" and "DC Sent" — when BOTH are clicked the
+//   48h goods-ack SLA starts →
+//   FINANCE clicks "Goods Ack Received" when the driver returns with the signed
+//   receipt — 48h SLA stops, 45-day payment window starts →
+//   ACCOUNTS sees a day-by-day countdown (45 → 44 → 43…), logs weekly
+//   incoming-money status updates, and confirms payment → lot CLOSED.
+//   When the final lot's payment lands and full qty is covered → WO auto-CLOSED.
 //
 // Field-level permissions:
 //   - Bank Guarantee + Insurance       : append-only history (BgEntry / InsuranceEntry)
@@ -19,11 +27,12 @@
 //   - Delivery Details                 : SUPPLY_CHAIN / ADMIN / ACCOUNTING
 //   - PDC date and PDC extensions      : SUPPLY_CHAIN / ADMIN only
 //     • Every PDC extension MUST also extend the BG (bankGuaranteeExtendedUpto)
-//     • New WOs default BG date = PDC + 2 months when none supplied
-//   - 3-month PDC alert                : ADMIN-only acknowledgement with remark
+//     • BG date auto-defaults to PDC + 2 months (editable)
+//   - 3-month PDC alert                : BOTH admin AND unit manager must each
+//     acknowledge with their own remark before the alert stops
 //   - Remarks                          : any role with view access
-//   - Closure financial fields (invoice, send, delivery-ack, payment, SLA, breach):
-//     hidden from MANAGER / QC; visible only to ADMIN(L5) / FINANCE / ACCOUNTING.
+//   - Closure financial fields (invoice/DC sent, goods ack, payment, SLA):
+//     hidden from MANAGER / QC; visible only to ADMIN / FINANCE / ACCOUNTING.
 // ──────────────────────────────────────────────────────────────
 
 const express = require('express');
@@ -39,10 +48,11 @@ const { syncAlarmsForWO } = require('../services/workOrderAlarms');
 const router = express.Router();
 
 // ── Closure workflow constants ──────────────────────────────────────
-// Level-5 management — only these usernames may sign off the mgmt-approve step.
+// Level-5 management usernames — used for targeted notifications.
 const L5_USERNAMES = ['sureshbabu', 'rameshbabu', 'madhubabu'];
 
-// 48-hour SLA window that starts when Finance sends the invoice.
+// 48-hour goods-ack SLA — starts when Finance has clicked BOTH "Invoice Sent"
+// and "DC Sent"; ends when Finance clicks "Goods Ack Received".
 const SLA_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 // 45-day payment window that starts when Finance acks customer delivery receipt.
@@ -62,12 +72,9 @@ const addDays = (date, days) => {
   return out;
 };
 
-// Required docs the unit head must upload before submitting a cycle to QC.
-const REQUIRED_UNIT_DOC_TYPES = [
-  'WORK_COMPLETION_REPORT',
-  'TEST_REPORT',
-  'DISPATCH_CHECKLIST',
-];
+// The unit manager uploads exactly ONE lot report PDF per lot — that single
+// document is what QC verifies.
+const LOT_REPORT_DOC_TYPE = 'LOT_REPORT';
 
 // Roles whose responses must NOT include closure financial data
 // (invoice no, send/payment metadata, SLA fields).
@@ -89,6 +96,7 @@ const CLOSURE_INCLUDE = {
   qcVerifiedBy:        USER_SELECT,
   mgmtApprovedBy:      USER_SELECT,
   invoiceSentBy:       USER_SELECT,
+  dcSentBy:            USER_SELECT,
   deliveryAckBy:       USER_SELECT,
   paymentReceivedBy:   USER_SELECT,
   docs: {
@@ -112,6 +120,7 @@ const WO_INCLUDE = {
   unitAcceptedBy:           USER_SELECT,
   deliveryDetailsUpdatedBy: USER_SELECT,
   pdc3MonthAckBy:           USER_SELECT,
+  pdc3MonthMgrAckBy:        USER_SELECT,
   extensions:               { orderBy: { extensionNo: 'asc' }, include: { grantedBy: USER_SELECT } },
   invoices:                 { orderBy: { invoiceDate: 'asc' }, include: { createdBy: USER_SELECT } },
   closures: {
@@ -148,6 +157,9 @@ const sanitizeClosuresFor = (closures, user) => {
     invoiceSentAt: null,
     invoiceSentById: null,
     invoiceSentBy: null,
+    dcSentAt: null,
+    dcSentById: null,
+    dcSentBy: null,
     slaDeadlineAt: null,
     last24hReminderAt: null,
     slaBreachedAt: null,
@@ -190,13 +202,13 @@ const decorate = (wo, user) => {
     : null;
   const overdue = !isCompleted && pdc && new Date() > new Date(pdc);
   // 3-month-to-PDC alert state. Active when within the 90-day window, WO is
-  // still live, and admin has not yet acknowledged. Cleared automatically once
-  // ack is recorded — re-arms only if a future PDC extension pushes PDC back
-  // beyond 90 days and then back inside again (admin would need to ack again
-  // only if we reset the ack-fields; current behaviour keeps the ack sticky).
+  // still live, and EITHER the admin or the assigned unit manager has not yet
+  // filed their remark. Both must acknowledge before the alert clears.
   const inAlertWindow = daysToPdc != null && daysToPdc > 0 && daysToPdc <= PDC_ALERT_DAYS;
   const woClosed = ['CLOSED', 'CANCELLED', 'REJECTED'].includes(wo.status);
-  const pdc3MonthAlertActive = inAlertWindow && !woClosed && !wo.pdc3MonthAckAt;
+  const pdc3MonthAdminAckPending = inAlertWindow && !woClosed && !wo.pdc3MonthAckAt;
+  const pdc3MonthMgrAckPending = inAlertWindow && !woClosed && !wo.pdc3MonthMgrAckAt;
+  const pdc3MonthAlertActive = pdc3MonthAdminAckPending || pdc3MonthMgrAckPending;
   const closures = sanitizeClosuresFor(wo.closures, user);
   return {
     ...wo,
@@ -206,6 +218,8 @@ const decorate = (wo, user) => {
     daysToPdc,
     overdue,
     pdc3MonthAlertActive,
+    pdc3MonthAdminAckPending,
+    pdc3MonthMgrAckPending,
   };
 };
 
@@ -220,8 +234,6 @@ const computeOnTimeStats = (workOrders) => {
     onTimePercent: Math.round((onTimeCount / completedList.length) * 1000) / 10,
   };
 };
-
-const isL5 = (user) => user.role === 'ADMIN' && L5_USERNAMES.includes(user.username);
 
 // Notify the L5 admins + FINANCE/ACCOUNTING about a closure-cycle event.
 // (NOT QC or MANAGER — they shouldn't see invoice/payment chatter.)
@@ -415,25 +427,26 @@ router.get('/:id', authenticate, authorize(...WO_VIEW_ROLES), async (req, res) =
 router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
     const body = req.body || {};
-    const required = ['supplyOrderNo', 'supplyOrderDate', 'customerName', 'orderQuantity', 'pdcDate'];
+    // Supply Chain must pick the unit manager up-front — admin can change it
+    // when verifying.
+    const required = ['supplyOrderNo', 'supplyOrderDate', 'customerName', 'orderQuantity', 'pdcDate', 'assignedUnitId'];
     for (const f of required) {
       if (body[f] === undefined || body[f] === null || body[f] === '') {
         return res.status(400).json({ error: `${f} is required` });
       }
     }
 
-    let assignedUnitId = body.assignedUnitId || null;
-    if (assignedUnitId) {
-      const unit = await prisma.unit.findUnique({ where: { id: assignedUnitId } });
-      if (!unit) return res.status(400).json({ error: 'Assigned unit not found' });
-    }
+    const assignedUnitId = body.assignedUnitId;
+    const unit = await prisma.unit.findUnique({ where: { id: assignedUnitId } });
+    if (!unit) return res.status(400).json({ error: 'Assigned unit not found' });
 
     const pdcDate = new Date(body.pdcDate);
-    // Default BG date to PDC + 2 months when the SC user did not supply one.
-    // (BG runs alongside the order and is normally 2 months past PDC.)
+    // BG date ALWAYS auto-defaults to PDC + 2 months when not supplied — it is
+    // editable (form pre-fills it; SC can overwrite, and it can be changed
+    // later via PATCH or a new BG history entry).
     const bgDate = body.bankGuaranteeDate
       ? new Date(body.bankGuaranteeDate)
-      : (body.bankGuaranteeNo ? addDays(pdcDate, DEFAULT_BG_OFFSET_DAYS) : null);
+      : addDays(pdcDate, DEFAULT_BG_OFFSET_DAYS);
 
     const created = await withDocRetry(async () => {
       const workOrderNumber = await generateSequentialNumber(prisma, 'WO');
@@ -553,6 +566,10 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (re
     if (body.orderQuantity !== undefined) data.orderQuantity = Number(body.orderQuantity);
     if (body.supplyOrderDate) data.supplyOrderDate = new Date(body.supplyOrderDate);
     if (body.pdcDate) data.pdcDate = new Date(body.pdcDate);
+    // BG date is auto-derived (PDC + 2 months) but stays editable here.
+    if (body.bankGuaranteeDate !== undefined) {
+      data.bankGuaranteeDate = body.bankGuaranteeDate ? new Date(body.bankGuaranteeDate) : null;
+    }
     if (body.lotsExpected !== undefined) {
       data.lotsExpected = body.lotsExpected ? Math.max(1, Number(body.lotsExpected)) : null;
     }
@@ -1133,20 +1150,18 @@ router.put('/:id/delivery-status', authenticate, authorize('MANAGER', 'SUPPLY_CH
 });
 
 // ════════════════════════════════════════════════════════════════════
-// 3-MONTH PDC ALERT — admin-only acknowledgement
+// 3-MONTH PDC ALERT — BOTH admin AND unit manager must acknowledge
 //
-// Admins see a red blinking button on any WO whose effective PDC is ≤ 90 days
-// away (handled in the decorator). They click it, enter a remark and call this
-// endpoint to silence the alert. The ack is sticky — the WO remembers who
-// cleared it, when, and the remark. Re-opening only happens if the PDC gets
-// pushed beyond 90 days and slides back in (very rare; would need a manual
-// re-arm — not auto-handled here).
+// When the effective PDC is ≤ 90 days away, a red blinking alert fires on the
+// WO. The ADMIN and the assigned unit's MANAGER must EACH file their own
+// remark (extension needed / issues / status). The alert keeps blinking until
+// both remarks are recorded. Every remark is saved on the WO permanently.
 // ════════════════════════════════════════════════════════════════════
 
 router.post(
   '/:id/pdc-alert/acknowledge',
   authenticate,
-  authorize('ADMIN'),
+  authorize('ADMIN', 'MANAGER'),
   async (req, res) => {
     try {
       const { note } = req.body || {};
@@ -1155,16 +1170,31 @@ router.post(
       }
       const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
       if (!existing) return res.status(404).json({ error: 'Work order not found' });
-      if (existing.pdc3MonthAckAt) {
-        return res.status(400).json({ error: '3-month PDC alert already acknowledged' });
+
+      const data = {};
+      if (req.user.role === 'ADMIN') {
+        if (existing.pdc3MonthAckAt) {
+          return res.status(400).json({ error: 'Admin already acknowledged the 3-month PDC alert' });
+        }
+        data.pdc3MonthAckAt = new Date();
+        data.pdc3MonthAckById = req.user.id;
+        data.pdc3MonthAckNote = String(note).trim();
+      } else {
+        // MANAGER — must belong to the assigned unit.
+        if (existing.assignedUnitId !== req.user.unitId) {
+          return res.status(403).json({ error: 'Not your unit' });
+        }
+        if (existing.pdc3MonthMgrAckAt) {
+          return res.status(400).json({ error: 'Unit manager already acknowledged the 3-month PDC alert' });
+        }
+        data.pdc3MonthMgrAckAt = new Date();
+        data.pdc3MonthMgrAckById = req.user.id;
+        data.pdc3MonthMgrAckNote = String(note).trim();
       }
+
       const updated = await prisma.workOrder.update({
         where: { id: req.params.id },
-        data: {
-          pdc3MonthAckAt: new Date(),
-          pdc3MonthAckById: req.user.id,
-          pdc3MonthAckNote: String(note).trim(),
-        },
+        data,
         include: WO_INCLUDE,
       });
       res.json(decorate(updated, req.user));
@@ -1176,16 +1206,17 @@ router.post(
 );
 
 // ════════════════════════════════════════════════════════════════════
-// PER-BATCH CLOSURE WORKFLOW
+// PER-LOT CLOSURE WORKFLOW
 //
-// Each closure cycle is one delivery batch. A WO can have many cycles
-// running in parallel (e.g. WO for 10 units: batch 1 = 2 units, batch 2 =
-// 3 units, each with its own QC → Mgmt → Finance → Accounts chain).
+// Each closure cycle is one delivery lot. The final lot is the final closure
+// of the work order.
 //
-// Stages: UNIT_DOCS_PENDING → QC_VERIFIED → MGMT_APPROVED →
-//         INVOICE_SENT (48h SLA) → DELIVERY_ACKNOWLEDGED (45-day pay window) →
-//         PAYMENT_RECEIVED (cycle CLOSED)
-//         (any pre-INVOICE stage can be sent back to ON_HOLD by QC/Finance)
+// Stages: UNIT_DOCS_PENDING (with QC) → QC_VERIFIED (finance pending) →
+//         INVOICE_SENT (both buttons clicked, 48h goods-ack SLA) →
+//         DELIVERY_ACKNOWLEDGED (45-day payment countdown, weekly follow-ups) →
+//         PAYMENT_RECEIVED (lot CLOSED; final lot auto-closes the WO)
+//         (QC can send a lot back to ON_HOLD; the unit re-uploads the lot
+//          report and resends it to QC)
 // ════════════════════════════════════════════════════════════════════
 
 // Helper: fetch a closure cycle by id, scoped to the WO id from the route.
@@ -1198,19 +1229,47 @@ const loadClosure = async (workOrderId, closureId) => {
   return closure;
 };
 
-// ── POST /api/work-orders/:id/closures — open a new cycle for a batch ──
-// Triggered when the unit head has delivered a batch and wants to start its
-// closure chain. Multiple cycles per WO are allowed.
+// Recompute the WO's delivered qty / status from its lots. Called after a lot
+// is opened so progress badges and COMPLETED flips stay in sync.
+const syncWoFromLots = async (woId) => {
+  const wo = await prisma.workOrder.findUnique({
+    where: { id: woId },
+    include: { closures: { select: { deliveryQty: true } } },
+  });
+  if (!wo) return null;
+  const covered = wo.closures.reduce((s, c) => s + (c.deliveryQty || 0), 0);
+  const fullyDone = covered >= wo.orderQuantity;
+  return prisma.workOrder.update({
+    where: { id: woId },
+    data: {
+      deliveredQty: covered,
+      status: ['CLOSED', 'CANCELLED', 'REJECTED'].includes(wo.status)
+        ? wo.status
+        : (fullyDone ? 'COMPLETED' : 'IN_PROGRESS'),
+      deliveryStatus: fullyDone ? 'DELIVERED' : 'PARTIAL',
+      completedAt: fullyDone ? (wo.completedAt || new Date()) : wo.completedAt,
+    },
+  });
+};
+
+// ── POST /api/work-orders/:id/closures — "Work Done" for a lot ──
+// One shot: the unit manager fills the lot details AND uploads the single lot
+// report PDF. The lot is created already submitted to QC — QC is notified
+// immediately. multipart/form-data: file + deliveryQty + deliveryNote + deliveredAt.
 router.post(
   '/:id/closures',
   authenticate,
   authorize('MANAGER', 'ADMIN'),
+  closureDocUpload.single('file'),
   async (req, res) => {
     try {
       const { deliveryQty, deliveryNote, deliveredAt } = req.body || {};
       const qty = Number(deliveryQty);
       if (!Number.isFinite(qty) || qty <= 0) {
         return res.status(400).json({ error: 'deliveryQty must be > 0' });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'Lot report PDF is required — upload exactly one report for this lot' });
       }
       const wo = await prisma.workOrder.findUnique({
         where: { id: req.params.id },
@@ -1221,16 +1280,22 @@ router.post(
       if (denied) return res.status(403).json({ error: denied });
       if (!['UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED'].includes(wo.status)) {
         return res.status(400).json({
-          error: `Cannot open a closure cycle on a WO in status ${wo.status}`,
+          error: `Cannot open a lot on a WO in status ${wo.status}`,
         });
       }
       const alreadyCovered = wo.closures.reduce((s, c) => s + (c.deliveryQty || 0), 0);
       if (alreadyCovered + qty > wo.orderQuantity) {
         return res.status(400).json({
-          error: `Cycle qty exceeds remaining WO qty (already covered ${alreadyCovered} of ${wo.orderQuantity})`,
+          error: `Lot qty exceeds remaining WO qty (already covered ${alreadyCovered} of ${wo.orderQuantity})`,
+        });
+      }
+      if (wo.lotsExpected && wo.closures.length >= wo.lotsExpected) {
+        return res.status(400).json({
+          error: `All ${wo.lotsExpected} expected lots are already opened`,
         });
       }
       const nextCycle = (wo.closures.reduce((m, c) => Math.max(m, c.cycleNumber), 0) || 0) + 1;
+      const now = new Date();
       const closure = await prisma.workOrderClosure.create({
         data: {
           workOrderId: wo.id,
@@ -1238,15 +1303,41 @@ router.post(
           stage: 'UNIT_DOCS_PENDING',
           deliveryQty: qty,
           deliveryNote: deliveryNote || null,
-          deliveredAt: deliveredAt ? new Date(deliveredAt) : new Date(),
+          deliveredAt: deliveredAt ? new Date(deliveredAt) : now,
           openedById: req.user.id,
+          unitDocsSubmittedAt: now, // lot report attached right here → straight to QC
+          unitDocsSubmittedById: req.user.id,
+          docs: {
+            create: {
+              docType: LOT_REPORT_DOC_TYPE,
+              fileUrl: publicUrlFor('wo-closure', req.file.filename),
+              fileName: req.file.originalname || req.file.filename,
+              stage: 'UNIT_DOCS_PENDING',
+              uploadedById: req.user.id,
+              note: deliveryNote || null,
+            },
+          },
         },
         include: CLOSURE_INCLUDE,
       });
+
+      // Lot qty counts as delivered work — keep WO progress in sync.
+      await syncWoFromLots(wo.id);
+
+      await prisma.notification.create({
+        data: {
+          type: 'WO_CLOSURE_QC_PENDING',
+          title: `WO ${wo.workOrderNumber} Lot #${nextCycle} — QC verification pending`,
+          message: `${req.user.name} marked work done for Lot #${nextCycle} (qty ${qty} ${wo.orderUnit}) and uploaded the lot report. Please verify and write your remark.`,
+          targetRole: 'QC',
+          sentById: req.user.id,
+        },
+      });
+
       res.status(201).json(closure);
       refreshAlarms(wo.id);
     } catch (error) {
-      console.error('Open closure cycle error:', error);
+      console.error('Open lot (closure) error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   },
@@ -1308,55 +1399,8 @@ router.delete(
   },
 );
 
-// ── POST .../submit-to-qc — unit hands the cycle to QC ──
-router.post(
-  '/:id/closures/:closureId/submit-to-qc',
-  authenticate,
-  authorize('MANAGER', 'ADMIN'),
-  async (req, res) => {
-    try {
-      const closure = await prisma.workOrderClosure.findUnique({
-        where: { id: req.params.closureId },
-        include: { workOrder: true, docs: true },
-      });
-      if (!closure || closure.workOrderId !== req.params.id) return res.status(404).json({ error: 'Closure cycle not found' });
-      const denied = ensureClosureAccess(closure.workOrder, req.user);
-      if (denied) return res.status(403).json({ error: denied });
-      if (closure.stage !== 'UNIT_DOCS_PENDING') {
-        return res.status(400).json({ error: `Cycle must be UNIT_DOCS_PENDING (currently ${closure.stage})` });
-      }
-      const present = new Set(closure.docs.map((d) => d.docType));
-      const missing = REQUIRED_UNIT_DOC_TYPES.filter((t) => !present.has(t));
-      if (missing.length) {
-        return res.status(400).json({ error: 'Missing required documents', missing });
-      }
-      const updated = await prisma.workOrderClosure.update({
-        where: { id: closure.id },
-        data: {
-          unitDocsSubmittedAt: new Date(),
-          unitDocsSubmittedById: req.user.id,
-        },
-        include: CLOSURE_INCLUDE,
-      });
-      await prisma.notification.create({
-        data: {
-          type: 'WO_CLOSURE_QC_PENDING',
-          title: `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — QC verification pending`,
-          message: `${req.user.name} submitted closure docs (cycle #${closure.cycleNumber}, qty ${closure.deliveryQty}). Please verify and issue the QC Verification Certificate.`,
-          targetRole: 'QC',
-          sentById: req.user.id,
-        },
-      });
-      res.json(updated);
-      refreshAlarms(req.params.id);
-    } catch (error) {
-      console.error('Closure submit-to-qc error:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  },
-);
-
-// ── POST .../qc-verify — QC issues certificate & forwards to L5 mgmt ──
+// ── POST .../qc-verify — QC verifies the lot report & forwards to FINANCE ──
+// Remark is MANDATORY — it is stored on the closure (qcRemark) permanently.
 router.post(
   '/:id/closures/:closureId/qc-verify',
   authenticate,
@@ -1364,13 +1408,16 @@ router.post(
   async (req, res) => {
     try {
       const { certificateUrl, note } = req.body || {};
+      if (!note || !String(note).trim()) {
+        return res.status(400).json({ error: 'QC remark is required — write your verification remark before forwarding' });
+      }
       const closure = await prisma.workOrderClosure.findUnique({
         where: { id: req.params.closureId },
         include: { workOrder: true },
       });
       if (!closure || closure.workOrderId !== req.params.id) return res.status(404).json({ error: 'Closure cycle not found' });
       if (closure.stage !== 'UNIT_DOCS_PENDING' || !closure.unitDocsSubmittedAt) {
-        return res.status(400).json({ error: 'Cycle is not awaiting QC verification' });
+        return res.status(400).json({ error: 'Lot is not awaiting QC verification' });
       }
       const certificateNumber = await withDocRetry(() => generateSequentialNumber(prisma, 'WOQC'));
       const updated = await prisma.workOrderClosure.update({
@@ -1381,23 +1428,20 @@ router.post(
           qcVerifiedById: req.user.id,
           qcCertificateNumber: certificateNumber,
           qcCertificateUrl: certificateUrl || null,
+          qcRemark: String(note).trim(),
         },
         include: CLOSURE_INCLUDE,
       });
-      const rows = [];
-      for (const username of L5_USERNAMES) {
-        const u = await prisma.user.findUnique({ where: { username }, select: { id: true } });
-        if (u) {
-          rows.push({
-            type: 'WO_CLOSURE_MGMT_PENDING',
-            title: `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — Mgmt approval needed`,
-            message: `QC ${req.user.name} issued certificate ${certificateNumber}${note ? `. Note: ${note}` : ''}. Please review and approve.`,
-            targetUserId: u.id,
-            sentById: req.user.id,
-          });
-        }
-      }
-      if (rows.length) await prisma.notification.createMany({ data: rows });
+      // QC approved → straight to Finance (no management approval step).
+      await prisma.notification.create({
+        data: {
+          type: 'WO_CLOSURE_FINANCE_PENDING',
+          title: `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} — Finance action`,
+          message: `QC ${req.user.name} approved Lot #${closure.cycleNumber} (certificate ${certificateNumber}). Remark: ${String(note).trim()}. Attach the physical invoice + delivery challan and click "Invoice Sent" and "DC Sent".`,
+          targetRole: 'FINANCE',
+          sentById: req.user.id,
+        },
+      });
       res.json(updated);
       refreshAlarms(req.params.id);
     } catch (error) {
@@ -1407,121 +1451,12 @@ router.post(
   },
 );
 
-// ── POST .../mgmt-approve — L5 sign-off ──
-router.post(
-  '/:id/closures/:closureId/mgmt-approve',
-  authenticate,
-  authorize('ADMIN'),
-  async (req, res) => {
-    try {
-      if (!isL5(req.user)) {
-        return res.status(403).json({ error: 'Only Level-5 management can approve closure' });
-      }
-      const { note } = req.body || {};
-      const closure = await prisma.workOrderClosure.findUnique({
-        where: { id: req.params.closureId },
-        include: { workOrder: true },
-      });
-      if (!closure || closure.workOrderId !== req.params.id) return res.status(404).json({ error: 'Closure cycle not found' });
-      if (closure.stage !== 'QC_VERIFIED') {
-        return res.status(400).json({ error: 'Cycle is not awaiting management approval' });
-      }
-      const updated = await prisma.workOrderClosure.update({
-        where: { id: closure.id },
-        data: {
-          stage: 'MGMT_APPROVED',
-          mgmtApprovedAt: new Date(),
-          mgmtApprovedById: req.user.id,
-          mgmtApprovalNote: note || null,
-        },
-        include: CLOSURE_INCLUDE,
-      });
-      await prisma.notification.create({
-        data: {
-          type: 'WO_CLOSURE_FINANCE_PENDING',
-          title: `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — Finance action`,
-          message: `${req.user.name} approved cycle #${closure.cycleNumber}. Please prepare and send invoice to the customer.`,
-          targetRole: 'FINANCE',
-          sentById: req.user.id,
-        },
-      });
-      res.json(updated);
-      refreshAlarms(req.params.id);
-    } catch (error) {
-      console.error('Closure mgmt-approve error:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  },
-);
-
-// ── POST .../send-invoice — Finance records invoice # + DC # and dispatches ──
-// Finance enters BOTH the invoice number and the delivery challan number
-// (no file upload — these are physical docs sent to the customer). Clicking
-// "Invoice & DC Sent" stamps invoiceSentAt and starts the 48h ack SLA.
-router.post(
-  '/:id/closures/:closureId/send-invoice',
-  authenticate,
-  authorize('FINANCE', 'ADMIN'),
-  async (req, res) => {
-    try {
-      const { invoiceNumber, deliveryChallanNumber, invoiceDate, description } = req.body || {};
-      const invNo = invoiceNumber && String(invoiceNumber).trim();
-      const dcNo = deliveryChallanNumber && String(deliveryChallanNumber).trim();
-      if (!invNo) return res.status(400).json({ error: 'invoiceNumber is required' });
-      if (!dcNo) return res.status(400).json({ error: 'deliveryChallanNumber is required' });
-
-      const closure = await prisma.workOrderClosure.findUnique({
-        where: { id: req.params.closureId },
-        include: { workOrder: true },
-      });
-      if (!closure || closure.workOrderId !== req.params.id) return res.status(404).json({ error: 'Closure cycle not found' });
-      if (closure.stage !== 'MGMT_APPROVED') {
-        return res.status(400).json({ error: 'Cycle must be MGMT_APPROVED before sending invoice' });
-      }
-
-      // Surface duplicate invoice # cleanly (unique index would otherwise 500).
-      const dup = await prisma.workOrderClosure.findFirst({
-        where: { invoiceNumber: invNo, NOT: { id: closure.id } },
-        select: { id: true },
-      });
-      if (dup) return res.status(409).json({ error: `Invoice number ${invNo} is already used on another closure` });
-
-      const now = new Date();
-      const deadline = new Date(now.getTime() + SLA_WINDOW_MS);
-      const updated = await prisma.workOrderClosure.update({
-        where: { id: closure.id },
-        data: {
-          stage: 'INVOICE_SENT',
-          invoiceNumber: invNo,
-          deliveryChallanNumber: dcNo,
-          invoiceDate: invoiceDate ? new Date(invoiceDate) : now,
-          invoiceDescription: description || null,
-          invoiceSentAt: now,
-          invoiceSentById: req.user.id,
-          slaDeadlineAt: deadline,
-          last24hReminderAt: null,
-          slaBreachedAt: null,
-        },
-        include: CLOSURE_INCLUDE,
-      });
-      await notifyL5Finance(
-        `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — Invoice ${invNo} + DC ${dcNo} sent (48h SLA)`,
-        `${req.user.name} dispatched invoice ${invNo} & DC ${dcNo} to ${closure.workOrder.customerName}. Awaiting both signed acks — 48h deadline: ${deadline.toLocaleString('en-IN')}.`,
-        req.user.id,
-      );
-      res.json(updated);
-      refreshAlarms(req.params.id);
-    } catch (error) {
-      console.error('Closure send-invoice error:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  },
-);
-
-// ── POST .../mark-invoice-ack / .../mark-dc-ack — tick the two ack boxes ──
-// Finance ticks each independently as the signed copy comes back. Both must be
-// true before /delivery-ack will succeed. Idempotent — re-ticking is a no-op.
-const buildAckRoute = (which) => async (req, res) => {
+// ── POST .../mark-invoice-sent / .../mark-dc-sent — Finance's two buttons ──
+// The physical invoice and delivery challan travel WITH the material (no
+// upload). Finance clicks each button as it goes out; the optional number is
+// recorded. Once BOTH are clicked the lot moves to INVOICE_SENT and the 48h
+// goods-ack SLA starts. Idempotent — re-clicking a done button is a no-op.
+const buildSentRoute = (which) => async (req, res) => {
   try {
     const closure = await prisma.workOrderClosure.findUnique({
       where: { id: req.params.closureId },
@@ -1530,39 +1465,79 @@ const buildAckRoute = (which) => async (req, res) => {
     if (!closure || closure.workOrderId !== req.params.id) {
       return res.status(404).json({ error: 'Closure cycle not found' });
     }
-    if (closure.stage !== 'INVOICE_SENT') {
-      return res.status(400).json({ error: 'Cycle must be INVOICE_SENT to record acks' });
+    if (!['QC_VERIFIED', 'MGMT_APPROVED'].includes(closure.stage)) {
+      return res.status(400).json({ error: `Lot must be QC-approved before dispatch (currently ${closure.stage})` });
     }
+
     const now = new Date();
-    const data = which === 'invoice'
-      ? (closure.invoiceAckReceived ? {} : { invoiceAckReceived: true, invoiceAckAt: now })
-      : (closure.dcAckReceived      ? {} : { dcAckReceived: true,      dcAckAt: now });
-    const updated = Object.keys(data).length
-      ? await prisma.workOrderClosure.update({
-          where: { id: closure.id }, data, include: CLOSURE_INCLUDE,
-        })
-      : closure;
+    const data = {};
+    if (which === 'invoice') {
+      if (closure.invoiceSentAt) return res.json(closure); // already clicked
+      const invNo = req.body?.invoiceNumber && String(req.body.invoiceNumber).trim();
+      if (invNo) {
+        const dup = await prisma.workOrderClosure.findFirst({
+          where: { invoiceNumber: invNo, NOT: { id: closure.id } },
+          select: { id: true },
+        });
+        if (dup) return res.status(409).json({ error: `Invoice number ${invNo} is already used on another lot` });
+        data.invoiceNumber = invNo;
+      }
+      data.invoiceSentAt = now;
+      data.invoiceSentById = req.user.id;
+      data.invoiceDate = req.body?.invoiceDate ? new Date(req.body.invoiceDate) : now;
+      if (req.body?.description) data.invoiceDescription = req.body.description;
+    } else {
+      if (closure.dcSentAt) return res.json(closure); // already clicked
+      const dcNo = req.body?.deliveryChallanNumber && String(req.body.deliveryChallanNumber).trim();
+      if (dcNo) data.deliveryChallanNumber = dcNo;
+      data.dcSentAt = now;
+      data.dcSentById = req.user.id;
+    }
+
+    // Did this click complete the pair? → start the 48h goods-ack SLA.
+    const bothDone = which === 'invoice' ? !!closure.dcSentAt : !!closure.invoiceSentAt;
+    if (bothDone) {
+      data.stage = 'INVOICE_SENT';
+      data.slaDeadlineAt = new Date(now.getTime() + SLA_WINDOW_MS);
+      data.last24hReminderAt = null;
+      data.slaBreachedAt = null;
+    }
+
+    const updated = await prisma.workOrderClosure.update({
+      where: { id: closure.id },
+      data,
+      include: CLOSURE_INCLUDE,
+    });
+
+    if (bothDone) {
+      await notifyL5Finance(
+        `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} — Invoice + DC sent (48h goods-ack SLA started)`,
+        `${req.user.name} confirmed both the invoice and delivery challan went out with the material to ${closure.workOrder.customerName}. The signed goods acknowledgement must come back within 48h — deadline ${data.slaDeadlineAt.toLocaleString('en-IN')}.`,
+        req.user.id,
+      );
+    }
     res.json(updated);
     refreshAlarms(req.params.id);
   } catch (error) {
-    console.error(`Closure mark-${which}-ack error:`, error);
+    console.error(`Closure mark-${which}-sent error:`, error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 router.post(
-  '/:id/closures/:closureId/mark-invoice-ack',
+  '/:id/closures/:closureId/mark-invoice-sent',
   authenticate, authorize('FINANCE', 'ADMIN'),
-  buildAckRoute('invoice'),
+  buildSentRoute('invoice'),
 );
 router.post(
-  '/:id/closures/:closureId/mark-dc-ack',
+  '/:id/closures/:closureId/mark-dc-sent',
   authenticate, authorize('FINANCE', 'ADMIN'),
-  buildAckRoute('dc'),
+  buildSentRoute('dc'),
 );
 
-// ── POST .../delivery-ack — Finance confirms customer-signed receipt ──
-// Requires BOTH invoiceAckReceived AND dcAckReceived to be true. Closes the
-// 48h SLA and opens the 45-day payment window monitored by Accounts.
+// ── POST .../delivery-ack — Finance clicks "Goods Ack Received" ──
+// Real-world: the driver comes back with the customer-signed receipt. Finance
+// clicks this ONE button — the 48h SLA stops and the 45-day payment countdown
+// (Accounts' scope) starts.
 router.post(
   '/:id/closures/:closureId/delivery-ack',
   authenticate,
@@ -1578,14 +1553,7 @@ router.post(
         return res.status(404).json({ error: 'Closure cycle not found' });
       }
       if (closure.stage !== 'INVOICE_SENT') {
-        return res.status(400).json({ error: 'Cycle must be INVOICE_SENT before acking delivery' });
-      }
-      if (!closure.invoiceAckReceived || !closure.dcAckReceived) {
-        return res.status(400).json({
-          error: 'Tick both Invoice-Ack and DC-Ack received before confirming delivery',
-          invoiceAckReceived: closure.invoiceAckReceived,
-          dcAckReceived: closure.dcAckReceived,
-        });
+        return res.status(400).json({ error: 'Both "Invoice Sent" and "DC Sent" must be clicked before the goods ack' });
       }
       const now = new Date();
       const paymentDue = new Date(now.getTime() + PAYMENT_WINDOW_MS);
@@ -1593,6 +1561,10 @@ router.post(
         where: { id: closure.id },
         data: {
           stage: 'DELIVERY_ACKNOWLEDGED',
+          invoiceAckReceived: true,
+          invoiceAckAt: closure.invoiceAckAt || now,
+          dcAckReceived: true,
+          dcAckAt: closure.dcAckAt || now,
           deliveryAckAt: now,
           deliveryAckById: req.user.id,
           deliveryAckNote: note || null,
@@ -1604,8 +1576,8 @@ router.post(
         include: CLOSURE_INCLUDE,
       });
       await notifyL5Finance(
-        `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — Delivery acknowledged (45-day pay window)`,
-        `${req.user.name} confirmed customer receipt of invoice ${closure.invoiceNumber || '(no number)'} + DC ${closure.deliveryChallanNumber || '(no number)'}. 45-day payment window starts now — due by ${paymentDue.toLocaleString('en-IN')}.`,
+        `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} — Goods ack received (45-day payment window)`,
+        `${req.user.name} confirmed the signed goods acknowledgement came back for invoice ${closure.invoiceNumber || '(no number)'} / DC ${closure.deliveryChallanNumber || '(no number)'}. 48h timer stopped. Accounts' 45-day payment countdown starts now — due by ${paymentDue.toLocaleDateString('en-IN')}.`,
         req.user.id,
       );
       res.json(updated);
@@ -1685,8 +1657,8 @@ router.post(
         include: { workOrder: true },
       });
       if (!closure || closure.workOrderId !== req.params.id) return res.status(404).json({ error: 'Closure cycle not found' });
-      if (['INVOICE_SENT', 'PAYMENT_RECEIVED'].includes(closure.stage)) {
-        return res.status(400).json({ error: `Cycle cannot be put on hold at stage ${closure.stage}` });
+      if (['INVOICE_SENT', 'DELIVERY_ACKNOWLEDGED', 'PAYMENT_RECEIVED'].includes(closure.stage)) {
+        return res.status(400).json({ error: `Lot cannot be put on hold at stage ${closure.stage}` });
       }
       const [hold, updated] = await prisma.$transaction([
         prisma.workOrderHoldRequest.create({
@@ -1722,57 +1694,72 @@ router.post(
   },
 );
 
-// ── POST .../resolve-hold — unit re-submits; cycle restarts at UNIT_DOCS_PENDING ──
+// ── POST .../resubmit — unit finished the pending work; uploads a FRESH lot
+// report and resends the lot to QC. Clears the open hold(s), wipes the old QC
+// verdict, and stamps a new submission. multipart/form-data: file + note.
 router.post(
-  '/:id/closures/:closureId/resolve-hold',
+  '/:id/closures/:closureId/resubmit',
   authenticate,
   authorize('MANAGER', 'ADMIN'),
+  closureDocUpload.single('file'),
   async (req, res) => {
     try {
-      const { holdId, note } = req.body || {};
-      if (!holdId) return res.status(400).json({ error: 'holdId is required' });
+      const { note } = req.body || {};
+      if (!req.file) {
+        return res.status(400).json({ error: 'Upload the corrected lot report PDF to resend this lot to QC' });
+      }
       const closure = await prisma.workOrderClosure.findUnique({
         where: { id: req.params.closureId },
-        include: { workOrder: true },
+        include: { workOrder: true, holdRequests: { where: { resolvedAt: null } } },
       });
       if (!closure || closure.workOrderId !== req.params.id) return res.status(404).json({ error: 'Closure cycle not found' });
       const denied = ensureClosureAccess(closure.workOrder, req.user);
       if (denied) return res.status(403).json({ error: denied });
       if (closure.stage !== 'ON_HOLD') {
-        return res.status(400).json({ error: 'Cycle is not on hold' });
+        return res.status(400).json({ error: 'Lot is not on hold' });
       }
-      const hold = await prisma.workOrderHoldRequest.findUnique({ where: { id: holdId } });
-      if (!hold || hold.closureId !== closure.id) return res.status(404).json({ error: 'Hold not found' });
-      if (hold.resolvedAt) return res.status(400).json({ error: 'Hold already resolved' });
 
-      const [, updated] = await prisma.$transaction([
+      const now = new Date();
+      const ops = closure.holdRequests.map((h) =>
         prisma.workOrderHoldRequest.update({
-          where: { id: hold.id },
-          data: { resolvedAt: new Date(), resolvedById: req.user.id, resolvedNote: note || null },
+          where: { id: h.id },
+          data: { resolvedAt: now, resolvedById: req.user.id, resolvedNote: note || 'Lot report re-uploaded and resent to QC' },
         }),
-        prisma.workOrderClosure.update({
-          where: { id: closure.id },
-          data: {
-            // Re-enter unit-docs so QC + Mgmt re-approve the new submission.
-            stage: 'UNIT_DOCS_PENDING',
-            unitDocsSubmittedAt: null,
-            unitDocsSubmittedById: null,
-            qcVerifiedAt: null,
-            qcVerifiedById: null,
-            qcCertificateUrl: null,
-            qcCertificateNumber: null,
-            mgmtApprovedAt: null,
-            mgmtApprovedById: null,
-            mgmtApprovalNote: null,
-          },
-          include: CLOSURE_INCLUDE,
-        }),
-      ]);
+      );
+      ops.push(prisma.workOrderClosureDoc.create({
+        data: {
+          closureId: closure.id,
+          docType: LOT_REPORT_DOC_TYPE,
+          fileUrl: publicUrlFor('wo-closure', req.file.filename),
+          fileName: req.file.originalname || req.file.filename,
+          stage: 'UNIT_DOCS_PENDING',
+          uploadedById: req.user.id,
+          note: note || 'Re-uploaded after hold',
+        },
+      }));
+      ops.push(prisma.workOrderClosure.update({
+        where: { id: closure.id },
+        data: {
+          // Back with QC for a fresh verification of the new report.
+          stage: 'UNIT_DOCS_PENDING',
+          unitDocsSubmittedAt: now,
+          unitDocsSubmittedById: req.user.id,
+          qcVerifiedAt: null,
+          qcVerifiedById: null,
+          qcCertificateUrl: null,
+          qcCertificateNumber: null,
+          qcRemark: null,
+        },
+        include: CLOSURE_INCLUDE,
+      }));
+      const results = await prisma.$transaction(ops);
+      const updated = results[results.length - 1];
+
       await prisma.notification.create({
         data: {
           type: 'WO_CLOSURE_HOLD_RESOLVED',
-          title: `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — Hold cleared`,
-          message: `${req.user.name} re-submitted closure docs. QC + Mgmt re-approval required.`,
+          title: `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} — resent to QC`,
+          message: `${req.user.name} finished the pending work and re-uploaded the lot report. Please re-verify and write your remark.`,
           targetRole: 'QC',
           sentById: req.user.id,
         },
@@ -1780,7 +1767,7 @@ router.post(
       res.json(updated);
       refreshAlarms(req.params.id);
     } catch (error) {
-      console.error('Closure resolve-hold error:', error);
+      console.error('Closure resubmit error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   },
@@ -1937,12 +1924,11 @@ router.post(
   },
 );
 
-// ── POST .../payment-received — Accounts closes the cycle ──
-// This is the ONLY way to close a cycle. Payment can only be logged AFTER
-// Finance has acknowledged customer delivery (stage = DELIVERY_ACKNOWLEDGED),
-// since that's when the 45-day payment clock starts. Setting stage =
-// PAYMENT_RECEIVED stops both the 45-day window and the weekly reminder loop.
-// WO itself doesn't auto-close — admin uses /close once every cycle is settled.
+// ── POST .../payment-received — Accounts closes the lot ──
+// Payment can only be logged AFTER the goods ack (stage = DELIVERY_ACKNOWLEDGED),
+// since that's when the 45-day clock starts. Setting stage = PAYMENT_RECEIVED
+// stops the countdown and the weekly reminder loop. When this was the FINAL
+// lot (every lot paid + full qty covered) the whole WO auto-closes.
 router.post(
   '/:id/closures/:closureId/payment-received',
   authenticate,
@@ -1957,7 +1943,7 @@ router.post(
       if (!closure || closure.workOrderId !== req.params.id) return res.status(404).json({ error: 'Closure cycle not found' });
       if (closure.stage !== 'DELIVERY_ACKNOWLEDGED') {
         return res.status(400).json({
-          error: 'Payment can only be logged after Finance acknowledges customer delivery',
+          error: 'Payment can only be logged after the goods acknowledgement',
         });
       }
       const updated = await prisma.workOrderClosure.update({
@@ -1971,10 +1957,36 @@ router.post(
         include: CLOSURE_INCLUDE,
       });
       await notifyL5Finance(
-        `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — Payment received`,
-        `${req.user.name} confirmed payment received for invoice ${closure.invoiceNumber || '(no number)'}${note ? `. Note: ${note}` : ''}. Cycle closed.`,
+        `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} — Payment received`,
+        `${req.user.name} confirmed payment received for invoice ${closure.invoiceNumber || '(no number)'}${note ? `. Note: ${note}` : ''}. Lot closed.`,
         req.user.id,
       );
+
+      // Final-lot check: every lot paid + full qty covered → WO auto-closes.
+      const wo = await prisma.workOrder.findUnique({
+        where: { id: closure.workOrderId },
+        include: { closures: { select: { stage: true, deliveryQty: true } } },
+      });
+      if (wo && !['CLOSED', 'CANCELLED', 'REJECTED'].includes(wo.status)) {
+        const allPaid = wo.closures.every((c) => c.stage === 'PAYMENT_RECEIVED');
+        const covered = wo.closures.reduce((s, c) => s + (c.deliveryQty || 0), 0);
+        if (allPaid && covered >= wo.orderQuantity) {
+          await prisma.workOrder.update({
+            where: { id: wo.id },
+            data: {
+              status: 'CLOSED',
+              completedAt: wo.completedAt || new Date(),
+              remarks: `${wo.remarks ? wo.remarks + '\n' : ''}Auto-closed: final lot payment received on ${new Date().toLocaleDateString('en-IN')}.`,
+            },
+          });
+          await notifyL5Finance(
+            `WO ${wo.workOrderNumber} — CLOSED (final lot paid)`,
+            `All lots of WO ${wo.workOrderNumber} (${wo.customerName}) are delivered, acknowledged and paid. The work order is closed.`,
+            req.user.id,
+          );
+        }
+      }
+
       res.json(updated);
       refreshAlarms(req.params.id);
     } catch (error) {
