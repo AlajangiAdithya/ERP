@@ -16,7 +16,6 @@ import AllRequests from './pages/AllRequests';
 import AuditLogs from './pages/AuditLogs';
 import UnitUsageLogs from './pages/UnitUsageLogs';
 import Notifications from './pages/Notifications';
-import Calendar from './pages/Calendar';
 import PurchaseRequests from './pages/PurchaseRequests';
 import QuotationManagement from './pages/QuotationManagement';
 import Suppliers from './pages/Suppliers';
@@ -345,7 +344,6 @@ export default function App() {
               <Route path="/products" element={<Products />} />
               <Route path="/products/:id" element={<ProductDetail />} />
               <Route path="/notifications" element={<Notifications />} />
-              <Route path="/calendar" element={<Calendar />} />
               <Route path="/settings" element={<Settings />} />
 
               <Route path="*" element={<Navigate to="/" replace />} />

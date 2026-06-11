@@ -6,7 +6,6 @@ import {
   CheckSquare, ScrollText, Bell,
   Building2, ShieldCheck, Crown, Boxes, Ruler,
   ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation, Gauge,
-  CalendarDays,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -62,7 +61,6 @@ const buildAllItems = () => {
     { to: '/attendance', icon: CalendarClock, label: 'Attendance', roles: ['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING', 'HR'] },
     // Monitoring hub — Stock Movements, All MIV Requests, Audit Logs, Unit Usage Logs.
     { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
-    { to: '/calendar', icon: CalendarDays, label: 'My Calendar', roles: ALL_ROLES },
     { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
     { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
     { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },

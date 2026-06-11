@@ -57,11 +57,17 @@ const emptyForm = () => ({
   status: 'ACTIVE', notes: '',
 });
 
+const emptyDriverForm = () => ({
+  name: '', phone: '', licenseNo: '', licenseExpiry: '',
+  status: 'ACTIVE', notes: '',
+});
+
 export default function Vehicles() {
   const { user } = useAuth();
   const canEdit = ['LOGISTICS', 'ADMIN'].includes(user?.role);
 
   const [vehicles, setVehicles] = useState([]);
+  const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -99,13 +105,13 @@ export default function Vehicles() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm(emptyForm());
+    setForm(activeTab === 'VEHICLES' ? emptyForm() : emptyDriverForm());
     setError('');
     setShowModal(true);
   };
   const openEdit = (v) => {
     setEditing(v);
-    setForm({
+    setForm(activeTab === 'VEHICLES' ? {
       regNumber: v.regNumber || '',
       vehicleType: v.vehicleType || '',
       make: v.make || '',
@@ -119,6 +125,13 @@ export default function Vehicles() {
       fitnessExpiry: toDateInput(v.fitnessExpiry),
       status: v.status || 'ACTIVE',
       notes: v.notes || '',
+    } : {
+      name: v.name || '',
+      phone: v.phone || '',
+      licenseNo: v.licenseNo || '',
+      licenseExpiry: toDateInput(v.licenseExpiry),
+      status: v.status || 'ACTIVE',
+      notes: v.notes || '',
     });
     setError('');
     setShowModal(true);
@@ -126,16 +139,18 @@ export default function Vehicles() {
 
   const save = async () => {
     setError('');
-    if (!form.regNumber.trim()) return setError('Registration number is required');
+    const isVeh = activeTab === 'VEHICLES';
+    if (isVeh && !form.regNumber.trim()) return setError('Registration number is required');
+    if (!isVeh && !form.name.trim()) return setError('Driver name is required');
     try {
-      const payload = {
-        ...form,
-        capacityKg: form.capacityKg === '' ? null : Number(form.capacityKg),
-      };
+      const base = isVeh ? '/vehicles' : '/drivers';
+      const payload = isVeh
+        ? { ...form, capacityKg: form.capacityKg === '' ? null : Number(form.capacityKg) }
+        : { ...form };
       if (editing) {
-        await api.put(`/vehicles/${editing.id}`, payload);
+        await api.put(`${base}/${editing.id}`, payload);
       } else {
-        await api.post('/vehicles', payload);
+        await api.post(base, payload);
       }
       setShowModal(false);
       load();
@@ -145,9 +160,11 @@ export default function Vehicles() {
   };
 
   const remove = async (v) => {
-    if (!window.confirm(`Delete vehicle ${v.regNumber}?`)) return;
+    const isVeh = activeTab === 'VEHICLES';
+    const label = isVeh ? v.regNumber : v.name;
+    if (!window.confirm(`Delete ${isVeh ? 'vehicle' : 'driver'} ${label}?`)) return;
     try {
-      await api.delete(`/vehicles/${v.id}`);
+      await api.delete(`${isVeh ? '/vehicles' : '/drivers'}/${v.id}`);
       load();
     } catch (err) {
       alert(err.response?.data?.error || 'Delete failed');
