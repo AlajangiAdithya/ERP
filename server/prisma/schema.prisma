@@ -2034,7 +2034,12 @@ model Message {
   isBroadcast Boolean   @default(false)
   recipientId String?
   recipient   User?     @relation("MessageRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  // Work closure: only the recipient of a direct message can set this. Once set,
+  // the work is "done" and the sender is allowed to delete the message. Broadcasts
+  // never carry a doneAt (there is no single recipient to close them).
+  doneAt      DateTime?
   // Soft delete: only the sender can set this; row is retained for history.
+  // A direct message can only be deleted after the recipient marks it done.
   deletedAt   DateTime?
   createdAt   DateTime  @default(now())
 

@@ -5,9 +5,11 @@
 //   @everyone <text>   → broadcast, every signed-in user sees it
 //   @username  <text>  → direct message, only sender + recipient see it
 //
-// Only the sender can delete (soft) their own message once the work is done.
-// Deleted messages stay visible in the "history" view (deletedAt set).
-// Visible to every authenticated role (no authorize gate).
+// A direct message is usually a work request. The recipient closes it with the
+// "Done" button (PATCH /:id/done → doneAt). Only then may the sender soft-delete
+// it (DELETE /:id → deletedAt). Broadcasts have no recipient to close, so the
+// sender may delete them at any time. Deleted messages stay visible in the
+// "history" view. Visible to every authenticated role (no authorize gate).
 // ──────────────────────────────────────────────────────────────
 const express = require('express');
 const prisma = require('../config/db');
@@ -196,12 +198,62 @@ router.post('/', authenticate, async (req, res) => {
   }
 });
 
+// ── PATCH /api/messages/:id/done — recipient marks the work done ──
+// Only the recipient of a direct message can close it. Closing stamps doneAt,
+// which unlocks the sender's delete button and notifies the sender.
+router.patch('/:id/done', authenticate, async (req, res) => {
+  try {
+    const existing = await prisma.message.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, isBroadcast: true, recipientId: true, senderId: true, doneAt: true, deletedAt: true, body: true },
+    });
+    if (!existing) return res.status(404).json({ error: 'Message not found' });
+    if (existing.isBroadcast || !existing.recipientId) {
+      return res.status(400).json({ error: 'Broadcasts cannot be marked done' });
+    }
+    if (existing.recipientId !== req.user.id) {
+      return res.status(403).json({ error: 'Only the recipient can mark this done' });
+    }
+    if (existing.deletedAt) {
+      return res.status(400).json({ error: 'Message already deleted' });
+    }
+    if (existing.doneAt) {
+      return res.status(400).json({ error: 'Already marked done' });
+    }
+
+    const message = await prisma.message.update({
+      where: { id: req.params.id },
+      data: { doneAt: new Date() },
+      include: MSG_INCLUDE,
+    });
+
+    // Let the sender know the work is closed so they can clear the message.
+    const preview = existing.body.length > 120 ? `${existing.body.slice(0, 120)}…` : existing.body;
+    await prisma.notification.create({
+      data: {
+        type: 'MESSAGE_DONE',
+        title: `${req.user.name} marked your message done`,
+        message: preview,
+        targetUserId: existing.senderId,
+        sentById: req.user.id,
+      },
+    });
+
+    res.json(message);
+  } catch (error) {
+    console.error('Mark message done error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── DELETE /api/messages/:id — sender-only soft delete ──
+// A direct message can only be deleted once the recipient has marked it done.
+// Broadcasts have no recipient to close them, so the sender may delete anytime.
 router.delete('/:id', authenticate, async (req, res) => {
   try {
     const existing = await prisma.message.findUnique({
       where: { id: req.params.id },
-      select: { id: true, senderId: true, deletedAt: true },
+      select: { id: true, senderId: true, isBroadcast: true, recipientId: true, doneAt: true, deletedAt: true },
     });
     if (!existing) return res.status(404).json({ error: 'Message not found' });
     if (existing.senderId !== req.user.id) {
@@ -209,6 +261,10 @@ router.delete('/:id', authenticate, async (req, res) => {
     }
     if (existing.deletedAt) {
       return res.status(400).json({ error: 'Message already deleted' });
+    }
+    const isDirect = !existing.isBroadcast && existing.recipientId;
+    if (isDirect && !existing.doneAt) {
+      return res.status(400).json({ error: 'Wait for the recipient to mark this done before deleting' });
     }
 
     const message = await prisma.message.update({

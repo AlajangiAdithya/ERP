@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MessagesSquare, Send, Trash2, History, Megaphone, AtSign, CornerUpLeft, Loader2 } from 'lucide-react';
+import { MessagesSquare, Send, Trash2, History, Megaphone, AtSign, CornerUpLeft, Loader2, CheckCircle2, Check } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import Card from '../ui/Card';
@@ -116,6 +116,16 @@ export default function TeamChat() {
     }
   };
 
+  const markDone = async (m) => {
+    if (!confirm('Mark this as done? The sender will be notified and can then clear it.')) return;
+    try {
+      await api.patch(`/messages/${m.id}/done`);
+      fetchMessages(true);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to mark done');
+    }
+  };
+
   const remove = async (m) => {
     if (!confirm('Delete this message? It will move to the deleted history.')) return;
     try {
@@ -180,6 +190,14 @@ export default function TeamChat() {
             {ordered.map((m) => {
               const mine = m.sender?.id === user?.id;
               const deleted = !!m.deletedAt;
+              const isDirect = !m.isBroadcast && !!m.recipientId;
+              const iAmRecipient = m.recipient?.id === user?.id;
+              const done = !!m.doneAt;
+              // Receiver of an open work request sees the Done button.
+              const canMarkDone = isDirect && iAmRecipient && !done && !deleted;
+              // Sender may delete a direct message only once it's been marked done;
+              // broadcasts (no recipient to close them) can be deleted anytime.
+              const canDelete = mine && !deleted && (!isDirect || done);
               return (
                 <div key={m.id} className={`flex gap-2.5 ${mine ? 'flex-row-reverse' : 'flex-row'}`}>
                   {/* Avatar */}
@@ -225,12 +243,18 @@ export default function TeamChat() {
                     <div className="flex items-center gap-2 mt-0.5" style={{ flexDirection: mine ? 'row-reverse' : 'row' }}>
                       <span className="text-[10px] text-gray-400">{formatDateTime(m.createdAt)}</span>
                       {deleted && <span className="text-[10px] text-red-400 font-medium">deleted {formatDateTime(m.deletedAt)}</span>}
+                      {/* Closed-work indicator — both parties see it once the receiver is done */}
+                      {done && !deleted && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600 font-medium" title={`Marked done ${formatDateTime(m.doneAt)}`}>
+                          <CheckCircle2 size={11} /> Done
+                        </span>
+                      )}
                       {!deleted && (
                         <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => replyTo(m)} className="text-gray-400 hover:text-navy-600" title="Reply">
                             <CornerUpLeft size={13} />
                           </button>
-                          {mine && (
+                          {canDelete && (
                             <button onClick={() => remove(m)} className="text-gray-400 hover:text-red-500" title="Delete (sender only)">
                               <Trash2 size={13} />
                             </button>
@@ -238,6 +262,18 @@ export default function TeamChat() {
                         </div>
                       )}
                     </div>
+
+                    {/* Receiver's "Done" button — closes the work request so the sender can clear it */}
+                    {canMarkDone && (
+                      <button
+                        onClick={() => markDone(m)}
+                        className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-semibold shadow-sm hover:bg-emerald-700 transition-colors"
+                        style={{ alignSelf: mine ? 'flex-end' : 'flex-start' }}
+                        title="Mark this work as done"
+                      >
+                        <Check size={12} /> Done
+                      </button>
+                    )}
                   </div>
                 </div>
               );
