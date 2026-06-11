@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2, Clock,
-  MapPin, Repeat, X,
+  MapPin, Repeat, X, Users, Lock,
 } from 'lucide-react';
 import api from '../api/axios';
+import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
@@ -55,15 +56,16 @@ const emptyForm = (day) => {
   const start = new Date(base); start.setHours(day ? 9 : base.getHours() + 1, 0, 0, 0);
   const end = new Date(start); end.setHours(start.getHours() + 1);
   return {
-    id: null, title: '', description: '', location: '',
+    id: null, ownerId: null, title: '', description: '', location: '',
     allDay: false,
     startLocal: toLocalInput(start), endLocal: toLocalInput(end),
     startDate: toDateInput(start), endDate: toDateInput(start),
-    category: '', color: 'blue', recurrence: 'NONE', recurUntil: '',
+    category: '', color: 'blue', visibility: 'PERSONAL', recurrence: 'NONE', recurUntil: '',
   };
 };
 
 export default function Calendar({ embedded = false }) {
+  const { user } = useAuth();
   const [view, setView] = useState('month');     // month | week | day
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [events, setEvents] = useState([]);       // occurrences in the visible window
@@ -152,11 +154,14 @@ export default function Calendar({ embedded = false }) {
     setError('');
     const s = new Date(occ.baseStart); const e = new Date(occ.baseEnd);
     setForm({
-      id: occ.id, title: occ.title, description: occ.description || '', location: occ.location || '',
+      id: occ.id, ownerId: occ.ownerId ?? null,
+      ownerName: occ.ownerName || '',
+      title: occ.title, description: occ.description || '', location: occ.location || '',
       allDay: !!occ.allDay,
       startLocal: toLocalInput(s), endLocal: toLocalInput(e),
       startDate: toDateInput(s), endDate: toDateInput(e),
       category: occ.category || '', color: occ.color || 'blue',
+      visibility: occ.visibility || 'PERSONAL',
       recurrence: occ.recurrence || 'NONE',
       recurUntil: occ.recurUntil ? toDateInput(new Date(occ.recurUntil)) : '',
     });
@@ -164,12 +169,15 @@ export default function Calendar({ embedded = false }) {
   };
 
   const buildPayload = () => {
-    const startAt = form.allDay ? `${form.startDate}T00:00` : form.startLocal;
-    const endAt = form.allDay ? `${form.endDate || form.startDate}T23:59` : form.endLocal;
+    // Parse the picked local wall-clock values into real instants, then send
+    // ISO-8601 UTC. Sending the bare "YYYY-MM-DDTHH:mm" string makes the server
+    // re-parse it in *its* timezone, which shifts the time on the way back.
+    const startAt = new Date(form.allDay ? `${form.startDate}T00:00` : form.startLocal).toISOString();
+    const endAt = new Date(form.allDay ? `${form.endDate || form.startDate}T23:59` : form.endLocal).toISOString();
     return {
       title: form.title, description: form.description, location: form.location,
       startAt, endAt, allDay: form.allDay,
-      category: form.category, color: form.color,
+      category: form.category, color: form.color, visibility: form.visibility,
       recurrence: form.recurrence,
       recurUntil: form.recurrence !== 'NONE' ? (form.recurUntil || null) : null,
     };
@@ -208,6 +216,10 @@ export default function Calendar({ embedded = false }) {
 
   const today = startOfDay(new Date());
 
+  // A saved event can only be edited/deleted by its owner. New events (no id)
+  // are always editable. Shared events from other users open read-only.
+  const canEdit = !form.id || (user && form.ownerId === user.id);
+
   // ── Event chip ──
   const Chip = ({ occ, showTime = true }) => {
     const c = COLOR_MAP[occ.color] || COLOR_MAP.blue;
@@ -217,6 +229,7 @@ export default function Calendar({ embedded = false }) {
         className={`w-full text-left truncate rounded-md border px-1.5 py-0.5 text-[11px] font-medium leading-tight hover:brightness-95 ${c.chip}`}
         title={`${occ.title}${occ.location ? ' · ' + occ.location : ''}`}
       >
+        {occ.visibility === 'EVERYONE' && <Users size={9} className="inline mr-0.5 -mt-0.5" />}
         {occ.recurrence !== 'NONE' && <Repeat size={9} className="inline mr-0.5 -mt-0.5" />}
         {showTime && !occ.allDay && <span className="tabular-nums">{fmtTime(occ._s)} </span>}
         {occ.title}
@@ -316,6 +329,9 @@ export default function Calendar({ embedded = false }) {
                     <div className="text-sm font-semibold text-navy-800 flex items-center gap-1.5">
                       {occ.title}
                       {occ.recurrence !== 'NONE' && <Repeat size={12} className="text-navy-400" />}
+                      {occ.visibility === 'EVERYONE' && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-teal-600"><Users size={11} /> {occ.ownerId === user?.id ? 'Everyone' : occ.ownerName || 'Shared'}</span>
+                      )}
                     </div>
                     {occ.location && <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5"><MapPin size={11} /> {occ.location}</div>}
                     {occ.description && <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">{occ.description}</div>}
@@ -363,7 +379,7 @@ export default function Calendar({ embedded = false }) {
             </div>
             <div className="min-w-0">
               <h3 className="text-sm font-semibold text-gray-800">My Calendar</h3>
-              <p className="text-[11px] text-gray-500 mt-0.5 truncate">Personal events &amp; reminders — only you can see these</p>
+              <p className="text-[11px] text-gray-500 mt-0.5 truncate">Personal reminders, plus events shared with everyone</p>
             </div>
           </div>
           <Button variant="secondary" size="sm" onClick={() => openCreate(null)}><Plus size={16} /> New event</Button>
@@ -371,7 +387,7 @@ export default function Calendar({ embedded = false }) {
       ) : (
         <PageHero
           title="My Calendar"
-          subtitle="Your personal calendar and reminders — only you can see these."
+          subtitle="Your personal reminders, plus events shared with everyone."
           eyebrow="Planner"
           icon={CalendarDays}
           actions={<Button variant="secondary" onClick={() => openCreate(null)}><Plus size={16} /> New event</Button>}
@@ -442,6 +458,7 @@ export default function Calendar({ embedded = false }) {
                         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${c.dot}`} />
                         <span className="text-xs font-semibold text-navy-600 tabular-nums w-20 flex-shrink-0">{e.allDay ? 'All day' : fmtTime(e._s)}</span>
                         <span className="text-sm text-navy-800 truncate">{e.title}</span>
+                        {e.visibility === 'EVERYONE' && <Users size={11} className="text-teal-500 flex-shrink-0" title={e.ownerId === user?.id ? 'Shared with everyone' : `Shared by ${e.ownerName || 'another user'}`} />}
                         {e.location && <span className="text-xs text-gray-400 truncate hidden sm:inline">· {e.location}</span>}
                         {e.recurrence !== 'NONE' && <Repeat size={11} className="text-navy-300 flex-shrink-0" />}
                       </button>
@@ -455,35 +472,47 @@ export default function Calendar({ embedded = false }) {
       </Card>
 
       {/* Event modal */}
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={form.id ? 'Edit event' : 'New event'} size="lg">
+      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={!canEdit ? 'Event details' : form.id ? 'Edit event' : 'New event'} size="lg">
         <div className="space-y-4">
           {error && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
 
-          <Input label="Title *" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Team review, Pay vendor, Doctor…" autoFocus />
+          {!canEdit && (
+            <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+              <Lock size={14} className="flex-shrink-0" />
+              <span>Shared by {form.ownerName || 'another user'} — only they can edit or delete this event.</span>
+            </div>
+          )}
+
+          <Input label="Title *" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Team review, Pay vendor, Doctor…" autoFocus disabled={!canEdit} />
+
+          <Select label="Visibility" value={form.visibility} onChange={(e) => setForm({ ...form, visibility: e.target.value })} disabled={!canEdit}>
+            <option value="PERSONAL">Personal — only you can see this</option>
+            <option value="EVERYONE">Everyone — shared with all users</option>
+          </Select>
 
           <label className="flex items-center gap-2 text-sm font-medium text-navy-700">
-            <input type="checkbox" checked={form.allDay} onChange={(e) => setForm({ ...form, allDay: e.target.checked })} className="rounded border-navy-300" />
+            <input type="checkbox" checked={form.allDay} onChange={(e) => setForm({ ...form, allDay: e.target.checked })} className="rounded border-navy-300" disabled={!canEdit} />
             All day
           </label>
 
           {form.allDay ? (
             <div className="grid grid-cols-2 gap-3">
-              <Input label="Start date" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
-              <Input label="End date" type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
+              <Input label="Start date" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} disabled={!canEdit} />
+              <Input label="End date" type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} disabled={!canEdit} />
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              <Input label="Starts" type="datetime-local" value={form.startLocal} onChange={(e) => setForm({ ...form, startLocal: e.target.value })} />
-              <Input label="Ends" type="datetime-local" value={form.endLocal} onChange={(e) => setForm({ ...form, endLocal: e.target.value })} />
+              <Input label="Starts" type="datetime-local" value={form.startLocal} onChange={(e) => setForm({ ...form, startLocal: e.target.value })} disabled={!canEdit} />
+              <Input label="Ends" type="datetime-local" value={form.endLocal} onChange={(e) => setForm({ ...form, endLocal: e.target.value })} disabled={!canEdit} />
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Input label="Category" list="cal-cats" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Work, Personal…" />
+              <Input label="Category" list="cal-cats" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Work, Personal…" disabled={!canEdit} />
               <datalist id="cal-cats">{CATEGORY_PRESETS.map((c) => <option key={c} value={c} />)}</datalist>
             </div>
-            <Input label="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Optional" />
+            <Input label="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Optional" disabled={!canEdit} />
           </div>
 
           <div>
@@ -493,8 +522,9 @@ export default function Calendar({ embedded = false }) {
                 <button
                   key={col}
                   type="button"
+                  disabled={!canEdit}
                   onClick={() => setForm({ ...form, color: col })}
-                  className={`w-7 h-7 rounded-full ${COLOR_MAP[col].dot} ring-offset-2 transition ${form.color === col ? 'ring-2 ring-navy-500' : 'hover:scale-110'}`}
+                  className={`w-7 h-7 rounded-full ${COLOR_MAP[col].dot} ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed ${form.color === col ? 'ring-2 ring-navy-500' : 'enabled:hover:scale-110'}`}
                   title={col}
                 />
               ))}
@@ -502,23 +532,25 @@ export default function Calendar({ embedded = false }) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Select label="Repeat" value={form.recurrence} onChange={(e) => setForm({ ...form, recurrence: e.target.value })}>
+            <Select label="Repeat" value={form.recurrence} onChange={(e) => setForm({ ...form, recurrence: e.target.value })} disabled={!canEdit}>
               {RECURRENCE_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
             {form.recurrence !== 'NONE' && (
-              <Input label="Repeat until (optional)" type="date" value={form.recurUntil} onChange={(e) => setForm({ ...form, recurUntil: e.target.value })} />
+              <Input label="Repeat until (optional)" type="date" value={form.recurUntil} onChange={(e) => setForm({ ...form, recurUntil: e.target.value })} disabled={!canEdit} />
             )}
           </div>
 
-          <Textarea label="Notes" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Optional details / reminder text" />
+          <Textarea label="Notes" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Optional details / reminder text" disabled={!canEdit} />
 
           <div className="flex items-center justify-between pt-2 border-t border-navy-100">
-            {form.id ? (
+            {canEdit && form.id ? (
               <Button variant="ghost" onClick={remove} disabled={saving} className="text-red-600 hover:bg-red-50"><Trash2 size={16} /> Delete</Button>
             ) : <span />}
             <div className="flex gap-2">
-              <Button variant="secondary" onClick={() => setModalOpen(false)} disabled={saving}><X size={16} /> Cancel</Button>
-              <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : form.id ? 'Save changes' : 'Create event'}</Button>
+              <Button variant="secondary" onClick={() => setModalOpen(false)} disabled={saving}><X size={16} /> {canEdit ? 'Cancel' : 'Close'}</Button>
+              {canEdit && (
+                <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : form.id ? 'Save changes' : 'Create event'}</Button>
+              )}
             </div>
           </div>
         </div>

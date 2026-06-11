@@ -803,6 +803,10 @@ model QuotationItem {
   supplierName      String
   supplierContact   String?
   supplierAddress   String?
+  // Per-product supplier-quote PDF uploaded by PO. One quote document per item,
+  // independent of the quotation-level quotationPdfUrl (kept for older rows /
+  // single combined quotes).
+  quotationPdfUrl   String?
   // For union quotations: per-PR-item allocation breakdown captured at quotation creation
   // so it can be carried into PurchaseOrderItemAllocation when the quotation is approved.
   // Shape: [{ purchaseRequestItemId: string, allocatedQty: number }]
@@ -2428,6 +2432,7 @@ model CalendarEvent {
   allDay      Boolean   @default(false)
   category    String?                          // label, e.g. "Work" / "Personal"
   color       String    @default("blue")       // palette token (blue/green/red/amber/purple/pink/teal/gray)
+  visibility  String    @default("PERSONAL")    // PERSONAL (owner-only) | EVERYONE (shared, read-only to others)
   recurrence  String    @default("NONE")        // NONE | DAILY | WEEKLY | MONTHLY | YEARLY
   recurUntil  DateTime?                          // inclusive last date a recurring event may fire
   createdAt   DateTime  @default(now())

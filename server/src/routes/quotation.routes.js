@@ -44,6 +44,39 @@ function acceptQuotationPdf(req, res, next) {
   });
 }
 
+// Per-item variant: accepts one supplier-quote PDF per product. Files arrive as
+// `quotationPdf_<index>` where <index> matches the position in payload.items.
+// A bare `quotationPdf` field is still honoured as a quotation-level document
+// for backward compatibility. Uses multer.any() so an arbitrary number of
+// indexed fields can be sent without pre-declaring them.
+function acceptQuotationItemPdfs(req, res, next) {
+  quotationUpload.any()(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Quotation upload failed' });
+    if (req.body && typeof req.body.payload === 'string') {
+      try { req.body = JSON.parse(req.body.payload); }
+      catch { return res.status(400).json({ error: 'Invalid payload JSON' }); }
+    }
+    next();
+  });
+}
+
+// Build a lookup of per-item PDF URLs from multer's `req.files`. Returns
+// { byIndex: { <n>: url }, quotationLevel: url|null } so callers can attach the
+// right document to each item (and keep the optional whole-quote PDF).
+function collectQuotationPdfs(reqFiles) {
+  const byIndex = {};
+  let quotationLevel = null;
+  for (const f of reqFiles || []) {
+    if (f.fieldname === 'quotationPdf') {
+      quotationLevel = publicUrlFor('quotations', f.filename);
+      continue;
+    }
+    const m = /^quotationPdf_(\d+)$/.exec(f.fieldname);
+    if (m) byIndex[parseInt(m[1], 10)] = publicUrlFor('quotations', f.filename);
+  }
+  return { byIndex, quotationLevel };
+}
+
 const createSchema = z.object({
   purchaseRequestId: z.string().uuid(),
   notes: z.string().optional(),
@@ -298,7 +331,7 @@ router.get('/:id', authenticate, authorize(...QUOTATION_VIEW_ROLES), async (req,
 });
 
 // POST /api/quotations — PO creates a single-PR quotation
-router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf, async (req, res) => {
+router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationItemPdfs, async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
 
@@ -339,7 +372,9 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf
     }
     const topLevelSupplierId = [...supplierCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 
-    const quotationPdfUrl = req.file ? publicUrlFor('quotations', req.file.filename) : null;
+    // Per-product supplier-quote PDFs (one per item, keyed by payload index),
+    // plus an optional quotation-level PDF for backward compatibility.
+    const { byIndex: itemPdfByIndex, quotationLevel: quotationPdfUrl } = collectQuotationPdfs(req.files);
 
     let quotationNumber;
     const quotation = await withDocRetry(async () => {
@@ -354,7 +389,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf
           createdById: req.user.id,
           supplierId: topLevelSupplierId,
           items: {
-            create: itemsWithSupplier.map(item => ({
+            create: itemsWithSupplier.map((item, idx) => ({
               productId: item.productId || null,
               productName: item.productName,
               productUnit: item.productUnit || 'pcs',
@@ -365,6 +400,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf
               supplierName: item.supplierName.trim(),
               supplierContact: item.supplierContact || null,
               supplierAddress: item.supplierAddress || null,
+              quotationPdfUrl: itemPdfByIndex[idx] || null,
             })),
           },
         },

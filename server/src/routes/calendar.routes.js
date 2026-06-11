@@ -13,6 +13,7 @@ const router = express.Router();
 
 const RECURRENCES = ['NONE', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'];
 const COLORS = ['blue', 'green', 'red', 'amber', 'purple', 'pink', 'teal', 'gray'];
+const VISIBILITIES = ['PERSONAL', 'EVERYONE'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -54,6 +55,9 @@ function expandEvent(ev, from, to) {
       allDay: ev.allDay,
       category: ev.category,
       color: ev.color,
+      visibility: ev.visibility,
+      ownerId: ev.ownerId,
+      ownerName: ev.owner ? ev.owner.name : null,
       recurrence: ev.recurrence,
       recurUntil: ev.recurUntil,
       // occurrence window (may differ from the stored base for recurring)
@@ -121,6 +125,7 @@ function buildEventData(body) {
 
   const recurrence = RECURRENCES.includes(body.recurrence) ? body.recurrence : 'NONE';
   const color = COLORS.includes(body.color) ? body.color : 'blue';
+  const visibility = VISIBILITIES.includes(body.visibility) ? body.visibility : 'PERSONAL';
 
   let recurUntil = null;
   if (recurrence !== 'NONE' && body.recurUntil) {
@@ -138,6 +143,7 @@ function buildEventData(body) {
       allDay: !!body.allDay,
       category: body.category ? String(body.category).trim() : null,
       color,
+      visibility,
       recurrence,
       recurUntil,
     },
@@ -157,14 +163,20 @@ router.get('/events', authenticate, async (req, res) => {
     // Pull every event that *could* touch the window: non-recurring ones that
     // overlap, plus all recurring ones that start on/before the window end
     // (their tail may reach into it). Expansion below filters precisely.
+    // Visibility: a user sees their own events plus anyone's EVERYONE events.
     const events = await prisma.calendarEvent.findMany({
       where: {
-        ownerId: req.user.id,
-        OR: [
-          { recurrence: 'NONE', startAt: { lte: to }, endAt: { gte: from } },
-          { recurrence: { not: 'NONE' }, startAt: { lte: to } },
+        AND: [
+          { OR: [{ ownerId: req.user.id }, { visibility: 'EVERYONE' }] },
+          {
+            OR: [
+              { recurrence: 'NONE', startAt: { lte: to }, endAt: { gte: from } },
+              { recurrence: { not: 'NONE' }, startAt: { lte: to } },
+            ],
+          },
         ],
       },
+      include: { owner: { select: { id: true, name: true } } },
     });
 
     const occurrences = [];

@@ -21,7 +21,6 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState([]);
   const [saving, setSaving] = useState(false);
-  const [quotationPdf, setQuotationPdf] = useState(null);
   const [complianceIssues, setComplianceIssues] = useState([]);
   const [complianceFY, setComplianceFY] = useState('');
   // Supplier compliance flags indexed by supplierId, loaded once when the modal
@@ -44,7 +43,6 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
   useEffect(() => {
     if (isOpen && purchaseRequest) {
       setNotes('');
-      setQuotationPdf(null);
       setCommon({ supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '' });
       // Show items still open for quoting (AWAITING / SUBMITTED / HELD). Items
       // already covered by a competing quote can still receive another one —
@@ -70,7 +68,8 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
           drawingNo: i.drawingNo || '',
           qapNo: i.qapNo || '',
           itemRemarks: i.itemRemarks || '',
-        })) || [{ productId: null, productName: '', productUnit: 'pcs', quantity: 1, unitPrice: 0, supplierMode: 'new', supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '' }];
+          quotationPdf: null, // per-product supplier-quote PDF (File)
+        })) || [{ productId: null, productName: '', productUnit: 'pcs', quantity: 1, unitPrice: 0, supplierMode: 'new', supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '', quotationPdf: null }];
       setItems(prItems);
 
       // For each PR item with a productId, fetch supplier history (purchased + quoted).
@@ -234,7 +233,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     setItems(updated);
   };
 
-  const addItem = () => setItems([...items, { productId: null, productName: '', productUnit: 'pcs', quantity: 1, unitPrice: 0, supplierMode: 'new', supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '' }]);
+  const addItem = () => setItems([...items, { productId: null, productName: '', productUnit: 'pcs', quantity: 1, unitPrice: 0, supplierMode: 'new', supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '', quotationPdf: null }]);
   const removeItem = (idx) => items.length > 1 && setItems(items.filter((_, i) => i !== idx));
 
   const totalAmount = items.reduce((sum, i) => sum + (i.quantity * i.unitPrice), 0);
@@ -245,8 +244,9 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     if (validItems.length === 0) return alert('At least one item with pricing is required');
     const missingSupplier = validItems.find(i => !i.supplierName.trim());
     if (missingSupplier) return alert(`Supplier is required for every item (missing for "${missingSupplier.productName}")`);
-    if (quotationPdf && quotationPdf.type !== 'application/pdf') {
-      return alert('Quotation attachment must be a PDF file');
+    const badPdf = validItems.find(i => i.quotationPdf && i.quotationPdf.type !== 'application/pdf');
+    if (badPdf) {
+      return alert(`Quotation attachment for "${badPdf.productName}" must be a PDF file`);
     }
 
     setSaving(true);
@@ -268,10 +268,15 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
         })),
       };
 
-      if (quotationPdf) {
+      // Per-product PDFs are keyed by their index in payload.items so the server
+      // can attach each quote document to the right line.
+      const hasItemPdf = validItems.some(i => i.quotationPdf);
+      if (hasItemPdf) {
         const form = new FormData();
         form.append('payload', JSON.stringify(payload));
-        form.append('quotationPdf', quotationPdf);
+        validItems.forEach((i, idx) => {
+          if (i.quotationPdf) form.append(`quotationPdf_${idx}`, i.quotationPdf);
+        });
         await api.post('/quotations', form, { headers: { 'Content-Type': 'multipart/form-data' } });
       } else {
         await api.post('/quotations', payload);
@@ -558,6 +563,28 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
                       </div>
                     )}
                   </div>
+
+                  {/* Per-product supplier-quote PDF */}
+                  <div className="bg-blue-50/40 border rounded p-2">
+                    <label className="text-xs font-medium text-gray-700 flex items-center gap-1 mb-1">
+                      <Paperclip size={12} /> Quote PDF for this product
+                      <span className="text-[11px] text-gray-500 font-normal">(optional, PDF only ≤10 MB)</span>
+                    </label>
+                    {item.quotationPdf ? (
+                      <div className="text-xs text-gray-600 flex items-center gap-2">
+                        <span className="font-medium">{item.quotationPdf.name}</span>
+                        <span className="text-gray-400">({(item.quotationPdf.size / 1024).toFixed(1)} KB)</span>
+                        <button type="button" onClick={() => updateItem(idx, 'quotationPdf', null)} className="text-red-500 hover:text-red-700"><X size={12} /></button>
+                      </div>
+                    ) : (
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        onChange={(e) => updateItem(idx, 'quotationPdf', e.target.files?.[0] || null)}
+                        className="text-xs"
+                      />
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -575,25 +602,6 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
         </div>
 
         <Input label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" />
-
-        <div className="border rounded-md p-3 bg-blue-50/40">
-          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-            <Paperclip size={14} /> Quotation PDF <span className="text-xs text-gray-500 font-normal">(optional, one per supplier quote, PDF only ≤10 MB)</span>
-          </label>
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => setQuotationPdf(e.target.files?.[0] || null)}
-            className="text-sm"
-          />
-          {quotationPdf && (
-            <div className="mt-1 text-xs text-gray-600 flex items-center gap-2">
-              <span className="font-medium">{quotationPdf.name}</span>
-              <span className="text-gray-400">({(quotationPdf.size / 1024).toFixed(1)} KB)</span>
-              <button type="button" onClick={() => setQuotationPdf(null)} className="text-red-500 hover:text-red-700"><X size={12} /></button>
-            </div>
-          )}
-        </div>
 
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -1128,7 +1136,19 @@ function ResubmitQuotationModal({ quotation, onClose, onResubmitted }) {
               <tbody>
                 {(quotation.items || []).map(it => (
                   <tr key={it.id} className="border-b last:border-b-0">
-                    <td className="px-2 py-1.5">{it.productName}</td>
+                    <td className="px-2 py-1.5">
+                      {it.productName}
+                      {it.quotationPdfUrl && (
+                        <a
+                          href={it.quotationPdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-2 inline-flex items-center gap-0.5 text-[11px] text-blue-600 hover:text-blue-800 underline align-middle"
+                        >
+                          <Eye size={11} /> Quote PDF
+                        </a>
+                      )}
+                    </td>
                     <td className="px-2 py-1.5">{it.quantity} {it.productUnit}</td>
                     <td className="px-2 py-1.5">{formatCurrency(it.unitPrice)}</td>
                     <td className="px-2 py-1.5">{it.supplierName}</td>
@@ -1481,7 +1501,20 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
                           return (
                             <>
                               <tr key={item.id} className="border-b border-gray-50 hover:bg-amber-50/30">
-                                <td className="px-2 py-1.5">{item.productName}</td>
+                                <td className="px-2 py-1.5">
+                                  {item.productName}
+                                  {item.quotationPdfUrl && (
+                                    <a
+                                      href={item.quotationPdfUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="ml-2 inline-flex items-center gap-0.5 text-[11px] text-blue-600 hover:text-blue-800 underline align-middle"
+                                    >
+                                      <Eye size={11} /> Quote PDF
+                                    </a>
+                                  )}
+                                </td>
                                 <td className="px-2 py-1.5 whitespace-nowrap">{item.quantity} {item.productUnit}</td>
                                 <td className="px-2 py-1.5">{formatCurrency(item.unitPrice)}</td>
                                 <td className="px-2 py-1.5 font-medium text-gray-800">{item.supplierName || '—'}</td>
