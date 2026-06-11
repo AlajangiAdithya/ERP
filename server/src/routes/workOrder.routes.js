@@ -195,12 +195,20 @@ const decorate = (wo, user) => {
   if (!wo) return wo;
   const pdc = effectivePdc(wo);
   const completed = wo.completedAt ? new Date(wo.completedAt) : null;
-  const isCompleted = wo.status === 'COMPLETED' || wo.status === 'CLOSED';
-  const onTime = completed && pdc ? completed <= new Date(pdc) : null;
+  // "Delivered" = all lots dispatched (status COMPLETED) or fully closed.
+  const isDelivered = wo.status === 'COMPLETED' || wo.status === 'CLOSED';
+  // A WO is only truly DONE — and only counts for on-time delivery — once the
+  // FULL payment is in and every lot is settled (status CLOSED). Delivered but
+  // not yet fully paid = "awaiting payment" (still active, shown as Pending
+  // Accounts). completedAt holds the delivery date, so on-time still measures
+  // delivery punctuality vs PDC — it just isn't surfaced until the money lands.
+  const isPaidClosed = wo.status === 'CLOSED';
+  const awaitingPayment = wo.status === 'COMPLETED';
+  const onTime = isPaidClosed && completed && pdc ? completed <= new Date(pdc) : null;
   const daysToPdc = pdc
     ? Math.ceil((new Date(pdc) - new Date()) / (1000 * 60 * 60 * 24))
     : null;
-  const overdue = !isCompleted && pdc && new Date() > new Date(pdc);
+  const overdue = !isDelivered && pdc && new Date() > new Date(pdc);
   // 3-month-to-PDC alert state. Active when within the 90-day window, WO is
   // still live, and EITHER the admin or the assigned unit manager has not yet
   // filed their remark. Both must acknowledge before the alert clears.
@@ -217,15 +225,18 @@ const decorate = (wo, user) => {
     onTime,
     daysToPdc,
     overdue,
+    awaitingPayment,
     pdc3MonthAlertActive,
     pdc3MonthAdminAckPending,
     pdc3MonthMgrAckPending,
   };
 };
 
-// Aggregate on-time % across a list of WOs.
+// Aggregate on-time % across a list of WOs. ONLY fully-paid (CLOSED) work
+// orders count — a WO is not "completed" until its payment is completely in.
+// Delivered-but-unpaid (COMPLETED / Pending Accounts) is excluded.
 const computeOnTimeStats = (workOrders) => {
-  const completedList = workOrders.filter((w) => w.status === 'COMPLETED' || w.status === 'CLOSED');
+  const completedList = workOrders.filter((w) => w.status === 'CLOSED');
   if (!completedList.length) return { completedCount: 0, onTimeCount: 0, onTimePercent: null };
   const onTimeCount = completedList.filter((w) => w.onTime === true).length;
   return {

@@ -130,8 +130,10 @@ const marketingKpis = async (from, to) => {
   const pending = workOrders.filter((w) => w.status === 'PENDING_ADMIN').length;
   const orders = tenders - declined - pending;
 
-  // On-time deliveries: completed WOs delivered on/before the effective PDC.
-  const completed = workOrders.filter((w) => ['COMPLETED', 'CLOSED'].includes(w.status) && w.completedAt);
+  // On-time deliveries: a WO only counts once its payment is fully received
+  // (status CLOSED). completedAt holds the delivery date, so on-time still
+  // measures delivery vs PDC — delivered-but-unpaid WOs are not counted yet.
+  const completed = workOrders.filter((w) => w.status === 'CLOSED' && w.completedAt);
   const onTimeCount = completed.filter((w) => {
     const pdc = effectivePdc(w);
     return pdc && new Date(w.completedAt) <= new Date(pdc);

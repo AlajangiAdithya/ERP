@@ -2506,7 +2506,8 @@ function SupplyChainDashboard() {
   const pending = workOrders.filter((w) => w.status === 'PENDING_ADMIN').length;
   const inProgress = workOrders.filter((w) => ['UNIT_ACCEPTED', 'IN_PROGRESS', 'ADMIN_ACCEPTED'].includes(w.status)).length;
   const overdue = workOrders.filter((w) => w.overdue).length;
-  const completed = workOrders.filter((w) => ['COMPLETED', 'CLOSED'].includes(w.status)).length;
+  // "Completed" only counts fully-paid (CLOSED) WOs.
+  const completed = workOrders.filter((w) => w.status === 'CLOSED').length;
   const onTimePct = stats.onTimePercent;
 
   return (
@@ -2556,10 +2557,11 @@ function SupplyChainDashboard() {
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-xs text-navy-600">{w.workOrderNumber}</span>
                       <Badge color={
-                        w.status === 'COMPLETED' ? 'green' :
+                        w.status === 'CLOSED' ? 'green' :
+                        w.status === 'COMPLETED' ? 'amber' :
                         w.status === 'PENDING_ADMIN' ? 'yellow' :
                         w.status === 'REJECTED' ? 'red' : 'blue'
-                      }>{w.status.replace('_', ' ')}</Badge>
+                      }>{w.status === 'COMPLETED' ? 'Pending Accounts' : w.status === 'CLOSED' ? 'Completed (Paid)' : w.status.replace('_', ' ')}</Badge>
                       {w.overdue && <Badge color="red">Overdue</Badge>}
                     </div>
                     <p className="text-sm text-navy-800 truncate mt-0.5">{w.customerName} • SO {w.supplyOrderNo}</p>
@@ -2847,7 +2849,9 @@ function SafetyDashboard() {
 
   if (loading) return <Loader />;
 
-  const openWorkOrders = workOrders.filter(w => !['COMPLETED', 'CLOSED', 'REJECTED'].includes(w.status));
+  // A WO stays "open" until it is fully paid (CLOSED) — delivered-but-unpaid
+  // (COMPLETED / Pending Accounts) is still active and shown here.
+  const openWorkOrders = workOrders.filter(w => !['CLOSED', 'CANCELLED', 'REJECTED'].includes(w.status));
   const overdueWO = workOrders.filter(w => w.overdue).length;
   const criticalLowStock = lowStock.filter(p => p.stockStatus === 'Out of Stock' || p.stockStatus === 'Critical').length;
 
@@ -3039,10 +3043,11 @@ function SafetyDashboard() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs font-semibold text-navy-700">{w.workOrderNumber}</span>
                         <Badge color={
-                          w.status === 'COMPLETED' ? 'green' :
+                          w.status === 'CLOSED' ? 'green' :
+                          w.status === 'COMPLETED' ? 'amber' :
                           w.status === 'PENDING_ADMIN' ? 'yellow' :
                           w.status === 'REJECTED' ? 'red' : 'blue'
-                        }>{w.status.replace('_', ' ')}</Badge>
+                        }>{w.status === 'COMPLETED' ? 'Pending Accounts' : w.status === 'CLOSED' ? 'Completed (Paid)' : w.status.replace('_', ' ')}</Badge>
                         {w.overdue && <Badge color="red">Overdue</Badge>}
                       </div>
                       <p className="text-sm text-navy-800 truncate mt-1">{w.customerName || '—'} <span className="text-gray-400">•</span> SO {w.supplyOrderNo || '—'}</p>

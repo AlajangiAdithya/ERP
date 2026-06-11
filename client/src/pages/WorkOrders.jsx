@@ -28,8 +28,8 @@ const STATUS_META = {
   ADMIN_ACCEPTED: { color: 'blue',   label: 'Admin Accepted',   Icon: ShieldCheck },
   UNIT_ACCEPTED:  { color: 'blue',   label: 'Unit Accepted',    Icon: CheckCircle2 },
   IN_PROGRESS:    { color: 'yellow', label: 'In Progress',      Icon: Clock },
-  COMPLETED:      { color: 'green',  label: 'Completed',        Icon: CheckCircle2 },
-  CLOSED:         { color: 'navy',   label: 'Closed',           Icon: CheckCircle2 },
+  COMPLETED:      { color: 'amber',  label: 'Pending Accounts', Icon: Wallet },
+  CLOSED:         { color: 'green',  label: 'Completed (Paid)', Icon: CheckCircle2 },
   CANCELLED:      { color: 'gray',   label: 'Cancelled',        Icon: XCircle },
   REJECTED:       { color: 'red',    label: 'Rejected',         Icon: XCircle },
   ON_HOLD:        { color: 'red',    label: 'On Hold',          Icon: PauseCircle },
@@ -361,7 +361,8 @@ function DashboardTable({ workOrders, onOpen }) {
           critCount > 0 ? 'border-l-red-600'
           : warnCount > 0 ? 'border-l-amber-500'
           : w.overdue ? 'border-l-red-500'
-          : w.status === 'COMPLETED' || w.status === 'CLOSED' ? 'border-l-green-500'
+          : w.status === 'CLOSED' ? 'border-l-green-500'
+          : w.status === 'COMPLETED' ? 'border-l-amber-500'
           : 'border-l-navy-400';
 
         return (
@@ -1003,7 +1004,13 @@ function OverviewTab({ wo }) {
       <Row label="Created by" value={wo.createdBy ? `${wo.createdBy.name} (${formatDate(wo.createdAt)})` : null} />
       <Row label="Admin acceptance" value={wo.adminAcceptedBy ? `${wo.adminAcceptedBy.name} (${formatDate(wo.adminAcceptedAt)})${wo.adminAcceptanceNote ? `\n${wo.adminAcceptanceNote}` : ''}` : null} />
       <Row label="Unit acceptance" value={wo.unitAcceptedBy ? `${wo.unitAcceptedBy.name} (${formatDate(wo.unitAcceptedAt)})${wo.unitAcceptanceNote ? `\n${wo.unitAcceptanceNote}` : ''}` : null} />
-      {wo.completedAt && <Row label="Completed at" value={`${formatDate(wo.completedAt)}${wo.onTime != null ? ` — ${wo.onTime ? 'On time' : 'Late'}` : ''}`} />}
+      {wo.completedAt && <Row label="Delivered (all lots) at" value={formatDate(wo.completedAt)} />}
+      {wo.status === 'COMPLETED' && (
+        <Row label="Closure status" value="Delivered — Pending Accounts. Work order stays open until full payment of every lot is received." />
+      )}
+      {wo.status === 'CLOSED' && (
+        <Row label="Closure status" value={`Completed & fully paid${wo.onTime != null ? ` — delivery was ${wo.onTime ? 'on time' : 'late'} vs PDC` : ''}.`} />
+      )}
     </div>
   );
 }
