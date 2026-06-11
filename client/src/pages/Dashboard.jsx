@@ -3156,8 +3156,9 @@ export default function Dashboard() {
     <div className="space-y-4">
       <SlaTicker />
       {inner}
-      <TeamChat />
-      <CalendarView embedded />
+      {/* HIDDEN FROM ERP (code retained, not removed) — messaging & calendar */}
+      {/* <TeamChat /> */}
+      {/* <CalendarView embedded /> */}
     </div>
   );
 }

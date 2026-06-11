@@ -55,10 +55,12 @@ const buildAllItems = () => {
     // HR hub — employees, skill matrix, annual training plan, training records.
     // HR + ADMIN edit; Managers can append training items for their unit; all view.
     // Hidden from Metrology — not part of their workflow.
-    { to: '/hr', icon: GraduationCap, label: 'Human Resources', roles: NON_METROLOGY_ROLES },
+    // HIDDEN FROM ERP (code retained, not removed):
+    // { to: '/hr', icon: GraduationCap, label: 'Human Resources', roles: NON_METROLOGY_ROLES },
     // Attendance register — Unit managers edit their own unit; ADMIN + SAFETY
     // can view all units; ACCOUNTING sees only months submitted to them.
-    { to: '/attendance', icon: CalendarClock, label: 'Attendance', roles: ['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING', 'HR'] },
+    // HIDDEN FROM ERP (code retained, not removed):
+    // { to: '/attendance', icon: CalendarClock, label: 'Attendance', roles: ['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING', 'HR'] },
     // Role-specific action hubs.
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY'] },
@@ -66,7 +68,8 @@ const buildAllItems = () => {
     { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
     // QMS hub (SOPs, Work Instructions, KPIs).
     // Document uploads gated to Unit-5 server-side.
-    { to: '/qms', icon: Gauge, label: 'QMS', roles: ALL_ROLES },
+    // HIDDEN FROM ERP (code retained, not removed):
+    // { to: '/qms', icon: Gauge, label: 'QMS', roles: ALL_ROLES },
     // Utility — available to everyone.
     { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
     { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },

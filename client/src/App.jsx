@@ -295,27 +295,38 @@ export default function App() {
                 <PrivateRoute><MachineryRegister /></PrivateRoute>
               } />
 
-              {/* QMS hub — SOPs, Work Instructions, KPIs. Everyone views;
-                  document/certification uploads gated to Unit-5 server-side. */}
-              <Route path="/qms" element={<PrivateRoute><Qms /></PrivateRoute>} />
-              <Route path="/qms/sops" element={<PrivateRoute><QmsDocuments category="SOP" /></PrivateRoute>} />
-              <Route path="/qms/work-instructions" element={<PrivateRoute><QmsDocuments category="WORK_INSTRUCTION" /></PrivateRoute>} />
-              <Route path="/qms/kpis" element={<PrivateRoute><KpiQms /></PrivateRoute>} />
+              {/* QMS hub — SOPs, Work Instructions, KPIs.
+                  HIDDEN FROM ERP (code retained, not removed). The `false &&`
+                  guard keeps the JSX intact but unregisters the routes, so a
+                  direct URL falls through to the catch-all redirect below. */}
+              {false && <>
+                <Route path="/qms" element={<PrivateRoute><Qms /></PrivateRoute>} />
+                <Route path="/qms/sops" element={<PrivateRoute><QmsDocuments category="SOP" /></PrivateRoute>} />
+                <Route path="/qms/work-instructions" element={<PrivateRoute><QmsDocuments category="WORK_INSTRUCTION" /></PrivateRoute>} />
+                <Route path="/qms/kpis" element={<PrivateRoute><KpiQms /></PrivateRoute>} />
+              </>}
 
-              {/* HR hub + sub-modules — everyone views; HR/ADMIN edit. Managers
-                  can append training items for their team. Server enforces. */}
-              <Route path="/hr"                 element={<PrivateRoute><HumanResources /></PrivateRoute>} />
-              <Route path="/hr/employees"       element={<PrivateRoute><HrEmployees /></PrivateRoute>} />
-              <Route path="/hr/skill-matrix"    element={<PrivateRoute><HrSkillMatrix /></PrivateRoute>} />
-              <Route path="/hr/training-plan"   element={<PrivateRoute><HrTrainingPlan /></PrivateRoute>} />
-              <Route path="/hr/training-records" element={<PrivateRoute><HrTrainingRecords /></PrivateRoute>} />
+              {/* HR hub + sub-modules.
+                  HIDDEN FROM ERP (code retained, not removed). The `false &&`
+                  guard keeps the JSX intact but unregisters the routes, so a
+                  direct URL falls through to the catch-all redirect below. */}
+              {false && <>
+                <Route path="/hr"                 element={<PrivateRoute><HumanResources /></PrivateRoute>} />
+                <Route path="/hr/employees"       element={<PrivateRoute><HrEmployees /></PrivateRoute>} />
+                <Route path="/hr/skill-matrix"    element={<PrivateRoute><HrSkillMatrix /></PrivateRoute>} />
+                <Route path="/hr/training-plan"   element={<PrivateRoute><HrTrainingPlan /></PrivateRoute>} />
+                <Route path="/hr/training-records" element={<PrivateRoute><HrTrainingRecords /></PrivateRoute>} />
+              </>}
 
-              {/* Attendance register — managers edit their own unit; ADMIN +
-                  SAFETY view all; ACCOUNTING only sees submitted months
-                  (gated server-side). */}
-              <Route path="/attendance" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING', 'HR']}><Attendance /></PrivateRoute>
-              } />
+              {/* Attendance register.
+                  HIDDEN FROM ERP (code retained, not removed). The `false &&`
+                  guard keeps the JSX intact but unregisters the route, so a
+                  direct URL falls through to the catch-all redirect below. */}
+              {false && <>
+                <Route path="/attendance" element={
+                  <PrivateRoute allowedRoles={['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING', 'HR']}><Attendance /></PrivateRoute>
+                } />
+              </>}
 
               {/* SUPERADMIN-only — owner hatch */}
               <Route path="/superadmin" element={
