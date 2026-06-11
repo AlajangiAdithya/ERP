@@ -2183,7 +2183,7 @@ export default function PurchaseOrders() {
   }, [orders, search]);
 
   const tabs = user?.role === 'STORE_MANAGER'
-    ? ['ALL', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED']
+    ? ['ALL', 'ORDERED', 'CREDIT_PLACED', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED']
     : ['ALL', 'PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PAID', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED'];
 
   return (

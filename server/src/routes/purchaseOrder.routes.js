@@ -137,7 +137,10 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
     applyDateFilter(where, { fromDate, toDate });
 
     // Role-based status visibility (intersected with the tab/status filter below)
-    const STORE_MANAGER_STATUSES = ['ORDERED', 'PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED', 'CLOSED'];
+    // Stores own "mark goods arrived", so they must see every status an order can
+    // be in once it has been placed — including CREDIT_PLACED (credit orders sit
+    // here until goods arrive, with no payment step in between).
+    const STORE_MANAGER_STATUSES = ['ORDERED', 'PLACED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED', 'CLOSED'];
     const QC_STATUSES = ['GOODS_ARRIVED', 'QC_PENDING'];
 
     if (req.user.role === 'QC') {
