@@ -843,6 +843,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
                 {s === 'extensions' ? `Extensions (${wo.extensions.length})`
                   : s === 'closures' ? `Lots (${(wo.closures || []).length})`
                   : s === 'bg-insurance' ? 'BG / Insurance'
+                  : s === 'remarks' ? 'Remarks & History'
                   : s === 'alarms' ? (
                     <>Alarms {activeAlarmCount > 0 && (
                       <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-red-600 text-white text-[10px] animate-pulse">{activeAlarmCount}</span>
@@ -1263,21 +1264,230 @@ function DeliveryDetailsTab({ wo, canEdit, busy, onSave }) {
   );
 }
 
+// Timeline colour → border + icon tint.
+const TL_COLORS = {
+  sky:    'border-sky-400 text-sky-600 bg-sky-50',
+  blue:   'border-blue-400 text-blue-600 bg-blue-50',
+  indigo: 'border-indigo-400 text-indigo-600 bg-indigo-50',
+  red:    'border-red-400 text-red-600 bg-red-50',
+  amber:  'border-amber-400 text-amber-700 bg-amber-50',
+  yellow: 'border-yellow-400 text-yellow-700 bg-yellow-50',
+  orange: 'border-orange-400 text-orange-600 bg-orange-50',
+  violet: 'border-violet-400 text-violet-600 bg-violet-50',
+  green:  'border-green-400 text-green-600 bg-green-50',
+  pink:   'border-pink-400 text-pink-600 bg-pink-50',
+  rose:   'border-rose-400 text-rose-600 bg-rose-50',
+  gray:   'border-gray-300 text-gray-500 bg-gray-50',
+};
+
+const tlTime = (d) => {
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return '';
+  return dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
+
+// Collect EVERY remark / action across the whole WO lifecycle into one
+// chronological timeline — who did what, what they wrote, and how it went.
+// `alarms` (passed in) is the full alarm set including resolved ones so the
+// audit history is complete. Finance-only fields are already null for
+// MANAGER/QC (server-sanitised), so those guards naturally hide them.
+function buildWoTimeline(wo, alarms) {
+  const items = [];
+  const nm = (u) => u?.name || '—';
+  const push = (at, e) => { if (at) items.push({ at: new Date(at), ...e }); };
+  const joinB = (...parts) => parts.filter(Boolean).join('\n');
+
+  // ── Work order level ──
+  push(wo.createdAt, {
+    color: 'sky', Icon: FilePlus2, title: 'Work order logged', actor: nm(wo.createdBy),
+    body: `SO ${wo.supplyOrderNo} · ${wo.customerName} · Qty ${wo.orderQuantity} ${wo.orderUnit} · PDC ${formatDate(wo.pdcDate)}`,
+  });
+  if (wo.adminAcceptedAt) push(wo.adminAcceptedAt, {
+    color: 'blue', Icon: ShieldCheck, title: 'Admin verified & accepted', actor: nm(wo.adminAcceptedBy),
+    body: wo.adminAcceptanceNote || null,
+  });
+  if (wo.unitAcceptedAt) push(wo.unitAcceptedAt, {
+    color: 'indigo', Icon: UserCheck, title: 'Unit manager accepted', actor: nm(wo.unitAcceptedBy),
+    body: wo.unitAcceptanceNote || null,
+  });
+  if (wo.status === 'ON_HOLD' && wo.unitAcceptanceNote && !wo.unitAcceptedAt) push(wo.updatedAt, {
+    color: 'red', Icon: PauseCircle, title: 'Unit rejected — on hold for reassignment', actor: nm(wo.unitAcceptedBy),
+    body: wo.unitAcceptanceNote,
+  });
+  if (wo.pdc3MonthAckAt) push(wo.pdc3MonthAckAt, {
+    color: 'red', Icon: AlertTriangle, title: 'PDC 3-month remark (Admin)', actor: nm(wo.pdc3MonthAckBy),
+    body: wo.pdc3MonthAckNote || null,
+  });
+  if (wo.pdc3MonthMgrAckAt) push(wo.pdc3MonthMgrAckAt, {
+    color: 'red', Icon: AlertTriangle, title: 'PDC 3-month remark (Unit Manager)', actor: nm(wo.pdc3MonthMgrAckBy),
+    body: wo.pdc3MonthMgrAckNote || null,
+  });
+  if (wo.deliveryDetailsUpdatedAt) push(wo.deliveryDetailsUpdatedAt, {
+    color: 'gray', Icon: Truck, title: 'Delivery details updated', actor: nm(wo.deliveryDetailsUpdatedBy),
+    body: wo.deliveryDetails || null,
+  });
+
+  // ── PDC extensions ──
+  (wo.extensions || []).forEach((ext) => push(ext.grantedAt, {
+    color: 'amber', Icon: CalendarClock,
+    title: `PDC Extension #${ext.extensionNo} → ${formatDate(ext.newPdcDate)}`, actor: nm(ext.grantedBy),
+    body: joinB(
+      ext.reason,
+      ext.bankGuaranteeExtendedUpto ? `BG extended upto ${formatDate(ext.bankGuaranteeExtendedUpto)}` : null,
+      ext.requestLetterStatus ? `Request letter: ${ext.requestLetterStatus}` : null,
+      ext.prcStatus ? `PRC: ${ext.prcStatus}` : null,
+    ) || null,
+  }));
+
+  // ── Bank Guarantee / Insurance history ──
+  (wo.bgEntries || []).forEach((b) => push(b.addedAt, {
+    color: 'gray', Icon: ShieldCheck, title: `Bank Guarantee ${b.bgNo}`, actor: nm(b.addedBy),
+    body: joinB(
+      b.bgDate ? `BG date ${formatDate(b.bgDate)}` : null,
+      b.validUpto ? `Valid upto ${formatDate(b.validUpto)}` : null,
+      b.note,
+    ) || null,
+  }));
+  (wo.insuranceEntries || []).forEach((b) => push(b.addedAt, {
+    color: 'gray', Icon: ShieldCheck, title: `Insurance ${b.insuranceNo}`, actor: nm(b.addedBy),
+    body: joinB(b.validUpto ? `Valid upto ${formatDate(b.validUpto)}` : null, b.note) || null,
+  }));
+
+  // ── Per-lot chain ──
+  (wo.closures || []).forEach((c) => {
+    const L = `Lot #${c.cycleNumber}`;
+    push(c.deliveredAt || c.createdAt, {
+      color: 'violet', Icon: Upload, title: `${L} — work done, report sent to QC`, actor: nm(c.openedBy),
+      body: joinB(`Qty ${c.deliveryQty} ${wo.orderUnit}`, c.deliveryNote) || null,
+    });
+    if (c.qcVerifiedAt) push(c.qcVerifiedAt, {
+      color: 'orange', Icon: FileCheck2, title: `${L} — QC approved`, actor: nm(c.qcVerifiedBy),
+      body: joinB(c.qcRemark, c.qcCertificateNumber ? `Certificate ${c.qcCertificateNumber}` : null) || null,
+    });
+    (c.holdRequests || []).forEach((h) => {
+      push(h.raisedAt, {
+        color: 'red', Icon: ShieldAlert, title: `${L} — put on hold by QC`, actor: nm(h.raisedBy),
+        body: joinB(
+          h.reason,
+          Array.isArray(h.missingItems) && h.missingItems.length
+            ? h.missingItems.map((m) => `• ${m.docType}${m.note ? ` — ${m.note}` : ''}`).join('\n')
+            : null,
+        ) || null,
+      });
+      if (h.resolvedAt) push(h.resolvedAt, {
+        color: 'green', Icon: RefreshCw, title: `${L} — hold cleared, new report resent to QC`, actor: nm(h.resolvedBy),
+        body: h.resolvedNote || null,
+      });
+    });
+    if (c.invoiceSentAt) push(c.invoiceSentAt, {
+      color: 'yellow', Icon: Receipt, title: `${L} — Invoice sent`, actor: nm(c.invoiceSentBy),
+      body: c.invoiceNumber ? `Invoice #${c.invoiceNumber}` : null,
+    });
+    if (c.dcSentAt) push(c.dcSentAt, {
+      color: 'yellow', Icon: Truck, title: `${L} — Delivery challan sent`, actor: nm(c.dcSentBy),
+      body: c.deliveryChallanNumber ? `DC #${c.deliveryChallanNumber}` : null,
+    });
+    if (c.deliveryAckAt) push(c.deliveryAckAt, {
+      color: 'amber', Icon: UserCheck, title: `${L} — Goods ack received (45-day window started)`, actor: nm(c.deliveryAckBy),
+      body: c.deliveryAckNote || null,
+    });
+    (c.weeklyFollowups || []).forEach((f) => push(f.contactedAt, {
+      color: 'pink', Icon: BellRing, title: `${L} — Week ${f.weekNumber} incoming-money status`, actor: nm(f.contactedBy),
+      body: joinB(f.customerResponse ? `Status: ${f.customerResponse}` : null, f.note ? `Note: ${f.note}` : null) || null,
+    }));
+    if (c.paymentReceivedAt) push(c.paymentReceivedAt, {
+      color: 'green', Icon: Wallet, title: `${L} — Payment received (lot closed)`, actor: nm(c.paymentReceivedBy),
+      body: c.paymentNote || null,
+    });
+  });
+
+  // ── Alarms + their remark threads (all statuses) ──
+  (alarms || []).forEach((a) => {
+    push(a.createdAt, {
+      color: 'rose', Icon: BellRing, title: `Alarm raised: ${a.title}`, actor: 'System',
+      body: a.triggerContext || null,
+    });
+    (a.notes || []).forEach((n) => push(n.createdAt, {
+      color: 'rose', Icon: FilePlus2,
+      title: `Alarm remark${n.kind && n.kind !== 'COMMENT' ? ` (${n.kind.toLowerCase()})` : ''} — ${a.title}`,
+      actor: n.author?.name || 'System', body: n.body || null,
+    }));
+  });
+
+  // Oldest → newest so it reads as the story of the work order.
+  return items.sort((x, y) => x.at - y.at);
+}
+
 function RemarksTab({ wo, canEdit, busy, onSave }) {
   const [text, setText] = useState(wo.remarks || '');
+  const [allAlarms, setAllAlarms] = useState(wo.alarms || []);
+
+  // Pull the full alarm set (incl. resolved) so the history is complete.
+  useEffect(() => {
+    let live = true;
+    api.get(`/work-orders/${wo.id}/alarms`, { params: { includeResolved: 1 } })
+      .then(({ data }) => { if (live) setAllAlarms(data.alarms || []); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [wo.id]);
+
+  const timeline = buildWoTimeline(wo, allAlarms);
+
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-navy-500">
-        Open notes — any role with access to this WO can add or edit remarks.
-      </p>
-      {canEdit ? (
-        <>
-          <Textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} />
-          <Button disabled={busy} onClick={() => onSave(text)}>Save Remarks</Button>
-        </>
-      ) : (
-        <div className="text-sm text-navy-700 whitespace-pre-wrap p-3 bg-navy-50 rounded">{wo.remarks || '—'}</div>
-      )}
+    <div className="space-y-5">
+      {/* Free-text shared notes (still editable by anyone with access) */}
+      <div className="space-y-2">
+        <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Open Notes</p>
+        <p className="text-[11px] text-navy-500">Shared scratch-pad — any role with access can add or edit.</p>
+        {canEdit ? (
+          <>
+            <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
+            <Button disabled={busy} onClick={() => onSave(text)}>Save Notes</Button>
+          </>
+        ) : (
+          <div className="text-sm text-navy-700 whitespace-pre-wrap p-3 bg-navy-50 rounded">{wo.remarks || '—'}</div>
+        )}
+      </div>
+
+      {/* Full lifecycle history — every remark + action, who did what, in order */}
+      <div className="space-y-2 border-t pt-4">
+        <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">
+          Full History &amp; Remark Trail ({timeline.length})
+        </p>
+        <p className="text-[11px] text-navy-500">
+          Every action and remark across the whole work order — admin/unit acceptance, PDC remarks, each lot's
+          work-done, QC remarks, holds, finance dispatch, goods ack, weekly money-status, payments and alarm remarks — in order.
+        </p>
+        {timeline.length === 0 ? (
+          <p className="text-sm text-navy-400 italic">No activity recorded yet.</p>
+        ) : (
+          <ol className="relative ml-2 border-l-2 border-navy-100 space-y-3 pt-1">
+            {timeline.map((it, idx) => {
+              const c = TL_COLORS[it.color] || TL_COLORS.gray;
+              const Icon = it.Icon || FilePlus2;
+              return (
+                <li key={idx} className="relative pl-5">
+                  <span className={`absolute -left-[11px] top-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center ${c}`}>
+                    <Icon size={11} />
+                  </span>
+                  <div className="rounded-lg border border-navy-100 bg-white p-2.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-navy-800">{it.title}</span>
+                      <span className="text-[10px] text-navy-400">{tlTime(it.at)}</span>
+                    </div>
+                    <div className="text-[11px] text-navy-500 mt-0.5 inline-flex items-center gap-1">
+                      <UserCheck size={10} /> {it.actor}
+                    </div>
+                    {it.body && (
+                      <p className="text-xs text-navy-700 whitespace-pre-wrap mt-1 pl-2 border-l-2 border-navy-100">{it.body}</p>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </div>
     </div>
   );
 }
@@ -1734,7 +1944,6 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
   const openHold = (cycle.holdRequests || []).find((h) => !h.resolvedAt);
 
   const [qcNote, setQcNote] = useState('');
-  const [qcCertUrl, setQcCertUrl] = useState('');
   const [invSentForm, setInvSentForm] = useState({ invoiceNumber: '', invoiceDate: '', description: '' });
   const [dcSentForm, setDcSentForm] = useState({ deliveryChallanNumber: '' });
   const [payNote, setPayNote] = useState('');
@@ -1775,7 +1984,6 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
   const qcVerify = () => {
     if (!qcNote.trim()) return;
     onAction(() => api.post(`/work-orders/${wo.id}/closures/${cycle.id}/qc-verify`, {
-      certificateUrl: qcCertUrl || null,
       note: qcNote.trim(),
     }));
   };
@@ -1924,11 +2132,6 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Lot Report{docs.length === 1 ? '' : 's'} ({docs.length})</p>
-          {cycle.qcCertificateUrl && (
-            <a href={cycle.qcCertificateUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-700 hover:underline inline-flex items-center gap-1">
-              <FileText size={11} /> QC Certificate
-            </a>
-          )}
         </div>
         {docs.length === 0 ? (
           <p className="text-xs text-navy-400">No lot report uploaded.</p>
@@ -1971,7 +2174,6 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
             onChange={(e) => setQcNote(e.target.value)}
             placeholder="Verification findings — saved permanently on this lot"
           />
-          <Input label="Certificate URL (optional, paste link if PDF lives elsewhere)" value={qcCertUrl} onChange={(e) => setQcCertUrl(e.target.value)} />
           <div className="flex gap-2">
             <Button onClick={qcVerify} disabled={busy || !qcNote.trim()}>
               <FileCheck2 size={12} className="mr-1" /> Approve &amp; Forward to Finance
@@ -2233,7 +2435,7 @@ const WO_FLOW_STEPS = [
     what: 'QC checks the lot report and the work. To approve, QC MUST write a remark — it is saved on the lot forever — then the lot goes straight to Finance (no management step). If something is wrong, QC puts the lot ON HOLD with a missing-items checklist; the unit finishes the work, uploads a fresh lot report and resends it to QC.',
     statusBefore: 'UNIT_DOCS_PENDING',
     statusAfter: 'QC_VERIFIED  (or ON_HOLD → resubmit → UNIT_DOCS_PENDING again)',
-    uploads: ['QC remark (mandatory)', 'Certificate URL (optional)'],
+    uploads: ['QC remark (mandatory)'],
     downloads: ['QC Verification Certificate PDF — "QC Cert" button on the lot card'],
     color: 'from-amber-500 to-orange-500',
     ring: 'ring-amber-200',
@@ -2365,7 +2567,7 @@ const WO_FILE_INDEX = {
     { what: 'Insurance entry (number + valid-upto)',     where: 'WO detail → BG / Insurance tab → "Add Insurance" (Supply Chain / Admin only)' },
     { what: 'ONE Lot Report PDF per lot (work done)',    where: 'WO detail → Lots tab → "Work Done" form (Manager)' },
     { what: 'Fresh Lot Report PDF after a hold',         where: 'Lot card (ON_HOLD) → "Upload New Lot Report & Resend to QC" (Manager)' },
-    { what: 'QC remark (mandatory) + certificate URL',   where: 'Lot card → "QC Verification" panel (QC / Admin)' },
+    { what: 'QC remark (mandatory)',                     where: 'Lot card → "QC Verification" panel (QC / Admin)' },
     { what: 'Invoice / DC numbers (optional, physical docs travel with material)', where: 'Lot card → "Invoice Sent" + "DC Sent" buttons (Finance / Admin)' },
     { what: 'Goods ack note + signed receipt URL',       where: 'Lot card (INVOICE_SENT) → "Goods Ack Received" (Finance / Admin)' },
     { what: 'Weekly incoming-money status',              where: 'Lot card (45-day window) → flashing weekly panel (Accounting / Admin)' },

@@ -1407,7 +1407,7 @@ router.post(
   authorize('QC', 'ADMIN'),
   async (req, res) => {
     try {
-      const { certificateUrl, note } = req.body || {};
+      const { note } = req.body || {};
       if (!note || !String(note).trim()) {
         return res.status(400).json({ error: 'QC remark is required — write your verification remark before forwarding' });
       }
@@ -1427,7 +1427,6 @@ router.post(
           qcVerifiedAt: new Date(),
           qcVerifiedById: req.user.id,
           qcCertificateNumber: certificateNumber,
-          qcCertificateUrl: certificateUrl || null,
           qcRemark: String(note).trim(),
         },
         include: CLOSURE_INCLUDE,
