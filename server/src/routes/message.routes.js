@@ -34,19 +34,27 @@ const visibilityFilter = (userId) => ({
   ],
 });
 
-// Parse a raw "@target rest…" body. Returns { error } | { isBroadcast, rest }.
-const parseMention = (raw) => {
+// Strip the leading "@" and return everything after it. Resolution of the
+// target (broadcast token vs a real username) happens in the POST handler
+// because usernames may contain spaces — so we can NOT split on whitespace
+// here. Returns { error } | { afterAt }.
+const parseLeadingMention = (raw) => {
   const text = String(raw || '').trim();
   if (!text) return { error: 'Message cannot be empty' };
   if (!text.startsWith('@')) {
     return { error: 'Start your message with @everyone or @username' };
   }
-  const m = text.match(/^@(\S+)\s+([\s\S]+)$/);
-  if (!m) return { error: 'Add a message after the @mention' };
-  const token = m[1];
-  const rest = m[2].trim();
-  if (!rest) return { error: 'Message cannot be empty' };
-  return { token, rest };
+  const afterAt = text.slice(1);
+  if (!afterAt.trim()) return { error: 'Add a username or "everyone" after @' };
+  return { afterAt };
+};
+
+// Does `afterAt` (already lowercased) begin with `name` on a word boundary?
+// Boundary = end-of-string or a following space. Lets a username that itself
+// contains spaces ("john doe") match without whitespace breaking the parse.
+const mentionStartsWith = (lowerAfter, name) => {
+  const n = name.toLowerCase();
+  return lowerAfter === n || lowerAfter.startsWith(`${n} `);
 };
 
 // ── GET /api/messages — list visible messages ──
@@ -113,31 +121,47 @@ router.get('/recipients', authenticate, async (req, res) => {
 //   body: { body: "@everyone ..." | "@username ..." }
 router.post('/', authenticate, async (req, res) => {
   try {
-    const parsed = parseMention(req.body?.body);
+    const parsed = parseLeadingMention(req.body?.body);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
 
-    const { token, rest } = parsed;
+    const afterAt = parsed.afterAt;
+    const lowerAfter = afterAt.toLowerCase();
     let isBroadcast = false;
     let recipientId = null;
+    let rest = null;
 
-    if (BROADCAST_TOKENS.includes(token.toLowerCase())) {
+    // 1) Broadcast tokens (@everyone / @all / …).
+    const bToken = BROADCAST_TOKENS.find((t) => mentionStartsWith(lowerAfter, t));
+    if (bToken) {
       isBroadcast = true;
+      rest = afterAt.slice(bToken.length).trim();
     } else {
-      const target = await prisma.user.findFirst({
-        where: {
-          username: { equals: token, mode: 'insensitive' },
-          isActive: true,
-          role: { not: 'SUPERADMIN' },
-        },
-        select: { id: true, name: true },
+      // 2) Match a real username. Usernames may contain spaces, so we compare
+      // against the whole candidate list and keep the LONGEST one that the
+      // text starts with on a word boundary. The remainder is the message.
+      const candidates = await prisma.user.findMany({
+        where: { isActive: true, role: { not: 'SUPERADMIN' } },
+        select: { id: true, username: true },
       });
-      if (!target) {
-        return res.status(400).json({ error: `No active user named @${token}. Use @everyone or a valid username.` });
+      let match = null;
+      for (const c of candidates) {
+        if (mentionStartsWith(lowerAfter, c.username)) {
+          if (!match || c.username.length > match.username.length) match = c;
+        }
       }
-      if (target.id === req.user.id) {
+      if (!match) {
+        const guess = afterAt.split(/\s+/)[0];
+        return res.status(400).json({ error: `No active user matches @${guess}. Pick a name from the list, or use @everyone.` });
+      }
+      if (match.id === req.user.id) {
         return res.status(400).json({ error: 'You cannot message yourself' });
       }
-      recipientId = target.id;
+      recipientId = match.id;
+      rest = afterAt.slice(match.username.length).trim();
+    }
+
+    if (!rest) {
+      return res.status(400).json({ error: 'Add a message after the @mention' });
     }
 
     const message = await prisma.message.create({

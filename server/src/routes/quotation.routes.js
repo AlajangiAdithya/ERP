@@ -927,6 +927,100 @@ router.post('/union/submit', authenticate, authorize('PURCHASE_OFFICER'), async 
   }
 });
 
+// POST /api/quotations/:id/submit — PO submits ONE quotation to admin (send a
+// quote per product). Single-quotation counterpart to the bulk
+// POST /submit/:purchaseRequestId — lets the PO send each product's quote as
+// soon as it's ready instead of waiting for every draft on the PR.
+// NOTE: must stay registered AFTER POST /union/submit so "union" isn't captured
+// as an :id by this route.
+router.post('/:id/submit', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
+  try {
+    const quotation = await prisma.quotation.findUnique({
+      where: { id: req.params.id },
+      include: {
+        purchaseRequest: { select: { id: true, requestNumber: true, status: true } },
+        sourceRequests: { include: { purchaseRequest: { select: { id: true, requestNumber: true, status: true } } } },
+      },
+    });
+
+    if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
+    if (quotation.supersededAt) {
+      return res.status(400).json({ error: 'This quotation has been superseded and cannot be sent' });
+    }
+    if (quotation.isSelected) {
+      return res.status(400).json({ error: 'This quotation has already been approved' });
+    }
+    if (quotation.heldAt) {
+      return res.status(400).json({ error: 'This quotation is on hold — resubmit it instead.' });
+    }
+    if (quotation.submittedToAdminAt) {
+      return res.status(400).json({ error: 'This quotation has already been sent to admin' });
+    }
+
+    // Resolve linked PR(s): union → every source PR; single → the parent PR.
+    const linkedPRs = quotation.isUnion
+      ? quotation.sourceRequests.map(s => s.purchaseRequest)
+      : (quotation.purchaseRequest ? [quotation.purchaseRequest] : []);
+    if (linkedPRs.length === 0 || linkedPRs.some(pr => !pr)) {
+      return res.status(400).json({ error: 'Quotation has no resolvable source purchase request' });
+    }
+    for (const pr of linkedPRs) {
+      if (!['APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS', 'QUOTATION_APPROVED'].includes(pr.status)) {
+        return res.status(400).json({ error: `PR ${pr.requestNumber} is not in a valid state for submission (current: ${pr.status})` });
+      }
+    }
+
+    const linkedPRIds = [...new Set(linkedPRs.map(pr => pr.id))];
+
+    await prisma.$transaction(async (tx) => {
+      await tx.quotation.update({
+        where: { id: quotation.id },
+        data: { submittedToAdminAt: new Date(), submittedToAdminById: req.user.id },
+      });
+      for (const prId of linkedPRIds) {
+        const prItems = await tx.purchaseRequestItem.findMany({
+          where: { requestId: prId },
+          select: { id: true },
+        });
+        await recomputePRItemQuotationStatus(tx, prItems.map(i => i.id));
+        await syncPRStatusAfterChange(tx, prId);
+      }
+    });
+
+    const tier = getTier(quotation.totalAmount);
+    await prisma.notification.create({
+      data: {
+        type: 'QUOTATION_REVIEW',
+        title: `Quotation Review Required: ${quotation.quotationNumber}`,
+        message: `Quotation ${quotation.quotationNumber} (₹${quotation.totalAmount.toLocaleString('en-IN')}) submitted for ${linkedPRs.map(p => p.requestNumber).join(', ')}. Approval tier: ${tier} — ${getTierLabel(tier)}.`,
+        targetRole: 'ADMIN',
+        sentById: req.user.id,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'SUBMIT_QUOTATIONS',
+        entity: 'Quotation',
+        entityId: quotation.id,
+        details: {
+          quotationNumber: quotation.quotationNumber,
+          isUnion: quotation.isUnion,
+          purchaseRequests: linkedPRs.map(p => ({ id: p.id, requestNumber: p.requestNumber })),
+          totalAmount: quotation.totalAmount,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json({ message: 'Quotation sent to admin for approval', quotationNumber: quotation.quotationNumber });
+  } catch (error) {
+    console.error('Submit single quotation error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // POST /api/quotations/:id/hold — ADMIN puts the quotation on hold and asks
 // the Purchase Officer to fix something (typically: upload missing supplier
 // compliance PDFs). The PR stays in QUOTATION_SUBMITTED so the PO can fix the

@@ -1323,6 +1323,21 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
     setProcessing(false);
   };
 
+  // PO sends a single quotation (one product's quote) to admin, independently
+  // of the other drafts on this PR.
+  const sendQuotation = async (q) => {
+    if (!confirm(`Send quotation ${q.quotationNumber} to admin for approval?`)) return;
+    setProcessing(true);
+    try {
+      await api.post(`/quotations/${q.id}/submit`);
+      reload();
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to send quotation');
+    }
+    setProcessing(false);
+  };
+
   // Count unique suppliers for selected quotation
   const selectedQuotation = quotations.find(q => q.id === selectedId);
   const selectedSuppliers = selectedQuotation
@@ -1368,6 +1383,15 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
                       <div className="flex items-center gap-2">
                         <h4 className="font-semibold text-gray-900">{q.quotationNumber}</h4>
                         {q.isUnion && <Badge color="purple"><Layers size={10} className="inline mr-0.5" /> UNION</Badge>}
+                        {q.isSelected ? (
+                          <Badge color="blue">Approved</Badge>
+                        ) : q.heldAt ? (
+                          <Badge color="red"><PauseCircle size={10} className="inline mr-0.5" /> On hold</Badge>
+                        ) : q.submittedToAdminAt ? (
+                          <Badge color="green">Sent to admin</Badge>
+                        ) : (
+                          <Badge color="amber">Draft</Badge>
+                        )}
                       </div>
                       <p className="text-xs text-gray-500 mt-0.5">
                         {suppliers.length} supplier{suppliers.length !== 1 ? 's' : ''}: {suppliers.join(', ')}
@@ -1424,6 +1448,16 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
                           className="mt-2 inline-flex items-center gap-1 text-xs text-amber-800 hover:text-amber-900 border border-amber-300 hover:bg-amber-50 rounded px-2 py-1"
                         >
                           <PauseCircle size={12} /> Put on hold
+                        </button>
+                      )}
+                      {isPO && !q.isSelected && !q.heldAt && !q.submittedToAdminAt && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); sendQuotation(q); }}
+                          disabled={processing}
+                          className="mt-2 inline-flex items-center gap-1 text-xs text-white bg-navy-700 hover:bg-navy-800 rounded px-2 py-1 disabled:opacity-50"
+                        >
+                          <Send size={12} /> Send to Admin
                         </button>
                       )}
                     </div>
@@ -1535,6 +1569,15 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
                 <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : `Approve & Create ${selectedSuppliers.length > 1 ? selectedSuppliers.length + ' Orders' : 'Order'}`}
               </Button>
             </div>
+          </div>
+        )}
+
+        {quotations.length > 0 && isPO && (
+          <div className="border-t pt-4 flex items-center justify-between gap-3">
+            <p className="text-xs text-gray-500">
+              Click <strong>Send to Admin</strong> on each draft to send that product's quote on its own — ready products go now, the rest stay drafts until you send them.
+            </p>
+            <Button variant="secondary" onClick={onClose}>Close</Button>
           </div>
         )}
       </div>
@@ -2730,7 +2773,7 @@ export default function QuotationManagement() {
             <div>
               <h2 className="text-lg font-semibold text-gray-800">Approved PRs — Add Quotations</h2>
               <p className="text-xs text-gray-500 mt-0.5">
-                Add as many supplier quotes per PR as you need, then click <strong>Send to Admin</strong>. Admin only sees a PR's quotes after you send them.
+                Add as many supplier quotes per PR as you need. Use <strong>Send per product</strong> to send each quote on its own (so ready products go to admin now and the rest wait), or <strong>Send all</strong> to send every draft at once. Admin only sees a PR's quotes after you send them.
               </p>
             </div>
             <Button
@@ -2828,12 +2871,17 @@ export default function QuotationManagement() {
                             <Button size="sm" onClick={() => setShowAddQuotation(pr)}>
                               <Plus size={14} className="mr-1" /> Add Quote
                             </Button>
+                            {(pr.quotations || []).filter(q => !q.isUnion).length > 0 && (
+                              <Button size="sm" variant="secondary" onClick={() => setReviewPR(pr)}>
+                                <Eye size={14} className="mr-1" /> Send per product
+                              </Button>
+                            )}
                             {(() => {
                               const draftSingles = (pr.quotations || []).filter(q => !q.submittedToAdminAt);
                               if (draftSingles.length === 0) return null;
                               return (
                                 <Button size="sm" variant="primary" onClick={async () => {
-                                  if (!confirm(`Send ${draftSingles.length} draft quotation(s) to admin for approval?`)) return;
+                                  if (!confirm(`Send all ${draftSingles.length} draft quotation(s) to admin for approval?`)) return;
                                   try {
                                     await api.post(`/quotations/submit/${pr.id}`);
                                     alert('Quotations sent to admin for approval.');
@@ -2842,7 +2890,7 @@ export default function QuotationManagement() {
                                     alert(err.response?.data?.error || 'Failed to submit');
                                   }
                                 }}>
-                                  <Send size={14} className="mr-1" /> Send {draftSingles.length} to Admin
+                                  <Send size={14} className="mr-1" /> Send all {draftSingles.length}
                                 </Button>
                               );
                             })()}

@@ -63,7 +63,7 @@ const emptyForm = (day) => {
   };
 };
 
-export default function Calendar() {
+export default function Calendar({ embedded = false }) {
   const [view, setView] = useState('month');     // month | week | day
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [events, setEvents] = useState([]);       // occurrences in the visible window
@@ -355,13 +355,28 @@ export default function Calendar() {
 
   return (
     <div className="space-y-6">
-      <PageHero
-        title="My Calendar"
-        subtitle="Your personal calendar and reminders — only you can see these."
-        eyebrow="Planner"
-        icon={CalendarDays}
-        actions={<Button variant="secondary" onClick={() => openCreate(null)}><Plus size={16} /> New event</Button>}
-      />
+      {embedded ? (
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="p-1.5 rounded-lg bg-navy-100 text-navy-700 ring-1 ring-navy-200 flex-shrink-0">
+              <CalendarDays size={16} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-gray-800">My Calendar</h3>
+              <p className="text-[11px] text-gray-500 mt-0.5 truncate">Personal events &amp; reminders — only you can see these</p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => openCreate(null)}><Plus size={16} /> New event</Button>
+        </div>
+      ) : (
+        <PageHero
+          title="My Calendar"
+          subtitle="Your personal calendar and reminders — only you can see these."
+          eyebrow="Planner"
+          icon={CalendarDays}
+          actions={<Button variant="secondary" onClick={() => openCreate(null)}><Plus size={16} /> New event</Button>}
+        />
+      )}
 
       <Card className="p-4">
         {/* Toolbar */}

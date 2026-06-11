@@ -27,6 +27,115 @@ const createRequestSchema = z.object({
   })).min(1),
 });
 
+// ──── Shared MIV issue helpers (used by both /approve and /issue-available) ────
+// Per-item availability = (a) the requester's own bucket — a unit bucket
+// (ProductUnitStock) for unit requesters, or a department bucket
+// (ProductDeptStock) for non-unit owner roles (QC, Designs, …) — plus (b) the
+// unassigned pool = currentStock minus every unit AND department reservation.
+// Stock reserved to a *different* unit or department is off-limits.
+async function computeAvailability(client, request, requesterDept) {
+  const availabilityByItem = {};
+  for (const ri of request.items) {
+    if (ri.quantity <= 0) {
+      availabilityByItem[ri.id] = { ownUnitQty: 0, ownDeptQty: 0, unassignedQty: 0, available: 0 };
+      continue;
+    }
+    const [ownUnitBucket, ownDeptBucket, allUnitBuckets, allDeptBuckets] = await Promise.all([
+      request.unitId
+        ? client.productUnitStock.findUnique({
+            where: { productId_unitId: { productId: ri.productId, unitId: request.unitId } },
+          })
+        : Promise.resolve(null),
+      requesterDept
+        ? client.productDeptStock.findUnique({
+            where: { productId_dept: { productId: ri.productId, dept: requesterDept } },
+          })
+        : Promise.resolve(null),
+      client.productUnitStock.findMany({ where: { productId: ri.productId }, select: { quantity: true } }),
+      client.productDeptStock.findMany({ where: { productId: ri.productId }, select: { quantity: true } }),
+    ]);
+    const ownUnitQty = ownUnitBucket?.quantity || 0;
+    const ownDeptQty = ownDeptBucket?.quantity || 0;
+    const assignedTotal =
+      allUnitBuckets.reduce((s, b) => s + b.quantity, 0) +
+      allDeptBuckets.reduce((s, b) => s + b.quantity, 0);
+    const unassignedQty = Math.max(0, (ri.product?.currentStock || 0) - assignedTotal);
+    availabilityByItem[ri.id] = {
+      ownUnitQty, ownDeptQty, unassignedQty,
+      available: ownUnitQty + ownDeptQty + unassignedQty,
+    };
+  }
+  return availabilityByItem;
+}
+
+// Issue `take` units of one request item inside a transaction: FIFO batch
+// draw-down, currentStock + own-bucket decrement, and an OUT stockMovement.
+// Does NOT touch the RequestItem row — callers update qtyIssued/collectedQty
+// themselves (set on first issue, increment on top-up). Returns FIFO slices.
+async function issueItemQty(tx, { request, item, take, requesterDept, availability, performedBy, note }) {
+  if (!(take > 0)) return [];
+
+  const batches = await tx.productBatch.findMany({
+    where: { productId: item.productId, remaining: { gt: 0 } },
+    orderBy: { receivedDate: 'asc' },
+  });
+  let toFulfill = take;
+  const slices = [];
+  for (const batch of batches) {
+    if (toFulfill <= 0) break;
+    const slice = Math.min(batch.remaining, toFulfill);
+    await tx.productBatch.update({
+      where: { id: batch.id },
+      data: { remaining: batch.remaining - slice },
+    });
+    slices.push({ batchId: batch.id, batchNo: batch.batchNo, quantity: slice });
+    toFulfill -= slice;
+  }
+  const batchNoString = slices.map(s => s.batchNo).filter(Boolean).join(', ') || null;
+
+  await tx.product.update({
+    where: { id: item.productId },
+    data: { currentStock: { decrement: take } },
+  });
+
+  // Draw from the requester's own bucket first (unit OR department ledger),
+  // then from the unassigned pool (no ledger row — only currentStock moves).
+  const av = availability || {};
+  if (request.unitId) {
+    const fromOwn = Math.min(av.ownUnitQty || 0, take);
+    if (fromOwn > 0) {
+      await tx.productUnitStock.update({
+        where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
+        data: { quantity: { decrement: fromOwn } },
+      });
+    }
+  } else if (requesterDept) {
+    const fromOwn = Math.min(av.ownDeptQty || 0, take);
+    if (fromOwn > 0) {
+      await tx.productDeptStock.update({
+        where: { productId_dept: { productId: item.productId, dept: requesterDept } },
+        data: { quantity: { decrement: fromOwn } },
+      });
+    }
+  }
+
+  await tx.stockMovement.create({
+    data: {
+      productId: item.productId,
+      type: 'OUT',
+      quantity: take,
+      referenceType: 'ProductRequest',
+      referenceId: request.id,
+      batchNumber: batchNoString,
+      notes: `${note} [FIFO: ${slices.map(s => `${s.batchNo || 'NO-BATCH'}×${s.quantity}`).join(', ') || 'none'}]`,
+      performedBy,
+      unitId: request.unitId,
+    },
+  });
+
+  return slices;
+}
+
 // GET /api/requests — list requests based on role
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -203,150 +312,70 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
       return res.status(400).json({ error: 'Only pending requests can be approved' });
     }
 
-    // Pre-check: each item is fulfilled from (a) the requester's own bucket — a unit
-    // bucket (ProductUnitStock) for unit requesters, or a department bucket
-    // (ProductDeptStock) for non-unit owner roles (QC, Designs, …) — and/or (b) the
-    // unassigned pool = currentStock minus every unit AND department reservation.
-    // Stock reserved to a *different* unit or department is off-limits.
+    // Partial issue: no longer all-or-nothing. Issue whatever is available to
+    // the requester right now (own reserved bucket + unassigned pool), per item.
+    // Items with insufficient stock get whatever's there; the remainder waits
+    // and the MIV is left PARTIAL so the store can top it up once stock arrives.
     const requesterDept = request.unitId ? null : deptForRole(request.manager?.role);
-    const stockShortages = [];
-    const availabilityByItem = {};
+    const availabilityByItem = await computeAvailability(prisma, request, requesterDept);
+
+    // Decide how much to issue per item this round = min(requested, available).
+    const takeByItem = {};
+    let totalIssuedQty = 0;
     for (const ri of request.items) {
-      if (ri.quantity <= 0) continue;
-      const [ownUnitBucket, ownDeptBucket, allUnitBuckets, allDeptBuckets] = await Promise.all([
-        request.unitId
-          ? prisma.productUnitStock.findUnique({
-              where: { productId_unitId: { productId: ri.productId, unitId: request.unitId } },
-            })
-          : Promise.resolve(null),
-        requesterDept
-          ? prisma.productDeptStock.findUnique({
-              where: { productId_dept: { productId: ri.productId, dept: requesterDept } },
-            })
-          : Promise.resolve(null),
-        prisma.productUnitStock.findMany({ where: { productId: ri.productId }, select: { quantity: true } }),
-        prisma.productDeptStock.findMany({ where: { productId: ri.productId }, select: { quantity: true } }),
-      ]);
-      const ownUnitQty = ownUnitBucket?.quantity || 0;
-      const ownDeptQty = ownDeptBucket?.quantity || 0;
-      const ownQty = ownUnitQty + ownDeptQty; // only one is ever non-zero
-      const assignedTotal =
-        allUnitBuckets.reduce((s, b) => s + b.quantity, 0) +
-        allDeptBuckets.reduce((s, b) => s + b.quantity, 0);
-      const unassignedQty = Math.max(0, (ri.product?.currentStock || 0) - assignedTotal);
-      const available = ownQty + unassignedQty;
-      availabilityByItem[ri.id] = { ownUnitQty, ownDeptQty, unassignedQty };
-      if (available < ri.quantity - 0.001) {
-        stockShortages.push({
-          product: ri.product?.name || 'Unknown',
-          sku: ri.product?.sku,
-          requested: ri.quantity,
-          availableToYou: ownQty,
-          availableUnassigned: unassignedQty,
-        });
-      }
-    }
-    if (stockShortages.length > 0) {
-      return res.status(400).json({
-        error: 'Not enough stock available to you (own reserved + unassigned pool) for one or more items. Raise an Inventory Transfer Request from the unit or department that holds the stock.',
-        shortages: stockShortages,
-      });
+      const av = availabilityByItem[ri.id] || { available: 0 };
+      const take = Math.max(0, Math.min(ri.quantity, av.available));
+      takeByItem[ri.id] = take;
+      totalIssuedQty += take;
     }
 
-    const issueNo = await generateSequentialNumber(prisma, 'ISS');
+    // An Issue No is only minted when something actually leaves stock.
+    const issueNo = totalIssuedQty > 0 ? await generateSequentialNumber(prisma, 'ISS') : null;
     const now = new Date();
     const fifoSlicesByItem = {};
 
     await prisma.$transaction(async (tx) => {
       for (const item of request.items) {
-        const take = item.quantity;
-
-        // FIFO: deduct from oldest batches first; capture batch numbers used.
-        const batches = await tx.productBatch.findMany({
-          where: { productId: item.productId, remaining: { gt: 0 } },
-          orderBy: { receivedDate: 'asc' },
+        const take = takeByItem[item.id] || 0;
+        const slices = await issueItemQty(tx, {
+          request,
+          item,
+          take,
+          requesterDept,
+          availability: availabilityByItem[item.id],
+          performedBy: req.user.id,
+          note: `MIV ${request.requestNumber} accepted by ${req.user.name} for ${request.unit?.name || request.manager?.name || 'requester'}`,
         });
-        let toFulfill = take;
-        const slices = [];
-        for (const batch of batches) {
-          if (toFulfill <= 0) break;
-          const slice = Math.min(batch.remaining, toFulfill);
-          await tx.productBatch.update({
-            where: { id: batch.id },
-            data: { remaining: batch.remaining - slice },
-          });
-          slices.push({ batchId: batch.id, batchNo: batch.batchNo, quantity: slice });
-          toFulfill -= slice;
-        }
         fifoSlicesByItem[item.id] = slices;
-
         const batchNoString = slices.map(s => s.batchNo).filter(Boolean).join(', ') || null;
 
         await tx.requestItem.update({
           where: { id: item.id },
           data: {
-            approvedQty: take,
+            approvedQty: item.quantity, // full accepted qty; qtyIssued tracks what's gone out
             qtyIssued: take,
             collectedQty: take,
             materialBatchNo: batchNoString,
           },
         });
-
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { currentStock: { decrement: take } },
-        });
-
-        // Draw from the requester's own bucket first (unit OR department ledger),
-        // then from the unassigned pool.
-        const av = availabilityByItem[item.id] || {};
-        if (request.unitId) {
-          const fromOwn = Math.min(av.ownUnitQty || 0, take);
-          if (fromOwn > 0) {
-            await tx.productUnitStock.update({
-              where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
-              data: { quantity: { decrement: fromOwn } },
-            });
-          }
-        } else if (requesterDept) {
-          const fromOwn = Math.min(av.ownDeptQty || 0, take);
-          if (fromOwn > 0) {
-            await tx.productDeptStock.update({
-              where: { productId_dept: { productId: item.productId, dept: requesterDept } },
-              data: { quantity: { decrement: fromOwn } },
-            });
-          }
-        }
-        // Remainder comes from the unassigned pool — only Product.currentStock is
-        // decremented (already done above), no reservation ledger to update.
-
-        await tx.stockMovement.create({
-          data: {
-            productId: item.productId,
-            type: 'OUT',
-            quantity: take,
-            referenceType: 'ProductRequest',
-            referenceId: request.id,
-            batchNumber: batchNoString,
-            notes: `MIV ${request.requestNumber} accepted by ${req.user.name} for ${request.unit?.name || request.manager?.name || 'requester'} [FIFO: ${slices.map(s => `${s.batchNo || 'NO-BATCH'}×${s.quantity}`).join(', ') || 'none'}]`,
-            performedBy: req.user.id,
-            unitId: request.unitId,
-          },
-        });
       }
 
+      // COLLECTED only when every item is fully issued; otherwise PARTIAL (waiting).
+      const fullyIssued = request.items.every(ri => (takeByItem[ri.id] || 0) >= ri.quantity - 0.001);
       await tx.productRequest.update({
         where: { id: req.params.id },
         data: {
-          status: 'COLLECTED',
+          status: fullyIssued ? 'COLLECTED' : 'PARTIAL',
           clearedById: req.user.id,
           clearedAt: now,
-          collectedAt: now,
-          issueNo,
-          issueDate: now,
+          ...(fullyIssued ? { collectedAt: now } : {}),
+          ...(issueNo ? { issueNo, issueDate: now } : {}),
         },
       });
     });
+
+    const fullyIssuedCount = request.items.filter(i => (takeByItem[i.id] || 0) >= i.quantity - 0.001).length;
+    const allDone = fullyIssuedCount === request.items.length;
 
     const updated = await prisma.productRequest.findUnique({
       where: { id: req.params.id },
@@ -366,10 +395,12 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
         details: {
           requestNumber: request.requestNumber,
           issueNo,
-          action: 'ACCEPTED_AND_ISSUED',
+          action: allDone ? 'ACCEPTED_AND_ISSUED' : 'ACCEPTED_AND_PARTIALLY_ISSUED',
           items: request.items.map(i => ({
             product: i.product?.name,
             qty: i.quantity,
+            issued: takeByItem[i.id] || 0,
+            pending: Math.max(0, i.quantity - (takeByItem[i.id] || 0)),
             fifoBatches: fifoSlicesByItem[i.id] || [],
           })),
         },
@@ -381,7 +412,9 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
       data: {
         type: 'REQUEST_APPROVED',
         title: `MIV ${request.requestNumber} accepted`,
-        message: `Your MIV ${request.requestNumber} has been accepted by ${req.user.name}. Issue No: ${issueNo}. Materials issued from stock.`,
+        message: allDone
+          ? `Your MIV ${request.requestNumber} has been accepted by ${req.user.name}. Issue No: ${issueNo}. Materials issued from stock.`
+          : `Your MIV ${request.requestNumber} has been accepted by ${req.user.name} (partial). ${fullyIssuedCount}/${request.items.length} item(s) issued${issueNo ? ` — Issue No: ${issueNo}` : ''}; the remaining items are waiting on stock and will be issued when available.`,
         targetRole: request.manager?.role || 'MANAGER',
         sentById: req.user.id,
       },
@@ -411,6 +444,168 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
     res.json(updated);
   } catch (error) {
     console.error('Approve request error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// PUT /api/requests/:id/issue-available — Store Manager tops up a PARTIAL MIV.
+// Issues whatever is now available against each item's still-pending qty
+// (pending = approvedQty − qtyIssued). Advances the MIV to COLLECTED once every
+// item is fully issued, otherwise it stays PARTIAL for the next top-up.
+router.put('/:id/issue-available', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const request = await prisma.productRequest.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } } } },
+        manager: { select: { id: true, name: true, role: true } },
+        unit: { select: { id: true, name: true, code: true } },
+      },
+    });
+
+    if (!request) return res.status(404).json({ error: 'Request not found' });
+    if (request.status !== 'PARTIAL') {
+      return res.status(400).json({ error: 'Only partially-issued MIVs can be topped up' });
+    }
+
+    const requesterDept = request.unitId ? null : deptForRole(request.manager?.role);
+    const availabilityByItem = await computeAvailability(prisma, request, requesterDept);
+
+    // This round's take per item = min(stillPending, availableNow).
+    const takeByItem = {};
+    let totalIssuedQty = 0;
+    for (const ri of request.items) {
+      const approved = ri.approvedQty ?? ri.quantity;
+      const pending = Math.max(0, approved - (ri.qtyIssued || 0));
+      const av = availabilityByItem[ri.id] || { available: 0 };
+      const take = Math.max(0, Math.min(pending, av.available));
+      takeByItem[ri.id] = take;
+      totalIssuedQty += take;
+    }
+
+    if (totalIssuedQty <= 0) {
+      return res.status(400).json({ error: 'No additional stock is available to issue for the pending items yet.' });
+    }
+
+    // Reuse the existing Issue No if one was minted at accept time; otherwise mint now.
+    const issueNo = request.issueNo || await generateSequentialNumber(prisma, 'ISS');
+    const now = new Date();
+    const fifoSlicesByItem = {};
+
+    await prisma.$transaction(async (tx) => {
+      for (const item of request.items) {
+        const take = takeByItem[item.id] || 0;
+        if (take <= 0) { fifoSlicesByItem[item.id] = []; continue; }
+        const slices = await issueItemQty(tx, {
+          request,
+          item,
+          take,
+          requesterDept,
+          availability: availabilityByItem[item.id],
+          performedBy: req.user.id,
+          note: `MIV ${request.requestNumber} top-up issue by ${req.user.name} for ${request.unit?.name || request.manager?.name || 'requester'}`,
+        });
+        fifoSlicesByItem[item.id] = slices;
+        const newBatchNo = slices.map(s => s.batchNo).filter(Boolean).join(', ');
+        const mergedBatchNo = [item.materialBatchNo, newBatchNo].filter(Boolean).join(', ') || null;
+
+        await tx.requestItem.update({
+          where: { id: item.id },
+          data: {
+            qtyIssued: { increment: take },
+            collectedQty: { increment: take },
+            materialBatchNo: mergedBatchNo,
+          },
+        });
+      }
+
+      const fullyIssued = request.items.every(ri => {
+        const approved = ri.approvedQty ?? ri.quantity;
+        return ((ri.qtyIssued || 0) + (takeByItem[ri.id] || 0)) >= approved - 0.001;
+      });
+
+      await tx.productRequest.update({
+        where: { id: req.params.id },
+        data: {
+          status: fullyIssued ? 'COLLECTED' : 'PARTIAL',
+          issueNo,
+          issueDate: request.issueDate || now,
+          ...(fullyIssued ? { collectedAt: now } : {}),
+        },
+      });
+    });
+
+    const fullyIssuedCount = request.items.filter(ri => {
+      const approved = ri.approvedQty ?? ri.quantity;
+      return ((ri.qtyIssued || 0) + (takeByItem[ri.id] || 0)) >= approved - 0.001;
+    }).length;
+    const allDone = fullyIssuedCount === request.items.length;
+
+    const updated = await prisma.productRequest.findUnique({
+      where: { id: req.params.id },
+      include: {
+        manager: { select: { id: true, name: true } },
+        unit: { select: { id: true, name: true, code: true } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } } } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'ISSUE_AVAILABLE',
+        entity: 'ProductRequest',
+        entityId: request.id,
+        details: {
+          requestNumber: request.requestNumber,
+          issueNo,
+          completed: allDone,
+          items: request.items.map(i => ({
+            product: i.product?.name,
+            issuedThisRound: takeByItem[i.id] || 0,
+            fifoBatches: fifoSlicesByItem[i.id] || [],
+          })),
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        type: 'REQUEST_APPROVED',
+        title: allDone ? `MIV ${request.requestNumber} fully issued` : `MIV ${request.requestNumber} partly issued`,
+        message: allDone
+          ? `Your MIV ${request.requestNumber} is now fully issued by ${req.user.name}. Issue No: ${issueNo}.`
+          : `${req.user.name} issued more stock against your MIV ${request.requestNumber}. Some items are still waiting on stock.`,
+        targetRole: request.manager?.role || 'MANAGER',
+        sentById: req.user.id,
+      },
+    });
+
+    // Low-stock notifications after issue.
+    for (const item of request.items) {
+      const product = await prisma.product.findUnique({ where: { id: item.productId } });
+      if (product && product.minStockLevel > 0 && product.currentStock <= product.minStockLevel) {
+        const existing = await prisma.notification.findFirst({
+          where: { productId: product.id, isRead: false, type: 'LOW_STOCK' },
+        });
+        if (!existing) {
+          await prisma.notification.create({
+            data: {
+              type: 'LOW_STOCK',
+              title: `LOW STOCK: ${product.name}`,
+              message: `${product.name} (${product.sku}) stock is at ${product.currentStock} ${product.unit}. Minimum level: ${product.minStockLevel}.`,
+              productId: product.id,
+              targetRole: 'STORE_MANAGER',
+            },
+          });
+        }
+      }
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Issue-available request error:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });

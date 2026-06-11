@@ -44,13 +44,22 @@ export default function RequestClearance() {
       setSelectedRequest(null);
       fetchRequests();
     } catch (err) {
-      const shortages = err.response?.data?.shortages;
-      if (Array.isArray(shortages) && shortages.length > 0) {
-        const lines = shortages.map(s => `• ${s.product}: need ${s.requested}, have ${s.available}`).join('\n');
-        alert(`${err.response?.data?.error}\n\n${lines}`);
-      } else {
-        alert(err.response?.data?.error || 'Failed to accept');
-      }
+      alert(err.response?.data?.error || 'Failed to accept');
+    }
+    setProcessing(false);
+  };
+
+  // Top up a partially-issued MIV: issue whatever stock has arrived against the
+  // still-pending items.
+  const issueAvailable = async () => {
+    if (!selectedRequest) return;
+    setProcessing(true);
+    try {
+      await api.put(`/requests/${selectedRequest.id}/issue-available`, {});
+      setSelectedRequest(null);
+      fetchRequests();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to issue');
     }
     setProcessing(false);
   };
@@ -73,7 +82,7 @@ export default function RequestClearance() {
     PENDING: 'yellow', APPROVED: 'green', PARTIAL: 'orange', COLLECTED: 'blue', REJECTED: 'red', CANCELLED: 'gray'
   }[s] || 'gray');
 
-  const tabs = ['PENDING', 'COLLECTED', 'REJECTED', 'ALL'];
+  const tabs = ['PENDING', 'PARTIAL', 'COLLECTED', 'REJECTED', 'ALL'];
 
   return (
     <div className="space-y-6">
@@ -164,7 +173,13 @@ export default function RequestClearance() {
 
             {selectedRequest.status === 'PENDING' && (
               <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-900">
-                Accept to auto-issue: an Issue No, issue date, and FIFO batch numbers are filled in automatically and stock is reduced immediately. No further input needed unless rejecting.
+                Accept to issue whatever stock is available now — each item gets what's in stock (full or part), FIFO batch numbers and an Issue No are filled in automatically, and stock is reduced immediately. Any shortfall is left <strong>pending</strong>; the MIV moves to <strong>Partial</strong> and you can issue the rest from the Partial tab once stock arrives.
+              </div>
+            )}
+
+            {selectedRequest.status === 'PARTIAL' && (
+              <div className="bg-orange-50 border border-orange-200 rounded p-3 text-xs text-orange-900">
+                This MIV is partly issued — some items are still waiting on stock. Click <strong>Issue available now</strong> to release whatever stock has since arrived against the pending quantities. It stays in Partial until every item is fully issued.
               </div>
             )}
 
@@ -187,30 +202,40 @@ export default function RequestClearance() {
                       {selectedRequest.status !== 'PENDING' && (
                         <>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty Issued</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Pending</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">FIFO Batch No.</th>
                         </>
                       )}
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedRequest.items?.map((item) => (
-                      <tr key={item.id} className="border-b border-gray-50">
-                        <td className="px-3 py-2 font-medium text-gray-700">{item.product?.name}</td>
-                        <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || '—'}</td>
-                        <td className="px-3 py-2">
-                          <span className={item.product?.currentStock < item.quantity ? 'text-red-600 font-medium' : 'text-gray-600'}>
-                            {item.product?.currentStock} {item.product?.unit}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-gray-700">{item.quantity} {item.product?.unit}</td>
-                        {selectedRequest.status !== 'PENDING' && (
-                          <>
-                            <td className="px-3 py-2 text-gray-600">{item.qtyIssued != null ? `${item.qtyIssued} ${item.product?.unit}` : '—'}</td>
-                            <td className="px-3 py-2 text-xs font-mono text-amber-800">{item.materialBatchNo || '—'}</td>
-                          </>
-                        )}
-                      </tr>
-                    ))}
+                    {selectedRequest.items?.map((item) => {
+                      const approved = item.approvedQty ?? item.quantity;
+                      const pending = Math.max(0, approved - (item.qtyIssued || 0));
+                      return (
+                        <tr key={item.id} className="border-b border-gray-50">
+                          <td className="px-3 py-2 font-medium text-gray-700">{item.product?.name}</td>
+                          <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || '—'}</td>
+                          <td className="px-3 py-2">
+                            <span className={item.product?.currentStock < item.quantity ? 'text-red-600 font-medium' : 'text-gray-600'}>
+                              {item.product?.currentStock} {item.product?.unit}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-gray-700">{item.quantity} {item.product?.unit}</td>
+                          {selectedRequest.status !== 'PENDING' && (
+                            <>
+                              <td className="px-3 py-2 text-gray-600">{item.qtyIssued != null ? `${item.qtyIssued} ${item.product?.unit}` : '—'}</td>
+                              <td className="px-3 py-2">
+                                {pending > 0
+                                  ? <span className="text-orange-600 font-medium">{pending} {item.product?.unit}</span>
+                                  : <span className="text-green-600">0</span>}
+                              </td>
+                              <td className="px-3 py-2 text-xs font-mono text-amber-800">{item.materialBatchNo || '—'}</td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -222,7 +247,15 @@ export default function RequestClearance() {
                   <XCircle size={16} className="mr-1" /> Reject
                 </Button>
                 <Button onClick={acceptRequest} disabled={processing}>
-                  <CheckCircle size={16} className="mr-1" /> {processing ? 'Accepting…' : 'Accept'}
+                  <CheckCircle size={16} className="mr-1" /> {processing ? 'Accepting…' : 'Accept & issue available'}
+                </Button>
+              </div>
+            )}
+
+            {selectedRequest.status === 'PARTIAL' && (
+              <div className="flex justify-end gap-3 pt-2">
+                <Button onClick={issueAvailable} disabled={processing}>
+                  <CheckCircle size={16} className="mr-1" /> {processing ? 'Issuing…' : 'Issue available now'}
                 </Button>
               </div>
             )}

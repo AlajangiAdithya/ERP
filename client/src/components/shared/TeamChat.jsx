@@ -64,9 +64,13 @@ export default function TeamChat() {
     if (view === 'active') bottomRef.current?.scrollIntoView({ block: 'end' });
   }, [ordered.length, view]);
 
-  // ── @mention autocomplete — only while composing the leading token ──
-  const mentionMatch = input.match(/^@(\S*)$/);
-  const mentionQuery = mentionMatch ? mentionMatch[1].toLowerCase() : null;
+  // ── @mention autocomplete ──
+  // Usernames may contain spaces, so the query is "everything after the leading
+  // @" (not just up to the first space). Suggestions are candidates whose name
+  // starts with what's typed; once the username + message is fully typed there
+  // are no startsWith matches, so the dropdown closes on its own.
+  const mentionMatch = input.match(/^@([^\n]*)$/);
+  const mentionQuery = mentionMatch ? mentionMatch[1].toLowerCase().trimStart() : null;
   const suggestions = mentionQuery !== null
     ? [
         { id: '__everyone', username: 'everyone', name: 'Everyone', role: 'BROADCAST' },
