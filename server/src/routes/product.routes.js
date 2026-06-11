@@ -56,6 +56,39 @@ async function annotateMirAndExpiry(products) {
   }
 }
 
+// Attaches `deptStocks: [{ dept, quantity }]` to each product — the in-stock total
+// held on behalf of each non-unit department (QC, Designs, Safety, Lab, …). This is
+// the department counterpart to unitStocks (per-unit ownership): PRs raised by a
+// non-unit role have their inward batches stamped with ProductBatch.assignedDept,
+// so we sum the remaining qty per department here. Non-FIM only — FIM is its own tab.
+async function annotateDeptStocks(products) {
+  if (!products.length) {
+    return;
+  }
+  const ids = products.map((p) => p.id);
+  const grouped = await prisma.productBatch.groupBy({
+    by: ['productId', 'assignedDept'],
+    where: {
+      productId: { in: ids },
+      assignedDept: { not: null },
+      isFim: false,
+      remaining: { gt: 0 },
+    },
+    _sum: { remaining: true },
+  });
+  const perProduct = new Map();
+  for (const g of grouped) {
+    const qty = g._sum.remaining || 0;
+    if (qty <= 0) continue;
+    const list = perProduct.get(g.productId) || [];
+    list.push({ dept: g.assignedDept, quantity: qty });
+    perProduct.set(g.productId, list);
+  }
+  for (const p of products) {
+    p.deptStocks = perProduct.get(p.id) || [];
+  }
+}
+
 const productSchema = z.object({
   name: z.string().min(1),
   // Identification number from the Material Details register — also stored as SKU.
@@ -143,6 +176,7 @@ router.get('/', authenticate, async (req, res) => {
         include: Object.keys(include).length ? include : undefined,
       });
       if (wantMir) await annotateMirAndExpiry(products);
+      if (wantUnitStock) await annotateDeptStocks(products);
       return res.json({ products, total: products.length, page: 1, totalPages: 1 });
     }
 
@@ -160,6 +194,7 @@ router.get('/', authenticate, async (req, res) => {
     ]);
 
     if (wantMir) await annotateMirAndExpiry(products);
+    if (wantUnitStock) await annotateDeptStocks(products);
 
     res.json({ products, total, page: Math.ceil(skip / take) + 1, totalPages: Math.ceil(total / take) });
   } catch (error) {

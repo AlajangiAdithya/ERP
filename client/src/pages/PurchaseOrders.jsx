@@ -70,6 +70,24 @@ const itemStatusLabel = (s) => ({
   CANCELLED: 'Cancelled',
 }[s] || s);
 
+// Material Category is sourced from the PR items' materialType (set by the unit
+// manager at PR creation, finalised on admin approval) and stays the same all the
+// way from PR → PO → IIR → inward. Stores never re-pick it here. Aggregates across
+// all source PRs of a union PO so multi-PR pools show every distinct category.
+function derivePRMaterialCategory(order) {
+  if (!order) return '';
+  const prs = order.isUnion
+    ? (order.sourceRequests || []).map((s) => s.purchaseRequest).filter(Boolean)
+    : (order.purchaseRequest ? [order.purchaseRequest] : []);
+  const types = new Set();
+  for (const pr of prs) {
+    for (const it of (pr.items || [])) {
+      if (it.materialType) types.add(it.materialType);
+    }
+  }
+  return Array.from(types).join(' / ');
+}
+
 function ProgressBar({ value, total, label, compact = false }) {
   const pct = total > 0 ? Math.min(100, (value / total) * 100) : 0;
   const color = pct >= 100 ? 'bg-green-500' : pct > 0 ? 'bg-amber-500' : 'bg-gray-300';
@@ -540,19 +558,12 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
           <div className="bg-gray-100 p-2 font-bold text-xs uppercase border-b border-gray-300">Inspection Category & Scope</div>
           <div className="p-4 space-y-5 bg-white">
             <div>
-              <div className="text-xs font-bold mb-2">Material Category <span className="text-red-500">*</span></div>
-              <div className="flex flex-wrap gap-4 text-xs font-medium">
-                {['Raw Materials', 'Consumables', 'Tooling & Fixtures', 'FIM (Free Issue Material)'].map(cat => (
-                  <label key={cat} className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="materialCategory"
-                      checked={iir.materialCategory === cat}
-                      onChange={() => setIir({ ...iir, materialCategory: cat })}
-                    />
-                    {cat}
-                  </label>
-                ))}
+              <div className="text-xs font-bold mb-2">Material Category</div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block px-2.5 py-1 rounded border border-gray-300 bg-gray-50 text-xs font-medium text-gray-800">
+                  {iir.materialCategory || <span className="italic text-gray-400 font-normal">Not set on PR</span>}
+                </span>
+                <span className="text-[10px] text-gray-400 italic">Carried over from the purchase request — set at PR creation.</span>
               </div>
             </div>
 
@@ -927,7 +938,8 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
       gatePassType: '',
       probableDateOfReturn: '',
       materialReceiptDate: today,
-      materialCategory: '',
+      // Carried over from the PR — stores don't re-select it.
+      materialCategory: derivePRMaterialCategory(order),
       documentTypes: {
         testReport: false,
         coc: false,
@@ -968,7 +980,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
       gatePassType: pending.gatePassType || '',
       probableDateOfReturn: toDateStr(pending.probableDateOfReturn),
       materialReceiptDate: toDateStr(pending.materialReceiptDate),
-      materialCategory: pending.materialCategory || '',
+      materialCategory: derivePRMaterialCategory(order) || pending.materialCategory || '',
       documentTypes: pending.documentTypes || {
         testReport: false, coc: false, coa: false, thirdParty: false,
         dimInspAtSupplier: false, dimInspAtRapsInward: false,
@@ -985,7 +997,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const submitIir = async () => {
     if (!iir.batchNumber.trim()) return alert('Batch number is required — it is locked to this lot for inspection, inward, and the product list.');
     if (!iir.materialReceiptDate) return alert('Material receipt date is required.');
-    if (!iir.materialCategory) return alert('Please select the material category.');
+    // Material category is auto-carried from the PR, not picked here.
     if (iir.gatePassType === 'Returnable' && !iir.probableDateOfReturn) {
       return alert('Probable date of return is required when the gate pass is Returnable.');
     }

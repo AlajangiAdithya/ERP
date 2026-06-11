@@ -84,13 +84,17 @@ export default function Products() {
         return 'Available';
       };
       const ownedBy = (row) => {
-        const list = Array.isArray(row.unitStocks) ? row.unitStocks.filter(u => u.quantity > 0) : [];
-        return list.map(us => `${us.unit?.name || us.unit?.code || 'Unit'}:${us.quantity}`).join(' | ');
+        const units = Array.isArray(row.unitStocks) ? row.unitStocks.filter(u => u.quantity > 0) : [];
+        const depts = Array.isArray(row.deptStocks) ? row.deptStocks.filter(d => d.quantity > 0) : [];
+        return [
+          ...units.map(us => `${us.unit?.name || us.unit?.code || 'Unit'}:${us.quantity}`),
+          ...depts.map(d => `${d.dept} (dept):${d.quantity}`),
+        ].join(' | ');
       };
       const header = [
         'ID No.', 'Name', 'Category', 'UOM',
         'Current Stock', 'Min Stock Level',
-        'Deficit (Min - Current)', 'Status', 'Owned By (Unit:Qty)',
+        'Deficit (Min - Current)', 'Status', 'Owned By (Unit/Dept:Qty)',
         'Description',
       ];
       const rows = all.map(p => [
@@ -213,16 +217,25 @@ export default function Products() {
     {
       key: 'unitStocks', label: 'Owned by',
       render: (v, row) => {
-        const list = Array.isArray(v) ? v.filter(u => u.quantity > 0) : [];
-        if (list.length === 0) {
+        const units = Array.isArray(v) ? v.filter(u => u.quantity > 0) : [];
+        // Department ownership (QC, Designs, Safety, …) for stock from non-unit PRs.
+        const depts = Array.isArray(row.deptStocks) ? row.deptStocks.filter(d => d.quantity > 0) : [];
+        if (units.length === 0 && depts.length === 0) {
           return <span className="text-xs text-gray-400">Unassigned</span>;
         }
         return (
           <div className="flex flex-col gap-0.5">
-            {list.map(us => (
+            {units.map(us => (
               <span key={us.id} className="text-xs text-gray-700">
                 <strong>{us.quantity}</strong> {row.unit} owned by{' '}
                 <span className="font-medium text-navy-700">{us.unit?.name || us.unit?.code || 'Unit'}</span>
+              </span>
+            ))}
+            {depts.map(d => (
+              <span key={`dept:${d.dept}`} className="text-xs text-gray-700">
+                <strong>{d.quantity}</strong> {row.unit} owned by{' '}
+                <span className="font-medium text-purple-700">{d.dept}</span>
+                <span className="text-gray-400"> (dept)</span>
               </span>
             ))}
           </div>

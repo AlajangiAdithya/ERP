@@ -51,6 +51,24 @@ const router = express.Router();
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'SAFETY'];
 
+// Friendly department label for each non-unit (global) requester role. When a PR
+// is raised by one of these roles it carries no unit, so at inward we stamp the
+// resulting ProductBatch with this label (ProductBatch.assignedDept) so the
+// product list can show "owned by <Dept>" instead of "Unassigned". Labels match
+// the Direct-Entry ASSIGN_DEPTS list so PO-flow and cash-flow attribution agree.
+// Unit-bound roles (MANAGER, RND) are intentionally absent — their material is
+// indented to a unit via ProductUnitStock, not a department.
+const DEPT_BY_ROLE = {
+  STORE_MANAGER: 'Stores',
+  DESIGNS: 'Designs',
+  PLANNING: 'Planning',
+  QC: 'QC',
+  LAB: 'Lab',
+  METROLOGY: 'Metrology',
+  NDT: 'NDT',
+  SAFETY: 'Safety',
+};
+
 const ORDER_INCLUDE = {
   createdBy: { select: { id: true, name: true } },
   creditPlacedBy: { select: { id: true, name: true } },
@@ -69,6 +87,7 @@ const ORDER_INCLUDE = {
       items: {
         select: {
           id: true, productName: true, productUnit: true, requestedQty: true,
+          materialType: true,
           materialSpecification: true, specAttachmentUrl: true, specAttachmentName: true,
           drawingNo: true, qapNo: true, itemRemarks: true,
         },
@@ -85,6 +104,7 @@ const ORDER_INCLUDE = {
           items: {
             select: {
               id: true, productName: true, productUnit: true, requestedQty: true,
+              materialType: true,
               materialSpecification: true, specAttachmentUrl: true, specAttachmentName: true,
               drawingNo: true, qapNo: true, itemRemarks: true,
             },
@@ -803,7 +823,12 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
                     id: true, productId: true, productName: true, productUnit: true, materialType: true,
                     request: {
                       // createdAt is required for FIFO ordering across source PRs on partial inward.
-                      select: { id: true, requestNumber: true, createdAt: true, unit: { select: { id: true, name: true, code: true } } },
+                      // manager.role lets us attribute non-unit PRs to a department at inward.
+                      select: {
+                        id: true, requestNumber: true, createdAt: true,
+                        unit: { select: { id: true, name: true, code: true } },
+                        manager: { select: { role: true } },
+                      },
                     },
                   },
                 },
@@ -1023,7 +1048,9 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
         // indented only to the requesting unit.
         for (const { allocation, share } of shares) {
           if (share <= 0) continue;
-          const prRef = allocation?.purchaseRequestItem?.purchaseRequest;
+          // The Prisma relation on PurchaseRequestItem is `request` (not `purchaseRequest`);
+          // using the wrong name left union POs with no unit/department attribution.
+          const prRef = allocation?.purchaseRequestItem?.request;
           const unitTag = prRef?.unit?.code ? ` [${prRef.unit.code}]` : '';
           const prTag = prRef?.requestNumber ? ` — ${prRef.requestNumber}` : '';
 
@@ -1031,6 +1058,14 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           const owningUnitId = allocation
             ? prRef?.unit?.id || null
             : order.purchaseRequest?.unitId || null;
+
+          // No owning unit → this PR was raised by a non-unit department (QC, Designs,
+          // Safety, Lab, Metrology, NDT, Planning, Stores). Attribute the batch to that
+          // department so the product list shows "owned by <Dept>" instead of "Unassigned".
+          const raiserRole = allocation
+            ? prRef?.manager?.role
+            : order.purchaseRequest?.manager?.role;
+          const assignedDept = owningUnitId ? null : (DEPT_BY_ROLE[raiserRole] || null);
 
           const movement = await tx.stockMovement.create({
             data: {
@@ -1060,6 +1095,8 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
               notes: `PO ${order.orderNumber}${lotTag} — ${orderItem.productName}${prTag}${unitTag} (MIR ${mirNo})`,
               createdById: req.user.id,
               sourceQcInspectionId: activeInspection?.id || null,
+              // Department ownership for non-unit PRs (null when indented to a unit).
+              assignedDept,
             },
           });
 
