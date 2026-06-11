@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock, Truck, DoorOpen, MapPin, Send, ShieldCheck, ScrollText, Inbox, ArrowRight, Calendar, Eye, FileSearch, CreditCard, BarChart3, ArrowLeftRight, FlaskConical, History, GraduationCap, Users, UserCheck, BookOpen } from 'lucide-react';
+import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock, Truck, DoorOpen, MapPin, Send, ShieldCheck, ScrollText, Inbox, ArrowRight, Calendar, Eye, FileSearch, CreditCard, BarChart3, ArrowLeftRight, FlaskConical, History, GraduationCap, Users, UserCheck, BookOpen, ChevronDown } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -734,6 +734,7 @@ function StoreManagerDashboard() {
   const [loading, setLoading] = useState(true);
   const [notifying, setNotifying] = useState({});
   const [lowStockModal, setLowStockModal] = useState(false);
+  const [lowStockCollapsed, setLowStockCollapsed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -851,8 +852,20 @@ function StoreManagerDashboard() {
 
       {/* Low Stock Products */}
       <Card>
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">Low Stock Products</h3>
-        <div className="overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setLowStockCollapsed(c => !c)}
+          className="flex w-full items-center justify-between text-left"
+          aria-expanded={!lowStockCollapsed}
+        >
+          <h3 className="text-sm font-semibold text-gray-700">Low Stock Products</h3>
+          <ChevronDown
+            size={18}
+            className={`text-gray-400 transition-transform ${lowStockCollapsed ? '' : 'rotate-180'}`}
+          />
+        </button>
+        {!lowStockCollapsed && (
+        <div className="overflow-x-auto mt-4">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b">
@@ -906,6 +919,7 @@ function StoreManagerDashboard() {
             </tbody>
           </table>
         </div>
+        )}
       </Card>
 
       {/* Low Stock Modal */}
