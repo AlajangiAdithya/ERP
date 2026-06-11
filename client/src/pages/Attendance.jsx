@@ -383,6 +383,7 @@ export default function Attendance() {
           onFocus={setFocusedEmpId}
           onSave={saveCell}
           onShowHistory={setShowHistory}
+          onEditEmp={canEdit ? setShowAddEmp : null}
           monthSummary={computeMonthSummary}
         />
       )}
@@ -431,7 +432,7 @@ function DayView({ employees, date, entryMap, canEdit, isManager, onSave, onShow
             <th className="px-3 py-3 text-center w-40">Status</th>
             <th className="px-3 py-3 text-center w-24">Hours</th>
             <th className="px-3 py-3 text-center w-24">OT</th>
-            <th className="px-3 py-3 w-12" />
+            <th className="px-3 py-3 w-20" />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -574,10 +575,10 @@ function DayRow({ emp, date, entry, canEdit, isManager, onSave, onShowHistory, o
           <button
             type="button"
             onClick={() => onShowHistory(entry)}
-            title={`Modified ${new Date(entry.modifiedAt).toLocaleString()} by ${entry.modifiedByName || ''}`}
-            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200"
+            title={`Modified ${new Date(entry.modifiedAt).toLocaleString()} by ${entry.modifiedByName || ''} — click for history`}
+            className="text-[10px] italic text-orange-600 hover:text-orange-700 hover:underline"
           >
-            <Pencil size={11} />
+            modified
           </button>
         )}
       </td>
@@ -590,7 +591,7 @@ function DayRow({ emp, date, entry, canEdit, isManager, onSave, onShowHistory, o
 // ──────────────────────────────────────────────────────────────
 function MonthView({
   employees, year, month, entryMap, canEdit, isManager,
-  focusedEmpId, onFocus, onSave, onShowHistory, monthSummary,
+  focusedEmpId, onFocus, onSave, onShowHistory, onEditEmp, monthSummary,
 }) {
   const focused = employees.find((e) => e.id === focusedEmpId) || employees[0];
   const total = monthSummary(focused.id);
@@ -609,26 +610,37 @@ function MonthView({
             const s = monthSummary(emp.id);
             const active = emp.id === focused?.id;
             return (
-              <button
+              <div
                 key={emp.id}
-                onClick={() => onFocus(emp.id)}
-                className={`w-full text-left px-3 py-2.5 border-b border-gray-100 transition
+                className={`group flex items-center gap-1 px-3 py-2.5 border-b border-gray-100 transition
                   ${active ? 'bg-navy-50 border-l-2 border-l-navy-600' : 'hover:bg-gray-50'}`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{emp.name}</div>
-                    <div className="text-[11px] text-gray-500">
-                      {emp.empCode ? `E.ID ${emp.empCode} · ` : ''}{s.days} days
-                    </div>
+                <button
+                  onClick={() => onFocus(emp.id)}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <div className="text-sm font-medium text-gray-900 truncate">{emp.name}</div>
+                  <div className="text-[11px] text-gray-500">
+                    {emp.empCode ? `E.ID ${emp.empCode} · ` : ''}{s.days} days
                   </div>
-                  {s.ot > 0 && (
-                    <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                      OT {Math.floor(s.ot/60)}h
-                    </span>
-                  )}
-                </div>
-              </button>
+                </button>
+                {s.ot > 0 && (
+                  <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded flex-shrink-0">
+                    OT {Math.floor(s.ot/60)}h
+                  </span>
+                )}
+                {onEditEmp && (
+                  <button
+                    type="button"
+                    onClick={() => onEditEmp(emp)}
+                    className="p-1 rounded hover:bg-navy-100 text-navy-600 opacity-0 group-hover:opacity-100 transition flex-shrink-0"
+                    aria-label="Edit or remove employee"
+                    title="Edit or remove employee"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
@@ -666,7 +678,7 @@ function MonthView({
                 <th className="px-3 py-2 text-center w-40">Status</th>
                 <th className="px-3 py-2 text-center w-24">Hours</th>
                 <th className="px-3 py-2 text-center w-20">OT</th>
-                <th className="px-3 py-2 w-10" />
+                <th className="px-3 py-2 w-16" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -792,10 +804,10 @@ function MonthDayRow({ empId, date, day, dow, isWeekend, entry, canEdit, isManag
           <button
             type="button"
             onClick={() => onShowHistory(entry)}
-            title={`Modified ${new Date(entry.modifiedAt).toLocaleString()} by ${entry.modifiedByName || ''}`}
-            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200"
+            title={`Modified ${new Date(entry.modifiedAt).toLocaleString()} by ${entry.modifiedByName || ''} — click for history`}
+            className="text-[10px] italic text-orange-600 hover:text-orange-700 hover:underline"
           >
-            <Pencil size={11} />
+            modified
           </button>
         )}
       </td>
