@@ -29,7 +29,7 @@ const STATUS_OPTIONS = [
   { value: 'SL', label: 'SL — Sick Leave' },
   { value: 'WO', label: 'WO — Weekly Off' },
   { value: 'H', label: 'H — Holiday' },
-  { value: 'BAKRID', label: 'BAKRID — Festival' },
+  { value: 'BAKRID', label: 'Other Holidays' },
   { value: 'HYD', label: 'HYD — Off-site (Hyderabad)' },
 ];
 

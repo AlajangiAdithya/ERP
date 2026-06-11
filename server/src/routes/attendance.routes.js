@@ -390,15 +390,26 @@ router.put('/entry', authenticate, async (req, res) => {
       });
     }
 
-    // Subsequent save — diff against existing values and append history.
+    // Subsequent save — diff against existing values.
     const next = {
       inTime: 'inTime' in patch ? patch.inTime : existing.inTime,
       outTime: 'outTime' in patch ? patch.outTime : existing.outTime,
       statusCode: 'statusCode' in patch ? patch.statusCode : existing.statusCode,
     };
-    const changed = (next.inTime !== existing.inTime)
-      || (next.outTime !== existing.outTime)
-      || (next.statusCode !== existing.statusCode);
+
+    const isFilled = (v) => v !== null && v !== undefined && v !== '';
+    const fieldChanged = (key) => next[key] !== existing[key];
+
+    const changed = fieldChanged('inTime') || fieldChanged('outTime') || fieldChanged('statusCode');
+
+    // A change only counts as a *modification* (showing the "modified" mark +
+    // history) when a field that ALREADY had a value is overwritten or cleared.
+    // Filling a previously-empty field — e.g. typing OUT after IN on the same
+    // day — is still part of the first-time entry, so it leaves no trail.
+    const isModification =
+      (fieldChanged('inTime') && isFilled(existing.inTime))
+      || (fieldChanged('outTime') && isFilled(existing.outTime))
+      || (fieldChanged('statusCode') && isFilled(existing.statusCode));
 
     if (!changed) {
       return res.json({
@@ -414,6 +425,32 @@ router.put('/entry', authenticate, async (req, res) => {
         history: existing.history || [],
         firstSavedAt: existing.firstSavedAt,
         wasModified: !!existing.modifiedAt,
+      });
+    }
+
+    if (!isModification) {
+      // Still first-time entry — persist the new values without a trail.
+      const filled = await prisma.attendanceEntry.update({
+        where: { id: existing.id },
+        data: {
+          inTime: next.inTime,
+          outTime: next.outTime,
+          statusCode: next.statusCode,
+        },
+      });
+      return res.json({
+        id: filled.id,
+        employeeId: filled.employeeId,
+        date: filled.date.toISOString().slice(0, 10),
+        inTime: filled.inTime,
+        outTime: filled.outTime,
+        statusCode: filled.statusCode,
+        modifiedAt: filled.modifiedAt,
+        modifiedById: filled.modifiedById,
+        modifiedByName: filled.modifiedByName,
+        history: filled.history || [],
+        firstSavedAt: filled.firstSavedAt,
+        wasModified: !!filled.modifiedAt,
       });
     }
 
