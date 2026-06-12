@@ -112,6 +112,12 @@ AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/de
 S3_BACKUP_BUCKET="raps-backups-${AWS_ACCOUNT_ID}"
 AWS_REGION_FOR_S3="${AWS_REGION:-ap-south-1}"
 
+# Web Push (VAPID) keys — generated once per install; regenerating later
+# invalidates every browser push subscription, so they live in .env forever.
+VAPID_JSON=$(npx --yes web-push generate-vapid-keys --json)
+VAPID_PUBLIC_KEY=$(echo "$VAPID_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['publicKey'])")
+VAPID_PRIVATE_KEY=$(echo "$VAPID_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['privateKey'])")
+
 cat > server/.env <<EOF
 DATABASE_URL="postgresql://${DB_USER}:${ENCODED_PW}@127.0.0.1:5432/${DB_NAME}?schema=public"
 DIRECT_URL="postgresql://${DB_USER}:${ENCODED_PW}@127.0.0.1:5432/${DB_NAME}?schema=public"
@@ -122,6 +128,9 @@ NODE_ENV="production"
 CLIENT_URL="http://${PUBLIC_IP}"
 S3_BACKUP_BUCKET="${S3_BACKUP_BUCKET}"
 AWS_REGION="${AWS_REGION_FOR_S3}"
+VAPID_PUBLIC_KEY="${VAPID_PUBLIC_KEY}"
+VAPID_PRIVATE_KEY="${VAPID_PRIVATE_KEY}"
+VAPID_SUBJECT="mailto:sunnytest2506@gmail.com"
 EOF
 
 echo "VITE_API_URL=http://${PUBLIC_IP}" > client/.env.production

@@ -40,6 +40,7 @@ const attendanceRoutes = require('./routes/attendance.routes');
 const kpiQmsRoutes = require('./routes/kpiQms.routes');
 const messageRoutes = require('./routes/message.routes');
 const calendarRoutes = require('./routes/calendar.routes');
+const pushRoutes = require('./routes/push.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -117,6 +118,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/kpi-qms', kpiQmsRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/calendar', calendarRoutes);
+app.use('/api/push', pushRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

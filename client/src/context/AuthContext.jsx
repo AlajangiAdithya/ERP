@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import api from '../api/axios';
+import { removePushSubscription } from '../utils/push';
 
 const AuthContext = createContext(null);
 
@@ -50,6 +51,11 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
+    // Stop server push to this device before the token dies — otherwise a
+    // shared computer keeps showing the previous user's notifications.
+    try {
+      await removePushSubscription();
+    } catch {}
     try {
       await api.post('/auth/logout');
     } catch {}

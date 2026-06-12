@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import api from '../api/axios';
 import { useAuth } from './AuthContext';
+import { ensurePushSubscription } from '../utils/push';
 
 const NotificationContext = createContext(null);
 
@@ -39,9 +40,15 @@ export function NotificationProvider({ children }) {
           .catch(() => { a.volume = prevVol; });
       }
       if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().catch((e) => {
-          if (import.meta.env.DEV) console.warn('[notify] requestPermission failed', e);
-        });
+        Notification.requestPermission()
+          .then((perm) => {
+            // Register this device for server push the moment permission lands
+            // (guarded: only while a session exists).
+            if (perm === 'granted' && localStorage.getItem('accessToken')) ensurePushSubscription();
+          })
+          .catch((e) => {
+            if (import.meta.env.DEV) console.warn('[notify] requestPermission failed', e);
+          });
       }
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
@@ -71,19 +78,37 @@ export function NotificationProvider({ children }) {
   const showPush = useCallback((n) => {
     if (typeof window === 'undefined' || !('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
+    const title = n.title || 'New notification';
+    const opts = {
+      body: n.message || '',
+      icon: PUSH_ICON,
+      tag: `raps-${n.id}`, // same tag as server push — never shows duplicates
+      renotify: true,
+    };
+    // Android Chrome forbids page-context `new Notification` — go through the
+    // service worker (clicks are handled by its notificationclick handler).
+    if (navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.ready
+        .then((reg) => reg.showNotification(title, opts))
+        .catch(() => {});
+      return;
+    }
     try {
-      const note = new Notification(n.title || 'New notification', {
-        body: n.message || '',
-        icon: PUSH_ICON,
-        tag: `raps-${n.id}`,
-        renotify: true,
-      });
+      const note = new Notification(title, opts);
       note.onclick = () => {
         window.focus();
         note.close();
       };
     } catch {}
   }, []);
+
+  // Each login (or page load with a live session) re-registers this device for
+  // server push, so notifications reach the OS tray even when the app is closed.
+  useEffect(() => {
+    if (!user) return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    ensurePushSubscription();
+  }, [user]);
 
   useEffect(() => {
     if (!user) {

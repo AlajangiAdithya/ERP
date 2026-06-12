@@ -25,6 +25,7 @@ model User {
   auditLogs                  AuditLog[]
   productRequests            ProductRequest[]
   sentNotifications          Notification[]                   @relation("SentBy")
+  pushSubscriptions          PushSubscription[]
   purchaseRequests           PurchaseRequest[]                @relation("PurchaseRequestManager")
   purchaseRequestApprovals   PurchaseRequest[]                @relation("PurchaseRequestApprover")
   purchaseRequestQcApprovals PurchaseRequest[]                @relation("PurchaseRequestQcApprover")
@@ -2030,6 +2031,21 @@ model Notification {
   sentBy       User?    @relation("SentBy", fields: [sentById], references: [id])
   isRead       Boolean  @default(false)
   createdAt    DateTime @default(now())
+}
+
+// One row per browser/device a user enabled push notifications on.
+// endpoint is the unique push-service URL; dead endpoints (410/404 from the
+// push service) are pruned automatically by the push sender.
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // ──────────────────────────────────────────────────────────────
