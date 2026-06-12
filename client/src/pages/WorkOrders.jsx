@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Plus, Send, CheckCircle2, Clock, XCircle, Building2,
   CalendarClock, TrendingUp, ShieldCheck, PauseCircle,
@@ -6,6 +6,7 @@ import {
   FileText, Receipt, ShieldAlert, Upload, AlertTriangle, Timer, Trash2, Check,
   GitBranch, ArrowRight, ArrowDown, Download, Paperclip, BellRing,
   Banknote, Wallet, FilePlus2, FileCheck2, UserCheck, Truck, RefreshCw,
+  Filter, X, Package, Boxes, Hash,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +18,7 @@ import Modal from '../components/ui/Modal';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import StatsCard from '../components/shared/StatsCard';
 import PageHero from '../components/shared/PageHero';
+import SearchBar from '../components/shared/SearchBar';
 import { formatDate } from '../utils/formatters';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import InvoicePdf from '../components/pdf/InvoicePdf';
@@ -83,6 +85,18 @@ const qcCertData = (wo, cycle) => ({
   closureDocs: (cycle.docs || []).map((d) => ({ ...d, stage: 'UNIT_DOCS_PENDING' })),
 });
 
+// Compact, locale-aware number for stat cards and qty columns (avoids long
+// trailing decimals like 3.5999999 → "3.6").
+const fmtQty = (n) => (n == null ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }));
+
+// Best-effort "Type of Order" (Material / Service) — captured in remarks on
+// import ("Type of Order: Service"). Returns null when not present so the Type
+// filter only appears once there is real data to filter on.
+const orderType = (wo) => {
+  const m = /type of order\s*:\s*([a-z/ ]+)/i.exec(wo.remarks || '');
+  return m ? m[1].trim().replace(/\s*\|.*$/, '').trim() : null;
+};
+
 // Map itemId → total qty delivered across every lot of this WO.
 const deliveredByItem = (wo) => {
   const m = {};
@@ -98,49 +112,128 @@ export default function WorkOrders() {
   const canCreate = role === 'SUPPLY_CHAIN' || role === 'ADMIN';
 
   const [workOrders, setWorkOrders] = useState([]);
-  const [stats, setStats] = useState({ completedCount: 0, onTimeCount: 0, onTimePercent: null });
   const [units, setUnits] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('ALL');
   const [showCreate, setShowCreate] = useState(false);
   const [detail, setDetail] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
   const [view, setView] = useState('table'); // 'table' | 'cards'
   const [workflowOpen, setWorkflowOpen] = useState(false);
 
+  // ── Filters (all client-side so every option is auto-derived from the data
+  // and filtering is instant — no refetch needed). ──
+  const [activeTab, setActiveTab] = useState('ALL'); // status
+  const [search, setSearch] = useState('');
+  const [customer, setCustomer] = useState('ALL');
+  const [unitId, setUnitId] = useState('ALL');
+  const [type, setType] = useState('ALL');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+
+  // Load the full set once (and on refresh). The server still scopes MANAGERs
+  // to their own unit; everything else is filtered in the browser.
   const load = () => {
     setLoading(true);
-    api.get('/work-orders', { params: {
-      status: activeTab === 'ALL' ? undefined : activeTab,
-      limit: 200,
-      fromDate: fromDate || undefined,
-      toDate: toDate || undefined,
-    } })
-      .then(({ data }) => {
-        setWorkOrders(data.workOrders || []);
-        setStats(data.stats || { completedCount: 0, onTimeCount: 0, onTimePercent: null });
-      })
+    api.get('/work-orders', { params: { limit: 1000 } })
+      .then(({ data }) => setWorkOrders(data.workOrders || []))
       .catch(() => setWorkOrders([]))
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [activeTab, refreshKey, fromDate, toDate]);
+  useEffect(load, [refreshKey]);
 
   useEffect(() => {
-    if (canCreate || role === 'ADMIN') {
-      api.get('/units').then(({ data }) => setUnits(data.units || data || [])).catch(() => setUnits([]));
-    }
-  }, [canCreate, role]);
+    api.get('/units').then(({ data }) => setUnits(data.units || data || [])).catch(() => setUnits([]));
+  }, []);
 
-  const pending = workOrders.filter((w) => w.status === 'PENDING_ADMIN').length;
-  const inProgress = workOrders.filter((w) => ['UNIT_ACCEPTED', 'IN_PROGRESS', 'ADMIN_ACCEPTED'].includes(w.status)).length;
-  const overdue = workOrders.filter((w) => w.overdue).length;
-  const openCycles = workOrders.reduce(
-    (s, w) => s + (w.closures?.filter((c) => c.stage !== 'PAYMENT_RECEIVED').length || 0),
-    0,
+  // ── Auto-derived filter option lists (sorted, de-duplicated). ──
+  const customerOptions = useMemo(
+    () => [...new Set(workOrders.map((w) => w.customerName).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [workOrders],
   );
+  const unitOptions = useMemo(() => {
+    const map = new Map();
+    workOrders.forEach((w) => { if (w.assignedUnit) map.set(w.assignedUnit.id, w.assignedUnit); });
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [workOrders]);
+  const typeOptions = useMemo(
+    () => [...new Set(workOrders.map(orderType).filter(Boolean))].sort(),
+    [workOrders],
+  );
+
+  // ── Count per status so the tabs can show live totals. ──
+  const statusCounts = useMemo(() => {
+    const c = { ALL: workOrders.length };
+    workOrders.forEach((w) => { c[w.status] = (c[w.status] || 0) + 1; });
+    return c;
+  }, [workOrders]);
+
+  // ── Apply every active filter. ──
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const from = fromDate ? new Date(fromDate) : null;
+    const to = toDate ? new Date(`${toDate}T23:59:59`) : null;
+    return workOrders.filter((w) => {
+      if (activeTab !== 'ALL' && w.status !== activeTab) return false;
+      if (customer !== 'ALL' && w.customerName !== customer) return false;
+      if (unitId !== 'ALL') {
+        if (unitId === 'NONE') { if (w.assignedUnit) return false; }
+        else if (w.assignedUnit?.id !== unitId) return false;
+      }
+      if (type !== 'ALL' && orderType(w) !== type) return false;
+      if (from || to) {
+        const d = w.supplyOrderDate ? new Date(w.supplyOrderDate) : null;
+        if (!d) return false;
+        if (from && d < from) return false;
+        if (to && d > to) return false;
+      }
+      if (q) {
+        const hay = [
+          w.workOrderNumber, w.supplyOrderNo, w.customerName, w.nomenclature,
+          w.assignedUnit?.name, w.assignedUnit?.code,
+          ...(w.items || []).map((it) => it.description),
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [workOrders, activeTab, customer, unitId, type, fromDate, toDate, search]);
+
+  const activeFilterCount =
+    (activeTab !== 'ALL' ? 1 : 0) + (customer !== 'ALL' ? 1 : 0) + (unitId !== 'ALL' ? 1 : 0)
+    + (type !== 'ALL' ? 1 : 0) + (search.trim() ? 1 : 0) + (fromDate || toDate ? 1 : 0);
+  const clearFilters = () => {
+    setActiveTab('ALL'); setSearch(''); setCustomer('ALL'); setUnitId('ALL');
+    setType('ALL'); setFromDate(''); setToDate('');
+  };
+
+  // ── Summary stats over the *filtered* set so the numbers always match what
+  // is on screen. "Delivered so far" vs "Remaining" is what the floor wants. ──
+  const summary = useMemo(() => {
+    let ordered = 0; let delivered = 0; let completedCount = 0; let onTimeCount = 0;
+    filtered.forEach((w) => {
+      ordered += w.orderQuantity || 0;
+      delivered += Math.min(w.deliveredQty || 0, w.orderQuantity || 0);
+      if (w.status === 'CLOSED' || w.status === 'COMPLETED') {
+        completedCount += 1;
+        if (w.onTime === true) onTimeCount += 1;
+      }
+    });
+    const remaining = Math.max(0, ordered - delivered);
+    return {
+      ordered: Math.round(ordered * 100) / 100,
+      delivered: Math.round(delivered * 100) / 100,
+      remaining: Math.round(remaining * 100) / 100,
+      deliveredPct: ordered > 0 ? Math.round((delivered / ordered) * 100) : 0,
+      completedCount,
+      onTimeCount,
+      onTimePercent: completedCount > 0 ? Math.round((onTimeCount / completedCount) * 100) : null,
+    };
+  }, [filtered]);
+
+  const pending = filtered.filter((w) => w.status === 'PENDING_ADMIN').length;
+  const inProgress = filtered.filter((w) => ['UNIT_ACCEPTED', 'IN_PROGRESS', 'ADMIN_ACCEPTED'].includes(w.status)).length;
+  const overdue = filtered.filter((w) => w.overdue).length;
 
   return (
     <div className="space-y-6">
@@ -165,78 +258,149 @@ export default function WorkOrders() {
 
       {workflowOpen && <WorkOrderWorkflowModal onClose={() => setWorkflowOpen(false)} />}
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* Stats — counts + the "given so far vs. how many more" the floor asks for.
+          All figures track the active filters, so they always match the list. */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatsCard
-          title="On-Time Delivery"
-          value={stats.onTimePercent != null ? `${stats.onTimePercent}%` : '—'}
-          subtitle={`${stats.onTimeCount}/${stats.completedCount} completed on time`}
-          icon={TrendingUp}
-          color={stats.onTimePercent == null ? 'navy' : stats.onTimePercent >= 90 ? 'green' : stats.onTimePercent >= 70 ? 'yellow' : 'red'}
+          title="Work Orders"
+          value={fmtQty(filtered.length)}
+          subtitle={`${new Set(filtered.map((w) => w.customerName)).size} customer${new Set(filtered.map((w) => w.customerName)).size === 1 ? '' : 's'}`}
+          icon={ClipboardList}
+          color="navy"
         />
         <StatsCard
-          title="Awaiting Admin"
-          value={pending}
-          subtitle="Logged, pending admin"
-          icon={Clock}
-          color="yellow"
+          title="Delivered So Far"
+          value={fmtQty(summary.delivered)}
+          subtitle={`${summary.deliveredPct}% of ${fmtQty(summary.ordered)} ordered`}
+          icon={Package}
+          color="green"
         />
         <StatsCard
-          title="Open Lots"
-          value={openCycles}
-          subtitle="Across all WOs"
-          icon={Receipt}
-          color={openCycles > 0 ? 'blue' : 'navy'}
+          title="Still To Deliver"
+          value={fmtQty(summary.remaining)}
+          subtitle={summary.remaining > 0 ? `${100 - summary.deliveredPct}% remaining` : 'All delivered'}
+          icon={Boxes}
+          color={summary.remaining > 0 ? 'yellow' : 'green'}
         />
         <StatsCard
           title="In Progress"
-          value={inProgress}
-          subtitle="Active work orders"
+          value={fmtQty(inProgress)}
+          subtitle={`${pending} awaiting admin`}
           icon={Send}
           color="blue"
         />
         <StatsCard
           title="Overdue"
-          value={overdue}
-          subtitle="Past effective PDC"
+          value={fmtQty(overdue)}
+          subtitle="Past committed date"
           icon={CalendarClock}
           color={overdue > 0 ? 'red' : 'green'}
         />
+        <StatsCard
+          title="On-Time Delivery"
+          value={summary.onTimePercent != null ? `${summary.onTimePercent}%` : '—'}
+          subtitle={`${summary.onTimeCount}/${summary.completedCount} completed on time`}
+          icon={TrendingUp}
+          color={summary.onTimePercent == null ? 'navy' : summary.onTimePercent >= 90 ? 'green' : summary.onTimePercent >= 70 ? 'yellow' : 'red'}
+        />
       </div>
 
-      <Card className="p-4">
-        <div className="flex flex-wrap gap-2 mb-3">
-          {STATUS_TABS.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${
-                activeTab === tab
-                  ? 'bg-navy-800 text-white'
-                  : 'bg-navy-50 text-navy-700 hover:bg-navy-100'
-              }`}
-            >
-              {tab === 'ALL' ? 'All' : STATUS_META[tab]?.label || tab}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-3 justify-between">
-          <DateRangeFilter fromDate={fromDate} toDate={toDate} setFromDate={setFromDate} setToDate={setToDate} />
-          <div className="inline-flex bg-navy-50 rounded-md p-0.5">
+      <Card className="p-4 space-y-4">
+        {/* Search + view toggle */}
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+          <div className="flex-1 min-w-0">
+            <SearchBar
+              value={search}
+              onChange={setSearch}
+              placeholder="Search by customer, supply order no., WO number, or material…"
+            />
+          </div>
+          <div className="inline-flex bg-navy-50 rounded-lg p-0.5 self-start sm:self-auto">
             <button
               onClick={() => setView('table')}
-              className={`px-2.5 py-1 text-xs font-medium rounded ${view === 'table' ? 'bg-white shadow text-navy-800' : 'text-navy-600'}`}
-              title="Dashboard table"
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'table' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
+              title="Detailed rows"
             >
-              <TableIcon size={12} className="inline mr-1" /> Table
+              <TableIcon size={13} className="inline mr-1" /> Detailed
             </button>
             <button
               onClick={() => setView('cards')}
-              className={`px-2.5 py-1 text-xs font-medium rounded ${view === 'cards' ? 'bg-white shadow text-navy-800' : 'text-navy-600'}`}
-              title="Card view"
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'cards' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
+              title="Compact cards"
             >
-              <LayoutGrid size={12} className="inline mr-1" /> Cards
+              <LayoutGrid size={13} className="inline mr-1" /> Compact
             </button>
+          </div>
+        </div>
+
+        {/* Status tabs with live counts */}
+        <div className="flex flex-wrap gap-2">
+          {STATUS_TABS.map((tab) => {
+            const count = statusCounts[tab] || 0;
+            const on = activeTab === tab;
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  on ? 'bg-navy-800 text-white shadow-sm' : 'bg-navy-50 text-navy-700 hover:bg-navy-100'
+                }`}
+              >
+                {tab === 'ALL' ? 'All' : STATUS_META[tab]?.label || tab}
+                <span className={`tnum rounded-full px-1.5 py-0.5 text-[10px] leading-none ${on ? 'bg-white/20 text-white' : 'bg-white text-navy-500'}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Dropdown filters + date range + clear + result count */}
+        <div className="flex flex-wrap items-end gap-3 pt-1 border-t border-gray-100">
+          <Select
+            label="Customer"
+            value={customer}
+            onChange={(e) => setCustomer(e.target.value)}
+            className="min-w-[180px]"
+          >
+            <option value="ALL">All customers ({customerOptions.length})</option>
+            {customerOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+          <Select
+            label="Unit"
+            value={unitId}
+            onChange={(e) => setUnitId(e.target.value)}
+            className="min-w-[150px]"
+          >
+            <option value="ALL">All units</option>
+            {unitOptions.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            <option value="NONE">Not assigned</option>
+          </Select>
+          {typeOptions.length > 0 && (
+            <Select
+              label="Order Type"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              className="min-w-[140px]"
+            >
+              <option value="ALL">All types</option>
+              {typeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+            </Select>
+          )}
+          <div>
+            <span className="block text-[13px] font-semibold text-navy-700 mb-1.5">Order date</span>
+            <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
+          </div>
+          {activeFilterCount > 0 && (
+            <Button variant="ghost" onClick={clearFilters} className="text-xs">
+              <X size={14} className="mr-1" /> Clear {activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'}
+            </Button>
+          )}
+          <div className="ml-auto self-center flex items-center gap-1.5 text-xs font-medium text-navy-500">
+            <Filter size={13} />
+            Showing <span className="font-bold text-navy-800 tnum">{filtered.length}</span>
+            {filtered.length !== workOrders.length && <span>of {workOrders.length}</span>}
+            work order{filtered.length === 1 ? '' : 's'}
           </div>
         </div>
       </Card>
@@ -244,12 +408,29 @@ export default function WorkOrders() {
       {loading ? (
         <Card><p className="text-navy-500 text-center py-8">Loading...</p></Card>
       ) : workOrders.length === 0 ? (
-        <Card><p className="text-navy-500 text-center py-8">No work orders found.</p></Card>
+        <Card>
+          <div className="text-center py-12">
+            <ClipboardList size={32} className="mx-auto text-navy-300 mb-3" />
+            <p className="text-navy-700 font-semibold">No work orders yet</p>
+            <p className="text-navy-500 text-sm mt-1">Logged supply orders will appear here.</p>
+          </div>
+        </Card>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <div className="text-center py-12">
+            <Filter size={32} className="mx-auto text-navy-300 mb-3" />
+            <p className="text-navy-700 font-semibold">No work orders match your filters</p>
+            <p className="text-navy-500 text-sm mt-1">Try a different search or clear the filters.</p>
+            <Button variant="secondary" onClick={clearFilters} className="mt-4">
+              <X size={14} className="mr-1" /> Clear all filters
+            </Button>
+          </div>
+        </Card>
       ) : view === 'table' ? (
-        <DashboardTable workOrders={workOrders} onOpen={setDetail} />
+        <DashboardTable workOrders={filtered} onOpen={setDetail} />
       ) : (
         <div className="grid gap-3">
-          {workOrders.map((w) => {
+          {filtered.map((w) => {
             const meta = STATUS_META[w.status] || { color: 'gray', label: w.status, Icon: ClipboardList };
             const Icon = meta.Icon;
             const deliveredPct = w.orderQuantity > 0 ? Math.min(100, Math.round((w.deliveredQty / w.orderQuantity) * 100)) : 0;
@@ -384,38 +565,50 @@ function DashboardTable({ workOrders, onOpen }) {
             className={`p-0 cursor-pointer hover:shadow-lg transition border-l-4 ${accentBorder}`}
             onClick={() => onOpen(w)}
           >
-            {/* Header strip — identity + status flags */}
-            <div className="px-4 py-2.5 bg-gradient-to-r from-navy-50 to-white border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 flex-wrap min-w-0">
-                <Badge color={meta.color}><Icon size={11} className="inline mr-1" />{meta.label}</Badge>
-                <span className="font-semibold text-navy-900 truncate max-w-xs">{w.customerName}</span>
-                <span className="text-navy-300">·</span>
-                <span className="font-mono text-[11px] text-navy-600">{w.workOrderNumber}</span>
+            {/* Header strip — customer + status on top, then a dedicated full-width
+                identity line so the long supply order number has room to breathe. */}
+            <div className="px-4 py-2.5 bg-gradient-to-r from-navy-50 to-white border-b border-gray-100">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                  <Badge color={meta.color}><Icon size={11} className="inline mr-1" />{meta.label}</Badge>
+                  <span className="font-semibold text-navy-900 text-sm truncate max-w-[22rem]">{w.customerName}</span>
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${w.assignedUnit ? 'bg-navy-100 text-navy-700' : 'bg-gray-100 text-gray-400'}`}>
+                    <Building2 size={10} />{w.assignedUnit ? w.assignedUnit.name : 'Unassigned'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {w.overdue && <Badge color="red">Overdue</Badge>}
+                  {w.onTime === true && <Badge color="green">On-Time</Badge>}
+                  {w.onTime === false && <Badge color="red">Late</Badge>}
+                  {w.pdc3MonthAlertActive && (
+                    <span className="text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-600 text-white animate-pulse">
+                      <AlertTriangle size={11} /> PDC ≤ 3m
+                    </span>
+                  )}
+                  {activeAlarms.length > 0 && (
+                    <span className="text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-navy-900 text-white">
+                      <BellRing size={11} /> {activeAlarms.length} alarm{activeAlarms.length === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {w.overdue && <Badge color="red">Overdue</Badge>}
-                {w.onTime === true && <Badge color="green">On-Time</Badge>}
-                {w.onTime === false && <Badge color="red">Late</Badge>}
-                {w.pdc3MonthAlertActive && (
-                  <span className="text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-600 text-white animate-pulse">
-                    <AlertTriangle size={11} /> PDC ≤ 3m
-                  </span>
-                )}
-                {activeAlarms.length > 0 && (
-                  <span className="text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-navy-900 text-white">
-                    <BellRing size={11} /> {activeAlarms.length} alarm{activeAlarms.length === 1 ? '' : 's'}
-                  </span>
-                )}
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="inline-flex items-center gap-1 font-mono text-[11px] text-navy-500" title="Internal work order number">
+                  <Hash size={11} className="text-navy-400" />{w.workOrderNumber}
+                </span>
+                <span className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 min-w-0">
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-navy-400">Supply Order</span>
+                  <span className="font-mono text-[12px] font-semibold text-navy-800 break-all" title={w.supplyOrderNo}>{w.supplyOrderNo}</span>
+                  <span className="text-navy-300">·</span>
+                  <span className="text-[11px] text-navy-500">{formatDate(w.supplyOrderDate)}</span>
+                </span>
               </div>
             </div>
 
-            {/* Main grid — all 15 client-required fields, evenly distributed */}
-            <div className="px-4 py-3 grid grid-cols-12 gap-3 text-xs">
-              <Field label="Supply Order" className="col-span-2">
-                <div className="font-medium text-navy-800">{w.supplyOrderNo}</div>
-                <div className="text-navy-500">{formatDate(w.supplyOrderDate)}</div>
-              </Field>
-              <Field label="Materials" className="col-span-2">
+            {/* Main grid — supply order number now lives in the header strip, so
+                these fields get more breathing room (no more congestion). */}
+            <div className="px-4 py-3 grid grid-cols-12 gap-x-4 gap-y-3 text-xs">
+              <Field label="Materials" className="col-span-6 sm:col-span-3">
                 {w.items?.length ? (
                   <div className="text-navy-800 line-clamp-2" title={w.items.map((it) => `${it.description} — ${it.quantity} ${it.uom}`).join('; ')}>
                     {w.items.length === 1
@@ -423,9 +616,12 @@ function DashboardTable({ workOrders, onOpen }) {
                       : `${w.items.length} materials`}
                   </div>
                 ) : <span className="text-navy-400">—</span>}
-                <div className="text-navy-500 mt-0.5">Total: <span className="font-semibold text-navy-800">{w.orderQuantity}</span> {w.orderUnit}</div>
+                <div className="text-navy-500 mt-0.5">
+                  <span className="font-semibold text-navy-800 tnum">{fmtQty(w.deliveredQty)}</span>
+                  <span> / {fmtQty(w.orderQuantity)} {w.orderUnit} delivered</span>
+                </div>
               </Field>
-              <Field label="PDC" className="col-span-2">
+              <Field label="PDC" className="col-span-6 sm:col-span-2">
                 <div className="text-navy-800 font-medium">{formatDate(w.effectivePdcDate)}</div>
                 <div className="text-navy-500">
                   {w.extensions?.length > 0 ? `${w.extensions.length} ext` : 'original'}
@@ -437,7 +633,7 @@ function DashboardTable({ workOrders, onOpen }) {
                   </div>
                 )}
               </Field>
-              <Field label="Approvals" className="col-span-2">
+              <Field label="Approvals" className="col-span-6 sm:col-span-3">
                 <div className="flex items-center gap-1">
                   <ShieldCheck size={11} className="text-navy-500" />
                   <span className="text-navy-700">Adm:</span>
@@ -456,7 +652,7 @@ function DashboardTable({ workOrders, onOpen }) {
                   ) : <span className="text-navy-400">{w.assignedUnit ? w.assignedUnit.code : 'pending'}</span>}
                 </div>
               </Field>
-              <Field label="Bank Guarantee" className="col-span-2">
+              <Field label="Bank Guarantee" className="col-span-6 sm:col-span-2">
                 {w.bankGuaranteeNo ? (
                   <>
                     <div className="font-mono text-[11px] text-navy-800 truncate" title={w.bankGuaranteeNo}>{w.bankGuaranteeNo}</div>
@@ -464,7 +660,7 @@ function DashboardTable({ workOrders, onOpen }) {
                   </>
                 ) : <span className="text-navy-400">—</span>}
               </Field>
-              <Field label="Insurance" className="col-span-2">
+              <Field label="Insurance" className="col-span-6 sm:col-span-2">
                 {w.insuranceNo ? (
                   <>
                     <div className="font-mono text-[11px] text-navy-800 truncate" title={w.insuranceNo}>{w.insuranceNo}</div>
