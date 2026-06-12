@@ -1508,6 +1508,7 @@ function AccountingDashboard() {
   const [stats, setStats] = useState(null);
   const [actionablePayments, setActionablePayments] = useState([]);
   const [recentPaid, setRecentPaid] = useState([]);
+  const [paymentFeed, setPaymentFeed] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -1520,11 +1521,14 @@ function AccountingDashboard() {
         api.get('/payment-requests', { params: { status: 'PENDING', limit: 1 } }),
         // PAID = already processed
         api.get('/payment-requests', { params: { status: 'PAID', limit: 10 } }),
+        // 45-day customer payment window — Accounts run weekly follow-ups here
+        api.get('/work-orders/closure/payment-feed'),
       ]);
 
       if (cancelled) return;
 
-      const [approvedRes, pendingRes, paidRes] = results;
+      const [approvedRes, pendingRes, paidRes, payRes] = results;
+      if (payRes.status === 'fulfilled') setPaymentFeed(payRes.value.data.feed || []);
       const approved = approvedRes.status === 'fulfilled' ? (approvedRes.value.data.requests || []) : [];
       const paid = paidRes.status === 'fulfilled' ? (paidRes.value.data.requests || []) : [];
 
@@ -1552,6 +1556,19 @@ function AccountingDashboard() {
 
   const fmtINR = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
+  // 45-day customer payment window — same accounting workflow Finance surfaces:
+  // delivery acknowledged → weekly follow-ups until payment lands.
+  const paymentDelayed = paymentFeed.filter((c) => c.delayed).length;
+  const followupDueNow = paymentFeed.filter((c) => {
+    if (!c.lastFollowupAt && c.deliveryAckAt) {
+      const ackTime = new Date(c.deliveryAckAt).getTime();
+      return Date.now() - ackTime >= 7 * 24 * 60 * 60 * 1000;
+    }
+    if (!c.lastFollowupAt) return false;
+    const since = Date.now() - new Date(c.lastFollowupAt).getTime();
+    return since >= 7 * 24 * 60 * 60 * 1000;
+  }).length;
+
   return (
     <div className="space-y-6">
       <DashboardHero
@@ -1573,6 +1590,69 @@ function AccountingDashboard() {
         <StatsCard title="Pending Admin Approval" value={stats?.awaitingAdminApproval || 0} icon={ClipboardList} color="blue" onClick={() => navigate('/payment-requests?status=PENDING')} />
         <StatsCard title="Paid" value={stats?.paidCount || 0} icon={CheckCircle} color="green" onClick={() => navigate('/payment-requests?status=PAID')} />
       </div>
+
+      {/* 45-day customer payment window — Accounts chase customer payment after
+          delivery is acknowledged, running weekly follow-ups until it lands. */}
+      <Card>
+        <SectionHeader
+          icon={IndianRupee}
+          tone={paymentDelayed > 0 ? 'red' : 'yellow'}
+          title="45-Day Payment Window"
+          count={paymentFeed.length}
+          subtitle="Delivery acknowledged — run weekly customer follow-ups until payment lands"
+          actions={followupDueNow > 0 ? <Badge color="amber">{followupDueNow} weekly follow-up{followupDueNow === 1 ? '' : 's'} due</Badge> : null}
+        />
+
+        {paymentFeed.length === 0 ? (
+          <EmptyState icon={CheckCircle} tone="green" title="No cycles in the payment window" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Work Order</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Customer</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Cycle</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Invoice #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Due</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Last Follow-up</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paymentFeed.map((c, i) => {
+                  const wo = c.workOrder || {};
+                  return (
+                    <tr key={c.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                      <td className="px-3 py-2 font-medium text-navy-700">{wo.workOrderNumber || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">{wo.customerName || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">#{c.cycleNumber}</td>
+                      <td className="px-3 py-2 text-gray-600 font-mono text-xs">{c.invoiceNumber || '—'}</td>
+                      <td className="px-3 py-2">
+                        {c.delayed ? (
+                          <Badge color="red">Delayed {Math.abs(c.daysLeft ?? 0)}d</Badge>
+                        ) : (c.daysLeft ?? 99) <= 7 ? (
+                          <Badge color="amber">{c.daysLeft}d left</Badge>
+                        ) : (
+                          <Badge color="green">{c.daysLeft}d left</Badge>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">
+                        {c.lastFollowupAt
+                          ? `W${c.lastFollowupWeek} · ${formatDate(c.lastFollowupAt)}`
+                          : <span className="text-gray-400">No follow-ups yet</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Button size="sm" variant="secondary" onClick={() => navigate(`/work-orders/${wo.id}`)}>Open</Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       {/* Approved Payments — accounting acts here */}
       <Card>
