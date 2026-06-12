@@ -150,7 +150,27 @@ router.get('/movements', authenticate, async (req, res) => {
       prisma.stockMovement.count({ where }),
     ]);
 
-    res.json({ movements, total, page: Math.ceil(skip / take) + 1, totalPages: Math.ceil(total / take) });
+    // performedBy / unitId are plain id strings on StockMovement — resolve
+    // names in one batched lookup each so the UI can show who moved the stock.
+    const userIds = [...new Set(movements.map((m) => m.performedBy).filter(Boolean))];
+    const unitIds = [...new Set(movements.map((m) => m.unitId).filter(Boolean))];
+    const [users, units] = await Promise.all([
+      userIds.length
+        ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, role: true } })
+        : [],
+      unitIds.length
+        ? prisma.unit.findMany({ where: { id: { in: unitIds } }, select: { id: true, name: true, code: true } })
+        : [],
+    ]);
+    const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+    const unitMap = Object.fromEntries(units.map((u) => [u.id, u]));
+    const enriched = movements.map((m) => ({
+      ...m,
+      performedByUser: userMap[m.performedBy] || null,
+      unit: unitMap[m.unitId] || null,
+    }));
+
+    res.json({ movements: enriched, total, page: Math.ceil(skip / take) + 1, totalPages: Math.ceil(total / take) });
   } catch (error) {
     console.error('Get movements error:', error);
     res.status(500).json({ error: 'Internal server error' });

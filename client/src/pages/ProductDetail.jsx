@@ -8,7 +8,8 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
-import { formatDate, formatDateTime, formatNotes } from '../utils/formatters';
+import { formatDate, formatDateTime } from '../utils/formatters';
+import MovementNotes from '../components/shared/MovementNotes';
 
 const formatCurrency = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
@@ -1284,7 +1285,7 @@ export default function ProductDetail() {
                             {m.batchNumber || <span className="text-gray-300">—</span>}
                           </td>
                           <td className="px-3 py-2 text-gray-600">{m.referenceType || '—'}</td>
-                          <td className="px-3 py-2 text-gray-500 text-xs max-w-xs truncate" title={formatNotes(m.notes)}>{formatNotes(m.notes)}</td>
+                          <td className="px-3 py-2"><MovementNotes notes={m.notes} /></td>
                         </tr>
                       ))
                     )}

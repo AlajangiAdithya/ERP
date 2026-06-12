@@ -7,7 +7,8 @@ import Badge from '../components/ui/Badge';
 import { Select } from '../components/ui/Input';
 import Pagination from '../components/shared/Pagination';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
-import { formatDateTime, formatNotes } from '../utils/formatters';
+import { formatDateTime } from '../utils/formatters';
+import MovementNotes from '../components/shared/MovementNotes';
 import StockStatementPdf from '../components/pdf/StockStatementPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 
@@ -106,12 +107,13 @@ export default function StockMovements() {
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Quantity</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Batch</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Reference</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">By</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {movements.length === 0 ? (
-                    <tr><td colSpan={8} className="px-3 py-4 text-center text-gray-400">No movements found</td></tr>
+                    <tr><td colSpan={9} className="px-3 py-4 text-center text-gray-400">No movements found</td></tr>
                   ) : movements.map((m, i) => (
                     <tr key={m.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">{formatDateTime(m.createdAt)}</td>
@@ -130,7 +132,19 @@ export default function StockMovements() {
                         {m.batchNumber || <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-3 py-2 text-gray-600">{m.referenceType || '—'}</td>
-                      <td className="px-3 py-2 text-gray-500 text-xs max-w-xs truncate" title={formatNotes(m.notes)}>{formatNotes(m.notes)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {m.performedByUser ? (
+                          <div>
+                            <p className="text-xs font-medium text-gray-700">{m.performedByUser.name}</p>
+                            {m.unit && <p className="text-[10px] text-gray-400 mt-0.5">{m.unit.code || m.unit.name}</p>}
+                          </div>
+                        ) : m.unit ? (
+                          <span className="text-xs text-gray-500">{m.unit.code || m.unit.name}</span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2"><MovementNotes notes={m.notes} /></td>
                     </tr>
                   ))}
                 </tbody>
