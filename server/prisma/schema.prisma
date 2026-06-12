@@ -1545,6 +1545,10 @@ model WorkOrder {
   // ── Unit assignment + acceptance ──
   assignedUnitId     String?
   assignedUnit       Unit?     @relation("WorkOrderAssignedUnit", fields: [assignedUnitId], references: [id])
+  // Free-text unit/location from the source sheet (e.g. "SHAR", "CPDC-Rubber
+  // Lining") when it doesn't match any Unit record. Shown in the UI in place
+  // of "Unassigned" until a real unit is assigned.
+  assignedUnitName   String?
   unitAcceptedAt     DateTime?
   unitAcceptedById   String?
   unitAcceptedBy     User?     @relation("WorkOrderUnitAcceptor", fields: [unitAcceptedById], references: [id])

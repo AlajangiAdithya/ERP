@@ -15,15 +15,16 @@ Sheet columns:
   H Qty Billed   -> seeds deliveredQty / invoicedQty (in-progress)
   J PDC          -> pdcDate  (rows without a real date are SKIPPED)
   K Type         -> recorded in remarks
-  M Unit         -> assignedUnit  (only Unit-1/1A/2/3/4/5 map; others left null)
+  M Unit         -> assignedUnitName (raw text, e.g. "Unit-4", "SHAR", "CPDC")
 
 Rules (agreed with the user):
   - Group rows by Order No -> one Work Order with multiple line items.
   - Skip any order whose PDC column has no real date (relative clauses like
     "FIM+3 Months" / blanks). 38 such line items are dropped.
-  - Map factory units Unit-1, Unit-1A, Unit-2..5 to the 6 fixed DB units.
-    Any other location (Adibatla, ANSP, CPDC, Design, SHAR, ...) -> "not
-    provided" (assignedUnitCode = null). Ambiguous groups (2+ real units) -> null.
+  - The raw Unit cell text is kept as-is. The importer resolves it against the
+    Unit records in the DB (the user keeps adding units there); whatever does
+    not resolve is stored as free text so the name still shows in the UI.
+    Groups spanning several different units keep all names joined with " / ".
   - Import as IN_PROGRESS, seeding billed qty so existing progress is kept.
 """
 import openpyxl
@@ -58,13 +59,12 @@ def num(v):
         return float(m.group()) if m else 0.0
 
 
-def unit_code(v):
-    """Map an Excel 'Unit' cell to one of the 6 fixed unit codes, else None."""
+def unit_name(v):
+    """Clean an Excel 'Unit' cell; the importer resolves it against DB units."""
     t = s(v)
-    if not t:
+    if not t or t.upper() in ("NA", "N/A", "-"):
         return None
-    m = re.match(r"^unit\s*-?\s*(\d+a?)$", t.lower())
-    return m.group(1).upper() if m else None
+    return re.sub(r"\s+", " ", t)
 
 
 def main():
@@ -93,12 +93,13 @@ def main():
                       if isinstance(cell(r, 3), (datetime.datetime, datetime.date))), None) or pdc
         party = next((s(cell(r, 1)) for r in rows if s(cell(r, 1))), None)
 
-        codes = []
+        names = []
         for r in rows:
-            c = unit_code(cell(r, 13))
-            if c and c not in codes:
-                codes.append(c)
-        assigned = codes[0] if len(codes) == 1 else None  # ambiguous -> not provided
+            n = unit_name(cell(r, 13))
+            if n and n not in names:
+                names.append(n)
+        # One name -> resolve/show it; several -> keep them all visible as text.
+        assigned = " / ".join(names) if names else None
 
         types = []
         for r in rows:
@@ -130,7 +131,7 @@ def main():
             "pdcDate": pdc.date().isoformat(),
             "customerName": party or "Not Provided",
             "nomenclature": (items[0]["description"][:120] if items else None),
-            "assignedUnitCode": assigned,
+            "assignedUnitName": assigned,
             "orderQuantity": round(qty_total, 4),
             "billedQty": round(billed_total, 4),
             "deliveryStatus": "PARTIAL" if billed_total > 0 else "IN_PROGRESS",
@@ -142,11 +143,13 @@ def main():
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(orders, f, indent=2, ensure_ascii=False)
 
-    assigned_n = sum(1 for o in orders if o["assignedUnitCode"])
+    named_n = sum(1 for o in orders if o["assignedUnitName"])
     print("Orders to import      :", len(orders))
     print("Line items            :", sum(len(o["items"]) for o in orders))
-    print("Unit assigned         :", assigned_n)
-    print("Unit not provided     :", len(orders) - assigned_n)
+    print("Unit name present     :", named_n)
+    print("Unit name blank       :", len(orders) - named_n)
+    print("Distinct unit names   :",
+          sorted({o["assignedUnitName"] for o in orders if o["assignedUnitName"]}))
     print("Skipped (no real PDC) :", len(skipped), "orders /",
           sum(n for _, n in skipped), "line items")
     print("Written               :", OUT)

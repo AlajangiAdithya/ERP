@@ -164,7 +164,11 @@ export default function PdcStatusBoard({ showAllClear = true }) {
                     <td className="px-3 py-2.5 font-mono text-xs font-semibold text-navy-700">{w.workOrderNumber}</td>
                     <td className="px-3 py-2.5 text-gray-600 max-w-[180px] truncate">{w.customerName || '—'}</td>
                     <td className="px-3 py-2.5">
-                      {w.assignedUnit ? <Badge color="blue">{w.assignedUnit.code || w.assignedUnit.name}</Badge> : <span className="text-xs text-gray-400">—</span>}
+                      {w.assignedUnit
+                        ? <Badge color="blue">{w.assignedUnit.code || w.assignedUnit.name}</Badge>
+                        : w.assignedUnitName
+                          ? <Badge color="yellow">{w.assignedUnitName}</Badge>
+                          : <span className="text-xs text-gray-400">—</span>}
                     </td>
                     <td className="px-3 py-2.5 text-gray-600 text-xs whitespace-nowrap">
                       {formatDate(w.effectivePdcDate)}

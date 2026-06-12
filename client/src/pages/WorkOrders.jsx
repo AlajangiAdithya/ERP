@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  ClipboardList, Plus, Send, CheckCircle2, Clock, XCircle, Building2,
+  ClipboardList, Plus, CheckCircle2, Clock, XCircle, Building2,
   CalendarClock, TrendingUp, ShieldCheck, PauseCircle,
   LayoutGrid, Table as TableIcon,
   FileText, Receipt, ShieldAlert, Upload, AlertTriangle, Timer, Trash2, Check,
   GitBranch, ArrowRight, ArrowDown, Download, Paperclip, BellRing,
   Banknote, Wallet, FilePlus2, FileCheck2, UserCheck, Truck, RefreshCw,
-  Filter, X, Package, Boxes, Hash,
+  Filter, X, Hash,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -156,6 +156,12 @@ export default function WorkOrders() {
     workOrders.forEach((w) => { if (w.assignedUnit) map.set(w.assignedUnit.id, w.assignedUnit); });
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [workOrders]);
+  // Sheet-only unit names (no Unit record yet) get their own filter entries.
+  const unitNameOptions = useMemo(
+    () => [...new Set(workOrders.filter((w) => !w.assignedUnit && w.assignedUnitName).map((w) => w.assignedUnitName))]
+      .sort((a, b) => a.localeCompare(b)),
+    [workOrders],
+  );
   const typeOptions = useMemo(
     () => [...new Set(workOrders.map(orderType).filter(Boolean))].sort(),
     [workOrders],
@@ -177,7 +183,8 @@ export default function WorkOrders() {
       if (activeTab !== 'ALL' && w.status !== activeTab) return false;
       if (customer !== 'ALL' && w.customerName !== customer) return false;
       if (unitId !== 'ALL') {
-        if (unitId === 'NONE') { if (w.assignedUnit) return false; }
+        if (unitId === 'NONE') { if (w.assignedUnit || w.assignedUnitName) return false; }
+        else if (unitId.startsWith('NAME:')) { if (w.assignedUnit || w.assignedUnitName !== unitId.slice(5)) return false; }
         else if (w.assignedUnit?.id !== unitId) return false;
       }
       if (type !== 'ALL' && orderType(w) !== type) return false;
@@ -190,7 +197,7 @@ export default function WorkOrders() {
       if (q) {
         const hay = [
           w.workOrderNumber, w.supplyOrderNo, w.customerName, w.nomenclature,
-          w.assignedUnit?.name, w.assignedUnit?.code,
+          w.assignedUnit?.name, w.assignedUnit?.code, w.assignedUnitName,
           ...(w.items || []).map((it) => it.description),
         ].filter(Boolean).join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
@@ -208,32 +215,60 @@ export default function WorkOrders() {
   };
 
   // ── Summary stats over the *filtered* set so the numbers always match what
-  // is on screen. "Delivered so far" vs "Remaining" is what the floor wants. ──
+  // is on screen. Deadline pressure (overdue / due soon), per-order completion
+  // and unit coverage are what tracking needs — raw qty sums across unrelated
+  // materials hide all of that. ──
   const summary = useMemo(() => {
-    let ordered = 0; let delivered = 0; let completedCount = 0; let onTimeCount = 0;
+    const DAY = 86400000;
+    const now = new Date();
+    const in7 = new Date(now.getTime() + 7 * DAY);
+    const in30 = new Date(now.getTime() + 30 * DAY);
+    const OPEN = ['PENDING_ADMIN', 'ADMIN_ACCEPTED', 'UNIT_ACCEPTED', 'IN_PROGRESS', 'ON_HOLD'];
+
+    let ordered = 0; let delivered = 0;
+    let fullyDelivered = 0; let partial = 0;
+    let overdueCount = 0; let oldestLateDays = 0; let overdueQty = 0;
+    let due7 = 0; let due30 = 0;
+    let unassigned = 0; let sheetNamed = 0;
+
     filtered.forEach((w) => {
-      ordered += w.orderQuantity || 0;
-      delivered += Math.min(w.deliveredQty || 0, w.orderQuantity || 0);
-      if (w.status === 'CLOSED' || w.status === 'COMPLETED') {
-        completedCount += 1;
-        if (w.onTime === true) onTimeCount += 1;
+      const qty = w.orderQuantity || 0;
+      const done = Math.min(w.deliveredQty || 0, qty);
+      ordered += qty;
+      delivered += done;
+      if (qty > 0 && done >= qty) fullyDelivered += 1;
+      else if (done > 0) partial += 1;
+
+      const open = OPEN.includes(w.status);
+      const pdc = w.effectivePdcDate ? new Date(w.effectivePdcDate) : null;
+      if (w.overdue) {
+        overdueCount += 1;
+        overdueQty += Math.max(0, qty - done);
+        if (pdc) oldestLateDays = Math.max(oldestLateDays, Math.floor((now - pdc) / DAY));
+      } else if (open && pdc && pdc >= now) {
+        if (pdc <= in7) due7 += 1;
+        if (pdc <= in30) due30 += 1;
+      }
+      if (open && !w.assignedUnit) {
+        unassigned += 1;
+        if (w.assignedUnitName) sheetNamed += 1;
       }
     });
-    const remaining = Math.max(0, ordered - delivered);
+
     return {
-      ordered: Math.round(ordered * 100) / 100,
-      delivered: Math.round(delivered * 100) / 100,
-      remaining: Math.round(remaining * 100) / 100,
       deliveredPct: ordered > 0 ? Math.round((delivered / ordered) * 100) : 0,
-      completedCount,
-      onTimeCount,
-      onTimePercent: completedCount > 0 ? Math.round((onTimeCount / completedCount) * 100) : null,
+      fullyDelivered,
+      partial,
+      notStarted: filtered.length - fullyDelivered - partial,
+      overdueCount,
+      oldestLateDays,
+      overdueQty: Math.round(overdueQty * 100) / 100,
+      due7,
+      due30,
+      unassigned,
+      sheetNamed,
     };
   }, [filtered]);
-
-  const pending = filtered.filter((w) => w.status === 'PENDING_ADMIN').length;
-  const inProgress = filtered.filter((w) => ['UNIT_ACCEPTED', 'IN_PROGRESS', 'ADMIN_ACCEPTED'].includes(w.status)).length;
-  const overdue = filtered.filter((w) => w.overdue).length;
 
   return (
     <div className="space-y-6">
@@ -258,8 +293,9 @@ export default function WorkOrders() {
 
       {workflowOpen && <WorkOrderWorkflowModal onClose={() => setWorkflowOpen(false)} />}
 
-      {/* Stats — counts + the "given so far vs. how many more" the floor asks for.
-          All figures track the active filters, so they always match the list. */}
+      {/* Stats — deadline pressure first (overdue / due soon), then order-level
+          completion and unit coverage. All figures track the active filters,
+          so they always match the list. */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatsCard
           title="Work Orders"
@@ -269,39 +305,43 @@ export default function WorkOrders() {
           color="navy"
         />
         <StatsCard
-          title="Delivered So Far"
-          value={fmtQty(summary.delivered)}
-          subtitle={`${summary.deliveredPct}% of ${fmtQty(summary.ordered)} ordered`}
-          icon={Package}
-          color="green"
+          title="Overdue"
+          value={fmtQty(summary.overdueCount)}
+          subtitle={summary.overdueCount > 0
+            ? `Oldest ${summary.oldestLateDays}d late · ${fmtQty(summary.overdueQty)} qty stuck`
+            : 'Nothing past PDC'}
+          icon={AlertTriangle}
+          color={summary.overdueCount > 0 ? 'red' : 'green'}
         />
         <StatsCard
-          title="Still To Deliver"
-          value={fmtQty(summary.remaining)}
-          subtitle={summary.remaining > 0 ? `${100 - summary.deliveredPct}% remaining` : 'All delivered'}
-          icon={Boxes}
-          color={summary.remaining > 0 ? 'yellow' : 'green'}
+          title="Due in 7 Days"
+          value={fmtQty(summary.due7)}
+          subtitle="PDC this week — act now"
+          icon={Timer}
+          color={summary.due7 > 0 ? 'yellow' : 'green'}
         />
         <StatsCard
-          title="In Progress"
-          value={fmtQty(inProgress)}
-          subtitle={`${pending} awaiting admin`}
-          icon={Send}
+          title="Due in 30 Days"
+          value={fmtQty(summary.due30)}
+          subtitle="PDC within a month"
+          icon={CalendarClock}
           color="blue"
         />
         <StatsCard
-          title="Overdue"
-          value={fmtQty(overdue)}
-          subtitle="Past committed date"
-          icon={CalendarClock}
-          color={overdue > 0 ? 'red' : 'green'}
+          title="Delivery Progress"
+          value={`${summary.deliveredPct}%`}
+          subtitle={`${summary.fullyDelivered} done · ${summary.partial} partial · ${summary.notStarted} not started`}
+          icon={TrendingUp}
+          color={summary.deliveredPct >= 70 ? 'green' : summary.deliveredPct >= 30 ? 'yellow' : 'navy'}
         />
         <StatsCard
-          title="On-Time Delivery"
-          value={summary.onTimePercent != null ? `${summary.onTimePercent}%` : '—'}
-          subtitle={`${summary.onTimeCount}/${summary.completedCount} completed on time`}
-          icon={TrendingUp}
-          color={summary.onTimePercent == null ? 'navy' : summary.onTimePercent >= 90 ? 'green' : summary.onTimePercent >= 70 ? 'yellow' : 'red'}
+          title="Needs Unit"
+          value={fmtQty(summary.unassigned)}
+          subtitle={summary.unassigned > 0
+            ? `${summary.sheetNamed} named on sheet only`
+            : 'All assigned to units'}
+          icon={Building2}
+          color={summary.unassigned > 0 ? 'yellow' : 'green'}
         />
       </div>
 
@@ -374,6 +414,7 @@ export default function WorkOrders() {
           >
             <option value="ALL">All units</option>
             {unitOptions.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            {unitNameOptions.map((n) => <option key={`NAME:${n}`} value={`NAME:${n}`}>{n} (sheet)</option>)}
             <option value="NONE">Not assigned</option>
           </Select>
           {typeOptions.length > 0 && (
@@ -461,7 +502,9 @@ export default function WorkOrders() {
                       <p className="text-xs text-navy-500 mt-0.5 line-clamp-1">{w.supplyOrderDescription}</p>
                     )}
                     <div className="flex flex-wrap gap-3 text-xs text-navy-500 mt-2">
-                      {w.assignedUnit && <span className="flex items-center gap-1"><Building2 size={11} />{w.assignedUnit.name}</span>}
+                      {(w.assignedUnit || w.assignedUnitName) && (
+                        <span className="flex items-center gap-1"><Building2 size={11} />{w.assignedUnit ? w.assignedUnit.name : w.assignedUnitName}</span>
+                      )}
                       <span>PDC: {formatDate(w.effectivePdcDate)}{w.extensions?.length ? ` (ext ${w.extensions.length})` : ''}</span>
                       <span>Qty: {w.deliveredQty}/{w.orderQuantity} {w.orderUnit}</span>
                     </div>
@@ -572,8 +615,9 @@ function DashboardTable({ workOrders, onOpen }) {
                 <div className="flex items-center gap-2 flex-wrap min-w-0">
                   <Badge color={meta.color}><Icon size={11} className="inline mr-1" />{meta.label}</Badge>
                   <span className="font-semibold text-navy-900 text-sm truncate max-w-[22rem]">{w.customerName}</span>
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${w.assignedUnit ? 'bg-navy-100 text-navy-700' : 'bg-gray-100 text-gray-400'}`}>
-                    <Building2 size={10} />{w.assignedUnit ? w.assignedUnit.name : 'Unassigned'}
+                  {/* Real unit -> navy chip; sheet-only name (no Unit record) -> amber chip; nothing -> grey. */}
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${w.assignedUnit ? 'bg-navy-100 text-navy-700' : w.assignedUnitName ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-400'}`}>
+                    <Building2 size={10} />{w.assignedUnit ? w.assignedUnit.name : (w.assignedUnitName || 'Unassigned')}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -649,7 +693,7 @@ function DashboardTable({ workOrders, onOpen }) {
                       {formatDate(w.unitAcceptedAt)}
                       {w.assignedUnit && <span className="text-navy-500"> · {w.assignedUnit.code}</span>}
                     </span>
-                  ) : <span className="text-navy-400">{w.assignedUnit ? w.assignedUnit.code : 'pending'}</span>}
+                  ) : <span className="text-navy-400">{w.assignedUnit ? w.assignedUnit.code : (w.assignedUnitName || 'pending')}</span>}
                 </div>
               </Field>
               <Field label="Bank Guarantee" className="col-span-6 sm:col-span-2">
@@ -1301,7 +1345,7 @@ function OverviewTab({ wo }) {
       <Row label="Original PDC" value={formatDate(wo.pdcDate)} />
       <Row label="Delivery Clause" value={wo.deliveryClause} />
       <Row label="Delivered (across lots)" value={`${wo.deliveredQty} / ${wo.orderQuantity} ${wo.orderUnit}`} />
-      <Row label="Assigned Unit" value={wo.assignedUnit ? `${wo.assignedUnit.name} (${wo.assignedUnit.code})` : null} />
+      <Row label="Assigned Unit" value={wo.assignedUnit ? `${wo.assignedUnit.name} (${wo.assignedUnit.code})` : wo.assignedUnitName ? `${wo.assignedUnitName} (as per order sheet)` : null} />
       <Row label="FIM Details" value={wo.fimDetails} />
       <Row label="Inspection Agency" value={wo.inspectionAgency} />
       <Row label="QAP No" value={wo.qapNo} />
