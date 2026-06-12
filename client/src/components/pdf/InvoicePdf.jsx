@@ -45,14 +45,36 @@ export default function InvoicePdf({ data }) {
             <View style={[styles.cell, { width: '78%' }]}><Text>{wo.customerName || '—'}</Text></View>
           </View>
           <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '22%' }]}><Text>Nomenclature</Text></View>
-            <View style={[styles.cell, { width: '78%' }]}><Text>{wo.nomenclature || '—'}</Text></View>
-          </View>
-          <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>QC Certificate</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>{c.qcCertificateNumber || '—'}</Text></View>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Goods-Ack Deadline</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>{formatDateTime(c.slaDeadlineAt)}</Text></View>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Materials in this Lot</Text>
+          <View style={styles.table}>
+            <View style={styles.row}>
+              <View style={[styles.cellHeader, { width: '8%' }]}><Text>S.No</Text></View>
+              <View style={[styles.cellHeader, { width: '62%' }]}><Text>Description</Text></View>
+              <View style={[styles.cellHeader, { width: '15%' }]}><Text>Quantity</Text></View>
+              <View style={[styles.cellHeader, { width: '15%' }]}><Text>UOM</Text></View>
+            </View>
+            {(c.items || []).length ? c.items.map((ci, i) => (
+              <View key={ci.id || i} style={styles.row} wrap={false}>
+                <View style={[styles.cell, { width: '8%' }]}><Text>{ci.item?.lineNo ?? i + 1}</Text></View>
+                <View style={[styles.cell, { width: '62%' }]}><Text>{ci.item?.description || '—'}</Text></View>
+                <View style={[styles.cell, { width: '15%' }]}><Text>{ci.deliveryQty}</Text></View>
+                <View style={[styles.cell, { width: '15%' }]}><Text>{ci.item?.uom || ''}</Text></View>
+              </View>
+            )) : (
+              <View style={styles.row}>
+                <View style={[styles.cell, { width: '100%', padding: 6 }]}>
+                  <Text>Lot qty: {c.deliveryQty != null ? `${c.deliveryQty} ${wo.orderUnit || ''}` : '—'}</Text>
+                </View>
+              </View>
+            )}
           </View>
         </View>
 

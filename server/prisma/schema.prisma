@@ -1591,10 +1591,31 @@ model WorkOrder {
   bgEntries        WorkOrderBgEntry[]
   insuranceEntries WorkOrderInsuranceEntry[]
   alarms           WorkOrderAlarm[]
+  // Line items — the materials under this WO. Each has its own qty + UOM and is
+  // tracked lot-wise through delivery. orderQuantity/orderUnit above are kept as
+  // aggregates (sum of item qty / first item UOM) for back-compat.
+  items            WorkOrderItem[]
 
   @@index([assignedUnitId])
   @@index([status])
   @@index([pdcDate])
+}
+
+// One material line under a Work Order. Multiple per WO (S.No, Description,
+// Quantity, UOM). Delivered lot-wise — see WorkOrderClosureItem.
+model WorkOrderItem {
+  id          String    @id @default(uuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  lineNo      Int // S.No (1, 2, 3 …)
+  description String
+  quantity    Float
+  uom         String    @default("Nos")
+
+  closureItems WorkOrderClosureItem[]
+
+  @@unique([workOrderId, lineNo])
+  @@index([workOrderId])
 }
 
 // PDC extension log (Extension 1, 2, ...). Latest extension's newPdcDate is the
@@ -1788,12 +1809,29 @@ model WorkOrderClosure {
   docs            WorkOrderClosureDoc[]
   holdRequests    WorkOrderHoldRequest[]
   weeklyFollowups WorkOrderClosureWeeklyFollowup[]
+  // Per-item quantities dispatched in this lot. deliveryQty above is the
+  // aggregate sum of these rows (kept for back-compat).
+  items           WorkOrderClosureItem[]
 
   @@unique([workOrderId, cycleNumber])
   @@index([workOrderId])
   @@index([stage])
   @@index([slaDeadlineAt])
   @@index([paymentDueAt])
+}
+
+// Quantity of a single WO line item dispatched within one lot/closure.
+model WorkOrderClosureItem {
+  id          String           @id @default(uuid())
+  closureId   String
+  closure     WorkOrderClosure @relation(fields: [closureId], references: [id], onDelete: Cascade)
+  itemId      String
+  item        WorkOrderItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  deliveryQty Float
+
+  @@unique([closureId, itemId])
+  @@index([closureId])
+  @@index([itemId])
 }
 
 // Individual documents attached during a closure cycle.

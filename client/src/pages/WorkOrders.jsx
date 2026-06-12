@@ -65,7 +65,11 @@ const qcCertData = (wo, cycle) => ({
   workOrderNumber: wo.workOrderNumber,
   supplyOrderNo: wo.supplyOrderNo,
   customerName: wo.customerName,
-  nomenclature: wo.nomenclature,
+  items: (cycle.items || []).map((ci) => ({
+    description: ci.item?.description,
+    deliveryQty: ci.deliveryQty,
+    uom: ci.item?.uom,
+  })),
   orderQuantity: cycle.deliveryQty,
   orderUnit: wo.orderUnit,
   pdcDate: wo.effectivePdcDate,
@@ -78,6 +82,15 @@ const qcCertData = (wo, cycle) => ({
   unitDocsSubmittedBy: cycle.unitDocsSubmittedBy,
   closureDocs: (cycle.docs || []).map((d) => ({ ...d, stage: 'UNIT_DOCS_PENDING' })),
 });
+
+// Map itemId → total qty delivered across every lot of this WO.
+const deliveredByItem = (wo) => {
+  const m = {};
+  (wo.closures || []).forEach((c) => (c.items || []).forEach((ci) => {
+    m[ci.itemId] = (m[ci.itemId] || 0) + (ci.deliveryQty || 0);
+  }));
+  return m;
+};
 
 export default function WorkOrders() {
   const { user } = useAuth();
@@ -261,7 +274,7 @@ export default function WorkOrders() {
                     <h3 className="font-semibold text-navy-900 truncate">{w.customerName}</h3>
                     <p className="text-sm text-navy-600 truncate">
                       SO: {w.supplyOrderNo} • {formatDate(w.supplyOrderDate)}
-                      {w.nomenclature ? ` • ${w.nomenclature}` : ''}
+                      {w.items?.length ? ` • ${w.items.length} material${w.items.length > 1 ? 's' : ''}` : ''}
                     </p>
                     {w.supplyOrderDescription && (
                       <p className="text-xs text-navy-500 mt-0.5 line-clamp-1">{w.supplyOrderDescription}</p>
@@ -402,11 +415,15 @@ function DashboardTable({ workOrders, onOpen }) {
                 <div className="font-medium text-navy-800">{w.supplyOrderNo}</div>
                 <div className="text-navy-500">{formatDate(w.supplyOrderDate)}</div>
               </Field>
-              <Field label="Nomenclature" className="col-span-2">
-                <div className="text-navy-800 line-clamp-2" title={w.nomenclature || ''}>
-                  {w.nomenclature || <span className="text-navy-400">—</span>}
-                </div>
-                <div className="text-navy-500 mt-0.5">Qty: <span className="font-semibold text-navy-800">{w.orderQuantity}</span> {w.orderUnit}</div>
+              <Field label="Materials" className="col-span-2">
+                {w.items?.length ? (
+                  <div className="text-navy-800 line-clamp-2" title={w.items.map((it) => `${it.description} — ${it.quantity} ${it.uom}`).join('; ')}>
+                    {w.items.length === 1
+                      ? w.items[0].description
+                      : `${w.items.length} materials`}
+                  </div>
+                ) : <span className="text-navy-400">—</span>}
+                <div className="text-navy-500 mt-0.5">Total: <span className="font-semibold text-navy-800">{w.orderQuantity}</span> {w.orderUnit}</div>
               </Field>
               <Field label="PDC" className="col-span-2">
                 <div className="text-navy-800 font-medium">{formatDate(w.effectivePdcDate)}</div>
@@ -529,9 +546,9 @@ const Field = ({ label, children, className = '' }) => (
 // ────────────────────────────────────────────────────────────────────
 function CreateWorkOrderModal({ units, onClose, onCreated }) {
   const [form, setForm] = useState({
-    supplyOrderNo: '', supplyOrderDate: '', supplyOrderDescription: '', nomenclature: '',
+    supplyOrderNo: '', supplyOrderDate: '', supplyOrderDescription: '',
     customerName: '', customerContact: '',
-    orderQuantity: '', orderUnit: 'Nos', pdcDate: '', deliveryClause: '', lotsExpected: '',
+    pdcDate: '', deliveryClause: '', lotsExpected: '',
     fimDetails: '', inspectionAgency: '', qapNo: '',
     drawingsDetails: '', processDrawingsDetails: '',
     toolingScope: '', packingDetails: '', transportationDetails: '',
@@ -545,6 +562,12 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
   const [error, setError] = useState('');
   // BG date auto-tracks PDC + 2 months until the user types their own date.
   const [bgDateTouched, setBgDateTouched] = useState(false);
+
+  // Material line items — S.No / Description / Quantity / UOM. At least one row.
+  const [items, setItems] = useState([{ description: '', quantity: '', uom: 'Nos' }]);
+  const setItem = (i, k, v) => setItems((rows) => rows.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
+  const addItem = () => setItems((rows) => [...rows, { description: '', quantity: '', uom: 'Nos' }]);
+  const removeItem = (i) => setItems((rows) => (rows.length > 1 ? rows.filter((_, idx) => idx !== i) : rows));
 
   // PDC + 2 calendar months, as yyyy-mm-dd for the date input.
   const pdcPlus2Months = (pdcStr) => {
@@ -562,13 +585,21 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
     return next;
   });
 
+  const cleanItems = items
+    .map((r) => ({ description: r.description.trim(), quantity: Number(r.quantity), uom: (r.uom || '').trim() || 'Nos' }))
+    .filter((r) => r.description && Number.isFinite(r.quantity) && r.quantity > 0);
+
   const submit = async (e) => {
     e.preventDefault();
     setError('');
+    if (!cleanItems.length) {
+      setError('Add at least one material with a description and quantity.');
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = { ...form };
-      payload.orderQuantity = Number(form.orderQuantity);
+      payload.items = cleanItems;
       payload.lotsExpected = form.lotsExpected ? Number(form.lotsExpected) : null;
       await api.post('/work-orders', payload);
       onCreated();
@@ -590,7 +621,6 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
             <Input label="Supply Order Date *" type="date" value={form.supplyOrderDate} onChange={(e) => setField('supplyOrderDate', e.target.value)} required />
             <Input label="ION No (header)" value={form.ionNumber} onChange={(e) => setField('ionNumber', e.target.value)} placeholder="e.g. RAPS/UNIT-5/26-27/02" />
           </div>
-          <Input label="Nomenclature" value={form.nomenclature} onChange={(e) => setField('nomenclature', e.target.value)} placeholder="Short item name" />
           <Textarea label="Supply Order Description" rows={2} value={form.supplyOrderDescription} onChange={(e) => setField('supplyOrderDescription', e.target.value)} />
         </Section>
 
@@ -602,9 +632,56 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
         </Section>
 
         <Section title="Order & Delivery">
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-            <Input label="Order Quantity *" type="number" step="any" value={form.orderQuantity} onChange={(e) => setField('orderQuantity', e.target.value)} required />
-            <Input label="Unit (UOM)" value={form.orderUnit} onChange={(e) => setField('orderUnit', e.target.value)} />
+          {/* Material line items — add a row per material. Followed lot-wise through delivery. */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] uppercase tracking-wider font-semibold text-navy-500">Materials *</p>
+              <Button type="button" variant="secondary" onClick={addItem}>
+                <Plus size={14} className="mr-1" /> Add Row
+              </Button>
+            </div>
+            <div className="overflow-x-auto border border-navy-100 rounded-md">
+              <table className="w-full text-sm">
+                <thead className="bg-navy-50 text-navy-600">
+                  <tr>
+                    <th className="text-left px-2 py-1.5 w-10">S.No</th>
+                    <th className="text-left px-2 py-1.5">Description</th>
+                    <th className="text-left px-2 py-1.5 w-28">Quantity</th>
+                    <th className="text-left px-2 py-1.5 w-24">UOM</th>
+                    <th className="px-2 py-1.5 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((row, i) => (
+                    <tr key={i} className="border-t border-navy-50">
+                      <td className="px-2 py-1 text-navy-500 text-center">{i + 1}</td>
+                      <td className="px-2 py-1">
+                        <Input value={row.description} onChange={(e) => setItem(i, 'description', e.target.value)} placeholder="Material description" />
+                      </td>
+                      <td className="px-2 py-1">
+                        <Input type="number" step="any" min="0" value={row.quantity} onChange={(e) => setItem(i, 'quantity', e.target.value)} />
+                      </td>
+                      <td className="px-2 py-1">
+                        <Input value={row.uom} onChange={(e) => setItem(i, 'uom', e.target.value)} placeholder="Nos" />
+                      </td>
+                      <td className="px-2 py-1 text-center">
+                        <button
+                          type="button"
+                          onClick={() => removeItem(i)}
+                          disabled={items.length === 1}
+                          className="text-navy-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="Remove row"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Input label="PDC Date *" type="date" value={form.pdcDate} onChange={(e) => setField('pdcDate', e.target.value)} required />
             <Input label="No. of Lots Expected" type="number" min="1" value={form.lotsExpected} onChange={(e) => setField('lotsExpected', e.target.value)} placeholder="e.g. 3 (leave blank for 1)" />
             <Input label="Delivery Clause" value={form.deliveryClause} onChange={(e) => setField('deliveryClause', e.target.value)} placeholder="Prorata / On or before / In lots" />
@@ -976,14 +1053,54 @@ function OverviewTab({ wo }) {
     </div>
   );
 
+  const delivered = deliveredByItem(wo);
+
   return (
     <div className="space-y-1">
       <Row label="Supply Order No / Date" value={`${wo.supplyOrderNo}, Dt. ${formatDate(wo.supplyOrderDate)}`} />
-      <Row label="Nomenclature" value={wo.nomenclature} />
       <Row label="Description" value={wo.supplyOrderDescription} />
       <Row label="Customer" value={wo.customerName} />
       <Row label="Customer Contact" value={wo.customerContact} />
-      <Row label="Order Quantity" value={`${wo.orderQuantity} ${wo.orderUnit}`} />
+
+      {/* Materials — per-item ordered / delivered / remaining across all lots */}
+      <div className="py-1.5 border-b border-navy-50">
+        <div className="text-navy-500 text-sm mb-1">Materials</div>
+        {wo.items?.length ? (
+          <div className="overflow-x-auto border border-navy-100 rounded-md">
+            <table className="w-full text-xs">
+              <thead className="bg-navy-50 text-navy-600">
+                <tr>
+                  <th className="text-left px-2 py-1 w-8">S.No</th>
+                  <th className="text-left px-2 py-1">Description</th>
+                  <th className="text-right px-2 py-1">Ordered</th>
+                  <th className="text-right px-2 py-1">Delivered</th>
+                  <th className="text-right px-2 py-1">Remaining</th>
+                  <th className="text-left px-2 py-1">UOM</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wo.items.map((it) => {
+                  const d = delivered[it.id] || 0;
+                  const rem = Math.max(0, it.quantity - d);
+                  return (
+                    <tr key={it.id} className="border-t border-navy-50">
+                      <td className="px-2 py-1 text-navy-500 text-center">{it.lineNo}</td>
+                      <td className="px-2 py-1 text-navy-800">{it.description}</td>
+                      <td className="px-2 py-1 text-right font-medium">{it.quantity}</td>
+                      <td className="px-2 py-1 text-right text-blue-700">{d}</td>
+                      <td className={`px-2 py-1 text-right ${rem > 0 ? 'text-yellow-700' : 'text-green-700'}`}>{rem}</td>
+                      <td className="px-2 py-1 text-navy-600">{it.uom}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-navy-800 text-sm">{wo.orderQuantity} {wo.orderUnit}</div>
+        )}
+      </div>
+
       <Row label="PDC (effective)" value={`${formatDate(wo.effectivePdcDate)}${wo.extensions.length ? ` (after ${wo.extensions.length} extension${wo.extensions.length > 1 ? 's' : ''})` : ''}`} />
       <Row label="Original PDC" value={formatDate(wo.pdcDate)} />
       <Row label="Delivery Clause" value={wo.deliveryClause} />
@@ -1363,9 +1480,12 @@ function buildWoTimeline(wo, alarms) {
   // ── Per-lot chain ──
   (wo.closures || []).forEach((c) => {
     const L = `Lot #${c.cycleNumber}`;
+    const itemLines = (c.items || []).length
+      ? c.items.map((ci) => `• ${ci.item?.description}: ${ci.deliveryQty} ${ci.item?.uom || ''}`.trim()).join('\n')
+      : `Qty ${c.deliveryQty} ${wo.orderUnit}`;
     push(c.deliveredAt || c.createdAt, {
       color: 'violet', Icon: Upload, title: `${L} — work done, report sent to QC`, actor: nm(c.openedBy),
-      body: joinB(`Qty ${c.deliveryQty} ${wo.orderUnit}`, c.deliveryNote) || null,
+      body: joinB(itemLines, c.deliveryNote) || null,
     });
     if (c.qcVerifiedAt) push(c.qcVerifiedAt, {
       color: 'orange', Icon: FileCheck2, title: `${L} — QC approved`, actor: nm(c.qcVerifiedBy),
@@ -1816,27 +1936,46 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
   const closures = wo.closures || [];
   const alreadyCovered = closures.reduce((s, c) => s + (c.deliveryQty || 0), 0);
   const remaining = Math.max(0, wo.orderQuantity - alreadyCovered);
+  const hasItems = (wo.items || []).length > 0;
+  const delivered = deliveredByItem(wo);
+  // Per-item remaining = ordered − delivered across all prior lots.
+  const itemRemaining = (it) => Math.max(0, it.quantity - (delivered[it.id] || 0));
   const lotsOpenLimit = wo.lotsExpected ? closures.length < wo.lotsExpected : true;
   const canStartCycle = canOpenCycle
     && remaining > 0
     && lotsOpenLimit
     && ['UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED'].includes(wo.status);
 
+  // Per-item lot qty keyed by itemId. openForm keeps note/date (+ legacy qty).
+  const [lotQtys, setLotQtys] = useState({});
   const [openForm, setOpenForm] = useState({ deliveryQty: '', deliveryNote: '', deliveredAt: '' });
   const [lotFile, setLotFile] = useState(null);
+  const setLotQty = (itemId, v) => setLotQtys((m) => ({ ...m, [itemId]: v }));
+
+  // The per-item rows the manager actually filled in for this lot.
+  const lotItemRows = (wo.items || [])
+    .map((it) => ({ itemId: it.id, deliveryQty: Number(lotQtys[it.id]) }))
+    .filter((r) => Number.isFinite(r.deliveryQty) && r.deliveryQty > 0);
+  const lotItemsTotal = lotItemRows.reduce((s, r) => s + r.deliveryQty, 0);
+  const canSubmitLot = lotFile && (hasItems ? lotItemRows.length > 0 : Number(openForm.deliveryQty) > 0);
 
   const submitOpen = (e) => {
     e.preventDefault();
-    if (!openForm.deliveryQty || !lotFile) return;
+    if (!canSubmitLot) return;
     const fd = new FormData();
     fd.append('file', lotFile);
-    fd.append('deliveryQty', openForm.deliveryQty);
+    if (hasItems) {
+      fd.append('items', JSON.stringify(lotItemRows));
+    } else {
+      fd.append('deliveryQty', openForm.deliveryQty);
+    }
     if (openForm.deliveryNote) fd.append('deliveryNote', openForm.deliveryNote);
     if (openForm.deliveredAt) fd.append('deliveredAt', openForm.deliveredAt);
     onAction(() => api.post(`/work-orders/${wo.id}/closures`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }));
     setOpenForm({ deliveryQty: '', deliveryNote: '', deliveredAt: '' });
+    setLotQtys({});
     setLotFile(null);
   };
 
@@ -1894,9 +2033,51 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
       {canStartCycle && (
         <form onSubmit={submitOpen} className="border-t pt-3 space-y-2">
           <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">
-            Work Done — Lot {nextLotNo}{lotsExpected ? ` of ${lotsExpected}` : ''}: fill the lot details, upload the ONE lot report PDF, and it goes straight to QC
+            Work Done — Lot {nextLotNo}{lotsExpected ? ` of ${lotsExpected}` : ''}: enter the qty of each material going in this lot, upload the ONE lot report PDF, and it goes straight to QC
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+
+          {hasItems ? (
+            <div className="overflow-x-auto border border-navy-100 rounded-md">
+              <table className="w-full text-xs">
+                <thead className="bg-navy-50 text-navy-600">
+                  <tr>
+                    <th className="text-left px-2 py-1.5 w-8">S.No</th>
+                    <th className="text-left px-2 py-1.5">Description</th>
+                    <th className="text-right px-2 py-1.5">Ordered</th>
+                    <th className="text-right px-2 py-1.5">Remaining</th>
+                    <th className="text-left px-2 py-1.5 w-32">This Lot Qty</th>
+                    <th className="text-left px-2 py-1.5 w-20">UOM</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {wo.items.map((it) => {
+                    const rem = itemRemaining(it);
+                    return (
+                      <tr key={it.id} className="border-t border-navy-50">
+                        <td className="px-2 py-1 text-navy-500 text-center">{it.lineNo}</td>
+                        <td className="px-2 py-1 text-navy-800">{it.description}</td>
+                        <td className="px-2 py-1 text-right">{it.quantity}</td>
+                        <td className={`px-2 py-1 text-right ${rem > 0 ? 'text-yellow-700' : 'text-green-700'}`}>{rem}</td>
+                        <td className="px-2 py-1">
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            max={rem}
+                            value={lotQtys[it.id] ?? ''}
+                            onChange={(e) => setLotQty(it.id, e.target.value)}
+                            disabled={rem <= 0}
+                            placeholder={rem <= 0 ? 'Done' : '0'}
+                          />
+                        </td>
+                        <td className="px-2 py-1 text-navy-600">{it.uom}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
             <Input
               label={`Lot Qty * (max ${remaining})`}
               type="number"
@@ -1905,8 +2086,16 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
               max={remaining}
               value={openForm.deliveryQty}
               onChange={(e) => setOpenForm({ ...openForm, deliveryQty: e.target.value })}
-              required
             />
+          )}
+
+          {hasItems && lotItemRows.length > 0 && (
+            <p className="text-[11px] text-navy-600">
+              This lot: <span className="font-semibold">{lotItemRows.length}</span> material{lotItemRows.length > 1 ? 's' : ''} · total <span className="font-semibold">{lotItemsTotal}</span> {wo.orderUnit}
+            </p>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               label="Work Done On"
               type="date"
@@ -1926,10 +2115,13 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
               onChange={(e) => setLotFile(e.target.files?.[0] || null)}
             />
           </div>
-          <Button type="submit" disabled={busy || !openForm.deliveryQty || !lotFile}>
+          <Button type="submit" disabled={busy || !canSubmitLot}>
             <Check size={12} className="mr-1" /> Work Done — Send Lot {nextLotNo} to QC
           </Button>
           {!lotFile && <p className="text-[11px] text-navy-500 italic">Upload exactly one lot report PDF to enable.</p>}
+          {lotFile && hasItems && lotItemRows.length === 0 && (
+            <p className="text-[11px] text-navy-500 italic">Enter a quantity for at least one material.</p>
+          )}
         </form>
       )}
     </div>
@@ -2082,6 +2274,19 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
           )}
         </div>
       </div>
+
+      {/* Per-material breakdown of this lot */}
+      {(cycle.items || []).length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {cycle.items.map((ci) => (
+            <span key={ci.id} className="text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-navy-50 border border-navy-100 text-navy-700">
+              <span className="text-navy-400">{ci.item?.lineNo}.</span>
+              {ci.item?.description}
+              <span className="font-semibold text-navy-800">{ci.deliveryQty} {ci.item?.uom}</span>
+            </span>
+          ))}
+        </div>
+      )}
 
       {cycle.deliveryNote && <p className="text-xs text-navy-600">{cycle.deliveryNote}</p>}
 

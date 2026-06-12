@@ -32,11 +32,7 @@ export default function QCVerificationCertificatePdf({ data }) {
             <View style={[styles.cell, { width: '78%' }]}><Text>{w.customerName || '—'}</Text></View>
           </View>
           <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '22%' }]}><Text>Nomenclature</Text></View>
-            <View style={[styles.cell, { width: '78%' }]}><Text>{w.nomenclature || '—'}</Text></View>
-          </View>
-          <View style={styles.row}>
-            <View style={[styles.cellLabel, { width: '22%' }]}><Text>Order Qty</Text></View>
+            <View style={[styles.cellLabel, { width: '22%' }]}><Text>Lot Qty</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>{w.orderQuantity} {w.orderUnit || ''}</Text></View>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>PDC Date</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>{formatDate(w.pdcDate)}</Text></View>
@@ -48,6 +44,32 @@ export default function QCVerificationCertificatePdf({ data }) {
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>QAP No.</Text></View>
             <View style={[styles.cell, { width: '78%' }]}><Text>{w.qapNo || '—'}</Text></View>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Materials in this Lot</Text>
+          <View style={styles.table}>
+            <View style={styles.row}>
+              <View style={[styles.cellHeader, { width: '8%' }]}><Text>S.No</Text></View>
+              <View style={[styles.cellHeader, { width: '62%' }]}><Text>Description</Text></View>
+              <View style={[styles.cellHeader, { width: '15%' }]}><Text>Quantity</Text></View>
+              <View style={[styles.cellHeader, { width: '15%' }]}><Text>UOM</Text></View>
+            </View>
+            {(w.items || []).length ? w.items.map((it, i) => (
+              <View key={i} style={styles.row} wrap={false}>
+                <View style={[styles.cell, { width: '8%' }]}><Text>{i + 1}</Text></View>
+                <View style={[styles.cell, { width: '62%' }]}><Text>{it.description || '—'}</Text></View>
+                <View style={[styles.cell, { width: '15%' }]}><Text>{it.deliveryQty}</Text></View>
+                <View style={[styles.cell, { width: '15%' }]}><Text>{it.uom || ''}</Text></View>
+              </View>
+            )) : (
+              <View style={styles.row}>
+                <View style={[styles.cell, { width: '100%', padding: 6 }]}>
+                  <Text>Lot qty: {w.orderQuantity} {w.orderUnit || ''}</Text>
+                </View>
+              </View>
+            )}
           </View>
         </View>
 

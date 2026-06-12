@@ -111,9 +111,13 @@ const CLOSURE_INCLUDE = {
     orderBy: { weekNumber: 'asc' },
     include: { contactedBy: USER_SELECT },
   },
+  items: {
+    include: { item: { select: { id: true, lineNo: true, description: true, uom: true } } },
+  },
 };
 
 const WO_INCLUDE = {
+  items:                    { orderBy: { lineNo: 'asc' } },
   assignedUnit:             { select: { id: true, name: true, code: true } },
   createdBy:                USER_SELECT,
   adminAcceptedBy:          USER_SELECT,
@@ -259,6 +263,37 @@ const notifyL5Finance = async (title, message, sentById) => {
   }
   if (rows.length) await prisma.notification.createMany({ data: rows });
 };
+
+// Normalise the items[] payload from a create/edit request into clean rows
+// ({ lineNo, description, quantity, uom }). Accepts an array of
+// { description, quantity, uom }. Throws on an empty/invalid set.
+const normalizeItems = (raw) => {
+  let list = raw;
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list); } catch { list = null; }
+  }
+  if (!Array.isArray(list)) return null;
+  const rows = [];
+  list.forEach((it) => {
+    if (!it) return;
+    const description = String(it.description ?? '').trim();
+    const quantity = Number(it.quantity);
+    if (!description || !Number.isFinite(quantity) || quantity <= 0) return;
+    rows.push({
+      lineNo: rows.length + 1,
+      description,
+      quantity,
+      uom: String(it.uom ?? '').trim() || 'Nos',
+    });
+  });
+  return rows.length ? rows : null;
+};
+
+// Aggregate qty across items (back-compat orderQuantity); UOM = first item's.
+const itemsAggregate = (rows) => ({
+  orderQuantity: rows.reduce((s, r) => s + r.quantity, 0),
+  orderUnit: rows[0]?.uom || 'Nos',
+});
 
 // Guard: the caller may only touch this closure if they own the relevant stage.
 // MANAGER must be assigned to the WO's unit.
@@ -440,12 +475,28 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
     const body = req.body || {};
     // Supply Chain must pick the unit manager up-front — admin can change it
     // when verifying.
-    const required = ['supplyOrderNo', 'supplyOrderDate', 'customerName', 'orderQuantity', 'pdcDate', 'assignedUnitId'];
+    const required = ['supplyOrderNo', 'supplyOrderDate', 'customerName', 'pdcDate', 'assignedUnitId'];
     for (const f of required) {
       if (body[f] === undefined || body[f] === null || body[f] === '') {
         return res.status(400).json({ error: `${f} is required` });
       }
     }
+
+    // Material line items (S.No / Description / Quantity / UOM). At least one is
+    // required. Legacy single orderQuantity is still accepted as a fallback.
+    let items = normalizeItems(body.items);
+    if (!items && body.orderQuantity) {
+      items = [{
+        lineNo: 1,
+        description: String(body.nomenclature || body.supplyOrderDescription || 'Material').trim() || 'Material',
+        quantity: Number(body.orderQuantity),
+        uom: body.orderUnit || 'Nos',
+      }];
+    }
+    if (!items) {
+      return res.status(400).json({ error: 'At least one material line item (description + quantity) is required' });
+    }
+    const agg = itemsAggregate(items);
 
     const assignedUnitId = body.assignedUnitId;
     const unit = await prisma.unit.findUnique({ where: { id: assignedUnitId } });
@@ -471,8 +522,9 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
           nomenclature: body.nomenclature || null,
           customerName: String(body.customerName).trim(),
           customerContact: body.customerContact || null,
-          orderQuantity: Number(body.orderQuantity),
-          orderUnit: body.orderUnit || 'Nos',
+          orderQuantity: agg.orderQuantity,
+          orderUnit: agg.orderUnit,
+          items: { create: items },
           pdcDate,
           deliveryClause: body.deliveryClause || null,
           lotsExpected: body.lotsExpected ? Math.max(1, Number(body.lotsExpected)) : null,
@@ -575,6 +627,22 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (re
     ];
     for (const f of passthrough) if (body[f] !== undefined) data[f] = body[f] || null;
     if (body.orderQuantity !== undefined) data.orderQuantity = Number(body.orderQuantity);
+
+    // Replace material line items. Only while no lots have been sent — once a lot
+    // exists its per-item rows reference these items, so editing is locked.
+    if (body.items !== undefined) {
+      const rows = normalizeItems(body.items);
+      if (!rows) return res.status(400).json({ error: 'At least one material line item (description + quantity) is required' });
+      const lotCount = await prisma.workOrderClosure.count({ where: { workOrderId: req.params.id } });
+      if (lotCount > 0) {
+        return res.status(400).json({ error: 'Cannot change material items after lots have been sent' });
+      }
+      const agg = itemsAggregate(rows);
+      data.items = { deleteMany: {}, create: rows };
+      data.orderQuantity = agg.orderQuantity;
+      data.orderUnit = agg.orderUnit;
+    }
+
     if (body.supplyOrderDate) data.supplyOrderDate = new Date(body.supplyOrderDate);
     if (body.pdcDate) data.pdcDate = new Date(body.pdcDate);
     // BG date is auto-derived (PDC + 2 months) but stays editable here.
@@ -1245,11 +1313,25 @@ const loadClosure = async (workOrderId, closureId) => {
 const syncWoFromLots = async (woId) => {
   const wo = await prisma.workOrder.findUnique({
     where: { id: woId },
-    include: { closures: { select: { deliveryQty: true } } },
+    include: {
+      items: { select: { id: true, quantity: true } },
+      closures: { select: { deliveryQty: true, items: { select: { itemId: true, deliveryQty: true } } } },
+    },
   });
   if (!wo) return null;
   const covered = wo.closures.reduce((s, c) => s + (c.deliveryQty || 0), 0);
-  const fullyDone = covered >= wo.orderQuantity;
+  // Item-aware completion: every line item must be fully delivered across lots.
+  // Falls back to the aggregate qty for legacy WOs that have no item rows.
+  let fullyDone;
+  if (wo.items.length) {
+    const deliveredByItem = new Map();
+    wo.closures.forEach((c) => (c.items || []).forEach((ci) => {
+      deliveredByItem.set(ci.itemId, (deliveredByItem.get(ci.itemId) || 0) + (ci.deliveryQty || 0));
+    }));
+    fullyDone = wo.items.every((it) => (deliveredByItem.get(it.id) || 0) >= it.quantity);
+  } else {
+    fullyDone = covered >= wo.orderQuantity;
+  }
   return prisma.workOrder.update({
     where: { id: woId },
     data: {
@@ -1274,17 +1356,16 @@ router.post(
   closureDocUpload.single('file'),
   async (req, res) => {
     try {
-      const { deliveryQty, deliveryNote, deliveredAt } = req.body || {};
-      const qty = Number(deliveryQty);
-      if (!Number.isFinite(qty) || qty <= 0) {
-        return res.status(400).json({ error: 'deliveryQty must be > 0' });
-      }
+      const { deliveryNote, deliveredAt } = req.body || {};
       if (!req.file) {
         return res.status(400).json({ error: 'Lot report PDF is required — upload exactly one report for this lot' });
       }
       const wo = await prisma.workOrder.findUnique({
         where: { id: req.params.id },
-        include: { closures: { select: { cycleNumber: true, deliveryQty: true } } },
+        include: {
+          items: { select: { id: true, lineNo: true, description: true, quantity: true, uom: true } },
+          closures: { select: { cycleNumber: true, deliveryQty: true, items: { select: { itemId: true, deliveryQty: true } } } },
+        },
       });
       if (!wo) return res.status(404).json({ error: 'Work order not found' });
       const denied = ensureClosureAccess(wo, req.user);
@@ -1294,17 +1375,68 @@ router.post(
           error: `Cannot open a lot on a WO in status ${wo.status}`,
         });
       }
-      const alreadyCovered = wo.closures.reduce((s, c) => s + (c.deliveryQty || 0), 0);
-      if (alreadyCovered + qty > wo.orderQuantity) {
-        return res.status(400).json({
-          error: `Lot qty exceeds remaining WO qty (already covered ${alreadyCovered} of ${wo.orderQuantity})`,
-        });
-      }
       if (wo.lotsExpected && wo.closures.length >= wo.lotsExpected) {
         return res.status(400).json({
           error: `All ${wo.lotsExpected} expected lots are already opened`,
         });
       }
+
+      // ── Per-item lot quantities ──
+      // Multipart sends items as a JSON string: [{ itemId, deliveryQty }].
+      // Each item's running delivered qty (across lots) must not exceed ordered.
+      let lotItems = req.body.items;
+      if (typeof lotItems === 'string') {
+        try { lotItems = JSON.parse(lotItems); } catch { lotItems = null; }
+      }
+
+      let qty;          // aggregate lot qty (sum of per-item qty)
+      let closureItemsCreate = [];
+
+      if (wo.items.length) {
+        // New multi-material WO — require a per-item breakdown.
+        if (!Array.isArray(lotItems)) {
+          return res.status(400).json({ error: 'items[] with per-material quantities is required' });
+        }
+        // Already delivered per item across all prior lots.
+        const deliveredByItem = new Map();
+        wo.closures.forEach((c) => (c.items || []).forEach((ci) => {
+          deliveredByItem.set(ci.itemId, (deliveredByItem.get(ci.itemId) || 0) + (ci.deliveryQty || 0));
+        }));
+        const byId = new Map(wo.items.map((it) => [it.id, it]));
+        const rows = [];
+        for (const li of lotItems) {
+          if (!li || !li.itemId) continue;
+          const item = byId.get(li.itemId);
+          if (!item) return res.status(400).json({ error: 'Unknown line item in lot' });
+          const d = Number(li.deliveryQty);
+          if (!Number.isFinite(d) || d <= 0) continue; // skip blank/zero rows
+          const prior = deliveredByItem.get(item.id) || 0;
+          if (prior + d > item.quantity + 1e-9) {
+            return res.status(400).json({
+              error: `Lot qty for "${item.description}" exceeds remaining (already ${prior} of ${item.quantity} ${item.uom})`,
+            });
+          }
+          rows.push({ itemId: item.id, deliveryQty: d });
+        }
+        if (!rows.length) {
+          return res.status(400).json({ error: 'Enter a delivery quantity for at least one material' });
+        }
+        closureItemsCreate = rows;
+        qty = rows.reduce((s, r) => s + r.deliveryQty, 0);
+      } else {
+        // Legacy single-qty WO.
+        qty = Number(req.body.deliveryQty);
+        if (!Number.isFinite(qty) || qty <= 0) {
+          return res.status(400).json({ error: 'deliveryQty must be > 0' });
+        }
+        const alreadyCovered = wo.closures.reduce((s, c) => s + (c.deliveryQty || 0), 0);
+        if (alreadyCovered + qty > wo.orderQuantity) {
+          return res.status(400).json({
+            error: `Lot qty exceeds remaining WO qty (already covered ${alreadyCovered} of ${wo.orderQuantity})`,
+          });
+        }
+      }
+
       const nextCycle = (wo.closures.reduce((m, c) => Math.max(m, c.cycleNumber), 0) || 0) + 1;
       const now = new Date();
       const closure = await prisma.workOrderClosure.create({
@@ -1318,6 +1450,7 @@ router.post(
           openedById: req.user.id,
           unitDocsSubmittedAt: now, // lot report attached right here → straight to QC
           unitDocsSubmittedById: req.user.id,
+          items: closureItemsCreate.length ? { create: closureItemsCreate } : undefined,
           docs: {
             create: {
               docType: LOT_REPORT_DOC_TYPE,
