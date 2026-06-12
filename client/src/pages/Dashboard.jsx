@@ -5,6 +5,8 @@ import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import StatsCard from '../components/shared/StatsCard';
 import DashboardHero from '../components/shared/DashboardHero';
+import SectionHeader from '../components/shared/SectionHeader';
+import PdcStatusBoard from '../components/shared/PdcStatusBoard';
 import SlaTicker from '../components/shared/SlaTicker';
 import TeamChat from '../components/shared/TeamChat';
 import CalendarView from './Calendar';
@@ -197,6 +199,22 @@ function InProgressButton() {
   );
 }
 
+// Standard empty state — icon in a soft ring, headline + hint. tone 'green'
+// for "all clear" states, 'gray' for plain no-data states.
+function EmptyState({ icon: Icon = Inbox, title, hint, tone = 'gray' }) {
+  const ring = tone === 'green' ? 'bg-green-50 ring-green-100' : 'bg-gray-50 ring-gray-100';
+  const iconColor = tone === 'green' ? 'text-green-600' : 'text-gray-400';
+  return (
+    <div className="text-center py-8">
+      <div className={`w-12 h-12 mx-auto rounded-full ring-1 flex items-center justify-center mb-2 ${ring}`}>
+        <Icon size={22} className={iconColor} />
+      </div>
+      <p className="text-sm font-medium text-gray-600">{title}</p>
+      {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
+    </div>
+  );
+}
+
 function ProgressBar({ purchased, total, showPending = true }) {
   const pct = total > 0 ? Math.min(100, (purchased / total) * 100) : 0;
   return (
@@ -304,85 +322,122 @@ function AdminDashboard() {
         <StatsCard title="Pending MIV Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" onClick={() => navigate('/all-requests')} />
       </div>
 
+      {/* PDC delivery-commitment warnings — overdue / ≤90d work orders */}
+      <PdcStatusBoard />
+
       {/* Purchase Request Stats */}
       {prStats && (
         <Card>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">Purchase Requests Overview</h3>
-            <Button variant="secondary" size="sm" onClick={() => navigate('/purchase-requests')}>View All</Button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-            <div className="text-center p-3 bg-yellow-50 rounded-lg">
-              <p className="text-2xl font-bold text-yellow-600">{(prStats.pendingQc || 0) + (prStats.pendingAdmin || 0)}</p>
-              <p className="text-xs text-gray-500 mt-1">Pending Approval</p>
-            </div>
-            <div className="text-center p-3 bg-blue-50 rounded-lg">
-              <p className="text-2xl font-bold text-blue-600">{prStats.approved}</p>
-              <p className="text-xs text-gray-500 mt-1">Approved</p>
-            </div>
-            <div className="text-center p-3 bg-indigo-50 rounded-lg">
-              <p className="text-2xl font-bold text-indigo-600">{prStats.inProgress}</p>
-              <p className="text-xs text-gray-500 mt-1">In Progress</p>
-            </div>
-            <div className="text-center p-3 bg-green-50 rounded-lg">
-              <p className="text-2xl font-bold text-green-600">{prStats.completed}</p>
-              <p className="text-xs text-gray-500 mt-1">Completed</p>
-            </div>
-            <div className="text-center p-3 bg-red-50 rounded-lg">
-              <p className="text-2xl font-bold text-red-600">{prStats.rejected}</p>
-              <p className="text-xs text-gray-500 mt-1">Rejected</p>
-            </div>
+          <SectionHeader
+            icon={ShoppingCart}
+            tone="blue"
+            title="Purchase Requests Overview"
+            subtitle="Procurement pipeline across all units"
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/purchase-requests')}>View All</Button>}
+          />
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {[
+              { label: 'Pending Approval', value: (prStats.pendingQc || 0) + (prStats.pendingAdmin || 0), icon: Clock, cls: 'bg-yellow-50 ring-yellow-100 text-yellow-700', num: 'text-yellow-600' },
+              { label: 'Approved', value: prStats.approved, icon: CheckCircle, cls: 'bg-blue-50 ring-blue-100 text-blue-700', num: 'text-blue-600' },
+              { label: 'In Progress', value: prStats.inProgress, icon: Activity, cls: 'bg-indigo-50 ring-indigo-100 text-indigo-700', num: 'text-indigo-600' },
+              { label: 'Completed', value: prStats.completed, icon: ClipboardCheck, cls: 'bg-green-50 ring-green-100 text-green-700', num: 'text-green-600' },
+              { label: 'Rejected', value: prStats.rejected, icon: AlertTriangle, cls: 'bg-red-50 ring-red-100 text-red-700', num: 'text-red-600' },
+            ].map((t) => {
+              const TileIcon = t.icon;
+              return (
+                <button
+                  key={t.label}
+                  onClick={() => navigate('/purchase-requests')}
+                  className={`text-center p-3 rounded-xl ring-1 transition-transform hover:-translate-y-0.5 ${t.cls}`}
+                >
+                  <TileIcon size={15} className="mx-auto mb-1.5 opacity-80" />
+                  <p className={`text-2xl font-bold tnum ${t.num}`}>{t.value}</p>
+                  <p className="text-[11px] text-gray-500 mt-1 font-medium">{t.label}</p>
+                </button>
+              );
+            })}
           </div>
         </Card>
       )}
 
       {/* Unit Summary */}
       <Card>
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">Unit-wise Summary</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b">
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Code</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requests</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items Consumed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {unitSummary.map((u, i) => (
-                <tr key={u.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
-                  <td className="px-3 py-2 font-medium text-gray-700">{u.name}</td>
-                  <td className="px-3 py-2"><Badge color="blue">{u.code}</Badge></td>
-                  <td className="px-3 py-2 text-gray-600">{u.totalRequests}</td>
-                  <td className="px-3 py-2 text-gray-600">{u.totalItemsConsumed}</td>
-                </tr>
-              ))}
-              {unitSummary.length === 0 && (
-                <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400">No units found</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <SectionHeader
+          icon={Building2}
+          tone="indigo"
+          title="Unit-wise Summary"
+          count={unitSummary.length}
+          subtitle="MIV requests and consumption per unit"
+        />
+        {unitSummary.length === 0 ? (
+          <EmptyState icon={Building2} title="No units found" />
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+            <div className="xl:col-span-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50/60">
+                    <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Unit</th>
+                    <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Code</th>
+                    <th className="px-3 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Requests</th>
+                    <th className="px-3 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Items Consumed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unitSummary.map((u, i) => (
+                    <tr key={u.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                      <td className="px-3 py-2.5 font-medium text-gray-700">{u.name}</td>
+                      <td className="px-3 py-2.5"><Badge color="blue">{u.code}</Badge></td>
+                      <td className="px-3 py-2.5 text-right text-gray-600 tnum">{u.totalRequests}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-600 tnum">{u.totalItemsConsumed}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="xl:col-span-2 min-h-[220px]">
+              <ResponsiveContainer width="100%" height={Math.max(220, unitSummary.length * 36)}>
+                <BarChart data={unitSummary} layout="vertical" margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E9F2" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: '#6B7385' }} allowDecimals={false} />
+                  <YAxis type="category" dataKey="code" width={52} tick={{ fontSize: 11, fill: '#16306E', fontWeight: 600 }} />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(30, 58, 138, 0.04)' }}
+                    contentStyle={{ borderRadius: 12, border: '1px solid #D6DFF1', fontSize: 12, boxShadow: '0 8px 24px -6px rgba(16,36,82,0.18)' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="totalRequests" name="Requests" fill="#3A6BE0" radius={[0, 6, 6, 0]} barSize={10} />
+                  <Bar dataKey="totalItemsConsumed" name="Items Consumed" fill="#AEBFE2" radius={[0, 6, 6, 0]} barSize={10} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
       </Card>
 
       {/* Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Recent Stock Movements</h3>
+          <SectionHeader
+            icon={ArrowLeftRight}
+            tone="cyan"
+            title="Recent Stock Movements"
+            subtitle="Latest IN / OUT activity in stores"
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/stock-movements')}>View All</Button>}
+          />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b">
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Type</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                <tr className="border-b bg-gray-50/60">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Product</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Type</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Qty</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Date</th>
                 </tr>
               </thead>
               <tbody>
                 {recentMovements.length === 0 ? (
-                  <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400">No movements yet</td></tr>
+                  <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-400">No movements yet</td></tr>
                 ) : (
                   recentMovements.map((m, i) => (
                     <tr key={m.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
@@ -405,20 +460,26 @@ function AdminDashboard() {
         </Card>
 
         <Card>
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Recent Requests</h3>
+          <SectionHeader
+            icon={ClipboardList}
+            tone="yellow"
+            title="Recent Requests"
+            subtitle="Latest MIV requests across units"
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/all-requests')}>View All</Button>}
+          />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b">
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Request</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Manager</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                <tr className="border-b bg-gray-50/60">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Request</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Manager</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Unit</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {recentRequests.length === 0 ? (
-                  <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400">No requests yet</td></tr>
+                  <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-400">No requests yet</td></tr>
                 ) : (
                   recentRequests.map((r, i) => (
                     <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
@@ -556,13 +617,21 @@ function ManagerDashboard() {
         />
       </div>
 
+      {/* PDC warnings for this unit's work orders — managers must file the
+          3-month remark, so surface the countdown right on their dashboard. */}
+      {user?.role === 'MANAGER' && <PdcStatusBoard showAllClear={false} />}
+
       {/* Purchase Request Progress */}
       {purchaseRequests.filter(r => ['APPROVED', 'IN_PROGRESS'].includes(r.status)).length > 0 && (
         <Card>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">Active Purchase Requests</h3>
-            <Button variant="secondary" size="sm" onClick={() => navigate('/purchase-requests')}>View All</Button>
-          </div>
+          <SectionHeader
+            icon={ShoppingCart}
+            tone="blue"
+            title="Active Purchase Requests"
+            count={purchaseRequests.filter(r => ['APPROVED', 'IN_PROGRESS'].includes(r.status)).length}
+            subtitle="Approved or being procured for your unit"
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/purchase-requests')}>View All</Button>}
+          />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -594,10 +663,14 @@ function ManagerDashboard() {
 
       {/* Products Overview */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700">Product Catalog</h3>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/products')}>View All</Button>
-        </div>
+        <SectionHeader
+          icon={Package}
+          tone="navy"
+          title="Product Catalog"
+          count={totalProducts}
+          subtitle="Stock availability snapshot"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/products')}>View All</Button>}
+        />
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -633,28 +706,16 @@ function ManagerDashboard() {
       {/* ION pending — LAB only */}
       {isLab && (
         <Card>
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-purple-50 text-purple-700 ring-1 ring-purple-100">
-                <FlaskConical size={15} />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-gray-800">
-                  Inter-Office Notes
-                  <span className="ml-2 text-xs font-normal text-gray-500">({ions.filter(i => i.status !== 'COLLECTED').length} open)</span>
-                </h3>
-                <p className="text-[11px] text-gray-500 mt-0.5">Lab samples and tests requested across units</p>
-              </div>
-            </div>
-            <Button variant="secondary" size="sm" onClick={() => navigate('/ion')}>Open ION</Button>
-          </div>
+          <SectionHeader
+            icon={FlaskConical}
+            tone="purple"
+            title="Inter-Office Notes"
+            count={`${ions.filter(i => i.status !== 'COLLECTED').length} open`}
+            subtitle="Lab samples and tests requested across units"
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/ion')}>Open ION</Button>}
+          />
           {ions.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="w-12 h-12 mx-auto rounded-full bg-gray-50 ring-1 ring-gray-100 flex items-center justify-center mb-2">
-                <FlaskConical size={22} className="text-gray-400" />
-              </div>
-              <p className="text-sm text-gray-600">No ION requests right now.</p>
-            </div>
+            <EmptyState icon={FlaskConical} title="No ION requests right now." />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -691,7 +752,14 @@ function ManagerDashboard() {
       {/* Recent MIV Requests */}
       {requests.length > 0 && (
         <Card>
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">My Recent MIV Requests</h3>
+          <SectionHeader
+            icon={ClipboardList}
+            tone="yellow"
+            title="My Recent MIV Requests"
+            count={requests.length}
+            subtitle="Latest material issue requests you raised"
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/my-requests')}>View All</Button>}
+          />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -819,10 +887,14 @@ function StoreManagerDashboard() {
       {/* Pending Requests */}
       {pendingRequests.length > 0 && (
         <Card>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">Pending Requests to Approve</h3>
-            <Button variant="secondary" size="sm" onClick={() => navigate('/request-clearance')}>View All</Button>
-          </div>
+          <SectionHeader
+            icon={ClipboardList}
+            tone="yellow"
+            title="Pending Requests to Approve"
+            count={pendingRequests.length}
+            subtitle="MIV requests waiting for store clearance"
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/request-clearance')}>View All</Button>}
+          />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -855,13 +927,24 @@ function StoreManagerDashboard() {
         <button
           type="button"
           onClick={() => setLowStockCollapsed(c => !c)}
-          className="flex w-full items-center justify-between text-left"
+          className="flex w-full items-center justify-between text-left gap-3"
           aria-expanded={!lowStockCollapsed}
         >
-          <h3 className="text-sm font-semibold text-gray-700">Low Stock Products</h3>
+          <span className="flex items-center gap-2.5">
+            <span className={`p-1.5 rounded-lg ring-1 ${lowStock.length > 0 ? 'bg-red-50 text-red-700 ring-red-100' : 'bg-green-50 text-green-700 ring-green-100'}`}>
+              <AlertTriangle size={15} strokeWidth={2.2} />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-gray-800">
+                Low Stock Products
+                <span className="ml-2 text-xs font-normal text-gray-500 tnum">({lowStock.length})</span>
+              </span>
+              <span className="block text-[11px] text-gray-500 mt-0.5">Items at or below their minimum stock level</span>
+            </span>
+          </span>
           <ChevronDown
             size={18}
-            className={`text-gray-400 transition-transform ${lowStockCollapsed ? '' : 'rotate-180'}`}
+            className={`text-gray-400 transition-transform flex-shrink-0 ${lowStockCollapsed ? '' : 'rotate-180'}`}
           />
         </button>
         {!lowStockCollapsed && (
@@ -1028,28 +1111,16 @@ function LogisticsDashboard() {
       </div>
 
       <Card>
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-yellow-50 text-yellow-700 ring-1 ring-yellow-100">
-              <ClipboardList size={15} />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-800">
-                Pending Logistics Action
-                <span className="ml-2 text-xs font-normal text-gray-500">({pendingLogistics.length})</span>
-              </h3>
-              <p className="text-[11px] text-gray-500 mt-0.5">Gate passes ready for vehicle assignment and dispatch</p>
-            </div>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>Open Gate Pass</Button>
-        </div>
+        <SectionHeader
+          icon={ClipboardList}
+          tone="yellow"
+          title="Pending Logistics Action"
+          count={pendingLogistics.length}
+          subtitle="Gate passes ready for vehicle assignment and dispatch"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>Open Gate Pass</Button>}
+        />
         {pendingLogistics.length === 0 ? (
-          <div className="text-center py-8">
-            <div className="w-12 h-12 mx-auto rounded-full bg-green-50 ring-1 ring-green-100 flex items-center justify-center mb-2">
-              <CheckCircle size={22} className="text-green-600" />
-            </div>
-            <p className="text-sm text-gray-600">Nothing waiting for logistics right now.</p>
-          </div>
+          <EmptyState icon={CheckCircle} tone="green" title="Nothing waiting for logistics right now." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1093,26 +1164,16 @@ function LogisticsDashboard() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 ring-1 ring-blue-100">
-              <Send size={15} />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-800">
-                In Transit
-                <span className="ml-2 text-xs font-normal text-gray-500">({inTransit.length})</span>
-              </h3>
-              <p className="text-[11px] text-gray-500 mt-0.5">Dispatched and awaiting site acknowledgement</p>
-            </div>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>View All</Button>
-        </div>
+        <SectionHeader
+          icon={Send}
+          tone="blue"
+          title="In Transit"
+          count={inTransit.length}
+          subtitle="Dispatched and awaiting site acknowledgement"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>View All</Button>}
+        />
         {inTransit.length === 0 ? (
-          <div className="text-center py-8">
-            <Send size={32} className="mx-auto text-gray-300 mb-2" />
-            <p className="text-sm text-gray-500">No gate passes in transit.</p>
-          </div>
+          <EmptyState icon={Send} title="No gate passes in transit." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1157,27 +1218,16 @@ function LogisticsDashboard() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-green-50 text-green-700 ring-1 ring-green-100">
-              <Truck size={15} />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-800">
-                Vehicle Fleet
-                <span className="ml-2 text-xs font-normal text-gray-500">({vehicles.length})</span>
-              </h3>
-              <p className="text-[11px] text-gray-500 mt-0.5">Active vehicles and document expiry status</p>
-            </div>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/vehicles')}>Manage Fleet</Button>
-        </div>
+        <SectionHeader
+          icon={Truck}
+          tone="green"
+          title="Vehicle Fleet"
+          count={vehicles.length}
+          subtitle="Active vehicles and document expiry status"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/vehicles')}>Manage Fleet</Button>}
+        />
         {vehicles.length === 0 ? (
-          <div className="text-center py-8">
-            <Truck size={32} className="mx-auto text-gray-300 mb-2" />
-            <p className="text-sm text-gray-600 font-medium">No vehicles registered yet</p>
-            <p className="text-xs text-gray-400 mt-1">Add your first vehicle from the Vehicles page.</p>
-          </div>
+          <EmptyState icon={Truck} title="No vehicles registered yet" hint="Add your first vehicle from the Vehicles page." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1287,15 +1337,16 @@ function PurchaseOfficerDashboard() {
 
       {/* Partially received POs — exact received/ordered counts per item */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700">
-            Partially Received POs
-            <span className="ml-2 text-xs font-normal text-gray-500">({feed.partiallyReceived.length})</span>
-          </h3>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/purchase-orders')}>View All POs</Button>
-        </div>
+        <SectionHeader
+          icon={Truck}
+          tone="amber"
+          title="Partially Received POs"
+          count={feed.partiallyReceived.length}
+          subtitle="Deliveries in progress with pending quantities"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/purchase-orders')}>View All POs</Button>}
+        />
         {feed.partiallyReceived.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">No POs currently in partial-delivery state</div>
+          <EmptyState icon={CheckCircle} tone="green" title="No POs currently in partial-delivery state" />
         ) : (
           <div className="space-y-3">
             {feed.partiallyReceived.map(po => (
@@ -1330,15 +1381,16 @@ function PurchaseOfficerDashboard() {
 
       {/* Awaiting QC inspection */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700">
-            Awaiting QC Inspection
-            <span className="ml-2 text-xs font-normal text-gray-500">({feed.awaitingQc.length})</span>
-          </h3>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/qc-inspections')}>Open QC</Button>
-        </div>
+        <SectionHeader
+          icon={ClipboardCheck}
+          tone="purple"
+          title="Awaiting QC Inspection"
+          count={feed.awaitingQc.length}
+          subtitle="Goods arrived, waiting for inspection clearance"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/qc-inspections')}>Open QC</Button>}
+        />
         {feed.awaitingQc.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">No lots awaiting inspection</div>
+          <EmptyState icon={ClipboardCheck} title="No lots awaiting inspection" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1367,15 +1419,16 @@ function PurchaseOfficerDashboard() {
 
       {/* Pending quotations — approved PRs waiting for the PO to collect quotes */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700">
-            PRs Awaiting Quotations
-            <span className="ml-2 text-xs font-normal text-gray-500">({feed.pendingQuotations.length})</span>
-          </h3>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/quotations')}>Open Quotations</Button>
-        </div>
+        <SectionHeader
+          icon={FileSearch}
+          tone="blue"
+          title="PRs Awaiting Quotations"
+          count={feed.pendingQuotations.length}
+          subtitle="Approved requests that need supplier quotes"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/quotations')}>Open Quotations</Button>}
+        />
         {feed.pendingQuotations.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">No PRs waiting for quotations</div>
+          <EmptyState icon={FileSearch} title="No PRs waiting for quotations" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1406,15 +1459,16 @@ function PurchaseOfficerDashboard() {
 
       {/* Overdue POs — past the earliest PR required-by date */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700">
-            Overdue POs
-            <span className="ml-2 text-xs font-normal text-red-600">({feed.overdue.length})</span>
-          </h3>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/purchase-orders')}>View All POs</Button>
-        </div>
+        <SectionHeader
+          icon={AlertTriangle}
+          tone={feed.overdue.length > 0 ? 'red' : 'green'}
+          title="Overdue POs"
+          count={feed.overdue.length}
+          subtitle="Past the earliest required-by date"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/purchase-orders')}>View All POs</Button>}
+        />
         {feed.overdue.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">No overdue POs ✓</div>
+          <EmptyState icon={CheckCircle} tone="green" title="No overdue POs" hint="Everything is on schedule." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1522,16 +1576,17 @@ function AccountingDashboard() {
 
       {/* Approved Payments — accounting acts here */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700">
-            Approved Payments — Ready to Process
-            <span className="ml-2 text-xs font-normal text-gray-500">({actionablePayments.length})</span>
-          </h3>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/payment-requests')}>View All</Button>
-        </div>
+        <SectionHeader
+          icon={CreditCard}
+          tone={actionablePayments.length > 0 ? 'red' : 'green'}
+          title="Approved Payments — Ready to Process"
+          count={actionablePayments.length}
+          subtitle="Admin-approved supplier payments waiting on you"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/payment-requests')}>View All</Button>}
+        />
 
         {actionablePayments.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">All approved payments processed ✓</div>
+          <EmptyState icon={CheckCircle} tone="green" title="All approved payments processed" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1568,10 +1623,14 @@ function AccountingDashboard() {
 
       {recentPaid.length > 0 && (
         <Card>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-700">Recently Paid</h3>
-            <Button variant="secondary" size="sm" onClick={() => navigate('/payment-requests')}>View All</Button>
-          </div>
+          <SectionHeader
+            icon={CheckCircle}
+            tone="green"
+            title="Recently Paid"
+            count={recentPaid.length}
+            subtitle="Latest processed supplier payments"
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/payment-requests')}>View All</Button>}
+          />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -1694,23 +1753,17 @@ function FinanceDashboard() {
 
       {/* Delivery acknowledgement SLA — invoices sent, waiting for customer ack */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700">
-              Delivery Acknowledgement SLA
-              <span className="ml-2 text-xs font-normal text-gray-500">({slaFeed.length})</span>
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              48 hours after sending the invoice, the customer must confirm delivery. Breached cycles need a reminder call.
-            </p>
-          </div>
-          {slaDueSoon > 0 && (
-            <Badge color="amber">{slaDueSoon} due within 12h</Badge>
-          )}
-        </div>
+        <SectionHeader
+          icon={Send}
+          tone={slaBreached > 0 ? 'red' : 'blue'}
+          title="Delivery Acknowledgement SLA"
+          count={slaFeed.length}
+          subtitle="48h after the invoice is sent, the customer must confirm delivery — breached cycles need a reminder call"
+          actions={slaDueSoon > 0 ? <Badge color="amber">{slaDueSoon} due within 12h</Badge> : null}
+        />
 
         {slaFeed.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">No invoices waiting on delivery ack ✓</div>
+          <EmptyState icon={CheckCircle} tone="green" title="No invoices waiting on delivery ack" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1758,23 +1811,17 @@ function FinanceDashboard() {
 
       {/* 45-day customer payment window */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700">
-              45-Day Payment Window
-              <span className="ml-2 text-xs font-normal text-gray-500">({paymentFeed.length})</span>
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Delivery has been acknowledged. Run weekly customer follow-ups until payment lands.
-            </p>
-          </div>
-          {followupDueNow > 0 && (
-            <Badge color="amber">{followupDueNow} weekly follow-up{followupDueNow === 1 ? '' : 's'} due</Badge>
-          )}
-        </div>
+        <SectionHeader
+          icon={IndianRupee}
+          tone={paymentDelayed > 0 ? 'red' : 'yellow'}
+          title="45-Day Payment Window"
+          count={paymentFeed.length}
+          subtitle="Delivery acknowledged — run weekly customer follow-ups until payment lands"
+          actions={followupDueNow > 0 ? <Badge color="amber">{followupDueNow} weekly follow-up{followupDueNow === 1 ? '' : 's'} due</Badge> : null}
+        />
 
         {paymentFeed.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">No cycles in the payment window ✓</div>
+          <EmptyState icon={CheckCircle} tone="green" title="No cycles in the payment window" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1950,27 +1997,20 @@ function HRDashboard() {
 
       {/* Active plan snapshot */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700">
-              Active Training Plan
-              {activePlan && (
-                <span className="ml-2 text-xs font-normal text-gray-500">
-                  · {activePlan.fiscalYear} · {activePlan.title}
-                </span>
-              )}
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Item status across the current fiscal year plan.
-            </p>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/hr/training-plan')}>Open Plan</Button>
-        </div>
+        <SectionHeader
+          icon={GraduationCap}
+          tone="blue"
+          title="Active Training Plan"
+          subtitle={activePlan
+            ? `${activePlan.fiscalYear} · ${activePlan.title} — item status across the plan`
+            : 'Item status across the current fiscal year plan'}
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/hr/training-plan')}>Open Plan</Button>}
+        />
 
         {!activePlan ? (
-          <div className="text-center py-6 text-gray-400">No active training plan yet. Create one to get started.</div>
+          <EmptyState icon={GraduationCap} title="No active training plan yet" hint="Create one to get started." />
         ) : planItems.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">No items added to this plan yet.</div>
+          <EmptyState icon={GraduationCap} title="No items added to this plan yet" />
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
@@ -2027,21 +2067,17 @@ function HRDashboard() {
 
       {/* Recent training sessions */}
       <Card>
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700">Recent Training Sessions</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              The latest sessions delivered, with attendance counts.
-            </p>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/hr/training-records')}>View All</Button>
-        </div>
+        <SectionHeader
+          icon={BookOpen}
+          tone="navy"
+          title="Recent Training Sessions"
+          count={recentSessions.length}
+          subtitle="The latest sessions delivered, with attendance counts"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/hr/training-records')}>View All</Button>}
+        />
 
         {recentSessions.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
-            <BookOpen size={36} className="mx-auto mb-2 opacity-50" />
-            <p className="text-gray-500">No training sessions logged yet</p>
-          </div>
+          <EmptyState icon={BookOpen} title="No training sessions logged yet" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -2135,7 +2171,14 @@ function QCDashboard() {
       {/* Pending Orders Awaiting Inspection */}
       {pendingOrders.length > 0 && (
         <Card>
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Orders Awaiting Inspection</h3>
+          <SectionHeader
+            icon={AlertTriangle}
+            tone="amber"
+            title="Orders Awaiting Inspection"
+            count={pendingOrders.length}
+            subtitle="Goods arrived — inspection lot not yet opened"
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/qc-inspections')}>Open QC</Button>}
+          />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -2165,15 +2208,16 @@ function QCDashboard() {
 
       {/* Recent Inspections */}
       <Card>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-700">Recent Inspections</h3>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/qc-inspections')}>View All</Button>
-        </div>
+        <SectionHeader
+          icon={ClipboardCheck}
+          tone="navy"
+          title="Recent Inspections"
+          count={inspections.length}
+          subtitle="Latest inspection lots and outcomes"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/qc-inspections')}>View All</Button>}
+        />
         {inspections.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
-            <ClipboardCheck size={40} className="mx-auto mb-3 opacity-50" />
-            <p className="text-gray-500">No inspections yet</p>
-          </div>
+          <EmptyState icon={ClipboardCheck} title="No inspections yet" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -2294,14 +2338,16 @@ function MetrologyDashboard() {
       </div>
 
       <Card>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-            <AlertTriangle size={14} className="text-red-600" /> Overdue Calibrations
-          </h3>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/metrology')}>All Registers</Button>
-        </div>
+        <SectionHeader
+          icon={AlertTriangle}
+          tone={overdue.length > 0 ? 'red' : 'green'}
+          title="Overdue Calibrations"
+          count={overdue.length}
+          subtitle="Instruments past their calibration due date"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/metrology')}>All Registers</Button>}
+        />
         {overdue.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">No overdue instruments — everything is current.</div>
+          <EmptyState icon={CheckCircle} tone="green" title="No overdue instruments" hint="Everything is current." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -2336,13 +2382,15 @@ function MetrologyDashboard() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-            <Clock size={14} className="text-amber-600" /> Due in Next 30 Days
-          </h3>
-        </div>
+        <SectionHeader
+          icon={Clock}
+          tone="amber"
+          title="Due in Next 30 Days"
+          count={dueSoon.length}
+          subtitle="Upcoming calibrations to schedule"
+        />
         {dueSoon.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">No upcoming calibrations in the next 30 days.</div>
+          <EmptyState icon={Clock} title="No upcoming calibrations in the next 30 days." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -2377,9 +2425,12 @@ function MetrologyDashboard() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-700">Registers by Category</h3>
-        </div>
+        <SectionHeader
+          icon={Ruler}
+          tone="navy"
+          title="Registers by Category"
+          subtitle="Calibration health per instrument register"
+        />
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {perCategory.map((c) => (
             <button
@@ -2536,13 +2587,20 @@ function SupplyChainDashboard() {
         <StatsCard title="Overdue" value={overdue} icon={AlertTriangle} color={overdue > 0 ? 'red' : 'green'} onClick={() => navigate('/work-orders')} />
       </div>
 
+      {/* PDC delivery-commitment warnings — supply chain owns PDC and extensions */}
+      <PdcStatusBoard />
+
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700">Recent Work Orders <span className="ml-2 text-xs font-normal text-gray-500">({workOrders.length})</span></h3>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/work-orders')}>View All</Button>
-        </div>
+        <SectionHeader
+          icon={ClipboardList}
+          tone="navy"
+          title="Recent Work Orders"
+          count={workOrders.length}
+          subtitle="Delivery progress against each PDC"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/work-orders')}>View All</Button>}
+        />
         {workOrders.length === 0 ? (
-          <div className="text-center py-6 text-gray-400">No work orders yet</div>
+          <EmptyState icon={ClipboardList} title="No work orders yet" />
         ) : (
           <div className="space-y-2">
             {workOrders.slice(0, 8).map((w) => {
@@ -2687,26 +2745,16 @@ function SiteOfficeDashboard() {
       </div>
 
       <Card>
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-red-50 text-red-700 ring-1 ring-red-100">
-              <Inbox size={15} />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-800">Awaiting My Acknowledgement</h3>
-              <p className="text-[11px] text-gray-500 mt-0.5">Dispatched gate passes that need your sign-off</p>
-            </div>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>Open Gate Pass</Button>
-        </div>
+        <SectionHeader
+          icon={Inbox}
+          tone={inTransit.length > 0 ? 'red' : 'green'}
+          title="Awaiting My Acknowledgement"
+          count={inTransit.length}
+          subtitle="Dispatched gate passes that need your sign-off"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>Open Gate Pass</Button>}
+        />
         {inTransit.length === 0 ? (
-          <div className="text-center py-10">
-            <div className="w-14 h-14 mx-auto rounded-full bg-green-50 ring-1 ring-green-100 flex items-center justify-center mb-3">
-              <CheckCircle size={26} className="text-green-600" />
-            </div>
-            <p className="text-sm font-medium text-gray-700">All caught up!</p>
-            <p className="text-xs text-gray-500 mt-1">No incoming gate passes need acknowledgement right now.</p>
-          </div>
+          <EmptyState icon={CheckCircle} tone="green" title="All caught up!" hint="No incoming gate passes need acknowledgement right now." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -2758,23 +2806,16 @@ function SiteOfficeDashboard() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-green-50 text-green-700 ring-1 ring-green-100">
-              <History size={15} />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-800">Recently Acknowledged</h3>
-              <p className="text-[11px] text-gray-500 mt-0.5">Your last 10 confirmations</p>
-            </div>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>View All</Button>
-        </div>
+        <SectionHeader
+          icon={History}
+          tone="green"
+          title="Recently Acknowledged"
+          count={recentlyClosed.length}
+          subtitle="Your last 10 confirmations"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/gate-pass')}>View All</Button>}
+        />
         {recentlyClosed.length === 0 ? (
-          <div className="text-center py-8">
-            <Clock size={32} className="mx-auto text-gray-300 mb-2" />
-            <p className="text-sm text-gray-500">No closed gate passes yet.</p>
-          </div>
+          <EmptyState icon={Clock} title="No closed gate passes yet." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -2921,18 +2962,13 @@ function SafetyDashboard() {
 
       {/* Quick-access oversight tiles */}
       <Card>
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100">
-              <Eye size={15} />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-800">Workflow Oversight</h3>
-              <p className="text-[11px] text-gray-500 mt-0.5">Jump into any workflow for read-only inspection</p>
-            </div>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/safety')}>Full Monitor</Button>
-        </div>
+        <SectionHeader
+          icon={Eye}
+          tone="indigo"
+          title="Workflow Oversight"
+          subtitle="Jump into any workflow for read-only inspection"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/safety')}>Full Monitor</Button>}
+        />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {oversightTiles.map((tile) => {
             const Icon = tile.icon;
@@ -2955,28 +2991,16 @@ function SafetyDashboard() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-yellow-50 text-yellow-700 ring-1 ring-yellow-100">
-              <ClipboardList size={15} />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-800">
-                Pending MIV Requests
-                <span className="ml-2 text-xs font-normal text-gray-500">({mivPending.length})</span>
-              </h3>
-              <p className="text-[11px] text-gray-500 mt-0.5">Material issue requests awaiting store clearance</p>
-            </div>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/all-requests')}>View All</Button>
-        </div>
+        <SectionHeader
+          icon={ClipboardList}
+          tone="yellow"
+          title="Pending MIV Requests"
+          count={mivPending.length}
+          subtitle="Material issue requests awaiting store clearance"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/all-requests')}>View All</Button>}
+        />
         {mivPending.length === 0 ? (
-          <div className="text-center py-8">
-            <div className="w-12 h-12 mx-auto rounded-full bg-green-50 ring-1 ring-green-100 flex items-center justify-center mb-2">
-              <CheckCircle size={22} className="text-green-600" />
-            </div>
-            <p className="text-sm text-gray-600">No pending MIV requests.</p>
-          </div>
+          <EmptyState icon={CheckCircle} tone="green" title="No pending MIV requests." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -3006,28 +3030,16 @@ function SafetyDashboard() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 ring-1 ring-blue-100">
-              <Activity size={15} />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-800">
-                Open Work Orders
-                <span className="ml-2 text-xs font-normal text-gray-500">({openWorkOrders.length})</span>
-              </h3>
-              <p className="text-[11px] text-gray-500 mt-0.5">Active supply-chain orders with PDC tracking</p>
-            </div>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/work-orders')}>View All</Button>
-        </div>
+        <SectionHeader
+          icon={Activity}
+          tone="blue"
+          title="Open Work Orders"
+          count={openWorkOrders.length}
+          subtitle="Active supply-chain orders with PDC tracking"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/work-orders')}>View All</Button>}
+        />
         {openWorkOrders.length === 0 ? (
-          <div className="text-center py-8">
-            <div className="w-12 h-12 mx-auto rounded-full bg-gray-50 ring-1 ring-gray-100 flex items-center justify-center mb-2">
-              <Activity size={22} className="text-gray-400" />
-            </div>
-            <p className="text-sm text-gray-600">No open work orders.</p>
-          </div>
+          <EmptyState icon={Activity} title="No open work orders." />
         ) : (
           <div className="space-y-2">
             {openWorkOrders.slice(0, 8).map((w) => {
@@ -3081,18 +3093,14 @@ function SafetyDashboard() {
 
       {criticalLowStock > 0 && (
         <Card>
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-red-50 text-red-700 ring-1 ring-red-100">
-                <AlertTriangle size={15} />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-gray-800">Critical Stock Alerts</h3>
-                <p className="text-[11px] text-gray-500 mt-0.5">Products at zero or critical stock level</p>
-              </div>
-            </div>
-            <Button variant="secondary" size="sm" onClick={() => navigate('/monitoring')}>Open Monitoring</Button>
-          </div>
+          <SectionHeader
+            icon={AlertTriangle}
+            tone="red"
+            title="Critical Stock Alerts"
+            count={criticalLowStock}
+            subtitle="Products at zero or critical stock level"
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/monitoring')}>Open Monitoring</Button>}
+          />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
