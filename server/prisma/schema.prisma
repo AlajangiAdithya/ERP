@@ -2560,6 +2560,10 @@ model MaterialInwardRegister {
   issuedToDept   String?
   issuedToLabel  String?
 
+  // Sequential lot number per PO (Lot 1, 2, 3 … N). Each partial receipt against
+  // the same PO is its own lot; null for direct/cash entries with no PO.
+  lotNo        Int?
+
   purpose      String?
   batchNo      String?
   dateOfExpiry DateTime?
@@ -2571,6 +2575,10 @@ model MaterialInwardRegister {
   qcRequestedById  String?
   qcRequestNote    String?
   qcDocRequirement String? // COA / COC / Test report / etc.
+  // The inward-inspection request form Stores reviews before sending to QC:
+  // packing condition on receipt, documents enclosed checklist, stores remark.
+  // Auto-filled header fields come from the row itself; this holds the extras.
+  qcRequest        Json?
 
   // QC review — filled by QC.
   qcReviewerId      String?

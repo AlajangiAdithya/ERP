@@ -162,7 +162,15 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
           request: { select: { requestNumber: true, unit: { select: { name: true, code: true } } } },
         },
       }) : [],
-      poIds.size ? prisma.purchaseOrder.findMany({ where: { id: { in: [...poIds] } }, select: { id: true, orderNumber: true } }) : [],
+      poIds.size ? prisma.purchaseOrder.findMany({
+        where: { id: { in: [...poIds] } },
+        select: {
+          id: true, orderNumber: true, poDocumentUrl: true,
+          supplier: { select: { name: true, supplierAssessmentPdfUrl: true, vendorEvaluationPdfUrl: true } },
+          purchaseRequest: { select: { id: true, requestNumber: true, materialSpecsPdfUrl: true, items: { select: { specAttachmentUrl: true, specAttachmentName: true, productName: true } } } },
+          sourceRequests: { select: { purchaseRequest: { select: { id: true, requestNumber: true, materialSpecsPdfUrl: true, items: { select: { specAttachmentUrl: true, specAttachmentName: true, productName: true } } } } } },
+        },
+      }) : [],
       poItemIds.size ? prisma.purchaseOrderItem.findMany({ where: { id: { in: [...poItemIds] } }, select: { id: true, quantity: true } }) : [],
     ]);
 
@@ -171,6 +179,30 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
     const poMap = Object.fromEntries(pos.map((p) => [p.id, p]));
     const poItemMap = Object.fromEntries(poItems.map((it) => [it.id, it]));
+
+    // Reference documents QC views alongside the invoice: the signed PO PDF,
+    // the supplier's assessment / vendor-evaluation forms, and each source PR's
+    // material-spec PDFs. The T&C annexure is a static client asset (added there).
+    const refDocsMap = {};
+    pos.forEach((po) => {
+      const docs = [];
+      if (po.poDocumentUrl) docs.push({ label: 'Purchase Order (PO) PDF', url: po.poDocumentUrl });
+      if (po.supplier?.supplierAssessmentPdfUrl) docs.push({ label: 'Supplier Assessment Form', url: po.supplier.supplierAssessmentPdfUrl });
+      if (po.supplier?.vendorEvaluationPdfUrl) docs.push({ label: 'Vendor Evaluation Form', url: po.supplier.vendorEvaluationPdfUrl });
+      const prs = [];
+      const seen = new Set();
+      if (po.purchaseRequest) prs.push(po.purchaseRequest);
+      (po.sourceRequests || []).forEach((s) => { if (s.purchaseRequest) prs.push(s.purchaseRequest); });
+      prs.forEach((pr) => {
+        if (!pr || seen.has(pr.id)) return;
+        seen.add(pr.id);
+        if (pr.materialSpecsPdfUrl) docs.push({ label: `PR ${pr.requestNumber} — Material Specs`, url: pr.materialSpecsPdfUrl });
+        (pr.items || []).forEach((it) => {
+          if (it.specAttachmentUrl) docs.push({ label: `PR ${pr.requestNumber} — Spec: ${it.specAttachmentName || it.productName || 'attachment'}`, url: it.specAttachmentUrl });
+        });
+      });
+      refDocsMap[po.id] = docs;
+    });
     // batchNo -> [{ mivNo, qty, unit }]
     const mivMap = {};
     mivItems.forEach((mi) => {
@@ -193,6 +225,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       poNumber: r.purchaseOrderId ? (poMap[r.purchaseOrderId]?.orderNumber || null) : null,
       orderedQty: r.purchaseOrderItemId ? (poItemMap[r.purchaseOrderItemId]?.quantity ?? null) : null,
       mivs: r.batchNo ? (mivMap[r.batchNo] || []) : [],
+      refDocs: r.purchaseOrderId ? (refDocsMap[r.purchaseOrderId] || []) : [],
     }));
 
     res.json({ rows: decorated, total });
@@ -250,6 +283,13 @@ router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
     }
 
     if (!data.itemDescription) return res.status(400).json({ error: 'Item description is required' });
+
+    // Lot number — sequential per PO (Lot 1, 2, 3 … N). Each partial receipt
+    // against the same PO gets the next lot. Direct/cash entries have no lot.
+    if (data.purchaseOrderId) {
+      const lotCount = await prisma.materialInwardRegister.count({ where: { purchaseOrderId: data.purchaseOrderId } });
+      data.lotNo = lotCount + 1;
+    }
 
     const row = await withDocRetry(async () => {
       const mirNo = await generateSequentialNumber(prisma, 'MIR');
@@ -353,6 +393,19 @@ router.post('/:id/request-qc', authenticate, authorize(...WRITE_ROLES), async (r
     if (!['DRAFT', 'QC_REQUESTED'].includes(row.status)) {
       return res.status(400).json({ error: 'QC has already been taken up for this entry' });
     }
+
+    // Whitelist the inward-inspection request form Stores reviews/fills. Header
+    // fields stay on the row; this captures the receipt condition + checklist.
+    const rq = req.body?.qcRequest || {};
+    const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const qcRequest = {
+      packingCondition: str(rq.packingCondition),
+      packingNotes: str(rq.packingNotes),
+      documentsEnclosed: Array.isArray(rq.documentsEnclosed) ? rq.documentsEnclosed.filter((x) => typeof x === 'string').slice(0, 20) : [],
+      storesRemark: str(rq.storesRemark),
+      requestedAt: new Date().toISOString(),
+    };
+
     const updated = await prisma.materialInwardRegister.update({
       where: { id: row.id },
       data: {
@@ -361,6 +414,7 @@ router.post('/:id/request-qc', authenticate, authorize(...WRITE_ROLES), async (r
         qcRequestedById: req.user.id,
         qcRequestNote: req.body?.qcRequestNote?.trim() || null,
         qcDocRequirement: req.body?.qcDocRequirement?.trim() || null,
+        qcRequest,
       },
     });
     await prisma.notification.create({

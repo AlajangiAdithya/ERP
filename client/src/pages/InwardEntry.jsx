@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Package, Plus, Truck, FlaskConical, ClipboardCheck, CheckCircle2,
   Search, Filter, X, Pencil, Trash2, ArrowDownToLine, Building2,
-  Paperclip, Upload, Eye, FileText,
+  Paperclip, Upload, Eye, FileText, FileSearch, ExternalLink,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -13,10 +13,28 @@ import Modal from '../components/ui/Modal';
 import PageHero from '../components/shared/PageHero';
 import { formatDate } from '../utils/formatters';
 import { checkFileSize } from '../utils/fileGuard';
+import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import InwardInspectionReportPdf from '../components/pdf/InwardInspectionReportPdf';
 
 // Uploaded docs are served from the API origin (strip the trailing /api).
 const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
 const fileUrl = (u) => (u && u.startsWith('http') ? u : `${API_ORIGIN}${u || ''}`);
+
+// PO terms & conditions annexure — a static client asset, the same one merged
+// into PO PDFs. Surfaced to QC alongside the PO/PR/supplier reference docs.
+const TNC_DOC = { label: 'PO Terms & Conditions Annexure', url: `${window.location.origin}/po-terms-and-conditions.pdf` };
+
+// Reference documents QC views: server-supplied refDocs (PO/PR/supplier) plus
+// the static T&C annexure (only when the row came from a PO).
+const refDocsFor = (row) => {
+  const list = Array.isArray(row.refDocs) ? [...row.refDocs] : [];
+  if (row.poNumber) list.push(TNC_DOC);
+  return list;
+};
+
+// What Stores ticks as "documents enclosed" on the inspection-request form.
+const DOCS_ENCLOSED = ['Invoice', 'Delivery Challan', 'Test Certificate', 'COC', 'COA', 'Mill TC', 'Packing List', 'Other'];
+const PACKING_CONDITIONS = ['Sealed', 'Opened', 'Damaged', 'Broken'];
 
 // Stores owns the register; QC reviews each lot inline. Everyone else is read-only.
 const WRITE_ROLES = ['ADMIN', 'STORE_MANAGER'];
@@ -59,6 +77,7 @@ export default function InwardEntry() {
   const [inwardFor, setInwardFor] = useState(null);    // row -> final inward
   const [editFor, setEditFor] = useState(null);
   const [docsFor, setDocsFor] = useState(null);        // row -> manage / view documents
+  const [reportFor, setReportFor] = useState(null);    // row -> view filled IIR report
   const [busyId, setBusyId] = useState(null);
 
   const load = () => {
@@ -180,6 +199,7 @@ export default function InwardEntry() {
           onEdit={setEditFor}
           onDelete={del}
           onDocs={setDocsFor}
+          onViewReport={setReportFor}
         />
       )}
 
@@ -201,6 +221,9 @@ export default function InwardEntry() {
       {docsFor && (
         <DocsModal row={docsFor} canWrite={canWrite} onClose={() => setDocsFor(null)} onChanged={load} />
       )}
+      {reportFor && (
+        <ReportViewModal row={reportFor} onClose={() => setReportFor(null)} />
+      )}
     </div>
   );
 }
@@ -208,7 +231,7 @@ export default function InwardEntry() {
 // ────────────────────────────────────────────────────────────────────
 // The Excel-style register sheet (horizontal scroll, sticky header + MIR col)
 // ────────────────────────────────────────────────────────────────────
-function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs }) {
+function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs, onViewReport }) {
   return (
     <Card className="!p-0 overflow-hidden">
       <div className="overflow-x-auto">
@@ -248,7 +271,12 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                 <tr key={r.id} className={`group ${zebra} hover:bg-navy-50 transition-colors`}>
                   <Td sticky className={`border-l-4 ${accent}`}>
                     <div className="font-mono text-[11px] font-semibold text-navy-800">{r.mirNo}</div>
-                    <div className="mt-1"><Pill tone={meta.tone}>{meta.label}</Pill></div>
+                    <div className="mt-1 flex items-center gap-1">
+                      <Pill tone={meta.tone}>{meta.label}</Pill>
+                      {r.lotNo != null && (
+                        <span className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">Lot {r.lotNo}</span>
+                      )}
+                    </div>
                   </Td>
                   <Td>{formatDate(r.inwardDate)}</Td>
                   <Td nowrap={false} className="max-w-[120px]">{r.vehicleDetails || <Dash />}</Td>
@@ -298,6 +326,11 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                       <div className="text-[10px] text-gray-600 mt-0.5 line-clamp-2" title={r.qcReportRemark}>“{r.qcReportRemark}”</div>
                     )}
                     {r.qcReviewer && <div className="text-[10px] text-gray-400 mt-0.5">by {r.qcReviewer.name}</div>}
+                    {(r.status === 'QC_DONE' || r.status === 'INWARDED') && r.qcResult && (
+                      <button onClick={() => onViewReport(r)} className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-navy-600 hover:text-navy-800">
+                        <FileSearch size={11} /> View report
+                      </button>
+                    )}
                   </Td>
                   {/* MIV numbers (auto) */}
                   <Td nowrap={false} className="max-w-[160px]">
@@ -618,16 +651,50 @@ function DocList({ docs, canWrite, onRemove }) {
   );
 }
 
-// ── Request QC — Stores attaches invoice + material reports and sends them ──
+// Reference documents (PO / PR / supplier assessment / T&C) — view-only links
+// that open in a new tab. Surfaced to Stores on request + to QC on review.
+function RefDocsList({ docs }) {
+  if (!docs.length) return <p className="text-xs text-gray-400">No reference documents available.</p>;
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+      {docs.map((d, i) => (
+        <a key={i} href={fileUrl(d.url)} target="_blank" rel="noreferrer"
+          className="inline-flex items-center gap-1.5 px-2 py-1.5 bg-navy-50 border border-navy-100 rounded-md text-xs text-navy-700 hover:bg-navy-100 min-w-0">
+          <ExternalLink size={13} className="flex-shrink-0" />
+          <span className="truncate">{d.label}</span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+// Compact read-only label/value used in the auto-filled request/review headers.
+function ReadKV({ label, value, span = false }) {
+  return (
+    <div className={span ? 'col-span-2 sm:col-span-4' : ''}>
+      <span className="text-gray-500">{label}:</span> <span className="font-medium text-navy-800">{value || '—'}</span>
+    </div>
+  );
+}
+
+// ── Request QC — Stores reviews the auto-filled inspection request, ticks the
+// receipt condition + enclosed documents, attaches the invoice, and sends it ──
 const DOC_TYPE_CHECKS = ['Test Report', 'COC', 'COA', '3rd Party / Customer Clearance'];
 
 function RequestQcModal({ row, onClose, onDone }) {
+  const rq = row.qcRequest || {};
   const [docRequirement, setDocRequirement] = useState(row.qcDocRequirement || '');
-  const [note, setNote] = useState(row.qcRequestNote || '');
+  const [note, setNote] = useState(row.qcRequestNote || rq.storesRemark || '');
+  const [packingCondition, setPackingCondition] = useState(rq.packingCondition || 'Sealed');
+  const [packingNotes, setPackingNotes] = useState(rq.packingNotes || '');
+  const [docsEnclosed, setDocsEnclosed] = useState(Array.isArray(rq.documentsEnclosed) ? rq.documentsEnclosed : []);
   const [invoice, setInvoice] = useState(null);
   const [reports, setReports] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const toggleEnclosed = (d) => setDocsEnclosed((p) => (p.includes(d) ? p.filter((x) => x !== d) : [...p, d]));
+  const refDocs = refDocsFor(row);
 
   const submit = async () => {
     setSaving(true); setError('');
@@ -643,48 +710,103 @@ function RequestQcModal({ row, onClose, onDone }) {
         fd.append('labels', JSON.stringify(labels));
         await api.post(`/material-inward/${row.id}/documents`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
-      // 2) Send the QC request.
-      await api.post(`/material-inward/${row.id}/request-qc`, { qcDocRequirement: docRequirement, qcRequestNote: note });
+      // 2) Send the QC request with the inspection-request snapshot.
+      await api.post(`/material-inward/${row.id}/request-qc`, {
+        qcDocRequirement: docRequirement,
+        qcRequestNote: note,
+        qcRequest: { packingCondition, packingNotes, documentsEnclosed: docsEnclosed, storesRemark: note },
+      });
       onDone();
     } catch (err) { setError(err.response?.data?.error || 'Failed'); setSaving(false); }
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={`Request QC — ${row.mirNo}`} size="md">
-      <div className="space-y-3">
+    <Modal isOpen onClose={onClose} title={`Inward Inspection Request — ${row.mirNo}`} size="xl">
+      <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
-        <p className="text-xs text-gray-500">{row.itemDescription} · {fmtQty(row.qtyReceived)} {row.uom || ''}{row.batchNo ? ` · Batch ${row.batchNo}` : ''}</p>
 
-        {row.documents?.length > 0 && (
-          <div>
-            <p className="text-[11px] font-semibold text-navy-600 mb-1">Already attached</p>
-            <DocList docs={row.documents} />
+        {/* Auto-filled from the register row — Stores just reviews this */}
+        <FormBlock title="Receipt details (auto-filled)">
+          <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <ReadKV label="MIR No." value={row.mirNo} />
+            <ReadKV label="Date" value={formatDate(row.inwardDate)} />
+            <ReadKV label="PO" value={row.poNumber || 'Direct / Cash'} />
+            <ReadKV label="PR" value={row.prNumbers} />
+            <ReadKV label="Supplier" value={row.supplierName} />
+            <ReadKV label="Issued to" value={row.issuedToLabel || row.issuedToDept} />
+            <ReadKV label="Lot" value={row.lotNo != null ? `Lot ${row.lotNo}` : '—'} />
+            <ReadKV label="Document" value={`${docLabel(row.docType)}${row.docNumber ? ` · ${row.docNumber}` : ''}`} />
+            <ReadKV label="Item" value={row.itemDescription} span />
+            <ReadKV label="Qty received" value={`${fmtQty(row.qtyReceived)} ${row.uom || ''}`} />
+            <ReadKV label="Batch" value={row.batchNo} />
+            <ReadKV label="Expiry" value={row.dateOfExpiry ? formatDate(row.dateOfExpiry) : '—'} />
+            <ReadKV label="Vehicle" value={row.vehicleDetails} />
           </div>
+        </FormBlock>
+
+        {/* Reference docs QC will view (PO / PR / supplier assessment / T&C) */}
+        {refDocs.length > 0 && (
+          <FormBlock title="Reference documents (QC will view these)">
+            <RefDocsList docs={refDocs} />
+          </FormBlock>
         )}
 
-        <div>
-          <label className="block text-[13px] font-semibold text-navy-700 mb-1">Invoice (PDF)</label>
-          <input type="file" accept="application/pdf"
-            onChange={(e) => { const f = e.target.files?.[0] || null; if (f && !checkFileSize(f)) { e.target.value = ''; return; } setInvoice(f); }}
-            className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800" />
-          {invoice && <p className="text-[11px] text-gray-500 mt-1 truncate">{invoice.name}</p>}
-        </div>
-        <div>
-          <label className="block text-[13px] font-semibold text-navy-700 mb-1">Material reports (if any) — PDF / image</label>
-          <input type="file" multiple accept="application/pdf,image/png,image/jpeg"
-            onChange={(e) => setReports(Array.from(e.target.files || []).filter((f) => checkFileSize(f)))}
-            className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800" />
-          {reports.length > 0 && <p className="text-[11px] text-gray-500 mt-1">{reports.length} file(s) selected</p>}
-        </div>
+        {/* Condition on receipt + enclosed documents — Stores fills these */}
+        <FormBlock title="Condition on receipt">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Select label="Packing condition" value={packingCondition} onChange={(e) => setPackingCondition(e.target.value)}>
+              {PACKING_CONDITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+            </Select>
+            <Input label="Packing / damage notes" value={packingNotes} onChange={(e) => setPackingNotes(e.target.value)} className="sm:col-span-2" />
+          </div>
+          <div>
+            <p className="text-[13px] font-semibold text-navy-700 mb-1">Documents enclosed</p>
+            <div className="flex flex-wrap gap-3">
+              {DOCS_ENCLOSED.map((d) => (
+                <label key={d} className="inline-flex items-center gap-1.5 text-xs text-navy-700">
+                  <input type="checkbox" checked={docsEnclosed.includes(d)} onChange={() => toggleEnclosed(d)} /> {d}
+                </label>
+              ))}
+            </div>
+          </div>
+        </FormBlock>
 
-        <Select label="Documents required (for QC)" value={docRequirement} onChange={(e) => setDocRequirement(e.target.value)}>
-          <option value="">— None / any —</option>
-          <option value="COA">COA</option>
-          <option value="COC">COC</option>
-          <option value="Test Report">Test Report</option>
-          <option value="3rd Party / Customer Clearance">3rd Party / Customer Clearance</option>
-        </Select>
-        <Textarea label="Note to QC" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything QC should know before reviewing…" />
+        {/* Attach the invoice + any material reports */}
+        <FormBlock title="Attachments">
+          {row.documents?.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold text-navy-600 mb-1">Already attached</p>
+              <DocList docs={row.documents} />
+            </div>
+          )}
+          <div>
+            <label className="block text-[13px] font-semibold text-navy-700 mb-1">Invoice (PDF)</label>
+            <input type="file" accept="application/pdf"
+              onChange={(e) => { const f = e.target.files?.[0] || null; if (f && !checkFileSize(f)) { e.target.value = ''; return; } setInvoice(f); }}
+              className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800" />
+            {invoice && <p className="text-[11px] text-gray-500 mt-1 truncate">{invoice.name}</p>}
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold text-navy-700 mb-1">Material reports (if any) — PDF / image</label>
+            <input type="file" multiple accept="application/pdf,image/png,image/jpeg"
+              onChange={(e) => setReports(Array.from(e.target.files || []).filter((f) => checkFileSize(f)))}
+              className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800" />
+            {reports.length > 0 && <p className="text-[11px] text-gray-500 mt-1">{reports.length} file(s) selected</p>}
+          </div>
+        </FormBlock>
+
+        {/* Instructions to QC */}
+        <FormBlock title="Instructions to QC">
+          <Select label="Documents required (for QC to verify)" value={docRequirement} onChange={(e) => setDocRequirement(e.target.value)}>
+            <option value="">— None / any —</option>
+            <option value="COA">COA</option>
+            <option value="COC">COC</option>
+            <option value="Test Report">Test Report</option>
+            <option value="3rd Party / Customer Clearance">3rd Party / Customer Clearance</option>
+          </Select>
+          <Textarea label="Note / remark to QC" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything QC should know before reviewing…" />
+        </FormBlock>
+
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>{saving ? 'Sending…' : 'Send to QC'}</Button>
@@ -768,7 +890,21 @@ function ReviewModal({ row, onClose, onDone }) {
             <DocList docs={row.documents} />
           </div>
         )}
+        {refDocsFor(row).length > 0 && (
+          <div>
+            <p className="text-[11px] font-semibold text-navy-600 mb-1">Reference documents (PO / PR / supplier / T&amp;C)</p>
+            <RefDocsList docs={refDocsFor(row)} />
+          </div>
+        )}
+        {(row.qcRequest?.packingCondition || (row.qcRequest?.documentsEnclosed || []).length > 0) && (
+          <div className="text-[11px] bg-amber-50 border border-amber-100 rounded-md p-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            <ReadKV label="Packing on receipt" value={row.qcRequest.packingCondition} />
+            <ReadKV label="Documents enclosed" value={(row.qcRequest.documentsEnclosed || []).join(', ')} />
+            {row.qcRequest.packingNotes && <ReadKV label="Packing notes" value={row.qcRequest.packingNotes} span />}
+          </div>
+        )}
         {row.qcRequestNote && <p className="text-xs text-gray-600"><span className="text-gray-500">Stores note:</span> {row.qcRequestNote}</p>}
+        {row.qcDocRequirement && <p className="text-xs text-gray-600"><span className="text-gray-500">Docs required:</span> {row.qcDocRequirement}</p>}
 
         {/* Report — pre-filled, editable */}
         <FormBlock title="Inspection report">
@@ -872,6 +1008,99 @@ function InwardConfirmModal({ row, onClose, onDone }) {
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>{saving ? 'Recording…' : 'Confirm Inward'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── View the filled inspection report (read-only, same format) ──
+// Shows the IIR fields QC filled and offers a print-ready PDF that merges the
+// reference PDFs (PO / supplier assessment / T&C / uploaded reports).
+function ReportViewModal({ row, onClose }) {
+  const rep = row.qcReport || {};
+  const refDocs = refDocsFor(row);
+  const pdfAttachments = [
+    ...refDocs.map((d) => fileUrl(d.url)),
+    ...((row.documents || []).map((d) => fileUrl(d.url))),
+  ].filter((u) => /\.pdf(\?|$)/i.test(u));
+
+  return (
+    <Modal isOpen onClose={onClose} title={`Inward Inspection Report — ${row.mirNo}`} size="full">
+      <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <p className="text-sm font-semibold text-navy-800">{row.qcReportNo || row.mirNo}</p>
+            <p className="text-[11px] text-gray-500">
+              Result: <span className={`font-semibold ${row.qcResult === 'FAILED' ? 'text-rose-600' : row.qcResult === 'PARTIAL' ? 'text-amber-600' : 'text-emerald-600'}`}>{row.qcResult || '—'}</span>
+              {row.qcReviewer ? ` · by ${row.qcReviewer.name}` : ''}{row.qcFinishedAt ? ` · ${formatDate(row.qcFinishedAt)}` : ''}
+            </p>
+          </div>
+          <DownloadPdfButton
+            document={<InwardInspectionReportPdf row={row} />}
+            fileName={`IIR-${row.mirNo}.pdf`}
+            label="View / Print PDF"
+            appendPdfs={pdfAttachments}
+          />
+        </div>
+
+        <FormBlock title="Identification">
+          <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <ReadKV label="MIR No." value={row.mirNo} />
+            <ReadKV label="Lot" value={row.lotNo != null ? `Lot ${row.lotNo}` : '—'} />
+            <ReadKV label="Report No." value={row.qcReportNo} />
+            <ReadKV label="Report date" value={rep.reportDate ? formatDate(rep.reportDate) : '—'} />
+            <ReadKV label="PO" value={row.poNumber || 'Direct / Cash'} />
+            <ReadKV label="PR" value={row.prNumbers} />
+            <ReadKV label="Supplier" value={row.supplierName} />
+            <ReadKV label="Issued to" value={row.issuedToLabel || row.issuedToDept} />
+            <ReadKV label="Inspection location" value={rep.inspectionLocation} />
+            <ReadKV label="Ref. no." value={rep.reportReferenceNo} />
+          </div>
+        </FormBlock>
+
+        <FormBlock title="Material & inspection">
+          <div className="text-[11px] bg-gray-50 border border-gray-200 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <ReadKV label="Description" value={rep.materialDescription || row.itemDescription} span />
+            <ReadKV label="Category" value={rep.materialCategory} />
+            <ReadKV label="Batch" value={row.batchNo} />
+            <ReadKV label="Date of mfg." value={rep.dateOfManufacturing ? formatDate(rep.dateOfManufacturing) : '—'} />
+            <ReadKV label="Expiry" value={row.dateOfExpiry ? formatDate(row.dateOfExpiry) : '—'} />
+            <ReadKV label="Packing" value={rep.packingCondition} />
+            <ReadKV label="Packing notes" value={rep.packingDamageNotes} />
+            <ReadKV label="Tapped holes / weld lugs" value={rep.tappedHolesCondition} span />
+            <ReadKV label="Documents verified" value={(rep.documentTypes || []).join(', ')} span />
+          </div>
+        </FormBlock>
+
+        <FormBlock title="Quantity & result">
+          <div className="text-[11px] bg-gray-50 border border-gray-200 rounded-md p-2 grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <ReadKV label="As per PR" value={`${fmtQty(rep.qtyAsPerPR)} ${row.uom || ''}`} />
+            <ReadKV label="Ordered" value={`${fmtQty(rep.qtyOrdered != null ? rep.qtyOrdered : row.orderedQty)} ${row.uom || ''}`} />
+            <ReadKV label="Received" value={`${fmtQty(row.qtyReceived)} ${row.uom || ''}`} />
+            <ReadKV label="Accepted" value={`${fmtQty(row.qtyAccepted)} ${row.uom || ''}`} />
+            <ReadKV label="Rejected" value={`${fmtQty(row.qtyRejected)} ${row.uom || ''}`} />
+          </div>
+          {(row.qcResult === 'FAILED' || row.qcResult === 'PARTIAL') && rep.rejectionReason && (
+            <p className="text-xs text-rose-700"><span className="text-gray-500">Reason for rejection:</span> {rep.rejectionReason}</p>
+          )}
+          {row.qcReportRemark && (
+            <div>
+              <p className="text-[13px] font-semibold text-navy-700 mb-1">Report remark</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap bg-white border border-gray-200 rounded-md p-2">{row.qcReportRemark}</p>
+            </div>
+          )}
+        </FormBlock>
+
+        {(row.documents?.length > 0 || refDocs.length > 0) && (
+          <FormBlock title="Attached & reference documents">
+            {row.documents?.length > 0 && <DocList docs={row.documents} />}
+            {refDocs.length > 0 && <div className="mt-2"><RefDocsList docs={refDocs} /></div>}
+          </FormBlock>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2 border-t">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
         </div>
       </div>
     </Modal>
