@@ -168,7 +168,7 @@ router.get('/:id', authenticate, async (req, res) => {
 // OUTWARD: Manager raises (RAMS/GPR/01) → Store → Accounts → Approved.
 // INWARD: Stores / Manager records customer-supplied FIM. Status starts at
 // PENDING_ACCEPTANCE; items get inwarded into Products via the From-Gatepass flow.
-router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), acceptFimGpPdf, async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'PLANNING'), acceptFimGpPdf, async (req, res) => {
   try {
     const {
       siteName, remarks, items, direction: rawDirection,

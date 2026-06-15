@@ -7,15 +7,20 @@ const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, 
 
 const router = express.Router();
 
-// Roles that can create/manage their own MIV requests (same privileges as MANAGER).
+// Roles whose MIV visibility is scoped to "own only" on the read endpoints.
 // Includes the non-unit owner departments (QC, LAB, SAFETY, DESIGNS,
 // METROLOGY, NDT) so they can issue the stock reserved to their department.
-// PLANNING is intentionally excluded — it is a read-only monitor (sees every
-// MIV across the org) and never raises or issues its own.
+// PLANNING is intentionally excluded here — it keeps org-wide read visibility
+// (sees every MIV), so it never gets scoped down to its own.
 const REQUESTER_ROLES = ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT'];
+// Roles allowed to create/collect/cancel MIVs. PLANNING may raise/issue its own
+// (the per-handler managerId checks keep it to its own) while still monitoring
+// the whole org via the unscoped listing — so it is added here but NOT to
+// REQUESTER_ROLES above.
+const MANAGE_ROLES = [...REQUESTER_ROLES, 'PLANNING'];
 // Unit-bound roles must belong to a unit; everyone else (QC, LAB, SAFETY,
-// DESIGNS …) may file without one — their MIV draws from their department's
-// reserved bucket and the unassigned pool.
+// DESIGNS, PLANNING …) may file without one — their MIV draws from their
+// department's reserved bucket and the unassigned pool.
 const UNIT_BOUND_ROLES = ['MANAGER', 'RND'];
 
 const createRequestSchema = z.object({
@@ -218,7 +223,7 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // POST /api/requests — Requester creates a product request
-router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
+router.post('/', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
   try {
     const data = createRequestSchema.parse(req.body);
 
@@ -675,7 +680,7 @@ router.put('/:id/reject', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
 
 // PUT /api/requests/:id/collect — Requester collects items (full or partial)
 // Body: { items?: [{ id, collectedQty }] }  — defaults to each item's remaining approvedQty
-router.put('/:id/collect', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
+router.put('/:id/collect', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
   try {
     const request = await prisma.productRequest.findUnique({
       where: { id: req.params.id },
@@ -881,7 +886,7 @@ router.put('/:id/collect', authenticate, authorize(...REQUESTER_ROLES), async (r
 });
 
 // PUT /api/requests/:id/kill-remaining — Requester closes a PARTIAL request without collecting more
-router.put('/:id/kill-remaining', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
+router.put('/:id/kill-remaining', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
   try {
     const request = await prisma.productRequest.findUnique({
       where: { id: req.params.id },
@@ -933,7 +938,7 @@ router.put('/:id/kill-remaining', authenticate, authorize(...REQUESTER_ROLES), a
 });
 
 // PUT /api/requests/:id/cancel — Requester cancels own pending request
-router.put('/:id/cancel', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
+router.put('/:id/cancel', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
   try {
     const request = await prisma.productRequest.findUnique({
       where: { id: req.params.id },

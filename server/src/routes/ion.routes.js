@@ -3,6 +3,8 @@
 // Sender:    MANAGER, LAB, METROLOGY, NDT, RND (per access chart).
 // Recipient: LAB / METROLOGY / NDT / RND (role bucket)
 //            OR a specific MANAGER (cross-unit machining flow).
+// Monitor:   PLANNING — read-only oversight; sees every ION but cannot
+//            create one or move its status.
 // Doc: RAMS/ION/00
 // ──────────────────────────────────────────────────────────────
 const express = require('express');
@@ -16,6 +18,10 @@ const router = express.Router();
 const ION_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'];
 const ION_RECIPIENT_ROLES = ['LAB', 'METROLOGY', 'NDT', 'RND'];
 const ION_CREATOR_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'];
+// Read-only monitor roles — can list/view every ION but never create one or
+// transition its status. Used only on the GET routes.
+const ION_MONITOR_ROLES = ['PLANNING'];
+const ION_VIEW_ROLES = [...ION_ROLES, ...ION_MONITOR_ROLES];
 
 const ION_INCLUDE = {
   createdBy:  { select: { id: true, name: true, role: true, unit: { select: { name: true, code: true } } } },
@@ -24,7 +30,7 @@ const ION_INCLUDE = {
 };
 
 // GET /api/ion — list, filtered by role + assignment
-router.get('/', authenticate, authorize(...ION_ROLES), async (req, res) => {
+router.get('/', authenticate, authorize(...ION_VIEW_ROLES), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -49,7 +55,7 @@ router.get('/', authenticate, authorize(...ION_ROLES), async (req, res) => {
         { assignedTo: { is: { role: req.user.role } } },
       ];
     }
-    // SAFETY: monitor — sees all ions, no filter applied.
+    // PLANNING (monitor): no filter applied — sees every ION.
 
     const [ions, total] = await Promise.all([
       prisma.interOfficeNote.findMany({
@@ -74,7 +80,7 @@ router.get('/', authenticate, authorize(...ION_ROLES), async (req, res) => {
 });
 
 // GET /api/ion/:id — single. Sender, assignee, or LAB (for unassigned/lab-assigned) can see it.
-router.get('/:id', authenticate, authorize(...ION_ROLES), async (req, res) => {
+router.get('/:id', authenticate, authorize(...ION_VIEW_ROLES), async (req, res) => {
   try {
     const ion = await prisma.interOfficeNote.findUnique({
       where: { id: req.params.id },
@@ -93,7 +99,7 @@ router.get('/:id', authenticate, authorize(...ION_ROLES), async (req, res) => {
         ion.assignedTo?.role === req.user.role;
       if (!canSee) return res.status(403).json({ error: 'Not your ION' });
     }
-    // SAFETY: read-only monitor, can see everything.
+    // PLANNING (monitor): read-only, can see everything.
 
     res.json(ion);
   } catch (error) {

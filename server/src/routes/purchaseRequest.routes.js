@@ -13,15 +13,20 @@ const { buildCoverageSummary, cancelLeftoverPRItems } = require('../utils/prClos
 const router = express.Router();
 
 // Roles that can create/manage their own purchase requests (same privileges as MANAGER).
-const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+// PLANNING is included: it raises its own PRs in addition to overseeing the
+// whole pipeline (it is deliberately kept OUT of OWN_ONLY_ROLES below so the
+// listing endpoint still shows it every PR).
+const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'];
 // Subset that should only see PRs they themselves raised. STORE_MANAGER is
 // intentionally excluded — they also receive goods against everyone's PRs, so
 // they keep full chain visibility like ADMIN.
 // SAFETY raises its own PRs; like other requester roles it only sees its own
 // (not the whole org's). Add to OWN_ONLY so the listing endpoint scopes correctly.
+// PLANNING is intentionally excluded — it raises its own PRs but retains
+// org-wide read visibility (a monitor that also files).
 const OWN_ONLY_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
-// Monitor-only roles — full read visibility across the chain, no raise/approve.
-// PLANNING oversees the whole PR pipeline but never files its own PRs.
+// Monitor roles — full read visibility across the chain. PLANNING also raises
+// its own PRs (see REQUESTER_ROLES), but its visibility stays org-wide.
 const MONITOR_ROLES = ['PLANNING'];
 // Full chain visibility: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
 // LAB / METROLOGY / NDT included so their own raised PRs are visible to them through the listing endpoints.
@@ -31,7 +36,7 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 // dashboard plus the procurement chain (ADMIN, PURCHASE_OFFICER, ACCOUNTING).
 // Includes QC ("Quality") and the QC-department roles (LAB / METROLOGY / NDT)
 // because Quality acts as a non-unit function here.
-const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'];
 // Sub-roles under the QC department. PRs from these roles go to QC for the
 // first-level approval before flowing on to ADMIN.
 const QC_MANAGED_ROLES = ['LAB', 'METROLOGY', 'NDT'];
@@ -71,7 +76,7 @@ const createSchema = z.object({
 router.post(
   '/upload-spec',
   authenticate,
-  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'SAFETY'),
+  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'SAFETY', 'PLANNING'),
   (req, res) => {
     prSpecsUpload.single('file')(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message || 'Upload failed' });

@@ -162,6 +162,10 @@ const DEPT_BY_ROLE = {
   METROLOGY: 'Metrology',
   NDT: 'NDT',
   SAFETY: 'Safety',
+  // PLANNING is an org-wide overseer that ALSO raises/issues its own material;
+  // its inwarded stock reserves to a dedicated "Planning" bucket, same as the
+  // other non-unit owner departments above.
+  PLANNING: 'Planning',
 };
 
 // Canonical set of department owner labels (the values of DEPT_BY_ROLE).

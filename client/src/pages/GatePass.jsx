@@ -133,7 +133,7 @@ function ReturnDueBadge({ info, compact = false }) {
 
 export default function GatePass() {
   const { user } = useAuth();
-  const canCreate = ['MANAGER', 'ADMIN'].includes(user?.role);
+  const canCreate = ['MANAGER', 'ADMIN', 'PLANNING'].includes(user?.role);
   const [register, setRegister] = useState('OUTWARD');
   const [activeTab, setActiveTab] = useState(DEFAULT_TAB_BY_ROLE[user?.role] || 'PENDING_STORE');
   const [gatePasses, setGatePasses] = useState([]);

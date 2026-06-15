@@ -66,10 +66,10 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 
 // Metrology calibration registers access (per access chart RAPS/QSP):
 // Full edit = METROLOGY, QC, MANAGER@UNIT-V.
-// View + remarks + cert download = ADMIN, MANAGER (all units), LAB, NDT, RND.
+// View + remarks + cert download = ADMIN, MANAGER (all units), LAB, NDT, RND, PLANNING.
 // The route guard allows any potential viewer through; the page itself
 // (and the server's calibration.routes.js) enforces the unit-aware split.
-const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'SUPERADMIN'];
+const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'SUPERADMIN', 'PLANNING'];
 
 // Global ErrorBoundary — catches render-phase errors so a single page bug
 // doesn't white-screen the entire app. Reload restores normal navigation.
@@ -163,9 +163,10 @@ export default function App() {
               } />
 
               {/* MIV requesters — Manager / Lab / QC / R&D / Safety / Designs / Planning / Metrology / NDT.
-                  The non-unit owner depts can issue the stock reserved to their department. */}
+                  The non-unit owner depts can issue the stock reserved to their department.
+                  Planning raises/issues its own while still monitoring all MIVs. */}
               <Route path="/my-requests" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT']}><MyRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT', 'PLANNING']}><MyRequests /></PrivateRoute>
               } />
 
               {/* Store Manager only */}
@@ -232,14 +233,15 @@ export default function App() {
               <Route path="/logistics" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'LOGISTICS']}><Logistics /></PrivateRoute>
               } />
-              {/* Inventory Transfers — unit MANAGERs + owner depts (QC/Designs/Lab/Metrology/NDT/Safety) + LOGISTICS/ADMIN monitor */}
+              {/* Inventory Transfers — unit MANAGERs + owner depts (QC/Designs/Lab/Metrology/NDT/Safety/Planning) + LOGISTICS/ADMIN monitor */}
               <Route path="/inventory-transfers" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LOGISTICS', 'SAFETY', 'ADMIN', 'QC', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT']}><InventoryTransfers /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LOGISTICS', 'SAFETY', 'ADMIN', 'QC', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'PLANNING']}><InventoryTransfers /></PrivateRoute>
               } />
 
-              {/* ION — MANAGER / LAB / METROLOGY / NDT / RND (creators + recipients) */}
+              {/* ION — MANAGER / LAB / METROLOGY / NDT / RND (creators + recipients);
+                  PLANNING joins as a read-only monitor (sees all, no create/status). */}
               <Route path="/ion" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND']}><InterOfficeNote /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND', 'PLANNING']}><InterOfficeNote /></PrivateRoute>
               } />
 
               {/* Work Orders — SUPPLY_CHAIN logs supply orders; ADMIN accepts &

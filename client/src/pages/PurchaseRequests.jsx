@@ -120,7 +120,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   // their own name with no unit attached. Unit-bound roles (MANAGER, RND) get
   // their unit auto-filled server-side. Either way the form never shows a
   // unit picker. In edit mode the unit is locked to the original PR's unit.
-  const GLOBAL_ROLES = ['STORE_MANAGER', 'DESIGNS', 'QC', 'SAFETY'];
+  const GLOBAL_ROLES = ['STORE_MANAGER', 'DESIGNS', 'QC', 'SAFETY', 'PLANNING'];
   const isGlobalRole = GLOBAL_ROLES.includes(user?.role);
 
   useEffect(() => {
@@ -1148,7 +1148,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
     request &&
     !['COMPLETED', 'REJECTED'].includes(request.status) &&
     (user?.role === 'ADMIN' ||
-      (['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'SAFETY'].includes(user?.role) &&
+      (['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'SAFETY', 'PLANNING'].includes(user?.role) &&
         request.managerId === user.id));
 
   const submitClose = async () => {
@@ -1631,7 +1631,7 @@ export default function PurchaseRequests() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const isManager = ['MANAGER', 'STORE_MANAGER', 'QC', 'RND', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'].includes(user?.role);
+  const isManager = ['MANAGER', 'STORE_MANAGER', 'QC', 'RND', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'].includes(user?.role);
   const isStoreManager = user?.role === 'STORE_MANAGER';
   const isAdmin = user?.role === 'ADMIN';
   const isPO = user?.role === 'PURCHASE_OFFICER';

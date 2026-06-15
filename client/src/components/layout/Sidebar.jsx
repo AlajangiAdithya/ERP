@@ -24,7 +24,7 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 // Full edit = METROLOGY, QC, MANAGER@UNIT-V.
 // View + remarks + cert download = ADMIN, MANAGER (all units), LAB, NDT, RND, HR.
 // SUPERADMIN reaches this register from Real-time Corrections, not the sidebar.
-const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'HR'];
+const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'HR', 'PLANNING'];
 
 // Procurement & Inventory Management hub is visible to every authenticated
 // user EXCEPT Supply Chain, HR, and Finance — Finance is customer-side
@@ -46,7 +46,7 @@ const buildAllItems = () => {
     // Planning is the primary broadcaster pushing notices to the whole plant.
     { to: '/messaging', icon: MessagesSquare, label: 'Messaging', roles: ALL_ROLES },
     { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: PROCUREMENT_ROLES },
-    { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'] },
+    { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND', 'PLANNING'] },
     // Dispatch hub — Gate Pass + Logistics + Vehicle Movement. Vehicle
     // register is open to everyone, so the hub itself is too; the cards
     // inside are role-filtered, and each sub-page enforces its own gate.

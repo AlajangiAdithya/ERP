@@ -13,8 +13,10 @@ import DateRangeFilter from '../components/shared/DateRangeFilter';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import MaterialIssuePdf from '../components/pdf/MaterialIssuePdf';
 import { formatDateTime } from '../utils/formatters';
+import { useAuth } from '../context/AuthContext';
 
 export default function MyRequests() {
+  const { user } = useAuth();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fromDate, setFromDate] = useState('');
@@ -154,7 +156,7 @@ export default function MyRequests() {
                           fileName={`MIV-${r.issueNo || r.requestNumber}.pdf`}
                           label="MIV PDF"
                         />
-                        {r.status === 'PENDING' && (
+                        {r.status === 'PENDING' && r.managerId === user?.id && (
                           <Button size="sm" variant="danger" onClick={() => cancelRequest(r.id)}>Cancel</Button>
                         )}
                       </div>
@@ -322,7 +324,7 @@ export default function MyRequests() {
                 fileName={`MIV-${showDetail.issueNo || showDetail.requestNumber}.pdf`}
                 label="Download MIV PDF"
               />
-              {showDetail.status === 'PENDING' && (
+              {showDetail.status === 'PENDING' && showDetail.managerId === user?.id && (
                 <Button variant="danger" onClick={() => cancelRequest(showDetail.id)}>Cancel Request</Button>
               )}
             </div>
