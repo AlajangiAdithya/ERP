@@ -3,6 +3,7 @@ import {
   Package, Plus, Truck, FlaskConical, ClipboardCheck, CheckCircle2,
   Search, Filter, X, Pencil, Trash2, ArrowDownToLine, Building2,
   Paperclip, Upload, Eye, FileText, FileSearch, ExternalLink, UserRound,
+  Send, FileInput,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +11,7 @@ import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Input, { Select, Textarea } from '../components/ui/Input';
 import Modal from '../components/ui/Modal';
+import Badge from '../components/ui/Badge';
 import PageHero from '../components/shared/PageHero';
 import { formatDate } from '../utils/formatters';
 import { checkFileSize } from '../utils/fileGuard';
@@ -114,7 +116,53 @@ const STATUS_TABS = ['ALL', 'DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW', 'QC_DONE', 
 
 const fmtQty = (n) => (n == null ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }));
 
+// Two ways material comes inward: the PO/direct register (left tab) and
+// customer-supplied Free Issue Material recorded via inward gate passes (FIM tab).
+const MAIN_TABS = [
+  { key: 'register', label: 'Inward Material Register', Icon: Package },
+  { key: 'fim',      label: 'Inward FIM / Customer Property', Icon: FileInput },
+];
+
 export default function InwardEntry() {
+  const { user } = useAuth();
+  const role = user?.role;
+  const canWrite = WRITE_ROLES.includes(role);
+  const [mainTab, setMainTab] = useState('register');
+
+  return (
+    <div className="space-y-6">
+      <PageHero
+        title="Material Inward"
+        subtitle="Receive materials into stores — the inward register for PO / direct purchases, or customer-supplied Free Issue Material (FIM) via inward gate passes."
+        eyebrow="Stores"
+        icon={Package}
+      />
+
+      <div className="flex flex-wrap gap-2 border-b border-gray-200">
+        {MAIN_TABS.map(({ key, label, Icon }) => (
+          <button
+            key={key}
+            onClick={() => setMainTab(key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              mainTab === key ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}>
+            <Icon size={16} className="inline mr-2" />{label}
+          </button>
+        ))}
+      </div>
+
+      {mainTab === 'register'
+        ? <MaterialInwardRegister />
+        : <FromGatePassMode canEdit={canWrite} />}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Inward Material Register — PO & direct/cash receipts (request QC, review,
+// then inward into stock).
+// ────────────────────────────────────────────────────────────────────
+function MaterialInwardRegister() {
   const { user } = useAuth();
   const role = user?.role;
   const canWrite = WRITE_ROLES.includes(role);
@@ -181,18 +229,6 @@ export default function InwardEntry() {
 
   return (
     <div className="space-y-6">
-      <PageHero
-        title="Material Inward Register"
-        subtitle="One register for every material received — PO or direct/cash. Request QC, review inline, then inward into stock."
-        eyebrow="Stores"
-        icon={Package}
-        actions={canWrite && (
-          <Button onClick={() => setShowNew(true)}>
-            <Plus size={16} className="mr-1.5" /> New Inward
-          </Button>
-        )}
-      />
-
       <Card className="p-4 space-y-4">
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
           <div className="relative flex-1 min-w-0">
@@ -210,6 +246,11 @@ export default function InwardEntry() {
           <div className="flex items-center gap-1.5 text-xs font-medium text-navy-500">
             <Filter size={13} /> Showing <span className="font-bold text-navy-800">{filtered.length}</span> of {rows.length}
           </div>
+          {canWrite && (
+            <Button onClick={() => setShowNew(true)}>
+              <Plus size={16} className="mr-1.5" /> New Inward
+            </Button>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -1205,3 +1246,574 @@ const IconBtn = ({ title, danger, onClick, children }) => (
     {children}
   </button>
 );
+
+// ─── Inward FIM / Customer Property ─────────────────────────────────────
+// Records customer-supplied material (FIM) and accepts it into Products.
+// Created ProductBatches are tagged FIM and linked back to the originating
+// inward gate pass so we can trace each batch back to the customer.
+function FromGatePassMode({ canEdit }) {
+  const [view, setView] = useState('accepted'); // 'pending' | 'accepted'
+  const [gatePasses, setGatePasses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null);
+  const [showRecord, setShowRecord] = useState(false);
+  const [localRefresh, setLocalRefresh] = useState(0);
+
+  const load = () => {
+    setLoading(true);
+    const status = view === 'pending' ? 'PENDING_ACCEPTANCE' : 'ACCEPTED';
+    api.get('/gatepasses', { params: { direction: 'INWARD', status, limit: 100 } })
+      .then(({ data }) => setGatePasses(data.gatePasses || []))
+      .catch(() => setGatePasses([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, [localRefresh, view]);
+
+  if (selected) {
+    return (
+      <AcceptInwardForm
+        gatePass={selected}
+        canEdit={canEdit && view === 'pending'}
+        onCancel={() => setSelected(null)}
+        onComplete={() => { setSelected(null); load(); }}
+      />
+    );
+  }
+
+  const viewBtn = (key, label) => (
+    <button
+      onClick={() => setView(key)}
+      className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+        view === key
+          ? 'bg-navy-700 text-white border-navy-700'
+          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+        <h3 className="text-lg font-semibold text-gray-800">
+          {view === 'pending' ? 'FIM Awaiting Acceptance' : 'Accepted FIM Inward'}
+        </h3>
+        <div className="flex items-center gap-2">
+          {viewBtn('accepted', 'Accepted')}
+          {viewBtn('pending', 'Pending')}
+          {canEdit && (
+            <Button onClick={() => setShowRecord(true)}>
+              <Plus size={14} /> Record Inward (FIM)
+            </Button>
+          )}
+        </div>
+      </div>
+      <p className="text-xs text-gray-500 mb-3">
+        Items recorded here are added to stock immediately — no separate acceptance step. They show up under
+        Products → FIM Status straight away.
+      </p>
+      {loading ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : gatePasses.length === 0 ? (
+        <Card className="text-center text-gray-500 py-8">
+          {view === 'pending'
+            ? 'No legacy inward entries awaiting acceptance. New ones are inwarded automatically on submission.'
+            : 'No accepted FIM gate passes yet. Click “Record Inward (FIM)” when customer material arrives.'}
+        </Card>
+      ) : (
+        <>
+          {view === 'pending' && (
+            <div className="mb-3 text-xs text-amber-700">
+              The entries below were created before auto-acceptance was enabled and still need to be processed.
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {gatePasses.map(g => {
+              const pending = (g.items || []).filter(i => (i.inwardedQty || 0) < (i.quantity || 0));
+              const inwardedCount = (g.items || []).length - pending.length;
+              return (
+                <Card key={g.id} className="cursor-pointer hover:border-navy-400 hover:shadow-md transition-all border border-gray-200"
+                  onClick={() => setSelected(g)}>
+                  <div className="flex items-start justify-between mb-2">
+                    <h4 className="font-semibold text-navy-700">{g.fimNumber || g.passNumber}</h4>
+                    <Badge color={view === 'pending' ? 'yellow' : 'green'}>
+                      {view === 'pending' ? 'Pending Acceptance' : 'Accepted'}
+                    </Badge>
+                  </div>
+                  <div className="text-xs text-gray-600 space-y-1">
+                    {g.fimNumber && <div className="font-mono text-[11px] text-gray-500">{g.passNumber}</div>}
+                    <div><span className="text-gray-500">Customer:</span> {g.customerName || '—'}</div>
+                    <div><span className="text-gray-500">Customer GP:</span> {g.customerGatePassNo || '—'}{g.customerGatePassDate ? ` (${formatDate(g.customerGatePassDate)})` : ''}</div>
+                    <div>
+                      <span className="text-gray-500">Items {view === 'pending' ? 'pending' : 'accepted'}:</span>{' '}
+                      {view === 'pending' ? pending.length : inwardedCount} of {g.items?.length || 0}
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {showRecord && canEdit && (
+        <RecordInwardModal
+          onClose={() => setShowRecord(false)}
+          onCreated={() => { setShowRecord(false); setView('accepted'); setLocalRefresh(k => k + 1); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Record Inward Modal ────────────────────────────────────────────────
+// Captures customer FIM details and posts an INWARD gate pass (inwardKind
+// STORES). STORES inward auto-accepts into the product list immediately.
+const blankInwardItem = () => ({
+  description: '', quantity: 1, unit: 'pcs',
+  dispatchedTo: '', itemPurpose: '', probableReturnDate: '',
+  itemPassType: 'RETURNABLE', gatePassDetails: '', transportation: '',
+  contactPersonDetails: '', remarks: '',
+});
+
+function RecordInwardModal({ onClose, onCreated }) {
+  const [customerName, setCustomerName] = useState('');
+  const [customerGatePassNo, setCustomerGatePassNo] = useState('');
+  const [customerGatePassDate, setCustomerGatePassDate] = useState('');
+  const [customerGpDocType, setCustomerGpDocType] = useState('ORIGINAL');
+  const [customerGpPdf, setCustomerGpPdf] = useState(null);
+  const [vehicleNo, setVehicleNo] = useState('');
+  const [driverName, setDriverName] = useState('');
+  const [gpRequisitionNo, setGpRequisitionNo] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [items, setItems] = useState([blankInwardItem()]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const updateItem = (idx, k, v) => {
+    const copy = [...items];
+    copy[idx] = { ...copy[idx], [k]: v };
+    setItems(copy);
+  };
+  const addItem = () => setItems([...items, blankInwardItem()]);
+  const removeItem = (idx) => setItems(items.length === 1 ? items : items.filter((_, i) => i !== idx));
+
+  const submit = async () => {
+    setError('');
+    if (!customerName.trim()) return setError('Customer name is required');
+    if (!customerGatePassNo.trim()) return setError("Customer's gate pass number is required");
+    if (items.some(i => !i.description.trim())) return setError('Each item needs a name/description');
+    if (items.some(i => !i.quantity || Number(i.quantity) <= 0)) return setError('Each item needs a positive quantity');
+    if (items.some(i => i.itemPassType === 'RETURNABLE' && !i.probableReturnDate)) {
+      return setError('Returnable items need a probable date of return');
+    }
+
+    setSaving(true);
+    try {
+      const itemsPayload = items.map(i => ({
+        description: i.description.trim(),
+        quantity: Number(i.quantity),
+        unit: i.unit || 'pcs',
+        dispatchedTo: i.dispatchedTo?.trim() || null,
+        itemPurpose: i.itemPurpose?.trim() || null,
+        probableReturnDate: i.probableReturnDate || null,
+        itemPassType: i.itemPassType || null,
+        gatePassDetails: i.gatePassDetails?.trim() || null,
+        transportation: i.transportation?.trim() || null,
+        contactPersonDetails: i.contactPersonDetails?.trim() || null,
+        remarks: i.remarks?.trim() || null,
+      }));
+
+      // Use multipart when a PDF is attached so the server can store the file alongside the GP record.
+      if (customerGpPdf) {
+        const fd = new FormData();
+        fd.append('direction', 'INWARD');
+        fd.append('inwardKind', 'STORES');
+        if (remarks.trim()) fd.append('remarks', remarks.trim());
+        fd.append('customerName', customerName.trim());
+        fd.append('customerGatePassNo', customerGatePassNo.trim());
+        if (customerGatePassDate) fd.append('customerGatePassDate', customerGatePassDate);
+        fd.append('customerGpDocType', customerGpDocType);
+        if (vehicleNo.trim()) fd.append('vehicleNo', vehicleNo.trim());
+        if (driverName.trim()) fd.append('driverName', driverName.trim());
+        if (gpRequisitionNo.trim()) fd.append('gpRequisitionNo', gpRequisitionNo.trim());
+        fd.append('customerGpPdf', customerGpPdf);
+        fd.append('items', JSON.stringify(itemsPayload));
+        await api.post('/gatepasses', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      } else {
+        await api.post('/gatepasses', {
+          direction: 'INWARD',
+          inwardKind: 'STORES',
+          remarks: remarks.trim() || undefined,
+          customerName: customerName.trim(),
+          customerGatePassNo: customerGatePassNo.trim(),
+          customerGatePassDate: customerGatePassDate || null,
+          customerGpDocType,
+          vehicleNo: vehicleNo.trim() || null,
+          driverName: driverName.trim() || null,
+          gpRequisitionNo: gpRequisitionNo.trim() || null,
+          items: itemsPayload,
+        });
+      }
+      onCreated();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to record inward entry');
+    }
+    setSaving(false);
+  };
+
+  const cellInput = "w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700";
+
+  return (
+    <Modal isOpen onClose={onClose} title="FIM / Customer Property Register Entry" size="full">
+      <div className="space-y-5">
+        {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+
+        <p className="text-xs text-gray-500">
+          FIM No. (RAPS/FIM/&lt;FY&gt;/&lt;count&gt;) and Date are auto-generated on submit. Returned Date and Return-by Vehicle/Driver are filled later when the material is sent back.
+        </p>
+
+        {/* Register header — applies to every row in this entry */}
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">FIM No.</label>
+              <div className="px-3 py-2 border border-dashed border-gray-300 rounded-md text-sm text-gray-500 bg-white">
+                Auto: RAPS/FIM/&lt;FY&gt;/&lt;next&gt;
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+              <div className="px-3 py-2 border border-dashed border-gray-300 rounded-md text-sm text-gray-500 bg-white">
+                {new Date().toLocaleDateString()}
+              </div>
+            </div>
+            <Input label="Customer *" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. ABC Pvt. Ltd." />
+            <Input label="Gate Pass Requisition No." value={gpRequisitionNo} onChange={e => setGpRequisitionNo(e.target.value)} placeholder="Internal reference (if any)" />
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Input label="Vehicle No." value={vehicleNo} onChange={e => setVehicleNo(e.target.value)} placeholder="e.g. AP 31 CD 1234" />
+            <Input label="Driver name / sign" value={driverName} onChange={e => setDriverName(e.target.value)} placeholder="Driver name" />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Invoice / DC / Gate Pass Type *</label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
+                value={customerGpDocType}
+                onChange={e => setCustomerGpDocType(e.target.value)}
+              >
+                <option value="ORIGINAL">Original</option>
+                <option value="DUPLICATE">Duplicate</option>
+              </select>
+            </div>
+            <Input type="date" label="Customer's GP date" value={customerGatePassDate} onChange={e => setCustomerGatePassDate(e.target.value)} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Input label="Invoice / DC / Gate Pass Details *" value={customerGatePassNo} onChange={e => setCustomerGatePassNo(e.target.value)} placeholder="Customer's GP / DC / Invoice number" />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Upload GP / DC / Invoice PDF (optional)</label>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={e => {
+                  const f = e.target.files?.[0] || null;
+                  if (f && !checkFileSize(f)) { e.target.value = ''; return; }
+                  setCustomerGpPdf(f);
+                }}
+                className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800"
+              />
+              {customerGpPdf && (
+                <div className="mt-1 text-xs text-gray-500 truncate" title={customerGpPdf.name}>
+                  {customerGpPdf.name}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-medium text-gray-800">Items</h4>
+            <Button variant="secondary" size="sm" onClick={addItem}><Plus size={14} /> Add row</Button>
+          </div>
+
+          <div className="border border-gray-200 rounded-md overflow-x-auto">
+            <table className="w-full text-sm" style={{ minWidth: 1200 }}>
+              <colgroup>
+                <col style={{ width: '36px' }} />
+                <col style={{ width: '220px' }} />
+                <col style={{ width: '80px' }} />
+                <col style={{ width: '80px' }} />
+                <col style={{ width: '160px' }} />
+                <col style={{ width: '140px' }} />
+                <col style={{ width: '170px' }} />
+                <col style={{ width: '130px' }} />
+                <col style={{ width: '180px' }} />
+                <col style={{ width: '40px' }} />
+              </colgroup>
+              <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
+                <tr className="text-left">
+                  <th className="px-3 py-2.5 text-center font-medium">#</th>
+                  <th className="px-3 py-2.5 font-medium">Item Description</th>
+                  <th className="px-3 py-2.5 text-center font-medium">Quantity</th>
+                  <th className="px-3 py-2.5 text-center font-medium">UOM</th>
+                  <th className="px-3 py-2.5 font-medium">Purpose</th>
+                  <th className="px-3 py-2.5 font-medium">Probable Return Date</th>
+                  <th className="px-3 py-2.5 font-medium">Issued to Dept / Person</th>
+                  <th className="px-3 py-2.5 font-medium">Pass Type</th>
+                  <th className="px-3 py-2.5 font-medium">Remarks</th>
+                  <th className="px-2 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it, idx) => (
+                  <tr key={idx} className="border-t border-gray-100 align-top">
+                    <td className="px-3 py-2 text-center text-gray-500">{idx + 1}</td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput}
+                        value={it.description} onChange={e => updateItem(idx, 'description', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input type="number" min="0" step="any" className={`${cellInput} text-right`}
+                        value={it.quantity} onChange={e => updateItem(idx, 'quantity', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={`${cellInput} text-center`}
+                        value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput}
+                        value={it.itemPurpose} onChange={e => updateItem(idx, 'itemPurpose', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input type="date" className={cellInput}
+                        value={it.probableReturnDate} onChange={e => updateItem(idx, 'probableReturnDate', e.target.value)}
+                        disabled={it.itemPassType !== 'RETURNABLE'} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput}
+                        placeholder="Dept / person"
+                        value={it.dispatchedTo} onChange={e => updateItem(idx, 'dispatchedTo', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <select className={cellInput}
+                        value={it.itemPassType} onChange={e => updateItem(idx, 'itemPassType', e.target.value)}>
+                        <option value="RETURNABLE">Returnable</option>
+                        <option value="NON_RETURNABLE">Non-Returnable</option>
+                      </select>
+                    </td>
+                    <td className="px-2 py-2">
+                      <input className={cellInput}
+                        value={it.remarks} onChange={e => updateItem(idx, 'remarks', e.target.value)} />
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <button onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 disabled:opacity-30"
+                        disabled={items.length === 1} title="Remove row">
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-gray-400 mt-1.5">
+            Returned Date and Return-by Vehicle / Driver columns appear in the FIM register once the material is sent back via Delivery Challan.
+          </p>
+        </div>
+
+        <Textarea label="Entry-level remarks (optional)" value={remarks} onChange={e => setRemarks(e.target.value)} rows={2} />
+
+        <div className="flex justify-end gap-2 pt-3 border-t border-gray-200">
+          <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>
+            <Send size={14} /> {saving ? 'Submitting…' : 'Record Inward'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function AcceptInwardForm({ gatePass, onCancel, onComplete, canEdit }) {
+  const items = (gatePass.items || []).filter(i => (i.inwardedQty || 0) < (i.quantity || 0));
+  const [products, setProducts] = useState([]);
+  const [rows, setRows] = useState(
+    items.map(i => ({
+      itemId: i.id,
+      description: i.description,
+      quantity: i.quantity,
+      inwardedQty: i.inwardedQty || 0,
+      unit: i.unit || 'pcs',
+      probableReturnDate: i.probableReturnDate,
+      itemPassType: i.itemPassType,
+      // Form state
+      mode: 'new', // 'new' | 'existing'
+      productId: '',
+      newName: i.description,
+      newMaterialType: 'Others',
+      acceptQty: (i.quantity || 0) - (i.inwardedQty || 0),
+      batchNumber: '',
+    }))
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/products', { params: { limit: 'all' } })
+      .then(({ data }) => setProducts(data.products || []))
+      .catch(() => setProducts([]));
+  }, []);
+
+  const update = (idx, field, value) => {
+    const copy = [...rows];
+    copy[idx] = { ...copy[idx], [field]: value };
+    setRows(copy);
+  };
+
+  const submit = async () => {
+    setError('');
+    for (const r of rows) {
+      const qty = parseFloat(r.acceptQty);
+      const remaining = r.quantity - r.inwardedQty;
+      if (!qty || qty <= 0) return setError(`Enter accept qty for ${r.description}`);
+      if (qty > remaining + 1e-9) return setError(`${r.description}: cannot accept ${qty} (only ${remaining} pending)`);
+      if (r.mode === 'existing' && !r.productId) return setError(`${r.description}: select a product or switch to "New product"`);
+      if (r.mode === 'new' && !r.newName.trim()) return setError(`${r.description}: new product name is required`);
+    }
+
+    setSaving(true);
+    try {
+      await api.put(`/gatepasses/${gatePass.id}/accept-inward`, {
+        items: rows.map(r => ({
+          itemId: r.itemId,
+          quantity: parseFloat(r.acceptQty),
+          batchNumber: r.batchNumber || undefined,
+          productId: r.mode === 'existing' ? r.productId : undefined,
+          newProduct: r.mode === 'new' ? {
+            name: r.newName.trim(),
+            materialType: r.newMaterialType,
+            unit: r.unit || 'pcs',
+          } : undefined,
+        })),
+      });
+      onComplete();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to accept inward gate pass');
+    }
+    setSaving(false);
+  };
+
+  const cellInput = "w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700";
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-semibold text-navy-700">{gatePass.fimNumber || gatePass.passNumber}</h3>
+          <p className="text-xs text-gray-500">
+            Customer: <strong>{gatePass.customerName}</strong> · Customer GP <strong>{gatePass.customerGatePassNo}</strong>
+            {gatePass.customerGatePassDate ? ` (${formatDate(gatePass.customerGatePassDate)})` : ''}
+            {' · '}
+            Type: <strong>{gatePass.passType === 'NON_RETURNABLE' ? 'Non-Returnable' : 'Returnable'}</strong>
+          </p>
+        </div>
+        <Button variant="secondary" onClick={onCancel}>Back to list</Button>
+      </div>
+
+      <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
+        <strong>FIM (Free Issue Material):</strong> these items belong to the customer. Each accepted item creates (or adds to) a Product
+        and marks the resulting batch as <em>FIM</em>, linked to this gate pass so the product can be traced back to the customer.
+      </div>
+
+      {error && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+
+      <div className="space-y-4">
+        {rows.map((r, idx) => (
+          <div key={r.itemId} className="border border-gray-200 rounded p-3 bg-gray-50">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <span className="font-medium text-gray-800">{r.description}</span>
+                <span className="ml-2 text-xs text-gray-500">
+                  on gatepass: {r.quantity} {r.unit} · pending: {(r.quantity - r.inwardedQty).toFixed(2)} {r.unit}
+                </span>
+              </div>
+              <Badge color={r.itemPassType === 'NON_RETURNABLE' ? 'orange' : 'blue'}>
+                {r.itemPassType === 'NON_RETURNABLE' ? 'Non-Returnable' : 'Returnable'}
+              </Badge>
+            </div>
+
+            <div className="flex gap-3 text-xs mb-2">
+              <label className="inline-flex items-center gap-1.5">
+                <input type="radio" checked={r.mode === 'new'} onChange={() => update(idx, 'mode', 'new')} />
+                Create new product
+              </label>
+              <label className="inline-flex items-center gap-1.5">
+                <input type="radio" checked={r.mode === 'existing'} onChange={() => update(idx, 'mode', 'existing')} />
+                Add to existing product
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-sm">
+              {r.mode === 'new' ? (
+                <>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs text-gray-500 mb-1">Product name *</label>
+                    <input className={cellInput}
+                      value={r.newName} onChange={(e) => update(idx, 'newName', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Material type</label>
+                    <select className={cellInput}
+                      value={r.newMaterialType} onChange={(e) => update(idx, 'newMaterialType', e.target.value)}>
+                      <option>Others</option>
+                      <option>Raw Material</option>
+                      <option>Consumable</option>
+                      <option>Hand Tools & Fastners</option>
+                      <option>Tools & Fixtures</option>
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <div className="md:col-span-3">
+                  <label className="block text-xs text-gray-500 mb-1">Pick product *</label>
+                  <select className={cellInput}
+                    value={r.productId} onChange={(e) => update(idx, 'productId', e.target.value)}>
+                    <option value="">— Select existing product —</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Accept qty * ({r.unit})</label>
+                <input type="number" min="0" step="any" className={cellInput}
+                  value={r.acceptQty} onChange={(e) => update(idx, 'acceptQty', e.target.value)} />
+              </div>
+
+              <div className="md:col-span-4">
+                <label className="block text-xs text-gray-500 mb-1">Batch number (optional)</label>
+                <input className={cellInput}
+                  value={r.batchNumber} onChange={(e) => update(idx, 'batchNumber', e.target.value)} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex justify-end gap-3 mt-4">
+        <Button variant="secondary" onClick={onCancel}>Back to list</Button>
+        {canEdit && (
+          <Button onClick={submit} disabled={saving || rows.length === 0}>
+            {saving ? 'Saving…' : 'Accept & Inward FIM'}
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
