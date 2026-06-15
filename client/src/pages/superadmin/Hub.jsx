@@ -121,7 +121,7 @@ export default function SuperAdminHub() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3">
           <Tile to="/" icon={ScrollText} label="Dashboard" tone="slate" />
           <Tile to="/procurement" icon={Boxes} label="Procurement" tone="slate" />
-          <Tile to="/qc-inspections" icon={FileCheck2} label="QC Inspections" tone="slate" />
+          <Tile to="/inward-entry" icon={FileCheck2} label="Material Inward" tone="slate" />
           <Tile to="/work-orders" icon={Wrench} label="Work Orders" tone="slate" />
           <Tile to="/safety" icon={ShieldAlert} label="Safety Monitor" tone="slate" />
           <Tile to="/management" icon={Users} label="User Management" tone="slate" />

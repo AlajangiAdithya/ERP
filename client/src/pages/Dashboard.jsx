@@ -1387,7 +1387,7 @@ function PurchaseOfficerDashboard() {
           title="Awaiting QC Inspection"
           count={feed.awaitingQc.length}
           subtitle="Goods arrived, waiting for inspection clearance"
-          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/qc-inspections')}>Open QC</Button>}
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/inward-entry')}>Open QC</Button>}
         />
         {feed.awaitingQc.length === 0 ? (
           <EmptyState icon={ClipboardCheck} title="No lots awaiting inspection" />
@@ -1404,7 +1404,7 @@ function PurchaseOfficerDashboard() {
               </thead>
               <tbody>
                 {feed.awaitingQc.map((po, i) => (
-                  <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/qc-inspections')}>
+                  <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/inward-entry')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{po.orderNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{po.customName || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
@@ -2234,7 +2234,7 @@ function QCDashboard() {
         actions={
           <>
             <InProgressButton />
-            <Button onClick={() => navigate('/qc-inspections')}>
+            <Button onClick={() => navigate('/inward-entry')}>
               <ClipboardCheck size={16} className="mr-1" /> All Inspections
             </Button>
           </>
@@ -2242,9 +2242,9 @@ function QCDashboard() {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard title="Awaiting Inspection" value={pendingOrders.length} icon={AlertTriangle} color="red" onClick={() => navigate('/qc-inspections')} />
-        <StatsCard title="Pending Results" value={pendingCount} icon={ClipboardList} color="yellow" onClick={() => navigate('/qc-inspections')} />
-        <StatsCard title="Passed" value={passedCount} icon={CheckCircle} color="green" onClick={() => navigate('/qc-inspections')} />
+        <StatsCard title="Awaiting Inspection" value={pendingOrders.length} icon={AlertTriangle} color="red" onClick={() => navigate('/inward-entry')} />
+        <StatsCard title="Pending Results" value={pendingCount} icon={ClipboardList} color="yellow" onClick={() => navigate('/inward-entry')} />
+        <StatsCard title="Passed" value={passedCount} icon={CheckCircle} color="green" onClick={() => navigate('/inward-entry')} />
         <StatsCard title="Failed" value={failedCount} icon={AlertTriangle} color="red" />
       </div>
 
@@ -2257,7 +2257,7 @@ function QCDashboard() {
             title="Orders Awaiting Inspection"
             count={pendingOrders.length}
             subtitle="Goods arrived — inspection lot not yet opened"
-            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/qc-inspections')}>Open QC</Button>}
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/inward-entry')}>Open QC</Button>}
           />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -2272,7 +2272,7 @@ function QCDashboard() {
               </thead>
               <tbody>
                 {pendingOrders.map((o, i) => (
-                  <tr key={o.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/qc-inspections')}>
+                  <tr key={o.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/inward-entry')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{o.orderNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{o.supplierName || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">{o.items?.length || 0} items</td>
@@ -2294,7 +2294,7 @@ function QCDashboard() {
           title="Recent Inspections"
           count={inspections.length}
           subtitle="Latest inspection lots and outcomes"
-          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/qc-inspections')}>View All</Button>}
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/inward-entry')}>View All</Button>}
         />
         {inspections.length === 0 ? (
           <EmptyState icon={ClipboardCheck} title="No inspections yet" />
@@ -2981,7 +2981,7 @@ function SafetyDashboard() {
     { to: '/quotations',        label: 'Quotations',        icon: FileSearch,   color: 'from-purple-500 to-purple-600' },
     { to: '/purchase-orders',   label: 'Purchase Orders',   icon: Truck,        color: 'from-indigo-500 to-indigo-600' },
     { to: '/payment-requests',  label: 'Payments',          icon: CreditCard,   color: 'from-emerald-500 to-emerald-600' },
-    { to: '/qc-inspections',    label: 'QC Inspections',    icon: ClipboardCheck, color: 'from-amber-500 to-amber-600' },
+    { to: '/inward-entry',      label: 'Material Inward',   icon: ClipboardCheck, color: 'from-amber-500 to-amber-600' },
     { to: '/gate-pass',         label: 'Gate Passes',       icon: DoorOpen,     color: 'from-cyan-500 to-cyan-600' },
     { to: '/inventory-transfers', label: 'Transfers',       icon: ArrowLeftRight, color: 'from-pink-500 to-pink-600' },
     { to: '/work-orders',       label: 'Work Orders',       icon: ClipboardList, color: 'from-orange-500 to-orange-600' },

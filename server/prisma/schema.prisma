@@ -2516,3 +2516,94 @@ model CalendarEvent {
 
   @@index([ownerId, startAt])
 }
+
+// ──────────────────────────────────────────────────────────────
+// MATERIAL INWARD REGISTER (MIR)
+// The single, unified inward record kept by Stores. One row = one material
+// line received at the store. It can be raised against a Purchase Order
+// (pulling PR / supplier / item / issued-to) or stand alone as a direct /
+// cash purchase. Each row carries its own self-contained QC flow:
+//   DRAFT → QC_REQUESTED → QC_IN_REVIEW → QC_DONE → INWARDED
+// Stock (ProductBatch + StockMovement) is created only on the final INWARD
+// step. The MIV no. column is NOT stored here — it is derived at read time
+// by matching this row's batchNo to the batch a unit later draws via its MIV.
+// FK columns are kept as plain ids (no Prisma relations) so this table is
+// fully additive and needs no back-relation edits on existing models.
+// ──────────────────────────────────────────────────────────────
+model MaterialInwardRegister {
+  id              String        @id @default(uuid())
+  mirNo           String        @unique // RAPS/MIR/<FY>/<N> — auto
+  inwardDate      DateTime      @default(now())
+  vehicleDetails  String?
+
+  // Invoice / Cash purchase / Delivery challan / Gate pass + its number
+  docType         InwardDocType @default(INVOICE)
+  docNumber       String?
+
+  // Source PO (optional). Snapshot fields are copied at creation so the row
+  // stays readable even if the PO later changes.
+  purchaseOrderId     String?
+  purchaseOrderItemId String?
+  supplierName        String?
+  prNumbers           String? // comma-joined PR numbers from the PO
+  itemDescription     String?
+  uom                 String?
+  qtyReceived         Float?
+  productId           String? // resolved product (for stock + MIV match)
+
+  // Where the material is bound for — derived from the PO's PR(s). A union PO
+  // may map to several units; issuedToLabel holds the joined, human label.
+  issuedToUnitId String?
+  issuedToDept   String?
+  issuedToLabel  String?
+
+  purpose      String?
+  batchNo      String?
+  dateOfExpiry DateTime?
+
+  status InwardStatus @default(DRAFT)
+
+  // QC request — filled by Stores when handing the lot to QC.
+  qcRequestedAt    DateTime?
+  qcRequestedById  String?
+  qcRequestNote    String?
+  qcDocRequirement String? // COA / COC / Test report / etc.
+
+  // QC review — filled by QC.
+  qcReviewerId      String?
+  qcReviewStartedAt DateTime?
+  qcResult          QCResult?
+  qtyAccepted       Float?
+  qtyRejected       Float?
+  qcReportNo        String?
+  qcReportRemark    String?
+  qcFinishedAt      DateTime?
+
+  // Inward completion — stock created.
+  inwardedAt DateTime?
+  batchId    String?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([purchaseOrderId])
+  @@index([status])
+  @@index([productId])
+  @@index([batchNo])
+}
+
+enum InwardDocType {
+  INVOICE
+  CASH_PURCHASE
+  DELIVERY_CHALLAN
+  GATE_PASS
+}
+
+enum InwardStatus {
+  DRAFT
+  QC_REQUESTED
+  QC_IN_REVIEW
+  QC_DONE
+  INWARDED
+}

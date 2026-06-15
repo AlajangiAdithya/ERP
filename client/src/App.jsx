@@ -21,7 +21,6 @@ import QuotationManagement from './pages/QuotationManagement';
 import Suppliers from './pages/Suppliers';
 import PurchaseOrders from './pages/PurchaseOrders';
 import PaymentRequests from './pages/PaymentRequests';
-import QCInspections from './pages/QCInspections';
 import Procurement from './pages/Procurement';
 import Monitoring from './pages/Monitoring';
 import GatePass from './pages/GatePass';
@@ -206,10 +205,6 @@ export default function App() {
 
               <Route path="/payment-requests" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING']}><PaymentRequests /></PrivateRoute>
-              } />
-
-              <Route path="/qc-inspections" element={
-                <PrivateRoute allowedRoles={CHAIN_ROLES}><QCInspections /></PrivateRoute>
               } />
 
               {/* Inward Entry — Stores does the work; Manager/QC/Designs/R&D/Safety

@@ -14,7 +14,7 @@ const TILES = [
   { to: '/quotations',          label: 'Quotations',          icon: FileSearch,     endpoint: '/quotations',          key: 'quotations' },
   { to: '/purchase-orders',     label: 'Purchase Orders',     icon: Truck,          endpoint: '/purchase-orders',     key: 'orders' },
   { to: '/payment-requests',    label: 'Payment Requests',    icon: CreditCard,     endpoint: '/payment-requests',    key: 'paymentRequests' },
-  { to: '/qc-inspections',      label: 'QC Inspections',      icon: ClipboardCheck, endpoint: '/qc-inspections',      key: 'inspections' },
+  { to: '/inward-entry',        label: 'Material Inward',     icon: ClipboardCheck, endpoint: '/qc-inspections',      key: 'inspections' },
   { to: '/all-requests',        label: 'MIV Requests',        icon: ScrollText,     endpoint: '/requests',            key: 'requests' },
   { to: '/stock-movements',     label: 'Stock Movements',     icon: BarChart3,      endpoint: '/inventory/movements', key: 'movements' },
   { to: '/gate-pass',           label: 'Gate Passes',         icon: DoorOpen,       endpoint: '/gatepasses',          key: 'gatePasses' },

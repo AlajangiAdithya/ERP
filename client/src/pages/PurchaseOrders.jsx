@@ -1771,24 +1771,15 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             </>
           )}
 
-          {isSM && ['ORDERED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'PARTIAL'].includes(order.status) && (
-            <Button onClick={openIirForm} disabled={processing}>
-              <Truck size={16} className="mr-1" />
-              {order.items?.some(i => (i.receivedQty || 0) > 0) ? 'Mark More Goods Arrived' : 'Mark Goods Arrived'}
-            </Button>
-          )}
-
-          {/* Edit IIR: Stores can amend an unsubmitted IIR (page 1) until QC posts the result. */}
-          {isSM && (order.qcInspections || []).some(q => q.result === 'PENDING' || q.result === 'ON_HOLD') && (
-            <Button variant="secondary" onClick={openEditIirForm} disabled={processing}>
-              <Truck size={16} className="mr-1" /> Edit IIR (Page 1)
-            </Button>
-          )}
-
-          {isSM && order.status === 'QC_PASSED' && (
-            <Button onClick={doInward} disabled={processing}>
-              <PackagePlus size={16} className="mr-1" /> {processing ? 'Processing...' : 'Record Inward Entry'}
-            </Button>
+          {/* Goods arrival, QC and inward now happen in the Material Inward
+              Register (when material reaches the store) — no PO-side buttons. */}
+          {isSM && (
+            <a
+              href="/inward-entry"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-navy-700 hover:bg-navy-800 text-white text-sm font-semibold transition-colors"
+            >
+              <PackagePlus size={16} /> Inward in Register
+            </a>
           )}
 
           {/* Close PO — PO can close once work is wrapped up. Server decides whether

@@ -18,7 +18,6 @@ const HUB_CHILDREN = [
       '/suppliers',
       '/purchase-orders',
       '/payment-requests',
-      '/qc-inspections',
       '/inward-entry',
       '/my-requests',
       '/inventory-transfers',
