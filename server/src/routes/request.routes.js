@@ -8,9 +8,11 @@ const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, 
 const router = express.Router();
 
 // Roles that can create/manage their own MIV requests (same privileges as MANAGER).
-// Includes the non-unit owner departments (QC, LAB, SAFETY, DESIGNS, PLANNING,
+// Includes the non-unit owner departments (QC, LAB, SAFETY, DESIGNS,
 // METROLOGY, NDT) so they can issue the stock reserved to their department.
-const REQUESTER_ROLES = ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'PLANNING', 'METROLOGY', 'NDT'];
+// PLANNING is intentionally excluded — it is a read-only monitor (sees every
+// MIV across the org) and never raises or issues its own.
+const REQUESTER_ROLES = ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT'];
 // Unit-bound roles must belong to a unit; everyone else (QC, LAB, SAFETY,
 // DESIGNS …) may file without one — their MIV draws from their department's
 // reserved bucket and the unassigned pool.

@@ -30,6 +30,7 @@ import Logistics from './pages/Logistics';
 import InterOfficeNote from './pages/InterOfficeNote';
 import InventoryTransfers from './pages/InventoryTransfers';
 import WorkOrders from './pages/WorkOrders';
+import Messaging from './pages/Messaging';
 import SafetyMonitor from './pages/SafetyMonitor';
 import RealtimeCorrections from './pages/superadmin/RealtimeCorrections';
 import Backups from './pages/superadmin/Backups';
@@ -152,10 +153,10 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN']}><Management /></PrivateRoute>
               } />
               <Route path="/all-requests" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><AllRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'SAFETY', 'PLANNING']}><AllRequests /></PrivateRoute>
               } />
               <Route path="/audit-logs" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><AuditLogs /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'SAFETY', 'PLANNING']}><AuditLogs /></PrivateRoute>
               } />
               <Route path="/unit-usage" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><UnitUsageLogs /></PrivateRoute>
@@ -164,7 +165,7 @@ export default function App() {
               {/* MIV requesters — Manager / Lab / QC / R&D / Safety / Designs / Planning / Metrology / NDT.
                   The non-unit owner depts can issue the stock reserved to their department. */}
               <Route path="/my-requests" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'PLANNING', 'METROLOGY', 'NDT']}><MyRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT']}><MyRequests /></PrivateRoute>
               } />
 
               {/* Store Manager only */}
@@ -221,7 +222,7 @@ export default function App() {
               {/* Dispatch hub — landing page for Gate Pass, Logistics, Vehicle Movement. */}
               <Route path="/transport" element={<PrivateRoute><Transport /></PrivateRoute>} />
               <Route path="/gate-pass" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE']}><GatePass /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE', 'PLANNING']}><GatePass /></PrivateRoute>
               } />
               {/* Vehicle Register — viewable by anyone signed in (read-only).
                   LOGISTICS + ADMIN get edit/add/delete via the page's canEdit gate. */}
@@ -231,9 +232,9 @@ export default function App() {
               <Route path="/logistics" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'LOGISTICS']}><Logistics /></PrivateRoute>
               } />
-              {/* Inventory Transfers — unit MANAGERs + owner depts (QC/Designs/Lab/Metrology/NDT/Planning/Safety) + LOGISTICS/ADMIN monitor */}
+              {/* Inventory Transfers — unit MANAGERs + owner depts (QC/Designs/Lab/Metrology/NDT/Safety) + LOGISTICS/ADMIN monitor */}
               <Route path="/inventory-transfers" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LOGISTICS', 'SAFETY', 'ADMIN', 'QC', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'PLANNING']}><InventoryTransfers /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LOGISTICS', 'SAFETY', 'ADMIN', 'QC', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT']}><InventoryTransfers /></PrivateRoute>
               } />
 
               {/* ION — MANAGER / LAB / METROLOGY / NDT / RND (creators + recipients) */}
@@ -248,7 +249,13 @@ export default function App() {
                   the per-batch closure cycles inside the WO detail; SAFETY
                   monitors. */}
               <Route path="/work-orders" element={
-                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC']}><WorkOrders /></PrivateRoute>
+                <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC', 'PLANNING']}><WorkOrders /></PrivateRoute>
+              } />
+
+              {/* Messaging — org-wide Team Chat (broadcast + direct). Open to every
+                  signed-in user; Planning is the primary broadcaster. */}
+              <Route path="/messaging" element={
+                <PrivateRoute><Messaging /></PrivateRoute>
               } />
 
               {/* Safety Monitor */}

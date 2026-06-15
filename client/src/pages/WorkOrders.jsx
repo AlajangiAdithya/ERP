@@ -1869,7 +1869,9 @@ function AlarmsTab({ wo, currentUser, busy, onSync, onAck, onResolve, onAddNote 
   const alarms = wo.alarms || [];
   const active = alarms.filter((a) => a.status === 'ACTIVE');
   const ackd   = alarms.filter((a) => a.status === 'ACKNOWLEDGED');
-  const isMgmt = ['ADMIN', 'FINANCE', 'ACCOUNTING'].includes(currentUser?.role);
+  // PLANNING is the level-below-admin overseer — it can address (acknowledge /
+  // resolve / note) work-order alarms for every unit, alongside management.
+  const isMgmt = ['ADMIN', 'FINANCE', 'ACCOUNTING', 'PLANNING'].includes(currentUser?.role);
 
   return (
     <div className="space-y-4">

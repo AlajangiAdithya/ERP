@@ -17,7 +17,7 @@ const MODULES = [
     icon: DoorOpen,
     title: 'Gate Pass',
     description: 'Raise, approve, and track inward/outward gate passes for material and visitors.',
-    roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE'],
+    roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE', 'PLANNING'],
     gradient: 'from-amber-500 via-orange-500 to-red-500',
     glow: 'group-hover:shadow-amber-500/40',
     iconBg: 'bg-gradient-to-br from-amber-100 to-orange-200 text-amber-700',

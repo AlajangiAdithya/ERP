@@ -81,7 +81,14 @@ const LOT_REPORT_DOC_TYPE = 'LOT_REPORT';
 const FINANCE_HIDDEN_ROLES = new Set(['MANAGER', 'QC']);
 
 // FINANCE + QC included so the closure-workflow UI can fetch WO details.
+// WO_VIEW_ROLES also owns WO-body remarks + the closure/finance cycle — PLANNING
+// is intentionally absent from it (Planning doesn't run closure or edit WOs).
 const WO_VIEW_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'];
+// Oversight set: view every WO list/detail AND manage its alarms (acknowledge /
+// resolve / note). PLANNING is the level-below-admin overseer — it watches the
+// whole pipeline and clears alarms for everyone, but cannot run the closure
+// cycle, edit PDC/dates, or post WO-body remarks.
+const WO_OVERSIGHT_ROLES = [...WO_VIEW_ROLES, 'PLANNING'];
 const WO_STATUSES = [
   'PENDING_ADMIN', 'ADMIN_ACCEPTED', 'UNIT_ACCEPTED',
   'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'CANCELLED', 'REJECTED', 'ON_HOLD',
@@ -312,7 +319,7 @@ const refreshAlarms = (woId) => {
 };
 
 // ── GET /api/work-orders ──────────────────────────────────────
-router.get('/', authenticate, authorize(...WO_VIEW_ROLES), async (req, res) => {
+router.get('/', authenticate, authorize(...WO_OVERSIGHT_ROLES), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate, unitId } = req.query;
     const { skip, take } = paginate(page, limit);
@@ -450,7 +457,7 @@ router.get(
 );
 
 // ── GET /api/work-orders/:id ──────────────────────────────────
-router.get('/:id', authenticate, authorize(...WO_VIEW_ROLES), async (req, res) => {
+router.get('/:id', authenticate, authorize(...WO_OVERSIGHT_ROLES), async (req, res) => {
   try {
     const wo = await prisma.workOrder.findUnique({
       where: { id: req.params.id },
@@ -1936,7 +1943,7 @@ const ALARM_INCLUDE = {
 router.get(
   '/:id/alarms',
   authenticate,
-  authorize(...WO_VIEW_ROLES),
+  authorize(...WO_OVERSIGHT_ROLES),
   async (req, res) => {
     try {
       const includeResolved = req.query.includeResolved === '1' || req.query.includeResolved === 'true';
@@ -1960,7 +1967,7 @@ router.get(
 router.post(
   '/:id/alarms/sync',
   authenticate,
-  authorize('ADMIN', 'SUPPLY_CHAIN', 'FINANCE', 'ACCOUNTING'),
+  authorize('ADMIN', 'SUPPLY_CHAIN', 'FINANCE', 'ACCOUNTING', 'PLANNING'),
   async (req, res) => {
     try {
       const result = await syncAlarmsForWO(req.params.id);
@@ -1976,7 +1983,7 @@ router.post(
 router.post(
   '/:id/alarms/:alarmId/notes',
   authenticate,
-  authorize(...WO_VIEW_ROLES),
+  authorize(...WO_OVERSIGHT_ROLES),
   async (req, res) => {
     try {
       const { body } = req.body || {};
@@ -1999,7 +2006,7 @@ router.post(
 router.post(
   '/:id/alarms/:alarmId/acknowledge',
   authenticate,
-  authorize(...WO_VIEW_ROLES),
+  authorize(...WO_OVERSIGHT_ROLES),
   async (req, res) => {
     try {
       const { remark } = req.body || {};
@@ -2035,7 +2042,7 @@ router.post(
 router.post(
   '/:id/alarms/:alarmId/resolve',
   authenticate,
-  authorize(...WO_VIEW_ROLES),
+  authorize(...WO_OVERSIGHT_ROLES),
   async (req, res) => {
     try {
       const { remark } = req.body || {};

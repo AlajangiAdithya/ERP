@@ -157,7 +157,6 @@ const generateProductSku = async (prisma, materialType) => {
 // Labels match the Direct-Entry ASSIGN_DEPTS list so PO-flow and cash-flow agree.
 const DEPT_BY_ROLE = {
   DESIGNS: 'Designs',
-  PLANNING: 'Planning',
   QC: 'QC',
   LAB: 'Lab',
   METROLOGY: 'Metrology',

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock, Truck, DoorOpen, MapPin, Send, ShieldCheck, ScrollText, Inbox, ArrowRight, Calendar, Eye, FileSearch, CreditCard, BarChart3, ArrowLeftRight, FlaskConical, History, GraduationCap, Users, UserCheck, BookOpen, ChevronDown } from 'lucide-react';
+import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock, Truck, DoorOpen, MapPin, Send, ShieldCheck, ScrollText, Inbox, ArrowRight, Calendar, Eye, FileSearch, CreditCard, BarChart3, ArrowLeftRight, FlaskConical, History, GraduationCap, Users, UserCheck, BookOpen, ChevronDown, BellRing } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -3221,12 +3221,227 @@ function Loader() {
   );
 }
 
+// ── Planning — read-only, plant-wide monitor. No raising, no unit. Oversees the
+// whole pipeline (PRs, MIVs, work orders) and addresses work-order alarms.
+function PlanningDashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [dash, setDash] = useState(null);
+  const [prStats, setPrStats] = useState(null);
+  const [workOrders, setWorkOrders] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.allSettled([
+        api.get('/reports/dashboard'),
+        api.get('/purchase-requests/dashboard-stats'),
+        api.get('/work-orders', { params: { limit: 1000 } }),
+      ]);
+      if (cancelled) return;
+      const [dashRes, prRes, woRes] = results;
+      if (dashRes.status === 'fulfilled') setDash(dashRes.value.data);
+      if (prRes.status === 'fulfilled') setPrStats(prRes.value.data);
+      if (woRes.status === 'fulfilled') setWorkOrders(woRes.value.data.workOrders || []);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <Loader />;
+
+  const stats = dash?.stats || {};
+  const recentMovements = dash?.recentMovements || [];
+  const recentRequests = dash?.recentRequests || [];
+
+  const CLOSED = new Set(['CLOSED', 'CANCELLED']);
+  const activeWOs = workOrders.filter((w) => !CLOSED.has(w.status));
+  const woWithAlarms = workOrders
+    .map((w) => ({ ...w, activeAlarms: (w.alarms || []).filter((a) => a.status === 'ACTIVE') }))
+    .filter((w) => w.activeAlarms.length > 0)
+    .sort((a, b) => b.activeAlarms.length - a.activeAlarms.length);
+  const totalActiveAlarms = woWithAlarms.reduce((s, w) => s + w.activeAlarms.length, 0);
+  const prActive = prStats ? (prStats.pendingQc || 0) + (prStats.pendingAdmin || 0) + (prStats.inProgress || 0) : null;
+
+  const prTiles = prStats ? [
+    { label: 'Pending Approval', value: (prStats.pendingQc || 0) + (prStats.pendingAdmin || 0), icon: Clock, cls: 'bg-yellow-50 ring-yellow-100', num: 'text-yellow-600' },
+    { label: 'Approved', value: prStats.approved, icon: CheckCircle, cls: 'bg-blue-50 ring-blue-100', num: 'text-blue-600' },
+    { label: 'In Progress', value: prStats.inProgress, icon: Activity, cls: 'bg-indigo-50 ring-indigo-100', num: 'text-indigo-600' },
+    { label: 'Completed', value: prStats.completed, icon: ClipboardCheck, cls: 'bg-green-50 ring-green-100', num: 'text-green-600' },
+    { label: 'Rejected', value: prStats.rejected, icon: AlertTriangle, cls: 'bg-red-50 ring-red-100', num: 'text-red-600' },
+  ] : [];
+
+  const monitorLinks = [
+    { to: '/work-orders', label: 'Work Orders', icon: ClipboardList },
+    { to: '/all-requests', label: 'All MIV Requests', icon: ScrollText },
+    { to: '/stock-movements', label: 'Stock Movements', icon: BarChart3 },
+    { to: '/purchase-requests', label: 'Purchase Requests', icon: ShoppingCart },
+    { to: '/transport', label: 'Gate Pass & Vehicles', icon: DoorOpen },
+    { to: '/audit-logs', label: 'Audit Logs', icon: FileText },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <DashboardHero
+        title={greet(user, 'Planner')}
+        subtitle="Plant-wide oversight — purchase requests, material issues, work orders and alarms. Read-only monitor."
+        eyebrow="Planning Control"
+        actions={<InProgressButton />}
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard title="Active Purchase Requests" value={prStats ? `${prActive} / ${prStats.total || 0}` : '—'} subtitle="Active / Total" icon={ShoppingCart} color="blue" onClick={() => navigate('/purchase-requests')} />
+        <StatsCard title="Pending MIV Requests" value={stats.pendingRequests ?? '—'} icon={ClipboardList} color="yellow" onClick={() => navigate('/all-requests')} />
+        <StatsCard title="Active Work Orders" value={activeWOs.length} icon={ClipboardCheck} color="navy" onClick={() => navigate('/work-orders')} />
+        <StatsCard title="Live WO Alarms" value={totalActiveAlarms} icon={BellRing} color="red" onClick={() => navigate('/work-orders')} />
+      </div>
+
+      {/* Delivery-commitment oversight */}
+      <PdcStatusBoard />
+
+      {/* Purchase pipeline (read-only) */}
+      {prStats && (
+        <Card>
+          <SectionHeader
+            icon={ShoppingCart}
+            tone="blue"
+            title="Purchase Requests Overview"
+            subtitle="Procurement pipeline across every unit"
+            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/purchase-requests')}>View All</Button>}
+          />
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {prTiles.map((t) => {
+              const TileIcon = t.icon;
+              return (
+                <button key={t.label} onClick={() => navigate('/purchase-requests')} className={`text-center p-3 rounded-xl ring-1 transition-transform hover:-translate-y-0.5 ${t.cls}`}>
+                  <TileIcon size={15} className="mx-auto mb-1.5 opacity-80 text-gray-500" />
+                  <p className={`text-2xl font-bold tnum ${t.num}`}>{t.value ?? 0}</p>
+                  <p className="text-[11px] text-gray-500 mt-1 font-medium">{t.label}</p>
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* Work-order alarms Planning can act on */}
+      <Card>
+        <SectionHeader
+          icon={BellRing}
+          tone="red"
+          title="Work Order Alarms"
+          subtitle="Live alarms across every unit — acknowledge or resolve"
+          actions={<Button variant="secondary" size="sm" onClick={() => navigate('/work-orders')}>Open Work Orders</Button>}
+        />
+        {woWithAlarms.length === 0 ? (
+          <EmptyState icon={CheckCircle} tone="green" title="No active alarms" hint="Every work order is within its limits." />
+        ) : (
+          <div className="space-y-2">
+            {woWithAlarms.slice(0, 6).map((w) => (
+              <button key={w.id} onClick={() => navigate('/work-orders')} className="w-full flex items-center justify-between gap-3 p-3 rounded-xl border border-red-100 bg-red-50/40 hover:bg-red-50 transition-colors text-left">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-navy-800 truncate">{w.workOrderNumber} · {w.customerName}</p>
+                  <p className="text-xs text-gray-500 truncate">{w.activeAlarms.map((a) => a.title).join(' · ')}</p>
+                </div>
+                <Badge color="red">{w.activeAlarms.length} alarm{w.activeAlarms.length === 1 ? '' : 's'}</Badge>
+              </button>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Monitoring shortcuts */}
+      <Card>
+        <SectionHeader icon={Eye} tone="navy" title="Monitoring" subtitle="Jump to any oversight surface" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {monitorLinks.map(({ to, label, icon: Icon }) => (
+            <button key={to} onClick={() => navigate(to)} className="flex items-center gap-3 p-3 rounded-xl border border-navy-100 bg-white hover:bg-navy-50 hover:-translate-y-0.5 transition-all text-left">
+              <span className="p-2 rounded-lg bg-navy-50 text-navy-700 ring-1 ring-navy-100"><Icon size={18} /></span>
+              <span className="text-sm font-medium text-navy-800 truncate">{label}</span>
+              <ArrowRight size={14} className="ml-auto text-navy-300 flex-shrink-0" />
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      {/* Recent activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <SectionHeader icon={ArrowLeftRight} tone="cyan" title="Recent Stock Movements" subtitle="Latest IN / OUT activity in stores" actions={<Button variant="secondary" size="sm" onClick={() => navigate('/stock-movements')}>View All</Button>} />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50/60">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Product</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Type</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Qty</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentMovements.length === 0 ? (
+                  <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-400">No movements yet</td></tr>
+                ) : recentMovements.map((m, i) => (
+                  <tr key={m.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                    <td className="px-3 py-2 text-gray-700">{m.product?.name}</td>
+                    <td className="px-3 py-2">
+                      <Badge color={m.type === 'IN' ? 'green' : m.type === 'OUT' ? 'red' : 'yellow'}>
+                        {m.type === 'IN' && <ArrowDown size={10} className="inline mr-1" />}
+                        {m.type === 'OUT' && <ArrowUp size={10} className="inline mr-1" />}
+                        {m.type}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-gray-700">{m.quantity} {m.product?.unit}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(m.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card>
+          <SectionHeader icon={ClipboardList} tone="yellow" title="Recent MIV Requests" subtitle="Latest material issue requests across units" actions={<Button variant="secondary" size="sm" onClick={() => navigate('/all-requests')}>View All</Button>} />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50/60">
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Request</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Manager</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Unit</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentRequests.length === 0 ? (
+                  <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-400">No requests yet</td></tr>
+                ) : recentRequests.map((r, i) => (
+                  <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                    <td className="px-3 py-2 font-medium text-gray-700">{r.requestNumber}</td>
+                    <td className="px-3 py-2 text-gray-600">{r.manager?.name}</td>
+                    <td className="px-3 py-2">{r.unit?.code ? <Badge color="blue">{r.unit.code}</Badge> : <span className="text-gray-400 text-xs">—</span>}</td>
+                    <td className="px-3 py-2">
+                      <Badge color={r.status === 'PENDING' ? 'yellow' : r.status === 'APPROVED' ? 'green' : r.status === 'COLLECTED' ? 'blue' : r.status === 'REJECTED' ? 'red' : 'gray'}>{r.status}</Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
 
   let inner;
   if (user?.role === 'ADMIN') inner = <AdminDashboard />;
-  else if (['MANAGER', 'LAB', 'PLANNING'].includes(user?.role)) inner = <ManagerDashboard />;
+  else if (user?.role === 'PLANNING') inner = <PlanningDashboard />;
+  else if (['MANAGER', 'LAB'].includes(user?.role)) inner = <ManagerDashboard />;
   else if (user?.role === 'LOGISTICS') inner = <LogisticsDashboard />;
   else if (user?.role === 'SITE_OFFICE') inner = <SiteOfficeDashboard />;
   else if (user?.role === 'SAFETY') inner = <SafetyDashboard />;

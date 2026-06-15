@@ -17,7 +17,7 @@ const initials = (name) => {
 
 const roleLabel = (role) => (role ? role.replace(/_/g, ' ') : '');
 
-export default function TeamChat() {
+export default function TeamChat({ heightClass = 'h-80' } = {}) {
   const { user } = useAuth();
   const [view, setView] = useState('active'); // 'active' | 'deleted'
   const [messages, setMessages] = useState([]);
@@ -173,7 +173,7 @@ export default function TeamChat() {
       </div>
 
       {/* Message list */}
-      <div ref={scrollRef} className="h-80 overflow-y-auto px-3 sm:px-4 py-3 bg-gray-50/40">
+      <div ref={scrollRef} className={`${heightClass} overflow-y-auto px-3 sm:px-4 py-3 bg-gray-50/40`}>
         {loading ? (
           <div className="flex items-center justify-center h-full text-gray-400">
             <Loader2 size={20} className="animate-spin" />
