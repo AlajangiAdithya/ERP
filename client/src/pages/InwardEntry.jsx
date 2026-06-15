@@ -15,6 +15,7 @@ import { formatDate } from '../utils/formatters';
 import { checkFileSize } from '../utils/fileGuard';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import InwardInspectionReportPdf from '../components/pdf/InwardInspectionReportPdf';
+import InwardInspectionRequestPdf from '../components/pdf/InwardInspectionRequestPdf';
 
 // Uploaded docs are served from the API origin (strip the trailing /api).
 const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
@@ -32,9 +33,61 @@ const refDocsFor = (row) => {
   return list;
 };
 
-// What Stores ticks as "documents enclosed" on the inspection-request form.
-const DOCS_ENCLOSED = ['Invoice', 'Delivery Challan', 'Test Certificate', 'COC', 'COA', 'Mill TC', 'Packing List', 'Other'];
-const PACKING_CONDITIONS = ['Sealed', 'Opened', 'Damaged', 'Broken'];
+// Inward Inspection Request form (RAPS/IIR Rev 01) — numbered rows in 4 sections,
+// matching the printed form. Stores reviews the auto-filled values and edits.
+const IIR_REQUEST_SECTIONS = [
+  { title: 'Purchase Requisition details', rows: [
+    { key: 'prNoDate', no: '01', label: 'Purchase requisition no. & Date' },
+    { key: 'materialDesc', no: '02', label: 'Material description and Specification' },
+    { key: 'qtyAsPerPR', no: '03', label: 'Quantity as per PR' },
+  ] },
+  { title: 'Enquiry & Budgetary quote details', rows: [
+    { key: 'supplierDetails', no: '04', label: 'Supplier details' },
+    { key: 'budgetaryQuote', no: '05', label: 'Budgetary quote details' },
+    { key: 'supplierAssessment', no: '06', label: 'Supplier Assessment form' },
+  ] },
+  { title: 'Purchase order details', rows: [
+    { key: 'poNoDate', no: '07', label: 'Purchase order no. & date' },
+    { key: 'qtyOrdered', no: '08', label: 'Quantity ordered' },
+    { key: 'deliveryRequiredBy', no: '09', label: 'Delivery Required by' },
+    { key: 'scopeOfWork', no: '10', label: 'Scope of Work as per PO' },
+  ] },
+  { title: 'Invoice & DC Details', rows: [
+    { key: 'invoiceNoDate', no: '11', label: 'Invoice no. & date' },
+    { key: 'dcNo', no: '12', label: 'DC no. if any' },
+    { key: 'gatePassNo', no: '13', label: 'Gate pass no. (FIM/others)' },
+    { key: 'gatePassType', no: '14', label: 'Gate pass type' },
+    { key: 'probableReturnDate', no: '15', label: 'Probable date of Return' },
+    { key: 'materialReceiptDate', no: '16', label: 'Material receipt date @RAPS, Store' },
+  ] },
+];
+
+// Pre-fill the request form from the register row (every field stays editable).
+const iirRequestDefaults = (row) => {
+  const orderedQtyText = row.orderedQty != null ? `${fmtQty(row.orderedQty)} ${row.uom || ''}`.trim() : '';
+  const hasAssessment = refDocsFor(row).some((d) => /assessment/i.test(d.label));
+  const isInv = ['INVOICE', 'CASH_PURCHASE'].includes(row.docType);
+  return {
+    ionNoDate: '',
+    prNoDate: row.prNumbers || '',
+    materialDesc: row.itemDescription || '',
+    qtyAsPerPR: '',
+    supplierDetails: row.supplierName || '',
+    budgetaryQuote: '',
+    supplierAssessment: hasAssessment ? 'Attached (see reference documents)' : '',
+    poNoDate: row.poNumber || '',
+    qtyOrdered: orderedQtyText,
+    deliveryRequiredBy: '',
+    scopeOfWork: '',
+    invoiceNoDate: isInv && row.docNumber ? `${row.docNumber} · ${formatDate(row.inwardDate)}` : '',
+    dcNo: row.docType === 'DELIVERY_CHALLAN' ? (row.docNumber || '') : '',
+    gatePassNo: row.docType === 'GATE_PASS' ? (row.docNumber || '') : '',
+    gatePassType: '',
+    probableReturnDate: '',
+    materialReceiptDate: formatDate(row.inwardDate),
+    storesRemark: '',
+  };
+};
 
 // Stores owns the register; QC reviews each lot inline. Everyone else is read-only.
 const WRITE_ROLES = ['ADMIN', 'STORE_MANAGER'];
@@ -688,18 +741,14 @@ function ReadKV({ label, value, span = false }) {
 const DOC_TYPE_CHECKS = ['Test Report', 'COC', 'COA', '3rd Party / Customer Clearance'];
 
 function RequestQcModal({ row, onClose, onDone }) {
-  const rq = row.qcRequest || {};
+  const [form, setForm] = useState(() => ({ ...iirRequestDefaults(row), ...(row.qcRequest || {}) }));
   const [docRequirement, setDocRequirement] = useState(row.qcDocRequirement || '');
-  const [note, setNote] = useState(row.qcRequestNote || rq.storesRemark || '');
-  const [packingCondition, setPackingCondition] = useState(rq.packingCondition || 'Sealed');
-  const [packingNotes, setPackingNotes] = useState(rq.packingNotes || '');
-  const [docsEnclosed, setDocsEnclosed] = useState(Array.isArray(rq.documentsEnclosed) ? rq.documentsEnclosed : []);
   const [invoice, setInvoice] = useState(null);
   const [reports, setReports] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const toggleEnclosed = (d) => setDocsEnclosed((p) => (p.includes(d) ? p.filter((x) => x !== d) : [...p, d]));
+  const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   const refDocs = refDocsFor(row);
 
   const submit = async () => {
@@ -716,40 +765,42 @@ function RequestQcModal({ row, onClose, onDone }) {
         fd.append('labels', JSON.stringify(labels));
         await api.post(`/material-inward/${row.id}/documents`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
-      // 2) Send the QC request with the inspection-request snapshot.
+      // 2) Send the QC request with the inspection-request form snapshot.
       await api.post(`/material-inward/${row.id}/request-qc`, {
         qcDocRequirement: docRequirement,
-        qcRequestNote: note,
-        qcRequest: { packingCondition, packingNotes, documentsEnclosed: docsEnclosed, storesRemark: note },
+        qcRequestNote: form.storesRemark || null,
+        qcRequest: form,
       });
       onDone();
     } catch (err) { setError(err.response?.data?.error || 'Failed'); setSaving(false); }
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={`Inward Inspection Request — ${row.mirNo}`} size="xl">
+    <Modal isOpen onClose={onClose} title="Inward Inspection Request Form — RAPS/IIR Rev 01" size="xl">
       <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
-        {/* Auto-filled from the register row — Stores just reviews this */}
-        <FormBlock title="Receipt details (auto-filled)">
-          <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <ReadKV label="MIR No." value={row.mirNo} />
-            <ReadKV label="Date" value={formatDate(row.inwardDate)} />
-            <ReadKV label="PO" value={row.poNumber || 'Direct / Cash'} />
-            <ReadKV label="PR" value={row.prNumbers} />
-            <ReadKV label="Supplier" value={row.supplierName} />
-            <ReadKV label="Issued to" value={row.issuedToLabel || row.issuedToDept} />
-            <ReadKV label="Indenter" value={row.indenterName} />
-            <ReadKV label="Lot" value={row.lotNo != null ? `Lot ${row.lotNo}` : '—'} />
-            <ReadKV label="Document" value={`${docLabel(row.docType)}${row.docNumber ? ` · ${row.docNumber}` : ''}`} />
-            <ReadKV label="Item" value={row.itemDescription} span />
-            <ReadKV label="Qty received" value={`${fmtQty(row.qtyReceived)} ${row.uom || ''}`} />
-            <ReadKV label="Batch" value={row.batchNo} />
-            <ReadKV label="Expiry" value={row.dateOfExpiry ? formatDate(row.dateOfExpiry) : '—'} />
-            <ReadKV label="Vehicle" value={row.vehicleDetails} />
-          </div>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <p className="text-[11px] text-gray-500">
+            {row.mirNo}{row.lotNo != null ? ` · Lot ${row.lotNo}` : ''} · auto-filled from the register — review & edit, then send to QA/QC.
+          </p>
+          <DownloadPdfButton document={<InwardInspectionRequestPdf row={row} form={form} />} fileName={`IIR-Request-${row.mirNo}.pdf`} label="View / Print form" />
+        </div>
+
+        <FormBlock title="Inspection ION No. & Date">
+          <Input value={form.ionNoDate} onChange={(e) => set('ionNoDate', e.target.value)} placeholder="ION no. & date (if any)" />
         </FormBlock>
+
+        {/* The 16 numbered rows, in the four printed-form sections */}
+        {IIR_REQUEST_SECTIONS.map((sec) => (
+          <FormBlock key={sec.title} title={sec.title}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {sec.rows.map((r) => (
+                <Input key={r.key} label={`${r.no}. ${r.label}`} value={form[r.key] || ''} onChange={(e) => set(r.key, e.target.value)} />
+              ))}
+            </div>
+          </FormBlock>
+        ))}
 
         {/* Reference docs QC will view (PO / PR / supplier assessment / T&C) */}
         {refDocs.length > 0 && (
@@ -757,26 +808,6 @@ function RequestQcModal({ row, onClose, onDone }) {
             <RefDocsList docs={refDocs} />
           </FormBlock>
         )}
-
-        {/* Condition on receipt + enclosed documents — Stores fills these */}
-        <FormBlock title="Condition on receipt">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Select label="Packing condition" value={packingCondition} onChange={(e) => setPackingCondition(e.target.value)}>
-              {PACKING_CONDITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
-            </Select>
-            <Input label="Packing / damage notes" value={packingNotes} onChange={(e) => setPackingNotes(e.target.value)} className="sm:col-span-2" />
-          </div>
-          <div>
-            <p className="text-[13px] font-semibold text-navy-700 mb-1">Documents enclosed</p>
-            <div className="flex flex-wrap gap-3">
-              {DOCS_ENCLOSED.map((d) => (
-                <label key={d} className="inline-flex items-center gap-1.5 text-xs text-navy-700">
-                  <input type="checkbox" checked={docsEnclosed.includes(d)} onChange={() => toggleEnclosed(d)} /> {d}
-                </label>
-              ))}
-            </div>
-          </div>
-        </FormBlock>
 
         {/* Attach the invoice + any material reports */}
         <FormBlock title="Attachments">
@@ -802,7 +833,7 @@ function RequestQcModal({ row, onClose, onDone }) {
           </div>
         </FormBlock>
 
-        {/* Instructions to QC */}
+        {/* Instructions to QC + stores remark */}
         <FormBlock title="Instructions to QC">
           <Select label="Documents required (for QC to verify)" value={docRequirement} onChange={(e) => setDocRequirement(e.target.value)}>
             <option value="">— None / any —</option>
@@ -811,7 +842,7 @@ function RequestQcModal({ row, onClose, onDone }) {
             <option value="Test Report">Test Report</option>
             <option value="3rd Party / Customer Clearance">3rd Party / Customer Clearance</option>
           </Select>
-          <Textarea label="Note / remark to QC" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything QC should know before reviewing…" />
+          <Textarea label="Remark / note to QC" rows={2} value={form.storesRemark} onChange={(e) => set('storesRemark', e.target.value)} placeholder="Anything QC should know before reviewing…" />
         </FormBlock>
 
         <div className="flex justify-end gap-2 pt-2 border-t">
@@ -838,6 +869,8 @@ function ReviewModal({ row, onClose, onDone }) {
     packingDamageNotes: rep.packingDamageNotes || '',
     dateOfManufacturing: rep.dateOfManufacturing ? String(rep.dateOfManufacturing).slice(0, 10) : '',
     tappedHolesCondition: rep.tappedHolesCondition || '',
+    dimInspectionSupplier: rep.dimInspectionSupplier || false,
+    dimInspectionRaps: rep.dimInspectionRaps || false,
     qtyAsPerPR: rep.qtyAsPerPR ?? row.orderedQty ?? '',
     qtyOrdered: rep.qtyOrdered ?? row.orderedQty ?? '',
     rejectionReason: rep.rejectionReason || '',
@@ -904,11 +937,10 @@ function ReviewModal({ row, onClose, onDone }) {
             <RefDocsList docs={refDocsFor(row)} />
           </div>
         )}
-        {(row.qcRequest?.packingCondition || (row.qcRequest?.documentsEnclosed || []).length > 0) && (
-          <div className="text-[11px] bg-amber-50 border border-amber-100 rounded-md p-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-            <ReadKV label="Packing on receipt" value={row.qcRequest.packingCondition} />
-            <ReadKV label="Documents enclosed" value={(row.qcRequest.documentsEnclosed || []).join(', ')} />
-            {row.qcRequest.packingNotes && <ReadKV label="Packing notes" value={row.qcRequest.packingNotes} span />}
+        {row.qcRequest && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-semibold text-navy-600">Stores inspection request form:</span>
+            <DownloadPdfButton document={<InwardInspectionRequestPdf row={row} />} fileName={`IIR-Request-${row.mirNo}.pdf`} label="View request form" />
           </div>
         )}
         {row.qcRequestNote && <p className="text-xs text-gray-600"><span className="text-gray-500">Stores note:</span> {row.qcRequestNote}</p>}
@@ -923,11 +955,10 @@ function ReviewModal({ row, onClose, onDone }) {
             <Input label="Material description" value={f.materialDescription} onChange={(e) => set('materialDescription', e.target.value)} className="sm:col-span-2" />
             <Select label="Material category" value={f.materialCategory} onChange={(e) => set('materialCategory', e.target.value)}>
               <option value="">—</option>
-              <option>Raw Material</option>
-              <option>Consumable</option>
-              <option>Tools & Fixtures</option>
+              <option>Raw materials</option>
+              <option>Consumables</option>
+              <option>Tooling & Fixtures</option>
               <option>FIM</option>
-              <option>Others</option>
             </Select>
           </div>
           <div>
@@ -938,6 +969,17 @@ function ReviewModal({ row, onClose, onDone }) {
                   <input type="checkbox" checked={documentTypes.includes(d)} onChange={() => toggleDoc(d)} /> {d}
                 </label>
               ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-[13px] font-semibold text-navy-700 mb-1">Dimensional inspection</p>
+            <div className="flex flex-wrap gap-4">
+              <label className="inline-flex items-center gap-1.5 text-xs text-navy-700">
+                <input type="checkbox" checked={!!f.dimInspectionSupplier} onChange={(e) => set('dimInspectionSupplier', e.target.checked)} /> At Supplier Place
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-xs text-navy-700">
+                <input type="checkbox" checked={!!f.dimInspectionRaps} onChange={(e) => set('dimInspectionRaps', e.target.checked)} /> At RAPS inward
+              </label>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

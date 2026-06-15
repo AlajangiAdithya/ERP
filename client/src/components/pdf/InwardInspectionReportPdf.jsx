@@ -1,179 +1,142 @@
 import { Document, Page, View, Text } from '@react-pdf/renderer';
-import { styles, formatDate, formatDateTime, CompanyHeader, AuditTrail } from './shared';
+import { formatDate } from './shared';
+import { Cell, IirTitleBlock, BORDER, RequestFormPage } from './InwardInspectionRequestPdf';
 
-// Inward Inspection Report (IIR) — the filled QC report, rendered read-only in
-// the RAPS paper format so it can be viewed / printed after QC finishes review.
-// `row` is the decorated MaterialInwardRegister row from /api/material-inward.
-const DOC_TYPE_LABEL = {
-  INVOICE: 'Invoice',
-  CASH_PURCHASE: 'Cash Purchase',
-  DELIVERY_CHALLAN: 'Delivery Challan',
-  GATE_PASS: 'Gate Pass',
-};
-const RESULT_LABEL = { PASSED: 'PASSED', PARTIAL: 'PARTIAL (accept with deviation)', FAILED: 'REJECTED' };
-const fmtQty = (n) => (n == null || n === '' ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 3 }));
+// Inward Inspection Report — Form no.: RAPS/IIR Rev 01 (Dt: 01/09/2024), page 2.
+// The default export binds page 1 (the request form) + page 2 (this report) into
+// the complete two-page IIR document. `row` is the decorated register row.
+const fmtQty = (n) => (n == null || n === '' ? '' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 3 }));
 
-export default function InwardInspectionReportPdf({ row }) {
+function Box({ checked }) {
+  return (
+    <View style={{ width: 9, height: 9, borderWidth: 1, borderColor: BORDER, alignItems: 'center', justifyContent: 'center' }}>
+      {checked ? <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', lineHeight: 1 }}>X</Text> : null}
+    </View>
+  );
+}
+function CheckItem({ label, checked }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 12 }}>
+      <Text style={{ fontSize: 8, marginRight: 3 }}>{label}</Text>
+      <Box checked={checked} />
+    </View>
+  );
+}
+
+export function ReportPage({ row }) {
   const r = row || {};
   const rep = r.qcReport || {};
-  const req = r.qcRequest || {};
+  const ion = r.qcRequest?.ionNoDate || '';
+  const cat = rep.materialCategory || '';
+  const docs = Array.isArray(rep.documentTypes) ? rep.documentTypes : [];
+  const sealed = (rep.packingCondition || '').toLowerCase() === 'sealed';
+  const broken = (rep.packingCondition || '').toLowerCase() === 'broken';
 
-  const L = ({ label, width }) => (
-    <View style={[styles.cellLabel, { width }]}><Text>{label}</Text></View>
+  const Line = ({ children, bold }) => (
+    <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: BORDER, padding: 4 }}>
+      <Text style={[{ fontSize: 8 }, bold && { fontFamily: 'Helvetica-Bold' }]}>{children}</Text>
+    </View>
   );
-  const C = ({ value, width }) => (
-    <View style={[styles.cell, { width }]}><Text>{value == null || value === '' ? '—' : String(value)}</Text></View>
+  const KV = ({ label, value }) => (
+    <View style={{ flexDirection: 'row' }}>
+      <Cell w="45%" noTop>{label}</Cell>
+      <Cell w="55%" noTop noLeft>: {value || ''}</Cell>
+    </View>
   );
+
+  const qtys = [
+    ['Quantity as per PR', rep.qtyAsPerPR],
+    ['Quantity ordered', rep.qtyOrdered != null ? rep.qtyOrdered : r.orderedQty],
+    ['Quantity Received', r.qtyReceived],
+    ['Quantity Accepted', r.qtyAccepted],
+    ['Quantity Rejected', r.qtyRejected],
+  ];
 
   return (
+    <Page size="A4" style={{ padding: 24, fontFamily: 'Helvetica', color: '#111' }}>
+      <IirTitleBlock docTypeLines={'INWARD INSPECTION\nREPORT'} />
+
+      <Line bold>Inspection ION No. & Date: {ion}</Line>
+      <Line bold>Inspection report no. & Date : {[r.qcReportNo, rep.reportDate ? formatDate(rep.reportDate) : ''].filter(Boolean).join('   ·   ')}</Line>
+      <Line>Material description and specification : {rep.materialDescription || r.itemDescription || ''}</Line>
+
+      {/* Material category */}
+      <View style={{ flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: BORDER, padding: 4 }}>
+        <CheckItem label="Raw materials" checked={/raw/i.test(cat)} />
+        <CheckItem label="Consumables" checked={/consumab/i.test(cat)} />
+        <CheckItem label="Tooling & Fixtures" checked={/tool/i.test(cat)} />
+        <CheckItem label="FIM" checked={/fim/i.test(cat)} />
+      </View>
+
+      {/* Documents verified */}
+      <View style={{ flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: BORDER, padding: 4 }}>
+        <CheckItem label="Test Report" checked={docs.includes('Test Report')} />
+        <CheckItem label="COC" checked={docs.includes('COC')} />
+        <CheckItem label="COA" checked={docs.includes('COA')} />
+        <CheckItem label="3rd Party/Customer Clearance" checked={docs.some((d) => /3rd party/i.test(d))} />
+      </View>
+
+      {/* Dimensional inspection */}
+      <View style={{ flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: BORDER, padding: 4 }}>
+        <CheckItem label="Dimensional Inspection at Supplier Place" checked={!!rep.dimInspectionSupplier} />
+        <CheckItem label="Dimensional Inspection at RAPS inward" checked={!!rep.dimInspectionRaps} />
+      </View>
+
+      <Line>Report reference no.: {rep.reportReferenceNo || ''}</Line>
+
+      {/* Packing condition */}
+      <View style={{ flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: BORDER, padding: 4, alignItems: 'center' }}>
+        <Text style={{ fontSize: 8, marginRight: 3 }}>Packing condition - Sealed</Text>
+        <Box checked={sealed} />
+        <Text style={{ fontSize: 8, marginLeft: 10, marginRight: 3 }}>Broken</Text>
+        <Box checked={broken} />
+        <Text style={{ fontSize: 8, marginLeft: 6 }}>, if damages mention: {rep.packingDamageNotes || ''}</Text>
+      </View>
+
+      <KV label="Batch no./Identification" value={r.batchNo} />
+      <KV label="Date of manufacturing" value={rep.dateOfManufacturing ? formatDate(rep.dateOfManufacturing) : ''} />
+      <KV label="Date of Expiry" value={r.dateOfExpiry ? formatDate(r.dateOfExpiry) : ''} />
+      <KV label="Check the condition of tapped holes, weld lugs (if applicable)" value={rep.tappedHolesCondition} />
+
+      {/* Quantities */}
+      <View style={{ flexDirection: 'row' }}>
+        {qtys.map(([h], i) => <Cell key={i} w="20%" header bold center noTop noLeft={i > 0}>{h}</Cell>)}
+      </View>
+      <View style={{ flexDirection: 'row' }}>
+        {qtys.map(([, v], i) => <Cell key={i} w="20%" center minHeight={42} noTop noLeft={i > 0}>{fmtQty(v)}</Cell>)}
+      </View>
+
+      <Line bold>Reason for Rejection/Non confirmity: {rep.rejectionReason || ''}</Line>
+      <Line bold>Remarks: {r.qcReportRemark || ''}</Line>
+
+      {/* Sign-off */}
+      <View style={{ flexDirection: 'row' }}>
+        <Cell w="50%" header bold center noTop>Stores group</Cell>
+        <Cell w="50%" header bold center noTop noLeft>Quality group</Cell>
+      </View>
+      <View style={{ flexDirection: 'row' }}>
+        <View style={{ width: '50%', borderWidth: 1, borderTopWidth: 0, borderColor: BORDER, padding: 4, minHeight: 46 }}>
+          <Text style={{ fontSize: 8 }}>{r.qcRequestedBy?.name || r.createdBy?.name || ''}</Text>
+        </View>
+        <View style={{ width: '50%', borderWidth: 1, borderTopWidth: 0, borderLeftWidth: 0, borderColor: BORDER, padding: 4, minHeight: 46 }}>
+          <Text style={{ fontSize: 8 }}>{r.qcReviewer?.name || ''}{r.qcResult ? `   ·   ${r.qcResult}` : ''}</Text>
+        </View>
+      </View>
+      <View style={{ flexDirection: 'row' }}>
+        <Cell w="50%" center noTop>MIR No. (Store to be filled): {r.mirNo || ''}</Cell>
+        <Cell w="50%" noTop noLeft />
+      </View>
+
+      <Text style={{ position: 'absolute', bottom: 16, right: 24, fontSize: 8 }} fixed>Page 2 of 2</Text>
+    </Page>
+  );
+}
+
+export default function InwardInspectionReportPdf({ row }) {
+  return (
     <Document>
-      <Page size="A4" style={styles.page}>
-        <CompanyHeader docType="INWARD INSPECTION REPORT" docNumber={r.qcReportNo} docSubtitle="Doc. No.: RAPS/QC/IIR/01" />
-        <View style={styles.header}>
-          <Text style={styles.title}>INWARD INSPECTION REPORT (IIR)</Text>
-          <Text style={styles.subtitle}>{r.mirNo || ''}{r.lotNo != null ? `   •   Lot ${r.lotNo}` : ''}</Text>
-        </View>
-
-        {/* Identification */}
-        <View style={styles.table}>
-          <View style={styles.row}>
-            <L label="Report No." width="20%" /><C value={r.qcReportNo} width="30%" />
-            <L label="Report Date" width="20%" /><C value={formatDate(rep.reportDate)} width="30%" />
-          </View>
-          <View style={styles.row}>
-            <L label="MIR No." width="20%" /><C value={r.mirNo} width="30%" />
-            <L label="Inward Date" width="20%" /><C value={formatDate(r.inwardDate)} width="30%" />
-          </View>
-          <View style={styles.row}>
-            <L label="PO No." width="20%" /><C value={r.poNumber || 'Direct / Cash'} width="30%" />
-            <L label="PR No(s)." width="20%" /><C value={r.prNumbers} width="30%" />
-          </View>
-          <View style={styles.row}>
-            <L label="Supplier" width="20%" /><C value={r.supplierName} width="30%" />
-            <L label="Issued To" width="20%" /><C value={r.issuedToLabel || r.issuedToDept} width="30%" />
-          </View>
-          <View style={styles.row}>
-            <L label="Indenter" width="20%" /><C value={r.indenterName} width="30%" />
-            <L label="Document" width="20%" /><C value={`${DOC_TYPE_LABEL[r.docType] || r.docType || '—'}${r.docNumber ? ` — ${r.docNumber}` : ''}`} width="30%" />
-          </View>
-          <View style={styles.row}>
-            <L label="Vehicle" width="20%" /><C value={r.vehicleDetails} width="30%" />
-            <L label="Lot No." width="20%" /><C value={r.lotNo != null ? `Lot ${r.lotNo}` : '—'} width="30%" />
-          </View>
-          <View style={styles.row}>
-            <L label="Inspection Location" width="20%" /><C value={rep.inspectionLocation} width="80%" />
-          </View>
-        </View>
-
-        {/* Material */}
-        <Text style={styles.sectionTitle}>Material</Text>
-        <View style={styles.table}>
-          <View style={styles.row}>
-            <L label="Description" width="20%" /><C value={rep.materialDescription || r.itemDescription} width="55%" />
-            <L label="Category" width="12%" /><C value={rep.materialCategory} width="13%" />
-          </View>
-          <View style={styles.row}>
-            <L label="Batch No." width="20%" /><C value={r.batchNo} width="30%" />
-            <L label="Date of Mfg." width="20%" /><C value={rep.dateOfManufacturing ? formatDate(rep.dateOfManufacturing) : '—'} width="30%" />
-          </View>
-          <View style={styles.row}>
-            <L label="Date of Expiry" width="20%" /><C value={r.dateOfExpiry ? formatDate(r.dateOfExpiry) : '—'} width="30%" />
-            <L label="Ref. No." width="20%" /><C value={rep.reportReferenceNo} width="30%" />
-          </View>
-        </View>
-
-        {/* Inspection checks */}
-        <Text style={styles.sectionTitle}>Inspection</Text>
-        <View style={styles.table}>
-          <View style={styles.row}>
-            <L label="Packing Condition" width="20%" /><C value={rep.packingCondition} width="30%" />
-            <L label="Packing / Damage Notes" width="25%" /><C value={rep.packingDamageNotes} width="25%" />
-          </View>
-          <View style={styles.row}>
-            <L label="Tapped Holes / Weld Lugs" width="25%" /><C value={rep.tappedHolesCondition} width="75%" />
-          </View>
-          <View style={styles.row}>
-            <L label="Documents Verified" width="25%" /><C value={(rep.documentTypes || []).join(', ')} width="75%" />
-          </View>
-        </View>
-
-        {/* Quantities & result */}
-        <Text style={styles.sectionTitle}>Quantity & Result</Text>
-        <View style={styles.table}>
-          <View style={styles.row}>
-            <View style={[styles.cellHeader, { width: '20%' }]}><Text>Qty as per PR</Text></View>
-            <View style={[styles.cellHeader, { width: '20%' }]}><Text>Qty Ordered</Text></View>
-            <View style={[styles.cellHeader, { width: '20%' }]}><Text>Qty Received</Text></View>
-            <View style={[styles.cellHeader, { width: '20%' }]}><Text>Qty Accepted</Text></View>
-            <View style={[styles.cellHeader, { width: '20%' }]}><Text>Qty Rejected</Text></View>
-          </View>
-          <View style={styles.row}>
-            <C value={`${fmtQty(rep.qtyAsPerPR)} ${r.uom || ''}`} width="20%" />
-            <C value={`${fmtQty(rep.qtyOrdered != null ? rep.qtyOrdered : r.orderedQty)} ${r.uom || ''}`} width="20%" />
-            <C value={`${fmtQty(r.qtyReceived)} ${r.uom || ''}`} width="20%" />
-            <C value={`${fmtQty(r.qtyAccepted)} ${r.uom || ''}`} width="20%" />
-            <C value={`${fmtQty(r.qtyRejected)} ${r.uom || ''}`} width="20%" />
-          </View>
-          <View style={styles.row}>
-            <L label="Result" width="20%" />
-            <View style={[styles.cell, { width: '80%' }]}>
-              <Text style={{ fontFamily: 'Helvetica-Bold' }}>{RESULT_LABEL[r.qcResult] || r.qcResult || '—'}</Text>
-            </View>
-          </View>
-          {(r.qcResult === 'FAILED' || r.qcResult === 'PARTIAL') && (
-            <View style={styles.row}>
-              <L label="Reason for Rejection" width="20%" /><C value={rep.rejectionReason} width="80%" />
-            </View>
-          )}
-        </View>
-
-        {/* Remark */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Report Remark</Text>
-          <View style={[styles.cell, { padding: 6, minHeight: 36 }]}><Text>{r.qcReportRemark || '—'}</Text></View>
-        </View>
-
-        {/* Stores request form (what Stores recorded on hand-off) */}
-        {(req.packingCondition || req.storesRemark || (req.documentsEnclosed || []).length > 0) && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Stores Inspection Request</Text>
-            <View style={styles.table}>
-              <View style={styles.row}>
-                <L label="Packing on Receipt" width="22%" /><C value={req.packingCondition} width="28%" />
-                <L label="Documents Enclosed" width="22%" /><C value={(req.documentsEnclosed || []).join(', ')} width="28%" />
-              </View>
-              {req.storesRemark && (
-                <View style={styles.row}>
-                  <L label="Stores Remark" width="22%" /><C value={req.storesRemark} width="78%" />
-                </View>
-              )}
-            </View>
-          </View>
-        )}
-
-        <AuditTrail entries={[
-          { label: 'Created By', value: r.createdBy?.name ? `${r.createdBy.name} • ${formatDateTime(r.createdAt)}` : null },
-          { label: 'QC Requested', value: r.qcRequestedBy?.name ? `${r.qcRequestedBy.name} • ${formatDateTime(r.qcRequestedAt)}` : null },
-          { label: 'QC Reviewed', value: r.qcReviewer?.name ? `${r.qcReviewer.name} • ${formatDateTime(r.qcFinishedAt)}` : null },
-          { label: 'Inwarded', value: r.inwardedAt ? formatDateTime(r.inwardedAt) : null },
-        ]} />
-
-        <View style={styles.sigRow}>
-          <View style={styles.sigBox}>
-            <Text>RECEIVED BY (STORES)</Text>
-            <Text style={{ fontSize: 7, color: '#555', marginTop: 2 }}>{r.qcRequestedBy?.name || r.createdBy?.name || ''}</Text>
-          </View>
-          <View style={styles.sigBox}>
-            <Text>INSPECTED BY (QC)</Text>
-            <Text style={{ fontSize: 7, color: '#555', marginTop: 2 }}>{r.qcReviewer?.name || ''}</Text>
-          </View>
-          <View style={styles.sigBox}><Text>QC HEAD</Text></View>
-        </View>
-
-        <Text style={styles.footer} fixed>
-          Generated {formatDateTime(new Date())}  •  RAPS ERP  •  {r.qcReportNo || r.mirNo || ''}
-        </Text>
-      </Page>
+      <RequestFormPage row={row} form={row?.qcRequest} />
+      <ReportPage row={row} />
     </Document>
   );
 }

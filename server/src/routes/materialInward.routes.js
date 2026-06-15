@@ -419,17 +419,19 @@ router.post('/:id/request-qc', authenticate, authorize(...WRITE_ROLES), async (r
       return res.status(400).json({ error: 'QC has already been taken up for this entry' });
     }
 
-    // Whitelist the inward-inspection request form Stores reviews/fills. Header
-    // fields stay on the row; this captures the receipt condition + checklist.
+    // Whitelist the Inward Inspection Request form (RAPS/IIR Rev 01) Stores fills.
+    // Each field maps to a numbered row on the printed form; header values stay
+    // first-class on the row and are auto-filled into the form on the client.
     const rq = req.body?.qcRequest || {};
     const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
-    const qcRequest = {
-      packingCondition: str(rq.packingCondition),
-      packingNotes: str(rq.packingNotes),
-      documentsEnclosed: Array.isArray(rq.documentsEnclosed) ? rq.documentsEnclosed.filter((x) => typeof x === 'string').slice(0, 20) : [],
-      storesRemark: str(rq.storesRemark),
-      requestedAt: new Date().toISOString(),
-    };
+    const FORM_KEYS = [
+      'ionNoDate', 'prNoDate', 'materialDesc', 'qtyAsPerPR', 'supplierDetails',
+      'budgetaryQuote', 'supplierAssessment', 'poNoDate', 'qtyOrdered',
+      'deliveryRequiredBy', 'scopeOfWork', 'invoiceNoDate', 'dcNo', 'gatePassNo',
+      'gatePassType', 'probableReturnDate', 'materialReceiptDate', 'storesRemark',
+    ];
+    const qcRequest = { requestedAt: new Date().toISOString() };
+    FORM_KEYS.forEach((k) => { qcRequest[k] = str(rq[k]); });
 
     const updated = await prisma.materialInwardRegister.update({
       where: { id: row.id },
@@ -502,6 +504,8 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
       materialDescription: rep.materialDescription?.trim?.() || null,
       materialCategory: rep.materialCategory?.trim?.() || null,
       documentTypes: Array.isArray(rep.documentTypes) ? rep.documentTypes : [],
+      dimInspectionSupplier: !!rep.dimInspectionSupplier,
+      dimInspectionRaps: !!rep.dimInspectionRaps,
       packingCondition: rep.packingCondition?.trim?.() || null,
       packingDamageNotes: rep.packingDamageNotes?.trim?.() || null,
       dateOfManufacturing: rep.dateOfManufacturing || null,
