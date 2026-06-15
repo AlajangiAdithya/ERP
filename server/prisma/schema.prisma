@@ -2539,6 +2539,9 @@ model MaterialInwardRegister {
   // Invoice / Cash purchase / Delivery challan / Gate pass + its number
   docType         InwardDocType @default(INVOICE)
   docNumber       String?
+  // Stores-uploaded supporting documents (invoice / DC / test report / COA …).
+  // Array of { label, name, url, uploadedAt, uploadedById }.
+  documents       Json?
 
   // Source PO (optional). Snapshot fields are copied at creation so the row
   // stays readable even if the PO later changes.
@@ -2577,6 +2580,11 @@ model MaterialInwardRegister {
   qtyRejected       Float?
   qcReportNo        String?
   qcReportRemark    String?
+  // Full inward-inspection report (the complete IIR form QC fills): material
+  // description/category, document types, packing condition, DOM, qty as-per-PR
+  // / ordered, rejection reason, etc. Summary qty/result fields above stay
+  // first-class for the register columns + stock logic.
+  qcReport          Json?
   qcFinishedAt      DateTime?
 
   // Inward completion — stock created.

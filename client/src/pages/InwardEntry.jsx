@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Package, Plus, Truck, FlaskConical, ClipboardCheck, CheckCircle2,
   Search, Filter, X, Pencil, Trash2, ArrowDownToLine, Building2,
+  Paperclip, Upload, Eye, FileText,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -11,6 +12,11 @@ import Input, { Select, Textarea } from '../components/ui/Input';
 import Modal from '../components/ui/Modal';
 import PageHero from '../components/shared/PageHero';
 import { formatDate } from '../utils/formatters';
+import { checkFileSize } from '../utils/fileGuard';
+
+// Uploaded docs are served from the API origin (strip the trailing /api).
+const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
+const fileUrl = (u) => (u && u.startsWith('http') ? u : `${API_ORIGIN}${u || ''}`);
 
 // Stores owns the register; QC reviews each lot inline. Everyone else is read-only.
 const WRITE_ROLES = ['ADMIN', 'STORE_MANAGER'];
@@ -52,6 +58,7 @@ export default function InwardEntry() {
   const [reviewFor, setReviewFor] = useState(null);    // row -> QC review
   const [inwardFor, setInwardFor] = useState(null);    // row -> final inward
   const [editFor, setEditFor] = useState(null);
+  const [docsFor, setDocsFor] = useState(null);        // row -> manage / view documents
   const [busyId, setBusyId] = useState(null);
 
   const load = () => {
@@ -172,6 +179,7 @@ export default function InwardEntry() {
           onInward={setInwardFor}
           onEdit={setEditFor}
           onDelete={del}
+          onDocs={setDocsFor}
         />
       )}
 
@@ -190,6 +198,9 @@ export default function InwardEntry() {
       {inwardFor && (
         <InwardConfirmModal row={inwardFor} onClose={() => setInwardFor(null)} onDone={() => { setInwardFor(null); load(); }} />
       )}
+      {docsFor && (
+        <DocsModal row={docsFor} canWrite={canWrite} onClose={() => setDocsFor(null)} onChanged={load} />
+      )}
     </div>
   );
 }
@@ -197,7 +208,7 @@ export default function InwardEntry() {
 // ────────────────────────────────────────────────────────────────────
 // The Excel-style register sheet (horizontal scroll, sticky header + MIR col)
 // ────────────────────────────────────────────────────────────────────
-function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete }) {
+function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs }) {
   return (
     <Card className="!p-0 overflow-hidden">
       <div className="overflow-x-auto">
@@ -244,6 +255,15 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                   <Td nowrap={false} className="max-w-[150px]">
                     <div className="font-medium text-navy-700">{docLabel(r.docType)}</div>
                     <div className="text-[10px] text-gray-500">{r.docNumber || <Dash />}</div>
+                    {r.documents?.length ? (
+                      <button onClick={() => onDocs(r)} className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-navy-600 hover:text-navy-800">
+                        <Paperclip size={10} /> {r.documents.length} file{r.documents.length > 1 ? 's' : ''}
+                      </button>
+                    ) : canWrite ? (
+                      <button onClick={() => onDocs(r)} className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-navy-600">
+                        <Paperclip size={10} /> add
+                      </button>
+                    ) : null}
                   </Td>
                   <Td className="font-mono text-[10px] text-navy-700">{r.poNumber || <span className="text-gray-400">Direct</span>}</Td>
                   <Td nowrap={false} className="max-w-[140px] font-mono text-[10px] text-navy-700">{r.prNumbers || <Dash />}</Td>
@@ -508,32 +528,163 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   );
 }
 
-// ── Request QC ──
+// ── Documents (invoice / DC / test report / COA …) ──
+// Stores uploads the supporting papers; QC and everyone else can view them.
+function DocsModal({ row, canWrite, onClose, onChanged }) {
+  const [docs, setDocs] = useState(Array.isArray(row.documents) ? row.documents : []);
+  const [files, setFiles] = useState([]);
+  const [label, setLabel] = useState('Invoice');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const upload = async () => {
+    if (!files.length) return;
+    setBusy(true); setError('');
+    try {
+      const fd = new FormData();
+      files.forEach((f) => fd.append('documents', f));
+      fd.append('label', label);
+      const { data } = await api.post(`/material-inward/${row.id}/documents`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setDocs(Array.isArray(data.documents) ? data.documents : []);
+      setFiles([]);
+      onChanged?.();
+    } catch (err) { setError(err.response?.data?.error || 'Upload failed'); }
+    finally { setBusy(false); }
+  };
+  const remove = async (idx) => {
+    if (!window.confirm('Remove this document?')) return;
+    setBusy(true); setError('');
+    try {
+      const { data } = await api.delete(`/material-inward/${row.id}/documents/${idx}`);
+      setDocs(Array.isArray(data.documents) ? data.documents : []);
+      onChanged?.();
+    } catch (err) { setError(err.response?.data?.error || 'Failed'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Modal isOpen onClose={onClose} title={`Documents — ${row.mirNo}`} size="md">
+      <div className="space-y-3">
+        {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+        <DocList docs={docs} canWrite={canWrite} onRemove={remove} />
+        {canWrite && (
+          <div className="border-t pt-3 space-y-2">
+            <Select label="Document type" value={label} onChange={(e) => setLabel(e.target.value)}>
+              <option>Invoice</option>
+              <option>Delivery Challan</option>
+              <option>Material Report</option>
+              <option>Test Report / COA / COC</option>
+              <option>Gate Pass</option>
+              <option>Other</option>
+            </Select>
+            <input
+              type="file" multiple accept="application/pdf,image/png,image/jpeg"
+              onChange={(e) => {
+                const list = Array.from(e.target.files || []).filter((f) => checkFileSize(f));
+                setFiles(list);
+              }}
+              className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800"
+            />
+            <div className="flex justify-end">
+              <Button onClick={upload} disabled={busy || !files.length}><Upload size={14} className="mr-1" />{busy ? 'Uploading…' : `Upload ${files.length || ''}`}</Button>
+            </div>
+          </div>
+        )}
+        <div className="flex justify-end pt-2 border-t">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function DocList({ docs, canWrite, onRemove }) {
+  if (!docs.length) return <p className="text-xs text-gray-400">No documents uploaded yet.</p>;
+  return (
+    <div className="space-y-1.5">
+      {docs.map((d, i) => (
+        <div key={i} className="flex items-center justify-between gap-2 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-md">
+          <a href={fileUrl(d.url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-navy-700 hover:text-navy-900 min-w-0">
+            <FileText size={13} className="flex-shrink-0" />
+            <span className="font-semibold">{d.label}</span>
+            <span className="text-gray-400 truncate">· {d.name}</span>
+          </a>
+          {canWrite && onRemove && (
+            <button onClick={() => onRemove(i)} className="text-gray-400 hover:text-rose-600 flex-shrink-0" title="Remove"><Trash2 size={13} /></button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Request QC — Stores attaches invoice + material reports and sends them ──
+const DOC_TYPE_CHECKS = ['Test Report', 'COC', 'COA', '3rd Party / Customer Clearance'];
+
 function RequestQcModal({ row, onClose, onDone }) {
   const [docRequirement, setDocRequirement] = useState(row.qcDocRequirement || '');
   const [note, setNote] = useState(row.qcRequestNote || '');
+  const [invoice, setInvoice] = useState(null);
+  const [reports, setReports] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
   const submit = async () => {
     setSaving(true); setError('');
     try {
+      // 1) Upload invoice + material reports so they ride along with the request.
+      const files = [];
+      const labels = [];
+      if (invoice) { files.push(invoice); labels.push('Invoice'); }
+      reports.forEach((f) => { files.push(f); labels.push('Material Report'); });
+      if (files.length) {
+        const fd = new FormData();
+        files.forEach((f) => fd.append('documents', f));
+        fd.append('labels', JSON.stringify(labels));
+        await api.post(`/material-inward/${row.id}/documents`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      }
+      // 2) Send the QC request.
       await api.post(`/material-inward/${row.id}/request-qc`, { qcDocRequirement: docRequirement, qcRequestNote: note });
       onDone();
     } catch (err) { setError(err.response?.data?.error || 'Failed'); setSaving(false); }
   };
+
   return (
     <Modal isOpen onClose={onClose} title={`Request QC — ${row.mirNo}`} size="md">
       <div className="space-y-3">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
         <p className="text-xs text-gray-500">{row.itemDescription} · {fmtQty(row.qtyReceived)} {row.uom || ''}{row.batchNo ? ` · Batch ${row.batchNo}` : ''}</p>
-        <Select label="Documents required" value={docRequirement} onChange={(e) => setDocRequirement(e.target.value)}>
+
+        {row.documents?.length > 0 && (
+          <div>
+            <p className="text-[11px] font-semibold text-navy-600 mb-1">Already attached</p>
+            <DocList docs={row.documents} />
+          </div>
+        )}
+
+        <div>
+          <label className="block text-[13px] font-semibold text-navy-700 mb-1">Invoice (PDF)</label>
+          <input type="file" accept="application/pdf"
+            onChange={(e) => { const f = e.target.files?.[0] || null; if (f && !checkFileSize(f)) { e.target.value = ''; return; } setInvoice(f); }}
+            className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800" />
+          {invoice && <p className="text-[11px] text-gray-500 mt-1 truncate">{invoice.name}</p>}
+        </div>
+        <div>
+          <label className="block text-[13px] font-semibold text-navy-700 mb-1">Material reports (if any) — PDF / image</label>
+          <input type="file" multiple accept="application/pdf,image/png,image/jpeg"
+            onChange={(e) => setReports(Array.from(e.target.files || []).filter((f) => checkFileSize(f)))}
+            className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800" />
+          {reports.length > 0 && <p className="text-[11px] text-gray-500 mt-1">{reports.length} file(s) selected</p>}
+        </div>
+
+        <Select label="Documents required (for QC)" value={docRequirement} onChange={(e) => setDocRequirement(e.target.value)}>
           <option value="">— None / any —</option>
           <option value="COA">COA</option>
           <option value="COC">COC</option>
           <option value="Test Report">Test Report</option>
           <option value="3rd Party / Customer Clearance">3rd Party / Customer Clearance</option>
         </Select>
-        <Textarea label="Note to QC" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything QC should know before reviewing…" />
+        <Textarea label="Note to QC" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything QC should know before reviewing…" />
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>{saving ? 'Sending…' : 'Send to QC'}</Button>
@@ -543,8 +694,33 @@ function RequestQcModal({ row, onClose, onDone }) {
   );
 }
 
-// ── QC review ──
+// ── QC review — the full IIR report, pre-filled from the PO/inward data.
+// QC just reviews/adjusts, sets the result + remark, and finishes.
 function ReviewModal({ row, onClose, onDone }) {
+  const rep = row.qcReport || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const [f, setF] = useState({
+    reportDate: rep.reportDate ? String(rep.reportDate).slice(0, 10) : today,
+    inspectionLocation: rep.inspectionLocation || 'At RAPS Inward Store',
+    reportReferenceNo: rep.reportReferenceNo || row.docNumber || '',
+    materialDescription: rep.materialDescription || row.itemDescription || '',
+    materialCategory: rep.materialCategory || '',
+    packingCondition: rep.packingCondition || 'Sealed',
+    packingDamageNotes: rep.packingDamageNotes || '',
+    dateOfManufacturing: rep.dateOfManufacturing ? String(rep.dateOfManufacturing).slice(0, 10) : '',
+    tappedHolesCondition: rep.tappedHolesCondition || '',
+    qtyAsPerPR: rep.qtyAsPerPR ?? row.orderedQty ?? '',
+    qtyOrdered: rep.qtyOrdered ?? row.orderedQty ?? '',
+    rejectionReason: rep.rejectionReason || '',
+  });
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const [documentTypes, setDocumentTypes] = useState(
+    Array.isArray(rep.documentTypes) && rep.documentTypes.length
+      ? rep.documentTypes
+      : (DOC_TYPE_CHECKS.includes(row.qcDocRequirement) ? [row.qcDocRequirement] : []),
+  );
+  const toggleDoc = (d) => setDocumentTypes((p) => (p.includes(d) ? p.filter((x) => x !== d) : [...p, d]));
+
   const [result, setResult] = useState(row.qcResult || 'PASSED');
   const [qtyAccepted, setQtyAccepted] = useState(row.qtyAccepted ?? row.qtyReceived ?? '');
   const [qtyRejected, setQtyRejected] = useState(row.qtyRejected ?? '');
@@ -552,6 +728,7 @@ function ReviewModal({ row, onClose, onDone }) {
   const [remark, setRemark] = useState(row.qcReportRemark || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
   const submit = async () => {
     setError('');
     if (!remark.trim()) return setError('A report remark is required.');
@@ -559,39 +736,113 @@ function ReviewModal({ row, onClose, onDone }) {
     try {
       await api.post(`/material-inward/${row.id}/finish-review`, {
         qcResult: result, qtyAccepted, qtyRejected, qcReportNo: reportNo, qcReportRemark: remark,
+        qcReport: { ...f, documentTypes },
       });
       onDone();
     } catch (err) { setError(err.response?.data?.error || 'Failed'); setSaving(false); }
   };
+
+  const Read = ({ label, value }) => (
+    <div><span className="text-gray-500">{label}:</span> <span className="font-medium text-navy-800">{value || '—'}</span></div>
+  );
+
   return (
-    <Modal isOpen onClose={onClose} title={`QC Review — ${row.mirNo}`} size="lg">
-      <div className="space-y-3">
+    <Modal isOpen onClose={onClose} title={`QC Inward Inspection Report — ${row.mirNo}`} size="full">
+      <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
-        <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <div><span className="text-gray-500">Item:</span> {row.itemDescription}</div>
-          <div><span className="text-gray-500">Received:</span> {fmtQty(row.qtyReceived)} {row.uom || ''}</div>
-          <div><span className="text-gray-500">Batch:</span> {row.batchNo || '—'}</div>
-          <div><span className="text-gray-500">Supplier:</span> {row.supplierName || '—'}</div>
-          <div><span className="text-gray-500">Docs req:</span> {row.qcDocRequirement || '—'}</div>
-          {row.qcRequestNote && <div className="sm:col-span-3"><span className="text-gray-500">Stores note:</span> {row.qcRequestNote}</div>}
+
+        {/* Auto-filled context (from PO / inward) + the docs Stores sent */}
+        <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <Read label="PO" value={row.poNumber} />
+          <Read label="PR" value={row.prNumbers} />
+          <Read label="Supplier" value={row.supplierName} />
+          <Read label="Issued to" value={row.issuedToLabel} />
+          <Read label="Received" value={`${fmtQty(row.qtyReceived)} ${row.uom || ''}`} />
+          <Read label="Ordered" value={row.orderedQty != null ? fmtQty(row.orderedQty) : '—'} />
+          <Read label="Batch" value={row.batchNo} />
+          <Read label="Expiry" value={row.dateOfExpiry ? formatDate(row.dateOfExpiry) : '—'} />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Select label="Result *" value={result} onChange={(e) => setResult(e.target.value)}>
-            <option value="PASSED">Passed</option>
-            <option value="PARTIAL">Partial</option>
-            <option value="FAILED">Failed</option>
-          </Select>
-          <Input label="Qty accepted" type="number" min="0" step="any" value={qtyAccepted} onChange={(e) => setQtyAccepted(e.target.value)} />
-          <Input label="Qty rejected" type="number" min="0" step="any" value={qtyRejected} onChange={(e) => setQtyRejected(e.target.value)} />
-        </div>
-        <Input label="Report no. (auto if blank)" value={reportNo} onChange={(e) => setReportNo(e.target.value)} />
-        <Textarea label="Report remark *" rows={4} value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="Inspection findings / report details…" />
+        {row.documents?.length > 0 && (
+          <div>
+            <p className="text-[11px] font-semibold text-navy-600 mb-1">Documents from Stores (invoice / reports)</p>
+            <DocList docs={row.documents} />
+          </div>
+        )}
+        {row.qcRequestNote && <p className="text-xs text-gray-600"><span className="text-gray-500">Stores note:</span> {row.qcRequestNote}</p>}
+
+        {/* Report — pre-filled, editable */}
+        <FormBlock title="Inspection report">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Input label="Report date" type="date" value={f.reportDate} onChange={(e) => set('reportDate', e.target.value)} />
+            <Input label="Inspection location" value={f.inspectionLocation} onChange={(e) => set('inspectionLocation', e.target.value)} />
+            <Input label="Report reference no." value={f.reportReferenceNo} onChange={(e) => set('reportReferenceNo', e.target.value)} />
+            <Input label="Material description" value={f.materialDescription} onChange={(e) => set('materialDescription', e.target.value)} className="sm:col-span-2" />
+            <Select label="Material category" value={f.materialCategory} onChange={(e) => set('materialCategory', e.target.value)}>
+              <option value="">—</option>
+              <option>Raw Material</option>
+              <option>Consumable</option>
+              <option>Tools & Fixtures</option>
+              <option>FIM</option>
+              <option>Others</option>
+            </Select>
+          </div>
+          <div>
+            <p className="text-[13px] font-semibold text-navy-700 mb-1">Documents verified</p>
+            <div className="flex flex-wrap gap-3">
+              {DOC_TYPE_CHECKS.map((d) => (
+                <label key={d} className="inline-flex items-center gap-1.5 text-xs text-navy-700">
+                  <input type="checkbox" checked={documentTypes.includes(d)} onChange={() => toggleDoc(d)} /> {d}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Select label="Packing condition" value={f.packingCondition} onChange={(e) => set('packingCondition', e.target.value)}>
+              <option>Sealed</option>
+              <option>Broken</option>
+            </Select>
+            <Input label="Packing / damage notes" value={f.packingDamageNotes} onChange={(e) => set('packingDamageNotes', e.target.value)} className="sm:col-span-2" />
+            <Input label="Date of manufacturing" type="date" value={f.dateOfManufacturing} onChange={(e) => set('dateOfManufacturing', e.target.value)} />
+            <Input label="Tapped holes / weld lugs condition" value={f.tappedHolesCondition} onChange={(e) => set('tappedHolesCondition', e.target.value)} className="sm:col-span-2" />
+          </div>
+        </FormBlock>
+
+        <FormBlock title="Quantity & result">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Input label="Qty as per PR" type="number" min="0" step="any" value={f.qtyAsPerPR} onChange={(e) => set('qtyAsPerPR', e.target.value)} />
+            <Input label="Qty ordered" type="number" min="0" step="any" value={f.qtyOrdered} onChange={(e) => set('qtyOrdered', e.target.value)} />
+            <Input label="Qty accepted" type="number" min="0" step="any" value={qtyAccepted} onChange={(e) => setQtyAccepted(e.target.value)} />
+            <Input label="Qty rejected" type="number" min="0" step="any" value={qtyRejected} onChange={(e) => setQtyRejected(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Select label="Result *" value={result} onChange={(e) => setResult(e.target.value)}>
+              <option value="PASSED">Passed</option>
+              <option value="PARTIAL">Partial</option>
+              <option value="FAILED">Failed</option>
+            </Select>
+            <Input label="Report no. (auto if blank)" value={reportNo} onChange={(e) => setReportNo(e.target.value)} className="sm:col-span-2" />
+          </div>
+          {(result === 'FAILED' || result === 'PARTIAL') && (
+            <Input label="Reason for rejection / non-conformity" value={f.rejectionReason} onChange={(e) => set('rejectionReason', e.target.value)} />
+          )}
+          <Textarea label="Report remark *" rows={3} value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="Inspection findings / report details…" />
+        </FormBlock>
+
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>{saving ? 'Finishing…' : 'Finish Review'}</Button>
         </div>
       </div>
     </Modal>
+  );
+}
+
+function FormBlock({ title, children }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] uppercase tracking-wider font-bold text-navy-600 border-b border-gray-100 pb-1">{title}</p>
+      {children}
+    </div>
   );
 }
 

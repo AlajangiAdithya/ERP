@@ -5,6 +5,7 @@ const { authorize } = require('../middleware/rbac');
 const {
   paginate, applyDateFilter, generateSequentialNumber, withDocRetry, OWNER_DEPTS,
 } = require('../utils/helpers');
+const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -140,15 +141,17 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const productIds = new Set();
     const batchNos = new Set();
     const poIds = new Set();
+    const poItemIds = new Set();
     rows.forEach((r) => {
       [r.createdById, r.qcRequestedById, r.qcReviewerId].forEach((id) => id && userIds.add(id));
       if (r.issuedToUnitId) unitIds.add(r.issuedToUnitId);
       if (r.productId) productIds.add(r.productId);
       if (r.batchNo) batchNos.add(r.batchNo);
       if (r.purchaseOrderId) poIds.add(r.purchaseOrderId);
+      if (r.purchaseOrderItemId) poItemIds.add(r.purchaseOrderItemId);
     });
 
-    const [users, units, products, mivItems, pos] = await Promise.all([
+    const [users, units, products, mivItems, pos, poItems] = await Promise.all([
       userIds.size ? prisma.user.findMany({ where: { id: { in: [...userIds] } }, select: { id: true, name: true, role: true } }) : [],
       unitIds.size ? prisma.unit.findMany({ where: { id: { in: [...unitIds] } }, select: { id: true, name: true, code: true } }) : [],
       productIds.size ? prisma.product.findMany({ where: { id: { in: [...productIds] } }, select: { id: true, name: true, sku: true, materialCode: true, unit: true } }) : [],
@@ -160,12 +163,14 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
         },
       }) : [],
       poIds.size ? prisma.purchaseOrder.findMany({ where: { id: { in: [...poIds] } }, select: { id: true, orderNumber: true } }) : [],
+      poItemIds.size ? prisma.purchaseOrderItem.findMany({ where: { id: { in: [...poItemIds] } }, select: { id: true, quantity: true } }) : [],
     ]);
 
     const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
     const unitMap = Object.fromEntries(units.map((u) => [u.id, u]));
     const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
     const poMap = Object.fromEntries(pos.map((p) => [p.id, p]));
+    const poItemMap = Object.fromEntries(poItems.map((it) => [it.id, it]));
     // batchNo -> [{ mivNo, qty, unit }]
     const mivMap = {};
     mivItems.forEach((mi) => {
@@ -186,6 +191,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       issuedToUnit: r.issuedToUnitId ? unitMap[r.issuedToUnitId] || null : null,
       product: r.productId ? productMap[r.productId] || null : null,
       poNumber: r.purchaseOrderId ? (poMap[r.purchaseOrderId]?.orderNumber || null) : null,
+      orderedQty: r.purchaseOrderItemId ? (poItemMap[r.purchaseOrderItemId]?.quantity ?? null) : null,
       mivs: r.batchNo ? (mivMap[r.batchNo] || []) : [],
     }));
 
@@ -286,6 +292,58 @@ router.patch('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) =
   }
 });
 
+// ── POST /api/material-inward/:id/documents ───────────────────────────
+// Stores uploads supporting documents (invoice / DC / test report / COA …) —
+// the same papers that used to be attached at "goods arrived". PDF or image.
+router.post('/:id/documents', authenticate, authorize(...WRITE_ROLES), qcDocsUpload.array('documents', 10), async (req, res) => {
+  try {
+    const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
+    if (!row) return res.status(404).json({ error: 'Entry not found' });
+    const files = req.files || [];
+    if (!files.length) return res.status(400).json({ error: 'No files uploaded' });
+
+    // Optional per-file label(s); falls back to a single shared label or filename.
+    let labels = req.body?.labels;
+    if (typeof labels === 'string') { try { labels = JSON.parse(labels); } catch { labels = null; } }
+    const sharedLabel = (req.body?.label || '').trim();
+
+    const existing = Array.isArray(row.documents) ? row.documents : [];
+    const added = files.map((file, i) => ({
+      label: (Array.isArray(labels) ? labels[i] : null) || sharedLabel || file.originalname || 'Document',
+      name: file.originalname || file.filename,
+      url: publicUrlFor('qc-docs', file.filename),
+      uploadedAt: new Date().toISOString(),
+      uploadedById: req.user.id,
+    }));
+
+    const updated = await prisma.materialInwardRegister.update({
+      where: { id: row.id },
+      data: { documents: [...existing, ...added] },
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error('material-inward documents error:', err);
+    res.status(500).json({ error: 'Failed to upload documents' });
+  }
+});
+
+// ── DELETE /api/material-inward/:id/documents/:index ──────────────────
+router.delete('/:id/documents/:index', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+  try {
+    const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
+    if (!row) return res.status(404).json({ error: 'Entry not found' });
+    const docs = Array.isArray(row.documents) ? [...row.documents] : [];
+    const idx = parseInt(req.params.index, 10);
+    if (Number.isNaN(idx) || idx < 0 || idx >= docs.length) return res.status(400).json({ error: 'Invalid document index' });
+    docs.splice(idx, 1);
+    const updated = await prisma.materialInwardRegister.update({ where: { id: row.id }, data: { documents: docs } });
+    res.json(updated);
+  } catch (err) {
+    console.error('material-inward document delete error:', err);
+    res.status(500).json({ error: 'Failed to remove document' });
+  }
+});
+
 // ── POST /api/material-inward/:id/request-qc ──────────────────────────
 // Stores hands the lot to QC. Captures the document requirement + note.
 router.post('/:id/request-qc', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
@@ -354,6 +412,26 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
 
     const reportNo = b.qcReportNo?.trim() || await withDocRetry(() => generateSequentialNumber(prisma, 'IR'));
 
+    // The complete inward-inspection report (IIR). Whitelisted so the client
+    // can't stuff arbitrary keys; everything is plain text / array.
+    const rep = b.qcReport || {};
+    const num = (v) => (v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : null);
+    const qcReport = {
+      reportDate: rep.reportDate || null,
+      inspectionLocation: rep.inspectionLocation?.trim?.() || null,
+      reportReferenceNo: rep.reportReferenceNo?.trim?.() || null,
+      materialDescription: rep.materialDescription?.trim?.() || null,
+      materialCategory: rep.materialCategory?.trim?.() || null,
+      documentTypes: Array.isArray(rep.documentTypes) ? rep.documentTypes : [],
+      packingCondition: rep.packingCondition?.trim?.() || null,
+      packingDamageNotes: rep.packingDamageNotes?.trim?.() || null,
+      dateOfManufacturing: rep.dateOfManufacturing || null,
+      tappedHolesCondition: rep.tappedHolesCondition?.trim?.() || null,
+      qtyAsPerPR: num(rep.qtyAsPerPR),
+      qtyOrdered: num(rep.qtyOrdered),
+      rejectionReason: rep.rejectionReason?.trim?.() || null,
+    };
+
     const updated = await prisma.materialInwardRegister.update({
       where: { id: row.id },
       data: {
@@ -363,6 +441,7 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
         qtyRejected: b.qtyRejected != null && b.qtyRejected !== '' ? Number(b.qtyRejected) : null,
         qcReportNo: reportNo,
         qcReportRemark: b.qcReportRemark.trim(),
+        qcReport,
         qcFinishedAt: new Date(),
       },
     });
