@@ -1,7 +1,7 @@
 const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
-const { getPublicKey } = require('../services/push');
+const { getPublicKey, enabled, countSubscriptions, sendTestToUser } = require('../services/push');
 
 const router = express.Router();
 
@@ -10,6 +10,30 @@ router.get('/public-key', authenticate, (req, res) => {
   const key = getPublicKey();
   if (!key) return res.status(503).json({ error: 'Push not configured' });
   res.json({ key });
+});
+
+// GET /api/push/status — is push configured on the server, and how many devices
+// has this user registered? Powers the "Notifications" settings UI.
+router.get('/status', authenticate, async (req, res) => {
+  try {
+    const devices = await countSubscriptions(prisma, req.user.id);
+    res.json({ enabled, devices });
+  } catch (error) {
+    console.error('Push status error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/push/test — send a test push to the current user's devices and
+// report how many were reached, so a device can verify push works end to end.
+router.post('/test', authenticate, async (req, res) => {
+  try {
+    const result = await sendTestToUser(prisma, req.user.id);
+    res.json(result);
+  } catch (error) {
+    console.error('Push test error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // POST /api/push/subscribe — register this browser/device for the logged-in user

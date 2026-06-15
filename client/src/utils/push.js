@@ -12,8 +12,25 @@ function urlBase64ToUint8Array(base64String) {
   return output;
 }
 
+// True if an existing subscription was created with a *different* VAPID public
+// key than the server now uses. After a key rotation the browser silently
+// keeps the old subscription and the server can never deliver to it — so we
+// detect the mismatch and force a fresh subscribe.
+function keyMatches(subscription, serverKeyBytes) {
+  const current = subscription.options?.applicationServerKey;
+  if (!current) return false;
+  const a = new Uint8Array(current);
+  if (a.length !== serverKeyBytes.length) return false;
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== serverKeyBytes[i]) return false;
+  return true;
+}
+
 export function pushSupported() {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+export function pushPermission() {
+  return 'Notification' in window ? Notification.permission : 'unsupported';
 }
 
 export async function ensurePushSubscription() {
@@ -21,12 +38,19 @@ export async function ensurePushSubscription() {
   if (Notification.permission !== 'granted') return false;
   try {
     const registration = await navigator.serviceWorker.ready;
+    const { data } = await api.get('/push/public-key');
+    const serverKeyBytes = urlBase64ToUint8Array(data.key);
+
     let subscription = await registration.pushManager.getSubscription();
+    // Drop a stale subscription bound to an old VAPID key before re-creating.
+    if (subscription && !keyMatches(subscription, serverKeyBytes)) {
+      await subscription.unsubscribe().catch(() => {});
+      subscription = null;
+    }
     if (!subscription) {
-      const { data } = await api.get('/push/public-key');
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(data.key),
+        applicationServerKey: serverKeyBytes,
       });
     }
     // Always re-send: ties the endpoint to whoever is logged in right now.
@@ -36,6 +60,20 @@ export async function ensurePushSubscription() {
     if (import.meta.env.DEV) console.warn('[push] subscribe failed', e);
     return false;
   }
+}
+
+// Explicit, user-initiated enable: ask for permission (if needed) then
+// subscribe this device. Returns the resulting permission string so the UI
+// can react ('granted' | 'denied' | 'default' | 'unsupported').
+export async function enablePush() {
+  if (!pushSupported()) return 'unsupported';
+  if (Notification.permission === 'default') {
+    try { await Notification.requestPermission(); } catch { /* user dismissed */ }
+  }
+  if (Notification.permission === 'granted') {
+    await ensurePushSubscription();
+  }
+  return Notification.permission;
 }
 
 // Called on logout so a shared device stops getting the old user's pushes.

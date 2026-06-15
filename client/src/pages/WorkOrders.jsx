@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   ClipboardList, Plus, CheckCircle2, Clock, XCircle, Building2,
   CalendarClock, TrendingUp, ShieldCheck, PauseCircle,
-  LayoutGrid, Table as TableIcon,
+  Table as TableIcon, Sheet,
   FileText, Receipt, ShieldAlert, Upload, AlertTriangle, Timer, Trash2, Check,
   GitBranch, ArrowRight, ArrowDown, Download, Paperclip, BellRing,
   Banknote, Wallet, FilePlus2, FileCheck2, UserCheck, Truck, RefreshCw,
@@ -19,7 +19,7 @@ import DateRangeFilter from '../components/shared/DateRangeFilter';
 import StatsCard from '../components/shared/StatsCard';
 import PageHero from '../components/shared/PageHero';
 import SearchBar from '../components/shared/SearchBar';
-import { formatDate } from '../utils/formatters';
+import { formatDate, formatDateTime } from '../utils/formatters';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import InvoicePdf from '../components/pdf/InvoicePdf';
 import QCVerificationCertificatePdf from '../components/pdf/QCVerificationCertificatePdf';
@@ -117,7 +117,7 @@ export default function WorkOrders() {
   const [showCreate, setShowCreate] = useState(false);
   const [detail, setDetail] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [view, setView] = useState('table'); // 'table' | 'cards'
+  const [view, setView] = useState('table'); // 'table' (detailed cards) | 'sheet' (full Excel grid)
   const [workflowOpen, setWorkflowOpen] = useState(false);
 
   // ── Filters (all client-side so every option is auto-derived from the data
@@ -364,11 +364,11 @@ export default function WorkOrders() {
               <TableIcon size={13} className="inline mr-1" /> Detailed
             </button>
             <button
-              onClick={() => setView('cards')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'cards' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
-              title="Compact cards"
+              onClick={() => setView('sheet')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'sheet' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
+              title="Full Excel-style sheet — who updated what & when, approvals, PDC extensions"
             >
-              <LayoutGrid size={13} className="inline mr-1" /> Compact
+              <Sheet size={13} className="inline mr-1" /> Full View
             </button>
           </div>
         </div>
@@ -470,60 +470,7 @@ export default function WorkOrders() {
       ) : view === 'table' ? (
         <DashboardTable workOrders={filtered} onOpen={setDetail} />
       ) : (
-        <div className="grid gap-3">
-          {filtered.map((w) => {
-            const meta = STATUS_META[w.status] || { color: 'gray', label: w.status, Icon: ClipboardList };
-            const Icon = meta.Icon;
-            const deliveredPct = w.orderQuantity > 0 ? Math.min(100, Math.round((w.deliveredQty / w.orderQuantity) * 100)) : 0;
-            return (
-              <Card key={w.id} className="p-4 cursor-pointer hover:shadow-md transition" onClick={() => setDetail(w)}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className="font-mono text-xs text-navy-500">
-                        {w.workOrderNumber}
-                      </span>
-                      <Badge color={meta.color}><Icon size={11} className="inline mr-1" />{meta.label}</Badge>
-                      {w.overdue && <Badge color="red">Overdue</Badge>}
-                      {w.onTime === true && <Badge color="green">On-Time</Badge>}
-                      {w.onTime === false && <Badge color="red">Late</Badge>}
-                      {w.pdc3MonthAlertActive && (
-                        <span className="text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-600 text-white animate-pulse">
-                          <AlertTriangle size={11} /> PDC ≤ 3 months
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="font-semibold text-navy-900 truncate">{w.customerName}</h3>
-                    <p className="text-sm text-navy-600 truncate">
-                      SO: {w.supplyOrderNo} • {formatDate(w.supplyOrderDate)}
-                      {w.items?.length ? ` • ${w.items.length} material${w.items.length > 1 ? 's' : ''}` : ''}
-                    </p>
-                    {w.supplyOrderDescription && (
-                      <p className="text-xs text-navy-500 mt-0.5 line-clamp-1">{w.supplyOrderDescription}</p>
-                    )}
-                    <div className="flex flex-wrap gap-3 text-xs text-navy-500 mt-2">
-                      {(w.assignedUnit || w.assignedUnitName) && (
-                        <span className="flex items-center gap-1"><Building2 size={11} />{w.assignedUnit ? w.assignedUnit.name : w.assignedUnitName}</span>
-                      )}
-                      <span>PDC: {formatDate(w.effectivePdcDate)}{w.extensions?.length ? ` (ext ${w.extensions.length})` : ''}</span>
-                      <span>Qty: {w.deliveredQty}/{w.orderQuantity} {w.orderUnit}</span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-navy-500">Progress</p>
-                    <p className="font-semibold text-navy-900">{deliveredPct}%</p>
-                    <div className="w-24 h-1.5 bg-navy-100 rounded-full mt-1 overflow-hidden">
-                      <div
-                        className={`h-full ${deliveredPct === 100 ? 'bg-green-500' : 'bg-blue-500'}`}
-                        style={{ width: `${deliveredPct}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+        <WorkOrderSheet workOrders={filtered} onOpen={setDetail} />
       )}
 
       {showCreate && (
@@ -779,6 +726,265 @@ const Field = ({ label, children, className = '' }) => (
     <div className="text-[10px] uppercase tracking-wider text-navy-400 font-semibold mb-0.5">{label}</div>
     <div className="text-xs text-navy-700 leading-tight">{children}</div>
   </div>
+);
+
+// ────────────────────────────────────────────────────────────────────
+// Full View — Excel-style register (horizontal scroll, sticky header +
+// sticky first column, zebra rows). Mirrors the Monitoring & Measuring
+// Resources / FIM status sheets. Surfaces the "who did what, when" audit:
+// who logged it, admin approval + when, unit acceptance + when, the latest
+// PDC extension (new date, by whom, when) and the last-updated stamp.
+// ────────────────────────────────────────────────────────────────────
+function WorkOrderSheet({ workOrders, onOpen }) {
+  const lastExt = (w) => (w.extensions?.length ? w.extensions[w.extensions.length - 1] : null);
+
+  return (
+    <Card className="!p-0 overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-[11.5px] border-separate border-spacing-0">
+          <thead className="sticky top-0 z-20">
+            <tr>
+              <Sth sticky>#</Sth>
+              <Sth>Status</Sth>
+              <Sth groupEnd>Customer / Work Order</Sth>
+              <Sth>Supply Order</Sth>
+              <Sth>Unit Manager</Sth>
+              <Sth>Materials</Sth>
+              <Sth groupEnd>Delivered</Sth>
+              <Sth>PDC</Sth>
+              <Sth groupEnd>PDC Extension</Sth>
+              <Sth>Admin Approval</Sth>
+              <Sth groupEnd>Unit Acceptance</Sth>
+              <Sth>Lots</Sth>
+              <Sth>Last Updated</Sth>
+              <Sth>Remarks</Sth>
+            </tr>
+          </thead>
+          <tbody>
+            {workOrders.map((w, i) => {
+              const ext = lastExt(w);
+              const meta = STATUS_META[w.status] || { color: 'gray', label: w.status, Icon: ClipboardList };
+              const Icon = meta.Icon;
+              const deliveredPct = w.orderQuantity > 0
+                ? Math.min(100, Math.round((w.deliveredQty / w.orderQuantity) * 100))
+                : 0;
+              const lotsSent = w.closures?.length || 0;
+              const lotsExpected = w.lotsExpected || null;
+              const accent =
+                w.overdue || w.status === 'ON_HOLD' ? 'border-l-red-500'
+                : w.status === 'CLOSED' ? 'border-l-green-500'
+                : w.status === 'COMPLETED' ? 'border-l-amber-500'
+                : 'border-l-navy-300';
+              const zebra = i % 2 === 1 ? 'bg-brand-gray' : 'bg-white';
+
+              return (
+                <tr
+                  key={w.id}
+                  className={`group ${zebra} hover:bg-navy-50 transition-colors cursor-pointer`}
+                  onClick={() => onOpen(w)}
+                >
+                  {/* # — sticky, with status-coloured accent edge */}
+                  <Std sticky className={`border-l-4 ${accent} text-center text-gray-400 font-mono text-[10px]`}>
+                    {i + 1}
+                  </Std>
+
+                  {/* Status + live flags */}
+                  <Std>
+                    <Badge color={meta.color}><Icon size={11} className="inline mr-1" />{meta.label}</Badge>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {w.overdue && <Pill tone="red">Overdue</Pill>}
+                      {w.onTime === true && <Pill tone="green">On-Time</Pill>}
+                      {w.onTime === false && <Pill tone="red">Late</Pill>}
+                      {w.pdc3MonthAlertActive && (
+                        <span className="text-[9px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-600 text-white animate-pulse">
+                          <AlertTriangle size={9} /> PDC ≤ 3m
+                        </span>
+                      )}
+                    </div>
+                  </Std>
+
+                  {/* Customer / WO no + who logged it */}
+                  <Std groupEnd nowrap={false} className="min-w-[180px] max-w-[260px]">
+                    <div className="font-semibold text-navy-900 leading-tight truncate" title={w.customerName}>{w.customerName}</div>
+                    <div className="font-mono text-[10px] text-navy-500 mt-0.5">{w.workOrderNumber}</div>
+                    {w.createdBy?.name && (
+                      <div className="text-[10px] text-gray-400 mt-0.5">Logged by {w.createdBy.name}</div>
+                    )}
+                  </Std>
+
+                  {/* Supply order no + date */}
+                  <Std nowrap={false} className="max-w-[180px]">
+                    <div className="font-mono text-[11px] text-navy-800 break-all" title={w.supplyOrderNo}>{w.supplyOrderNo}</div>
+                    <div className="text-[10px] text-gray-500 mt-0.5">{formatDate(w.supplyOrderDate)}</div>
+                  </Std>
+
+                  {/* Assigned unit manager */}
+                  <Std>
+                    {w.assignedUnit ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-navy-100 text-navy-700">
+                        <Building2 size={10} />{w.assignedUnit.name}
+                      </span>
+                    ) : w.assignedUnitName ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                        <Building2 size={10} />{w.assignedUnitName}
+                      </span>
+                    ) : <SDash />}
+                  </Std>
+
+                  {/* Materials */}
+                  <Std nowrap={false} className="max-w-[180px]">
+                    {w.items?.length ? (
+                      <div className="text-navy-800 line-clamp-2" title={w.items.map((it) => `${it.description} — ${it.quantity} ${it.uom}`).join('; ')}>
+                        {w.items.length === 1 ? w.items[0].description : `${w.items.length} materials`}
+                      </div>
+                    ) : <SDash />}
+                  </Std>
+
+                  {/* Delivered qty + progress */}
+                  <Std groupEnd>
+                    <div className="text-navy-800">
+                      <span className="font-semibold tnum">{fmtQty(w.deliveredQty)}</span>
+                      <span className="text-gray-500"> / {fmtQty(w.orderQuantity)} {w.orderUnit}</span>
+                    </div>
+                    <div className="w-20 h-1.5 bg-navy-100 rounded-full mt-1 overflow-hidden">
+                      <div className={`h-full ${deliveredPct === 100 ? 'bg-green-500' : 'bg-blue-500'}`} style={{ width: `${deliveredPct}%` }} />
+                    </div>
+                    <div className="text-[10px] text-gray-500 mt-0.5">{deliveredPct}%</div>
+                  </Std>
+
+                  {/* PDC (effective) */}
+                  <Std>
+                    <div className="font-medium text-navy-800">{formatDate(w.effectivePdcDate)}</div>
+                    <div className="text-[10px] text-gray-500 mt-0.5">
+                      {w.extensions?.length ? `${w.extensions.length} ext · orig ${formatDate(w.pdcDate)}` : 'original'}
+                    </div>
+                  </Std>
+
+                  {/* Latest PDC extension — done by the assigned unit manager */}
+                  <Std groupEnd nowrap={false} className="max-w-[210px]">
+                    {ext ? (
+                      <div className="leading-tight">
+                        <div className="font-semibold text-navy-800">
+                          <span className="text-[9px] uppercase tracking-wider text-navy-400 mr-1">Ext {ext.extensionNo}</span>
+                          {formatDate(ext.newPdcDate)}
+                        </div>
+                        <div className="text-[10px] text-gray-600 mt-0.5 flex items-center gap-1">
+                          <UserCheck size={10} className="text-gray-400" />
+                          {ext.grantedBy?.name || '—'}
+                        </div>
+                        <div className="text-[10px] text-gray-400">{formatDateTime(ext.grantedAt)}</div>
+                        {(ext.bankGuaranteeExtendedUpto || ext.requestLetterStatus || ext.prcStatus) && (
+                          <div className="text-[9px] text-gray-500 mt-0.5">
+                            {ext.bankGuaranteeExtendedUpto && <>BG→{formatDate(ext.bankGuaranteeExtendedUpto)} </>}
+                            {(ext.requestLetterStatus || ext.prcStatus) && (
+                              <>· Req:{ext.requestLetterStatus || '—'} · PRC:{ext.prcStatus || '—'}</>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : <SDash />}
+                  </Std>
+
+                  {/* Admin approval — who + when */}
+                  <Std nowrap={false} className="max-w-[170px]">
+                    {w.adminAcceptedAt ? (
+                      <div className="leading-tight">
+                        <div className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
+                          <ShieldCheck size={11} />{w.adminAcceptedBy?.name || 'Approved'}
+                        </div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">{formatDateTime(w.adminAcceptedAt)}</div>
+                      </div>
+                    ) : w.status === 'REJECTED' ? (
+                      <Pill tone="red">Rejected</Pill>
+                    ) : <Pill tone="amber">Pending</Pill>}
+                  </Std>
+
+                  {/* Unit acceptance — who + when */}
+                  <Std groupEnd nowrap={false} className="max-w-[170px]">
+                    {w.unitAcceptedAt ? (
+                      <div className="leading-tight">
+                        <div className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
+                          <CheckCircle2 size={11} />{w.unitAcceptedBy?.name || 'Accepted'}
+                        </div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">{formatDateTime(w.unitAcceptedAt)}</div>
+                      </div>
+                    ) : <Pill tone="amber">Pending</Pill>}
+                  </Std>
+
+                  {/* Lots */}
+                  <Std>
+                    <div className="font-semibold text-navy-800">
+                      {lotsExpected ? `${lotsSent} / ${lotsExpected}` : lotsSent}
+                    </div>
+                    <div className="text-[10px] text-gray-500">{lotsExpected ? 'sent' : 'sent (open)'}</div>
+                  </Std>
+
+                  {/* Last updated — what & when */}
+                  <Std nowrap={false} className="max-w-[170px]">
+                    <div className="text-[10px] text-gray-600">{formatDateTime(w.updatedAt)}</div>
+                    {w.deliveryDetailsUpdatedBy?.name && (
+                      <div className="text-[10px] text-gray-400 mt-0.5">
+                        Delivery: {w.deliveryDetailsUpdatedBy.name}
+                        {w.deliveryDetailsUpdatedAt && <> · {formatDate(w.deliveryDetailsUpdatedAt)}</>}
+                      </div>
+                    )}
+                  </Std>
+
+                  {/* Remarks / delivery notes */}
+                  <Std nowrap={false} className="min-w-[160px] max-w-[240px]">
+                    <div className="text-gray-700 line-clamp-2" title={w.deliveryDetails || w.remarks || ''}>
+                      {w.deliveryDetails || w.remarks || <SDash />}
+                    </div>
+                  </Std>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+// ── Full View table primitives (sticky-aware, Excel-neat) ──
+function Sth({ children, sticky = false, groupEnd = false, center = false }) {
+  return (
+    <th
+      className={`px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-navy-500 bg-navy-50 border-b border-navy-100 whitespace-nowrap
+        ${center ? 'text-center' : 'text-left'}
+        ${sticky ? 'sticky left-0 z-30 bg-navy-50' : ''}
+        ${groupEnd ? 'border-r-2 border-navy-100' : ''}`}
+    >
+      {children}
+    </th>
+  );
+}
+
+function Std({ children, sticky = false, groupEnd = false, nowrap = true, className = '' }) {
+  return (
+    <td
+      className={`px-3 py-2.5 align-top border-b border-gray-100 text-navy-700
+        ${nowrap ? 'whitespace-nowrap' : ''}
+        ${sticky ? 'sticky left-0 z-10 bg-inherit' : ''}
+        ${groupEnd ? 'border-r-2 border-gray-100' : ''}
+        ${className}`}
+    >
+      {children}
+    </td>
+  );
+}
+
+const SDash = () => <span className="text-gray-300 select-none">—</span>;
+
+const PILL_TONES = {
+  red:   'bg-rose-50 text-rose-700 ring-rose-200',
+  green: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  amber: 'bg-amber-50 text-amber-700 ring-amber-200',
+};
+const Pill = ({ tone = 'amber', children }) => (
+  <span className={`inline-flex items-center text-[9px] font-semibold px-1.5 py-0.5 rounded-full ring-1 ${PILL_TONES[tone]}`}>
+    {children}
+  </span>
 );
 
 // ────────────────────────────────────────────────────────────────────
@@ -1220,7 +1426,6 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
             wo={wo}
             currentUser={currentUser}
             busy={busy}
-            onSync={() => handleAction(() => api.post(`/work-orders/${wo.id}/alarms/sync`))}
             onAck={(alarmId, remark) => handleAction(() => api.post(`/work-orders/${wo.id}/alarms/${alarmId}/acknowledge`, { remark }))}
             onResolve={(alarmId, remark) => handleAction(() => api.post(`/work-orders/${wo.id}/alarms/${alarmId}/resolve`, { remark }))}
             onAddNote={(alarmId, body) => handleAction(() => api.post(`/work-orders/${wo.id}/alarms/${alarmId}/notes`, { body }))}
@@ -1865,7 +2070,7 @@ function RemarksTab({ wo, canEdit, busy, onSave }) {
 // the alarm row AND appended to the immutable note thread, so the full
 // audit history is always visible.
 // ────────────────────────────────────────────────────────────────────
-function AlarmsTab({ wo, currentUser, busy, onSync, onAck, onResolve, onAddNote }) {
+function AlarmsTab({ wo, currentUser, busy, onAck, onResolve, onAddNote }) {
   const alarms = wo.alarms || [];
   const active = alarms.filter((a) => a.status === 'ACTIVE');
   const ackd   = alarms.filter((a) => a.status === 'ACKNOWLEDGED');
@@ -1875,18 +2080,13 @@ function AlarmsTab({ wo, currentUser, busy, onSync, onAck, onResolve, onAddNote 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-semibold text-navy-800">
-            {active.length} active · {ackd.length} acknowledged
-          </p>
-          <p className="text-[11px] text-navy-500">
-            Alarms recompute automatically every 10 minutes. Every action below stores a remark in the audit trail.
-          </p>
-        </div>
-        <Button variant="secondary" disabled={busy} onClick={onSync}>
-          <RefreshCw size={14} className="inline mr-1" /> Recompute now
-        </Button>
+      <div>
+        <p className="text-sm font-semibold text-navy-800">
+          {active.length} active · {ackd.length} acknowledged
+        </p>
+        <p className="text-[11px] text-navy-500">
+          Alarms recompute automatically every 10 minutes. Every action below stores a remark in the audit trail.
+        </p>
       </div>
 
       {alarms.length === 0 ? (
