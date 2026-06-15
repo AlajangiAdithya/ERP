@@ -50,7 +50,17 @@ const router = express.Router();
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'SAFETY'];
+// LAB / METROLOGY / NDT included so they can track POs born from their own PRs
+// (they raise PRs and are own-scoped below, mirroring the PR list).
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'SAFETY', 'LAB', 'METROLOGY', 'NDT'];
+
+// Requester roles that may reach the PO chain but must only see POs tied to their
+// OWN purchase requests — same own-only model as the PR list. Unit managers see
+// their unit's PRs; the non-unit requester depts (Designs, R&D, Safety, Lab,
+// Metrology, NDT) see only PRs they personally raised. ADMIN / PURCHASE_OFFICER /
+// ACCOUNTING / PLANNING keep full chain visibility; QC + STORE_MANAGER are
+// status-scoped to their work queues below.
+const OWN_SCOPED_PO_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'DESIGNS', 'RND', 'SAFETY'];
 
 // DEPT_BY_ROLE (role → owning department label) is imported from utils/helpers so
 // inward, MIV issue, and inventory transfers all share one source of truth. When a
@@ -157,8 +167,9 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
       // Stores need to anticipate incoming material, act on QC_PASSED, and review history.
       // Union POs follow the same status flow so this also exposes them.
       where.status = { in: STORE_MANAGER_STATUSES };
-    } else if (req.user.role === 'MANAGER' || req.user.role === 'LAB') {
-      // Unit managers/labs only see POs originating from their own purchase requests
+    } else if (OWN_SCOPED_PO_ROLES.includes(req.user.role)) {
+      // Requester depts only see POs originating from their own purchase requests
+      // (direct link or via the multi-PR sourceRequests pivot).
       where.OR = [
         { purchaseRequest: { managerId: req.user.id } },
         { sourceRequests: { some: { purchaseRequest: { managerId: req.user.id } } } },
@@ -374,8 +385,8 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
 
     if (!order) return res.status(404).json({ error: 'Purchase order not found' });
 
-    // Manager/Lab can only view POs tied to their own purchase requests
-    if (req.user.role === 'MANAGER' || req.user.role === 'LAB') {
+    // Requester depts can only view POs tied to their own purchase requests
+    if (OWN_SCOPED_PO_ROLES.includes(req.user.role)) {
       const ownsPrimary = order.purchaseRequest?.managerId === req.user.id;
       const ownsSource = (order.sourceRequests || []).some(
         (s) => s.purchaseRequest?.managerId === req.user.id

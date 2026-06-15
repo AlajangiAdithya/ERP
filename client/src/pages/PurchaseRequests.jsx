@@ -1148,7 +1148,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
     request &&
     !['COMPLETED', 'REJECTED'].includes(request.status) &&
     (user?.role === 'ADMIN' ||
-      (['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'SAFETY', 'PLANNING'].includes(user?.role) &&
+      (['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'].includes(user?.role) &&
         request.managerId === user.id));
 
   const submitClose = async () => {

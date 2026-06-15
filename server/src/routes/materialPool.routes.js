@@ -139,7 +139,9 @@ router.get('/candidates', authenticate, authorize('PURCHASE_OFFICER'), async (re
       where: {
         id: { not: anchor.id },
         productName: { equals: anchor.productName, mode: 'insensitive' },
-        productUnit: anchor.productUnit,
+        // Match UOM case-insensitively, consistent with assertSameMaterial /
+        // add-item checks — otherwise a casing drift hides poolable lines.
+        productUnit: { equals: anchor.productUnit, mode: 'insensitive' },
         itemQuotationStatus: 'AWAITING_QUOTATION',
         request: {
           status: { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED'] },

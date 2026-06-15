@@ -76,7 +76,7 @@ const createSchema = z.object({
 router.post(
   '/upload-spec',
   authenticate,
-  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'SAFETY', 'PLANNING'),
+  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'),
   (req, res) => {
     prSpecsUpload.single('file')(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
