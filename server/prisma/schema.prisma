@@ -2556,9 +2556,15 @@ model MaterialInwardRegister {
 
   // Where the material is bound for — derived from the PO's PR(s). A union PO
   // may map to several units; issuedToLabel holds the joined, human label.
+  // issuedToDept is set when the PR was raised by a non-unit department role.
   issuedToUnitId String?
   issuedToDept   String?
   issuedToLabel  String?
+  // Indenter — whoever raised the PR (the requester the material is for).
+  // Snapshotted from the PO's PR manager at creation; null for direct entries
+  // or PRs with no recorded raiser.
+  indenterId     String?
+  indenterName   String?
 
   // Sequential lot number per PO (Lot 1, 2, 3 … N). Each partial receipt against
   // the same PO is its own lot; null for direct/cash entries with no PO.

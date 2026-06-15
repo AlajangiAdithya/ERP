@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Package, Plus, Truck, FlaskConical, ClipboardCheck, CheckCircle2,
   Search, Filter, X, Pencil, Trash2, ArrowDownToLine, Building2,
-  Paperclip, Upload, Eye, FileText, FileSearch, ExternalLink,
+  Paperclip, Upload, Eye, FileText, FileSearch, ExternalLink, UserRound,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -304,7 +304,7 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                   <Td nowrap={false} className="max-w-[150px]"><span className="text-gray-600 line-clamp-2" title={r.purpose || ''}>{r.purpose || <Dash />}</span></Td>
                   <Td className="font-mono text-[10px] text-amber-800">{r.batchNo || <Dash />}</Td>
                   <Td>{r.dateOfExpiry ? formatDate(r.dateOfExpiry) : <Dash />}</Td>
-                  <Td groupEnd nowrap={false} className="max-w-[170px]">
+                  <Td groupEnd nowrap={false} className="max-w-[180px]">
                     {r.issuedToLabel ? (
                       <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-navy-100 text-navy-700">
                         <Building2 size={10} />{r.issuedToLabel}
@@ -312,6 +312,11 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                     ) : r.issuedToDept ? (
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700">{r.issuedToDept}</span>
                     ) : <Dash />}
+                    {r.indenterName && !String(r.issuedToLabel || '').includes(r.indenterName) && (
+                      <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-gray-500" title={`Indenter: ${r.indenterName}`}>
+                        <UserRound size={9} /> {r.indenterName}
+                      </div>
+                    )}
                   </Td>
                   {/* QC / Review */}
                   <Td nowrap={false} className="max-w-[200px]">
@@ -500,10 +505,11 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
               {po?.items.map((it) => <option key={it.id} value={it.id}>{it.productName} — {it.quantity} {it.productUnit}</option>)}
             </Select>
             {po && (
-              <div className="sm:col-span-2 text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="sm:col-span-2 text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div><span className="text-gray-500">Supplier:</span> {po.supplierName}</div>
                 <div><span className="text-gray-500">PR:</span> {po.prNumbers || '—'}</div>
-                <div><span className="text-gray-500">Issued to:</span> {po.issuedToLabel || '—'}</div>
+                <div><span className="text-gray-500">Issued to:</span> {po.issuedToLabel || po.issuedToDept || '—'}</div>
+                <div><span className="text-gray-500">Indenter:</span> {po.indenterName || '—'}</div>
               </div>
             )}
           </div>
@@ -734,6 +740,7 @@ function RequestQcModal({ row, onClose, onDone }) {
             <ReadKV label="PR" value={row.prNumbers} />
             <ReadKV label="Supplier" value={row.supplierName} />
             <ReadKV label="Issued to" value={row.issuedToLabel || row.issuedToDept} />
+            <ReadKV label="Indenter" value={row.indenterName} />
             <ReadKV label="Lot" value={row.lotNo != null ? `Lot ${row.lotNo}` : '—'} />
             <ReadKV label="Document" value={`${docLabel(row.docType)}${row.docNumber ? ` · ${row.docNumber}` : ''}`} />
             <ReadKV label="Item" value={row.itemDescription} span />
@@ -878,7 +885,8 @@ function ReviewModal({ row, onClose, onDone }) {
           <Read label="PO" value={row.poNumber} />
           <Read label="PR" value={row.prNumbers} />
           <Read label="Supplier" value={row.supplierName} />
-          <Read label="Issued to" value={row.issuedToLabel} />
+          <Read label="Issued to" value={row.issuedToLabel || row.issuedToDept} />
+          <Read label="Indenter" value={row.indenterName} />
           <Read label="Received" value={`${fmtQty(row.qtyReceived)} ${row.uom || ''}`} />
           <Read label="Ordered" value={row.orderedQty != null ? fmtQty(row.orderedQty) : '—'} />
           <Read label="Batch" value={row.batchNo} />
@@ -1054,6 +1062,7 @@ function ReportViewModal({ row, onClose }) {
             <ReadKV label="PR" value={row.prNumbers} />
             <ReadKV label="Supplier" value={row.supplierName} />
             <ReadKV label="Issued to" value={row.issuedToLabel || row.issuedToDept} />
+            <ReadKV label="Indenter" value={row.indenterName} />
             <ReadKV label="Inspection location" value={rep.inspectionLocation} />
             <ReadKV label="Ref. no." value={rep.reportReferenceNo} />
           </div>

@@ -3,7 +3,7 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const {
-  paginate, applyDateFilter, generateSequentialNumber, withDocRetry, OWNER_DEPTS,
+  paginate, applyDateFilter, generateSequentialNumber, withDocRetry, OWNER_DEPTS, deptForRole,
 } = require('../utils/helpers');
 const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 
@@ -43,15 +43,33 @@ function prsOf(po) {
 // Derive the "issued to" target from a PO's PR(s). A union PO may map to many
 // units — we keep the joined human label, and only bind a single owning unit
 // when the PO maps to exactly one unit (so unit-stock stays unambiguous).
+//
+// The indenter — whoever raised the PR — is also resolved. When a PR carries no
+// unit (raised by a department/global role: Designs, QC, Lab, Metrology, NDT,
+// Safety, Planning), the material is reserved to that indenter's department
+// (issuedToDept), mirroring the PO→inward attribution, instead of being left in
+// the general pool.
 function issuedToFromPo(po) {
   const prs = prsOf(po);
   const prNumbers = prs.map((p) => p.requestNumber).filter(Boolean).join(', ');
+
   const units = [];
-  const seen = new Set();
+  const seenU = new Set();
   prs.forEach((p) => {
-    if (p.unit && !seen.has(p.unit.id)) { seen.add(p.unit.id); units.push(p.unit); }
+    if (p.unit && !seenU.has(p.unit.id)) { seenU.add(p.unit.id); units.push(p.unit); }
   });
+
+  // Indenter(s): the manager(s) who raised the PR(s) — who the material is for.
+  const indenters = [];
+  const seenI = new Set();
+  prs.forEach((p) => {
+    if (p.manager && !seenI.has(p.manager.id)) { seenI.add(p.manager.id); indenters.push(p.manager); }
+  });
+  const indenterId = indenters.length === 1 ? indenters[0].id : null;
+  const indenterName = indenters.map((m) => m.name).filter(Boolean).join(' · ') || null;
+
   let issuedToUnitId = null;
+  let issuedToDept = null;
   let issuedToLabel = '';
   if (units.length === 1) {
     issuedToUnitId = units[0].id;
@@ -60,11 +78,13 @@ function issuedToFromPo(po) {
     // Union across several units — show them all; leave stock in general pool.
     issuedToLabel = units.map((u) => `${u.name} (${u.code})`).join(' · ');
   } else {
-    // Global requester (no unit) — label by the raising manager / role.
-    const mgr = prs.find((p) => p.manager)?.manager;
-    issuedToLabel = mgr ? `${mgr.name} (${mgr.role})` : '';
+    // No unit → raised by a department/global role. Reserve to that department
+    // and label by the indenter, matching the PO→inward attribution.
+    const raiserRole = indenters[0]?.role || null;
+    issuedToDept = deptForRole(raiserRole);
+    issuedToLabel = indenterName ? `${indenterName}${raiserRole ? ` (${raiserRole})` : ''}` : '';
   }
-  return { prNumbers, issuedToUnitId, issuedToLabel };
+  return { prNumbers, issuedToUnitId, issuedToDept, issuedToLabel, indenterId, indenterName };
 }
 
 const PO_PICKER_INCLUDE = {
@@ -90,7 +110,7 @@ router.get('/active-pos', authenticate, authorize(...WRITE_ROLES), async (req, r
       take: 500,
     });
     const out = orders.map((po) => {
-      const { prNumbers, issuedToUnitId, issuedToLabel } = issuedToFromPo(po);
+      const { prNumbers, issuedToUnitId, issuedToDept, issuedToLabel, indenterName } = issuedToFromPo(po);
       return {
         id: po.id,
         orderNumber: po.orderNumber,
@@ -99,7 +119,9 @@ router.get('/active-pos', authenticate, authorize(...WRITE_ROLES), async (req, r
         isUnion: po.isUnion,
         prNumbers,
         issuedToUnitId,
+        issuedToDept,
         issuedToLabel,
+        indenterName,
         items: (po.items || []).map((it) => ({
           id: it.id,
           productId: it.productId,
@@ -269,11 +291,14 @@ router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
     if (data.purchaseOrderId) {
       const po = await prisma.purchaseOrder.findUnique({ where: { id: data.purchaseOrderId }, include: PO_PICKER_INCLUDE });
       if (!po) return res.status(404).json({ error: 'Purchase order not found' });
-      const { prNumbers, issuedToUnitId, issuedToLabel } = issuedToFromPo(po);
+      const { prNumbers, issuedToUnitId, issuedToDept, issuedToLabel, indenterId, indenterName } = issuedToFromPo(po);
       data.supplierName = po.supplierName || data.supplierName;
       data.prNumbers = prNumbers || data.prNumbers;
       data.issuedToUnitId = issuedToUnitId;
+      data.issuedToDept = issuedToDept;
       data.issuedToLabel = issuedToLabel;
+      data.indenterId = indenterId;
+      data.indenterName = indenterName;
       const item = (po.items || []).find((it) => it.id === data.purchaseOrderItemId);
       if (item) {
         data.itemDescription = item.productName;

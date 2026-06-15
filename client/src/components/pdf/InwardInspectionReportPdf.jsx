@@ -53,12 +53,15 @@ export default function InwardInspectionReportPdf({ row }) {
             <L label="Issued To" width="20%" /><C value={r.issuedToLabel || r.issuedToDept} width="30%" />
           </View>
           <View style={styles.row}>
+            <L label="Indenter" width="20%" /><C value={r.indenterName} width="30%" />
             <L label="Document" width="20%" /><C value={`${DOC_TYPE_LABEL[r.docType] || r.docType || '—'}${r.docNumber ? ` — ${r.docNumber}` : ''}`} width="30%" />
-            <L label="Vehicle" width="20%" /><C value={r.vehicleDetails} width="30%" />
           </View>
           <View style={styles.row}>
+            <L label="Vehicle" width="20%" /><C value={r.vehicleDetails} width="30%" />
             <L label="Lot No." width="20%" /><C value={r.lotNo != null ? `Lot ${r.lotNo}` : '—'} width="30%" />
-            <L label="Inspection Location" width="20%" /><C value={rep.inspectionLocation} width="30%" />
+          </View>
+          <View style={styles.row}>
+            <L label="Inspection Location" width="20%" /><C value={rep.inspectionLocation} width="80%" />
           </View>
         </View>
 
