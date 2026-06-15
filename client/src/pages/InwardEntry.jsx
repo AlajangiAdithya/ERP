@@ -108,13 +108,33 @@ const STATUS_META = {
   QC_REQUESTED: { label: 'QC Requested', tone: 'amber' },
   QC_IN_REVIEW: { label: 'In Review',    tone: 'blue' },
   QC_DONE:      { label: 'QC Done',      tone: 'green' },
+  ON_HOLD:      { label: 'On Hold',      tone: 'red' },
   INWARDED:     { label: 'Inwarded',     tone: 'green' },
 };
-const RESULT_TONE = { PASSED: 'green', PARTIAL: 'amber', FAILED: 'red' };
+const RESULT_TONE = { PASSED: 'green', PARTIAL: 'amber', FAILED: 'red', ON_HOLD: 'red' };
 
-const STATUS_TABS = ['ALL', 'DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW', 'QC_DONE', 'INWARDED'];
+const STATUS_TABS = ['ALL', 'DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW', 'QC_DONE', 'ON_HOLD', 'INWARDED'];
 
 const fmtQty = (n) => (n == null ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }));
+
+// Mirror of the server's per-unit split (proportional to allocated qty; the last
+// unit absorbs the rounding remainder). Used only to preview where stock lands.
+function splitPreview(allocs, qty) {
+  const list = Array.isArray(allocs) ? allocs.filter((a) => a && a.unitId) : [];
+  const total = list.reduce((s, a) => s + (a.allocatedQty || 0), 0);
+  const round3 = (n) => Math.round(n * 1000) / 1000;
+  let assigned = 0;
+  return list.map((a, i) => {
+    let q;
+    if (i === list.length - 1) {
+      q = round3((qty || 0) - assigned);
+    } else {
+      q = total > 0 ? round3((qty || 0) * ((a.allocatedQty || 0) / total)) : round3((qty || 0) / list.length);
+      assigned += q;
+    }
+    return { unitId: a.unitId, unitName: a.unitName, unitCode: a.unitCode, qty: q };
+  });
+}
 
 // Two ways material comes inward: the PO/direct register (left tab) and
 // customer-supplied Free Issue Material recorded via inward gate passes (FIM tab).
@@ -179,6 +199,7 @@ function MaterialInwardRegister() {
   const [editFor, setEditFor] = useState(null);
   const [docsFor, setDocsFor] = useState(null);        // row -> manage / view documents
   const [reportFor, setReportFor] = useState(null);    // row -> view filled IIR report
+  const [resendFor, setResendFor] = useState(null);    // row -> resend held/failed lot to QC
   const [busyId, setBusyId] = useState(null);
 
   const load = () => {
@@ -294,6 +315,7 @@ function MaterialInwardRegister() {
           onDelete={del}
           onDocs={setDocsFor}
           onViewReport={setReportFor}
+          onResend={setResendFor}
         />
       )}
 
@@ -318,6 +340,9 @@ function MaterialInwardRegister() {
       {reportFor && (
         <ReportViewModal row={reportFor} onClose={() => setReportFor(null)} />
       )}
+      {resendFor && (
+        <ResendQcModal row={resendFor} onClose={() => setResendFor(null)} onDone={() => { setResendFor(null); load(); }} />
+      )}
     </div>
   );
 }
@@ -325,7 +350,7 @@ function MaterialInwardRegister() {
 // ────────────────────────────────────────────────────────────────────
 // The Excel-style register sheet (horizontal scroll, sticky header + MIR col)
 // ────────────────────────────────────────────────────────────────────
-function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs, onViewReport }) {
+function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs, onViewReport, onResend }) {
   return (
     <Card className="!p-0 overflow-hidden">
       <div className="overflow-x-auto">
@@ -356,6 +381,7 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
               const zebra = i % 2 ? 'bg-brand-gray' : 'bg-white';
               const accent =
                 r.status === 'INWARDED' ? 'border-l-green-500'
+                : r.status === 'ON_HOLD' ? 'border-l-red-500'
                 : r.qcResult === 'FAILED' ? 'border-l-red-500'
                 : r.status === 'QC_REQUESTED' ? 'border-l-amber-500'
                 : r.status === 'QC_IN_REVIEW' ? 'border-l-blue-500'
@@ -365,10 +391,13 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                 <tr key={r.id} className={`group ${zebra} hover:bg-navy-50 transition-colors`}>
                   <Td sticky className={`border-l-4 ${accent}`}>
                     <div className="font-mono text-[11px] font-semibold text-navy-800">{r.mirNo}</div>
-                    <div className="mt-1 flex items-center gap-1">
+                    <div className="mt-1 flex items-center gap-1 flex-wrap">
                       <Pill tone={meta.tone}>{meta.label}</Pill>
                       {r.lotNo != null && (
                         <span className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">Lot {r.lotNo}</span>
+                      )}
+                      {r.qcRound > 1 && (
+                        <span className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700" title="Re-inspection round">Re-insp {r.qcRound}</span>
                       )}
                     </div>
                   </Td>
@@ -417,15 +446,21 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                     <Pill tone={r.status === 'QC_DONE' && r.qcResult ? RESULT_TONE[r.qcResult] : meta.tone}>
                       {r.status === 'QC_DONE' && r.qcResult ? `QC ${r.qcResult}` : meta.label}
                     </Pill>
-                    {r.qcReportNo && <div className="text-[10px] text-gray-500 mt-0.5 font-mono">{r.qcReportNo}</div>}
+                    {r.qcReportNo && <div className="text-[10px] text-gray-500 mt-0.5 font-mono" title="Inward Inspection No.">{r.qcReportNo}</div>}
                     {r.qtyAccepted != null && (
                       <div className="text-[10px] text-gray-500">Acc {fmtQty(r.qtyAccepted)}{r.qtyRejected ? ` · Rej ${fmtQty(r.qtyRejected)}` : ''}</div>
+                    )}
+                    {r.status === 'ON_HOLD' && r.qtyHeld != null && (
+                      <div className="text-[10px] text-rose-600">Held {fmtQty(r.qtyHeld)}{r.uom ? ` ${r.uom}` : ''}</div>
+                    )}
+                    {r.status === 'ON_HOLD' && r.holdReason && (
+                      <div className="text-[10px] text-rose-700 mt-0.5 line-clamp-2" title={r.holdReason}>⚠ {r.holdReason}</div>
                     )}
                     {r.qcReportRemark && (
                       <div className="text-[10px] text-gray-600 mt-0.5 line-clamp-2" title={r.qcReportRemark}>“{r.qcReportRemark}”</div>
                     )}
                     {r.qcReviewer && <div className="text-[10px] text-gray-400 mt-0.5">by {r.qcReviewer.name}</div>}
-                    {(r.status === 'QC_DONE' || r.status === 'INWARDED') && r.qcResult && (
+                    {(r.status === 'QC_DONE' || r.status === 'INWARDED' || r.status === 'ON_HOLD') && r.qcResult && (
                       <button onClick={() => onViewReport(r)} className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-navy-600 hover:text-navy-800">
                         <FileSearch size={11} /> View report
                       </button>
@@ -465,7 +500,17 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                         {canWrite && r.status === 'QC_DONE' && r.qcResult !== 'FAILED' && (
                           <ActBtn tone="green" busy={busy} onClick={() => onInward(r)}><ArrowDownToLine size={11} /> Inward</ActBtn>
                         )}
-                        {r.status === 'QC_DONE' && r.qcResult === 'FAILED' && <Pill tone="red">Rejected</Pill>}
+                        {canWrite && r.status === 'ON_HOLD' && (
+                          <ActBtn tone="amber" busy={busy} onClick={() => onResend(r)}><Send size={11} /> Resend to QC</ActBtn>
+                        )}
+                        {r.status === 'QC_DONE' && r.qcResult === 'FAILED' && (
+                          <>
+                            <Pill tone="red">Rejected</Pill>
+                            {canWrite && (
+                              <ActBtn tone="amber" busy={busy} onClick={() => onResend(r)}><Send size={11} /> Re-inspect</ActBtn>
+                            )}
+                          </>
+                        )}
                         {r.status === 'INWARDED' && <span className="inline-flex items-center gap-1 text-[10px] text-green-700 font-semibold"><CheckCircle2 size={12} /> Done</span>}
                       </div>
                     </Td>
@@ -489,7 +534,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   const [pos, setPos] = useState([]);
   const [products, setProducts] = useState([]);
   const [poId, setPoId] = useState('');
-  const [poItemId, setPoItemId] = useState('');
+  // Multi-line PO receipt: sel[poItemId] = { qty, batchNo, dateOfExpiry }. A key's
+  // presence means the line is ticked for this delivery.
+  const [sel, setSel] = useState({});
   const [productId, setProductId] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const [error, setError] = useState('');
@@ -508,6 +555,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   });
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
 
+  // New + From PO → per-line qty/batch/expiry (a delivery carries several lines,
+  // each in its own batch). Direct & edit keep the single scalar fields.
+  const perLine = !isEdit && source === 'po';
+
   useEffect(() => {
     if (isEdit) return; // edit only touches scalar fields
     if (source === 'po') api.get('/material-inward/active-pos').then(({ data }) => setPos(data.orders || [])).catch(() => setPos([]));
@@ -515,16 +566,16 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   }, [source, isEdit]);
 
   const po = pos.find((p) => p.id === poId);
-  const poItem = po?.items.find((it) => it.id === poItemId);
-  useEffect(() => {
-    if (poItem) {
-      set('itemDescription', poItem.productName);
-      set('uom', poItem.productUnit);
-      const remaining = (poItem.quantity || 0) - (poItem.receivedQty || 0);
-      if (f.qtyReceived === '') set('qtyReceived', remaining > 0 ? remaining : '');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [poItemId]);
+  const remainingOf = (it) => (it.quantity || 0) - (it.receivedQty || 0);
+  const toggleLine = (it) => setSel((prev) => {
+    const next = { ...prev };
+    if (next[it.id]) { delete next[it.id]; return next; }
+    const rem = remainingOf(it);
+    next[it.id] = { qty: rem > 0 ? String(rem) : '', batchNo: '', dateOfExpiry: '' };
+    return next;
+  });
+  const setLine = (id, k, v) => setSel((prev) => ({ ...prev, [id]: { ...prev[id], [k]: v } }));
+  const selectedCount = Object.keys(sel).length;
 
   const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
@@ -534,9 +585,21 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
 
   const submit = async () => {
     setError('');
-    if (!isEdit && source === 'po' && (!poId || !poItemId)) return setError('Pick a PO and the material line.');
-    if (!isEdit && source === 'direct' && !f.itemDescription.trim()) return setError('Item description is required.');
-    if (!f.qtyReceived || Number(f.qtyReceived) <= 0) return setError('Enter the received quantity.');
+    if (perLine) {
+      if (!poId) return setError('Pick a PO.');
+      const lines = Object.entries(sel);
+      if (!lines.length) return setError('Tick at least one material line.');
+      for (const [id, v] of lines) {
+        if (!v.qty || Number(v.qty) <= 0) {
+          const it = po?.items.find((x) => x.id === id);
+          return setError(`Enter a received quantity for ${it?.productName || 'each ticked line'}.`);
+        }
+      }
+    } else if (!isEdit && source === 'direct' && !f.itemDescription.trim()) {
+      return setError('Item description is required.');
+    } else if (!perLine && (!f.qtyReceived || Number(f.qtyReceived) <= 0)) {
+      return setError('Enter the received quantity.');
+    }
     setSaving(true);
     try {
       if (isEdit) {
@@ -546,22 +609,33 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           purpose: f.purpose,
           ...(editRow.poNumber ? {} : { itemDescription: f.itemDescription, uom: f.uom, productId: productId || editRow.productId || null }),
         });
+      } else if (perLine) {
+        // One delivery → many lines → one MIR row each (server assigns lots).
+        await api.post('/material-inward/bulk', {
+          purchaseOrderId: poId,
+          vehicleDetails: f.vehicleDetails,
+          docType: f.docType,
+          docNumber: f.docNumber,
+          purpose: f.purpose,
+          lines: Object.entries(sel).map(([poItemId, v]) => ({
+            purchaseOrderItemId: poItemId,
+            qtyReceived: v.qty,
+            batchNo: v.batchNo,
+            dateOfExpiry: v.dateOfExpiry || null,
+          })),
+        });
       } else {
         const payload = {
-          vehicleDetails: f.vehicleDetails, docType: f.docType, docNumber: f.docNumber,
+          vehicleDetails: f.vehicleDetails, docNumber: f.docNumber,
           qtyReceived: f.qtyReceived, batchNo: f.batchNo, dateOfExpiry: f.dateOfExpiry || null,
           purpose: f.purpose,
+          itemDescription: f.itemDescription,
+          uom: f.uom,
+          supplierName: f.supplierName,
+          productId: productId || null,
+          // Direct/cash entries default an invoice doc-type to Cash Purchase.
+          docType: f.docType === 'INVOICE' ? 'CASH_PURCHASE' : f.docType,
         };
-        if (source === 'po') {
-          payload.purchaseOrderId = poId;
-          payload.purchaseOrderItemId = poItemId;
-        } else {
-          payload.itemDescription = f.itemDescription;
-          payload.uom = f.uom;
-          payload.supplierName = f.supplierName;
-          payload.productId = productId || null;
-          payload.docType = f.docType === 'INVOICE' ? 'CASH_PURCHASE' : f.docType;
-        }
         await api.post('/material-inward', payload);
       }
       onSaved();
@@ -587,23 +661,62 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           </div>
         )}
 
-        {/* Source selection */}
+        {/* From PO — pick the PO, then tick every line that arrived (each can be a
+            partial / batch receipt). Units are auto-assigned per line. */}
         {!isEdit && source === 'po' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Select label="RAPS Purchase Order *" value={poId} onChange={(e) => { setPoId(e.target.value); setPoItemId(''); }}>
+          <div className="space-y-3">
+            <Select label="RAPS Purchase Order *" value={poId} onChange={(e) => { setPoId(e.target.value); setSel({}); }}>
               <option value="">Select active PO…</option>
               {pos.map((p) => <option key={p.id} value={p.id}>{p.orderNumber} — {p.supplierName} {p.isUnion ? '(UNION)' : ''}</option>)}
             </Select>
-            <Select label="Material line *" value={poItemId} onChange={(e) => setPoItemId(e.target.value)} disabled={!po}>
-              <option value="">{po ? 'Select item…' : 'Pick a PO first'}</option>
-              {po?.items.map((it) => <option key={it.id} value={it.id}>{it.productName} — {it.quantity} {it.productUnit}</option>)}
-            </Select>
             {po && (
-              <div className="sm:col-span-2 text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div><span className="text-gray-500">Supplier:</span> {po.supplierName}</div>
                 <div><span className="text-gray-500">PR:</span> {po.prNumbers || '—'}</div>
                 <div><span className="text-gray-500">Issued to:</span> {po.issuedToLabel || po.issuedToDept || '—'}</div>
                 <div><span className="text-gray-500">Indenter:</span> {po.indenterName || '—'}</div>
+              </div>
+            )}
+            {po && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[13px] font-semibold text-navy-700">Material lines received *</label>
+                  <span className="text-[11px] text-navy-500">{selectedCount} of {po.items.length} ticked</span>
+                </div>
+                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-[320px] overflow-y-auto">
+                  {po.items.map((it) => {
+                    const checked = !!sel[it.id];
+                    const v = sel[it.id] || {};
+                    const rem = remainingOf(it);
+                    return (
+                      <div key={it.id} className={`p-2.5 ${checked ? 'bg-navy-50/50' : ''}`}>
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input type="checkbox" className="mt-0.5" checked={checked} onChange={() => toggleLine(it)} />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[13px] font-medium text-navy-800">{it.productName}</div>
+                            <div className="text-[11px] text-gray-500">
+                              Ordered {fmtQty(it.quantity)} {it.productUnit} · Received {fmtQty(it.receivedQty || 0)} · <span className={rem > 0 ? 'text-emerald-600 font-semibold' : 'text-gray-400'}>Remaining {fmtQty(rem)}</span>
+                            </div>
+                            {it.issuedToLabel && (
+                              <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-navy-600">
+                                <Building2 size={10} /> → {it.issuedToLabel}
+                                {it.unitAllocations?.length > 1 && <span className="text-amber-600">(auto-split)</span>}
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                        {checked && (
+                          <div className="mt-2 ml-6 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <Input label="Qty received *" type="number" min="0" step="any" value={v.qty} onChange={(e) => setLine(it.id, 'qty', e.target.value)} />
+                            <Input label="Batch no." value={v.batchNo} onChange={(e) => setLine(it.id, 'batchNo', e.target.value)} />
+                            <Input label="Expiry" type="date" value={v.dateOfExpiry} onChange={(e) => setLine(it.id, 'dateOfExpiry', e.target.value)} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-[11px] text-gray-400">Each ticked line becomes its own MIR row (lot) with its own QC track. A line can be received in batches across several deliveries — just record the part that arrived.</p>
               </div>
             )}
           </div>
@@ -639,22 +752,24 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           </div>
         )}
 
-        {/* Common fields */}
+        {/* Common header fields. Qty / batch / expiry are per-line in PO mode. */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Input label="Vehicle details" value={f.vehicleDetails} onChange={(e) => set('vehicleDetails', e.target.value)} placeholder="e.g. AP 31 CD 1234" />
           <Select label="Document type" value={f.docType} onChange={(e) => set('docType', e.target.value)}>
             {DOC_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
           </Select>
           <Input label="Document number" value={f.docNumber} onChange={(e) => set('docNumber', e.target.value)} placeholder="Invoice / DC / GP no." />
-          <Input label="Qty received *" type="number" min="0" step="any" value={f.qtyReceived} onChange={(e) => set('qtyReceived', e.target.value)} />
-          <Input label="Batch number" value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />
-          <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />
+          {!perLine && <Input label="Qty received *" type="number" min="0" step="any" value={f.qtyReceived} onChange={(e) => set('qtyReceived', e.target.value)} />}
+          {!perLine && <Input label="Batch number" value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />}
+          {!perLine && <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />}
         </div>
         <Textarea label="Purpose" rows={2} value={f.purpose} onChange={(e) => set('purpose', e.target.value)} />
 
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving}>{saving ? 'Saving…' : (isEdit ? 'Update' : 'Create Entry')}</Button>
+          <Button onClick={submit} disabled={saving}>
+            {saving ? 'Saving…' : isEdit ? 'Update' : perLine ? `Create ${selectedCount || ''} ${selectedCount === 1 ? 'Entry' : 'Entries'}`.trim() : 'Create Entry'}
+          </Button>
         </div>
       </div>
     </Modal>
@@ -927,18 +1042,25 @@ function ReviewModal({ row, onClose, onDone }) {
   const [result, setResult] = useState(row.qcResult || 'PASSED');
   const [qtyAccepted, setQtyAccepted] = useState(row.qtyAccepted ?? row.qtyReceived ?? '');
   const [qtyRejected, setQtyRejected] = useState(row.qtyRejected ?? '');
+  const [qtyHeld, setQtyHeld] = useState(row.qtyHeld ?? '');
+  const [holdReason, setHoldReason] = useState(row.holdReason || '');
   const [reportNo, setReportNo] = useState(row.qcReportNo || '');
   const [remark, setRemark] = useState(row.qcReportRemark || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const onHold = result === 'ON_HOLD';
+
   const submit = async () => {
     setError('');
+    if (!reportNo.trim()) return setError('Inward Inspection No. is required.');
     if (!remark.trim()) return setError('A report remark is required.');
+    if (onHold && !holdReason.trim()) return setError('A hold reason is required to place the lot on hold.');
     setSaving(true);
     try {
       await api.post(`/material-inward/${row.id}/finish-review`, {
-        qcResult: result, qtyAccepted, qtyRejected, qcReportNo: reportNo, qcReportRemark: remark,
+        qcResult: result, qtyAccepted, qtyRejected, qtyHeld, holdReason,
+        qcReportNo: reportNo, qcReportRemark: remark,
         qcReport: { ...f, documentTypes },
       });
       onDone();
@@ -1038,26 +1160,34 @@ function ReviewModal({ row, onClose, onDone }) {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <Input label="Qty as per PR" type="number" min="0" step="any" value={f.qtyAsPerPR} onChange={(e) => set('qtyAsPerPR', e.target.value)} />
             <Input label="Qty ordered" type="number" min="0" step="any" value={f.qtyOrdered} onChange={(e) => set('qtyOrdered', e.target.value)} />
-            <Input label="Qty accepted" type="number" min="0" step="any" value={qtyAccepted} onChange={(e) => setQtyAccepted(e.target.value)} />
-            <Input label="Qty rejected" type="number" min="0" step="any" value={qtyRejected} onChange={(e) => setQtyRejected(e.target.value)} />
+            {!onHold && <Input label="Qty accepted" type="number" min="0" step="any" value={qtyAccepted} onChange={(e) => setQtyAccepted(e.target.value)} />}
+            {!onHold && <Input label="Qty rejected" type="number" min="0" step="any" value={qtyRejected} onChange={(e) => setQtyRejected(e.target.value)} />}
+            {onHold && <Input label="Qty held" type="number" min="0" step="any" value={qtyHeld} onChange={(e) => setQtyHeld(e.target.value)} />}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Select label="Result *" value={result} onChange={(e) => setResult(e.target.value)}>
               <option value="PASSED">Passed</option>
-              <option value="PARTIAL">Partial</option>
-              <option value="FAILED">Failed</option>
+              <option value="PARTIAL">Partial (some accepted)</option>
+              <option value="FAILED">Failed (all rejected)</option>
+              <option value="ON_HOLD">On Hold (re-inspect later)</option>
             </Select>
-            <Input label="Report no. (auto if blank)" value={reportNo} onChange={(e) => setReportNo(e.target.value)} className="sm:col-span-2" />
+            <Input label="Inward Inspection No. *" value={reportNo} onChange={(e) => setReportNo(e.target.value)} className="sm:col-span-2" placeholder="e.g. RAPS/IR/25/021" />
           </div>
+          {onHold && (
+            <Input label="Hold reason *" value={holdReason} onChange={(e) => setHoldReason(e.target.value)} placeholder="Why is this lot held? (pending COA / retest / clarification…)" />
+          )}
           {(result === 'FAILED' || result === 'PARTIAL') && (
             <Input label="Reason for rejection / non-conformity" value={f.rejectionReason} onChange={(e) => set('rejectionReason', e.target.value)} />
+          )}
+          {onHold && (
+            <p className="text-[11px] text-rose-600">On hold won't add stock. Once the issue is sorted, Stores can resend the lot to QC for re-inspection.</p>
           )}
           <Textarea label="Report remark *" rows={3} value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="Inspection findings / report details…" />
         </FormBlock>
 
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving}>{saving ? 'Finishing…' : 'Finish Review'}</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Saving…' : onHold ? 'Place on Hold' : 'Finish Review'}</Button>
         </div>
       </div>
     </Modal>
@@ -1087,18 +1217,63 @@ function InwardConfirmModal({ row, onClose, onDone }) {
     <Modal isOpen onClose={onClose} title={`Inward into stock — ${row.mirNo}`} size="md">
       <div className="space-y-3">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
-        <div className="text-sm text-gray-700 space-y-1">
+        <div className="text-sm text-gray-700 space-y-2">
           <p><strong>{row.itemDescription}</strong></p>
           <p className="text-xs text-gray-500">
             Adding <strong className="text-navy-800">{fmtQty(qty)} {row.uom || ''}</strong> to stock
             {row.batchNo ? <> · Batch <span className="font-mono">{row.batchNo}</span></> : ''}
             {row.issuedToLabel ? <> · for {row.issuedToLabel}</> : ''}.
           </p>
+          {!row.issuedToUnitId && row.unitAllocations?.length > 1 && (
+            <div className="text-[11px] bg-navy-50 border border-navy-100 rounded p-2 space-y-0.5">
+              <p className="font-semibold text-navy-700">Auto-split across units (by PR allocation):</p>
+              {splitPreview(row.unitAllocations, qty).map((s) => (
+                <div key={s.unitId} className="flex justify-between">
+                  <span className="text-gray-600">{s.unitName} ({s.unitCode})</span>
+                  <span className="font-semibold text-navy-800">{fmtQty(s.qty)} {row.uom || ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {!row.product && <p className="text-[11px] text-amber-600">No linked product — this will mark the row inwarded without a stock movement.</p>}
         </div>
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>{saving ? 'Recording…' : 'Confirm Inward'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Resend a held / failed lot to QC for re-inspection ──
+function ResendQcModal({ row, onClose, onDone }) {
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async () => {
+    setSaving(true); setError('');
+    try { await api.post(`/material-inward/${row.id}/resend-qc`, { note: note.trim() || null }); onDone(); }
+    catch (err) { setError(err.response?.data?.error || 'Failed'); setSaving(false); }
+  };
+  return (
+    <Modal isOpen onClose={onClose} title={`Resend to QC — ${row.mirNo}`} size="md">
+      <div className="space-y-3">
+        {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+        <div className="text-sm text-gray-700 space-y-1">
+          <p>Send <strong>{row.itemDescription || row.mirNo}</strong> back to QC for re-inspection.</p>
+          {row.status === 'ON_HOLD' && row.holdReason && (
+            <p className="text-xs text-rose-700">Held: “{row.holdReason}”</p>
+          )}
+          {row.status === 'QC_DONE' && row.qcResult === 'FAILED' && (
+            <p className="text-xs text-rose-700">Previously failed — re-inspecting after rework / clarification.</p>
+          )}
+        </div>
+        <p className="text-[11px] text-gray-500">The finished round ({row.qcRound || 1}) is kept in history; QC files a fresh outcome for the next round.</p>
+        <Textarea label="Note to QC (optional)" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What was addressed / what to re-check…" />
+        <div className="flex justify-end gap-2 pt-2 border-t">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Sending…' : 'Resend to QC'}</Button>
         </div>
       </div>
     </Modal>

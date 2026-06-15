@@ -88,7 +88,22 @@ function issuedToFromPo(po) {
 }
 
 const PO_PICKER_INCLUDE = {
-  items: { select: { id: true, productId: true, productName: true, productUnit: true, quantity: true, receivedQty: true } },
+  items: {
+    select: {
+      id: true, productId: true, productName: true, productUnit: true, quantity: true, receivedQty: true,
+      purchaseRequestItemId: true,
+      // Union PO lines carry per-PR-item allocations; each points back to the
+      // raising unit so we can auto-split the received qty across every unit.
+      allocations: {
+        select: {
+          allocatedQty: true,
+          purchaseRequestItem: {
+            select: { request: { select: { unit: { select: { id: true, name: true, code: true } }, manager: USER_SELECT } } },
+          },
+        },
+      },
+    },
+  },
   supplier: { select: { id: true, name: true } },
   purchaseRequest: { select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } }, manager: USER_SELECT } },
   sourceRequests: {
@@ -97,6 +112,74 @@ const PO_PICKER_INCLUDE = {
     },
   },
 };
+
+// Per-line unit allocation. A union PO line splits across every unit that raised
+// a PR for the material (weighted by the allocated qty); a non-union line falls
+// back to the PO's single PR unit (full line qty). Empty when the PR was raised
+// by a department/global role (no unit) — that material stays dept-reserved.
+function unitAllocsForPoItem(po, item) {
+  const byUnit = new Map();
+  (item?.allocations || []).forEach((a) => {
+    const u = a.purchaseRequestItem?.request?.unit;
+    if (!u) return;
+    const cur = byUnit.get(u.id) || { unitId: u.id, unitName: u.name, unitCode: u.code, allocatedQty: 0 };
+    cur.allocatedQty += a.allocatedQty || 0;
+    byUnit.set(u.id, cur);
+  });
+  // Non-union (or a union line whose allocations carry no unit): use the PO's
+  // PR unit(s). A non-union PO ties to exactly one PR → one unit; the whole line
+  // qty is attributed to it.
+  if (!byUnit.size) {
+    prsOf(po).forEach((p) => {
+      if (!p.unit || byUnit.has(p.unit.id)) return;
+      byUnit.set(p.unit.id, { unitId: p.unit.id, unitName: p.unit.name, unitCode: p.unit.code, allocatedQty: item?.quantity || 0 });
+    });
+  }
+  return [...byUnit.values()];
+}
+
+// Resolve the issued-to snapshot for a single PO line: prNumbers/indenter come
+// from the PO, but unit binding is per-line (drives the per-unit stock split).
+function issuedToForItem(po, item) {
+  const base = issuedToFromPo(po);
+  const unitAllocations = unitAllocsForPoItem(po, item);
+  let { issuedToUnitId, issuedToDept, issuedToLabel } = base;
+  if (unitAllocations.length === 1) {
+    issuedToUnitId = unitAllocations[0].unitId;
+    issuedToDept = null;
+    issuedToLabel = `${unitAllocations[0].unitName} (${unitAllocations[0].unitCode})`;
+  } else if (unitAllocations.length > 1) {
+    issuedToUnitId = null;
+    issuedToDept = null;
+    issuedToLabel = unitAllocations.map((u) => `${u.unitName} (${u.unitCode})`).join(' · ');
+  }
+  // else: no units → keep the department fallback from issuedToFromPo.
+  return { ...base, issuedToUnitId, issuedToDept, issuedToLabel, unitAllocations };
+}
+
+// Split an accepted qty across the row's units at inward time. A single bound
+// unit takes the whole qty; a multi-unit (union) row splits proportionally to
+// each unit's allocated qty (even split if allocations are unweighted). The last
+// unit absorbs any rounding remainder so the parts always sum to qty. Returns []
+// when the row binds no unit (stock then stays in the general / dept pool).
+function splitQtyAcrossUnits(row, qty) {
+  if (row.issuedToUnitId) return [{ unitId: row.issuedToUnitId, qty }];
+  const allocs = Array.isArray(row.unitAllocations) ? row.unitAllocations.filter((a) => a && a.unitId) : [];
+  if (!allocs.length) return [];
+  const total = allocs.reduce((s, a) => s + (a.allocatedQty || 0), 0);
+  const round3 = (n) => Math.round(n * 1000) / 1000;
+  let assigned = 0;
+  return allocs.map((a, i) => {
+    let q;
+    if (i === allocs.length - 1) {
+      q = round3(qty - assigned);
+    } else {
+      q = total > 0 ? round3(qty * ((a.allocatedQty || 0) / total)) : round3(qty / allocs.length);
+      assigned += q;
+    }
+    return { unitId: a.unitId, unitName: a.unitName, qty: q };
+  });
+}
 
 // ── GET /api/material-inward/active-pos ───────────────────────────────
 // Active POs the stores person can attach an inward row to. Each entry carries
@@ -122,14 +205,22 @@ router.get('/active-pos', authenticate, authorize(...WRITE_ROLES), async (req, r
         issuedToDept,
         issuedToLabel,
         indenterName,
-        items: (po.items || []).map((it) => ({
-          id: it.id,
-          productId: it.productId,
-          productName: it.productName,
-          productUnit: it.productUnit,
-          quantity: it.quantity,
-          receivedQty: it.receivedQty,
-        })),
+        items: (po.items || []).map((it) => {
+          const ua = unitAllocsForPoItem(po, it);
+          return {
+            id: it.id,
+            productId: it.productId,
+            productName: it.productName,
+            productUnit: it.productUnit,
+            quantity: it.quantity,
+            receivedQty: it.receivedQty,
+            // Where this specific line is bound for (auto, per-unit).
+            unitAllocations: ua,
+            issuedToLabel: ua.length
+              ? ua.map((u) => `${u.unitName} (${u.unitCode})`).join(' · ')
+              : (issuedToDept || issuedToLabel || ''),
+          };
+        }),
       };
     });
     res.json({ orders: out });
@@ -291,7 +382,9 @@ router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
     if (data.purchaseOrderId) {
       const po = await prisma.purchaseOrder.findUnique({ where: { id: data.purchaseOrderId }, include: PO_PICKER_INCLUDE });
       if (!po) return res.status(404).json({ error: 'Purchase order not found' });
-      const { prNumbers, issuedToUnitId, issuedToDept, issuedToLabel, indenterId, indenterName } = issuedToFromPo(po);
+      const item = (po.items || []).find((it) => it.id === data.purchaseOrderItemId);
+      // Unit binding is per-line (a union line may span several units).
+      const { prNumbers, issuedToUnitId, issuedToDept, issuedToLabel, indenterId, indenterName, unitAllocations } = issuedToForItem(po, item);
       data.supplierName = po.supplierName || data.supplierName;
       data.prNumbers = prNumbers || data.prNumbers;
       data.issuedToUnitId = issuedToUnitId;
@@ -299,7 +392,7 @@ router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
       data.issuedToLabel = issuedToLabel;
       data.indenterId = indenterId;
       data.indenterName = indenterName;
-      const item = (po.items || []).find((it) => it.id === data.purchaseOrderItemId);
+      data.unitAllocations = unitAllocations;
       if (item) {
         data.itemDescription = item.productName;
         data.uom = item.productUnit;
@@ -325,6 +418,73 @@ router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
   } catch (err) {
     console.error('material-inward create error:', err);
     res.status(500).json({ error: 'Failed to create inward entry' });
+  }
+});
+
+// ── POST /api/material-inward/bulk ────────────────────────────────────
+// One delivery against a PO usually carries several lines (and a line may arrive
+// in batches over time). Stores ticks the received lines + per-line qty/batch and
+// this creates one register row per line — each its own MIR, lot, and QC track.
+router.post('/bulk', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.purchaseOrderId) return res.status(400).json({ error: 'A purchase order is required' });
+    const lines = Array.isArray(b.lines) ? b.lines.filter((l) => l && l.purchaseOrderItemId) : [];
+    if (!lines.length) return res.status(400).json({ error: 'Select at least one material line' });
+
+    const po = await prisma.purchaseOrder.findUnique({ where: { id: b.purchaseOrderId }, include: PO_PICKER_INCLUDE });
+    if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+
+    const docType = ['INVOICE', 'CASH_PURCHASE', 'DELIVERY_CHALLAN', 'GATE_PASS'].includes(b.docType) ? b.docType : 'INVOICE';
+    const header = {
+      inwardDate: b.inwardDate ? new Date(b.inwardDate) : new Date(),
+      vehicleDetails: b.vehicleDetails?.trim() || null,
+      docType,
+      docNumber: b.docNumber?.trim() || null,
+      purpose: b.purpose?.trim() || null,
+    };
+
+    // Lot numbers continue from however many lots this PO already has.
+    let lot = await prisma.materialInwardRegister.count({ where: { purchaseOrderId: po.id } });
+    const created = [];
+    for (const ln of lines) {
+      const item = (po.items || []).find((it) => it.id === ln.purchaseOrderItemId);
+      if (!item) continue;
+      const qty = ln.qtyReceived != null && ln.qtyReceived !== '' ? Number(ln.qtyReceived) : null;
+      if (!qty || qty <= 0) return res.status(400).json({ error: `Enter a received quantity for ${item.productName}` });
+
+      const { prNumbers, issuedToUnitId, issuedToDept, issuedToLabel, indenterId, indenterName, unitAllocations } = issuedToForItem(po, item);
+      lot += 1;
+      const row = await withDocRetry(async () => {
+        const mirNo = await generateSequentialNumber(prisma, 'MIR');
+        return prisma.materialInwardRegister.create({
+          data: {
+            ...header,
+            purchaseOrderId: po.id,
+            purchaseOrderItemId: item.id,
+            supplierName: po.supplierName || null,
+            prNumbers: prNumbers || null,
+            itemDescription: item.productName,
+            uom: item.productUnit,
+            qtyReceived: qty,
+            productId: item.productId || null,
+            issuedToUnitId, issuedToDept, issuedToLabel, indenterId, indenterName, unitAllocations,
+            batchNo: ln.batchNo?.trim() || null,
+            dateOfExpiry: ln.dateOfExpiry ? new Date(ln.dateOfExpiry) : null,
+            lotNo: lot,
+            createdById: req.user.id,
+            mirNo,
+          },
+        });
+      });
+      created.push(row);
+    }
+
+    if (!created.length) return res.status(400).json({ error: 'No valid lines to record' });
+    res.status(201).json({ rows: created, count: created.length });
+  } catch (err) {
+    console.error('material-inward bulk create error:', err);
+    res.status(500).json({ error: 'Failed to create inward entries' });
   }
 });
 
@@ -487,10 +647,15 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
     if (row.status !== 'QC_IN_REVIEW') return res.status(400).json({ error: 'Take the review before finishing it' });
 
     const b = req.body || {};
-    const qcResult = ['PASSED', 'PARTIAL', 'FAILED'].includes(b.qcResult) ? b.qcResult : null;
-    if (!qcResult) return res.status(400).json({ error: 'Select a QC result (Passed / Partial / Failed)' });
+    // Outcome of the round: pass / partial / fail (rejected) / on-hold (re-inspect).
+    const qcResult = ['PASSED', 'PARTIAL', 'FAILED', 'ON_HOLD'].includes(b.qcResult) ? b.qcResult : null;
+    if (!qcResult) return res.status(400).json({ error: 'Select a QC result (Passed / Partial / Failed / On Hold)' });
     if (!b.qcReportRemark?.trim()) return res.status(400).json({ error: 'A report remark is required to finish the review' });
+    const onHold = qcResult === 'ON_HOLD';
+    if (onHold && !b.holdReason?.trim()) return res.status(400).json({ error: 'A hold reason is required to place the lot on hold' });
 
+    // The Inward Inspection No. is owned by QC — required, but auto-issued if QC
+    // leaves it blank so every inspected lot always carries one.
     const reportNo = b.qcReportNo?.trim() || await withDocRetry(() => generateSequentialNumber(prisma, 'IR'));
 
     // The complete inward-inspection report (IIR). Whitelisted so the client
@@ -518,21 +683,28 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
     const updated = await prisma.materialInwardRegister.update({
       where: { id: row.id },
       data: {
-        status: 'QC_DONE',
+        // On hold → ON_HOLD (re-inspectable). Otherwise the review is done.
+        status: onHold ? 'ON_HOLD' : 'QC_DONE',
         qcResult,
-        qtyAccepted: b.qtyAccepted != null && b.qtyAccepted !== '' ? Number(b.qtyAccepted) : null,
+        qtyAccepted: onHold ? null : (b.qtyAccepted != null && b.qtyAccepted !== '' ? Number(b.qtyAccepted) : null),
         qtyRejected: b.qtyRejected != null && b.qtyRejected !== '' ? Number(b.qtyRejected) : null,
+        qtyHeld: onHold ? (b.qtyHeld != null && b.qtyHeld !== '' ? Number(b.qtyHeld) : (row.qtyReceived ?? null)) : null,
         qcReportNo: reportNo,
         qcReportRemark: b.qcReportRemark.trim(),
         qcReport,
+        holdReason: onHold ? b.holdReason.trim() : null,
+        ...(onHold ? { holdCount: { increment: 1 } } : {}),
         qcFinishedAt: new Date(),
       },
     });
+    const resultLabel = qcResult === 'ON_HOLD' ? 'on hold' : qcResult.toLowerCase();
     await prisma.notification.create({
       data: {
-        type: 'INWARD_QC_DONE',
-        title: `QC ${qcResult.toLowerCase()}: ${row.itemDescription || row.mirNo}`,
-        message: `${req.user.name} finished QC for inward ${row.mirNo} — ${qcResult}. ${qcResult === 'FAILED' ? 'Material rejected.' : 'Ready to inward into stores.'}`,
+        type: onHold ? 'INWARD_QC_HOLD' : 'INWARD_QC_DONE',
+        title: `QC ${resultLabel}: ${row.itemDescription || row.mirNo}`,
+        message: onHold
+          ? `${req.user.name} placed inward ${row.mirNo} on hold — ${b.holdReason.trim()}. Address it and resend to QC.`
+          : `${req.user.name} finished QC for inward ${row.mirNo} — ${qcResult}. ${qcResult === 'FAILED' ? 'Material rejected.' : 'Ready to inward into stores.'}`,
         targetRole: 'STORE_MANAGER',
         sentById: req.user.id,
       },
@@ -541,6 +713,78 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
   } catch (err) {
     console.error('finish-review error:', err);
     res.status(500).json({ error: 'Failed to finish review' });
+  }
+});
+
+// ── POST /api/material-inward/:id/resend-qc ───────────────────────────
+// Re-inspection. A held lot (or a finished review that failed / was partial) can
+// be sent back to QC once the issue is addressed. The completed round is archived
+// into qcHistory, then the row resets to QC_REQUESTED for a fresh round.
+router.post('/:id/resend-qc', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+  try {
+    const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
+    if (!row) return res.status(404).json({ error: 'Entry not found' });
+    const canResend = row.status === 'ON_HOLD'
+      || (row.status === 'QC_DONE' && ['FAILED', 'PARTIAL'].includes(row.qcResult));
+    if (!canResend) {
+      return res.status(400).json({ error: 'Only held lots or failed/partial reviews can be resent to QC' });
+    }
+
+    // Archive the round that just finished so re-inspections keep full history.
+    const history = Array.isArray(row.qcHistory) ? [...row.qcHistory] : [];
+    history.push({
+      round: row.qcRound || 1,
+      result: row.qcResult || null,
+      reportNo: row.qcReportNo || null,
+      remark: row.qcReportRemark || null,
+      holdReason: row.holdReason || null,
+      qtyAccepted: row.qtyAccepted ?? null,
+      qtyRejected: row.qtyRejected ?? null,
+      qtyHeld: row.qtyHeld ?? null,
+      reviewerId: row.qcReviewerId || null,
+      finishedAt: row.qcFinishedAt ? row.qcFinishedAt.toISOString() : null,
+      report: row.qcReport || null,
+      resentAt: new Date().toISOString(),
+      resentById: req.user.id,
+    });
+
+    const note = req.body?.note?.trim() || null;
+    const updated = await prisma.materialInwardRegister.update({
+      where: { id: row.id },
+      data: {
+        status: 'QC_REQUESTED',
+        qcRound: (row.qcRound || 1) + 1,
+        qcHistory: history,
+        qcRequestedAt: new Date(),
+        qcRequestedById: req.user.id,
+        qcRequestNote: note || row.qcRequestNote,
+        // Reset the current-round review fields so QC files a fresh outcome.
+        qcReviewerId: null,
+        qcReviewStartedAt: null,
+        qcResult: null,
+        qtyAccepted: null,
+        qtyRejected: null,
+        qtyHeld: null,
+        qcReportNo: null,
+        qcReportRemark: null,
+        qcReport: null,
+        qcFinishedAt: null,
+        holdReason: null,
+      },
+    });
+    await prisma.notification.create({
+      data: {
+        type: 'INWARD_QC_REQUEST',
+        title: `Re-inspection: ${row.itemDescription || row.mirNo}`,
+        message: `${req.user.name} resent inward ${row.mirNo} to QC for re-inspection${note ? ` — ${note}` : ''}.`,
+        targetRole: 'QC',
+        sentById: req.user.id,
+      },
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error('resend-qc error:', err);
+    res.status(500).json({ error: 'Failed to resend to QC' });
   }
 });
 
@@ -569,22 +813,54 @@ router.post('/:id/inward', authenticate, authorize(...WRITE_ROLES), async (req, 
     const product = await prisma.product.findUnique({ where: { id: row.productId } });
     if (!product) return res.status(404).json({ error: 'Linked product not found' });
 
+    // Auto-split the accepted qty across every unit that raised a PR for this
+    // line (union POs); a single-unit row keeps it whole; a dept/unbound row
+    // leaves it in the general pool.
+    const unitSplit = splitQtyAcrossUnits(row, qty).filter((s) => s.qty > 0);
+
     const result = await prisma.$transaction(async (tx) => {
       await tx.product.update({ where: { id: product.id }, data: { currentStock: { increment: qty } } });
 
-      const movement = await tx.stockMovement.create({
-        data: {
-          productId: product.id,
-          type: 'IN',
-          quantity: qty,
-          batchNumber: row.batchNo || null,
-          referenceType: 'MaterialInwardRegister',
-          referenceId: row.id,
-          notes: `Inward ${row.mirNo}${row.docNumber ? ` · ${row.docNumber}` : ''}`,
-          performedBy: req.user.id,
-          unitId: row.issuedToUnitId || null,
-        },
-      });
+      const baseNote = `Inward ${row.mirNo}${row.docNumber ? ` · ${row.docNumber}` : ''}`;
+      const movements = [];
+      if (unitSplit.length) {
+        // One IN movement per receiving unit so each unit's ledger is exact.
+        for (const s of unitSplit) {
+          movements.push(await tx.stockMovement.create({
+            data: {
+              productId: product.id,
+              type: 'IN',
+              quantity: s.qty,
+              batchNumber: row.batchNo || null,
+              referenceType: 'MaterialInwardRegister',
+              referenceId: row.id,
+              notes: unitSplit.length > 1 ? `${baseNote} → ${s.unitName || 'unit'}` : baseNote,
+              performedBy: req.user.id,
+              unitId: s.unitId,
+            },
+          }));
+          await tx.productUnitStock.upsert({
+            where: { productId_unitId: { productId: product.id, unitId: s.unitId } },
+            update: { quantity: { increment: s.qty } },
+            create: { productId: product.id, unitId: s.unitId, quantity: s.qty },
+          });
+        }
+      } else {
+        // No bound unit — single movement into the general / dept pool.
+        movements.push(await tx.stockMovement.create({
+          data: {
+            productId: product.id,
+            type: 'IN',
+            quantity: qty,
+            batchNumber: row.batchNo || null,
+            referenceType: 'MaterialInwardRegister',
+            referenceId: row.id,
+            notes: baseNote,
+            performedBy: req.user.id,
+            unitId: null,
+          },
+        }));
+      }
 
       const batch = await tx.productBatch.create({
         data: {
@@ -602,13 +878,6 @@ router.post('/:id/inward', authenticate, authorize(...WRITE_ROLES), async (req, 
         },
       });
 
-      if (row.issuedToUnitId) {
-        await tx.productUnitStock.upsert({
-          where: { productId_unitId: { productId: product.id, unitId: row.issuedToUnitId } },
-          update: { quantity: { increment: qty } },
-          create: { productId: product.id, unitId: row.issuedToUnitId, quantity: qty },
-        });
-      }
       const reservedDept = OWNER_DEPTS.includes((row.issuedToDept || '').trim()) ? row.issuedToDept.trim() : null;
       if (reservedDept) {
         await tx.productDeptStock.upsert({
@@ -637,7 +906,7 @@ router.post('/:id/inward', authenticate, authorize(...WRITE_ROLES), async (req, 
         where: { id: row.id },
         data: { status: 'INWARDED', inwardedAt: new Date(), batchId: batch.id },
       });
-      return { row: updatedRow, movement, batch };
+      return { row: updatedRow, movements, batch };
     });
 
     res.json({ ...result, stocked: true });

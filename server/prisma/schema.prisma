@@ -2566,6 +2566,13 @@ model MaterialInwardRegister {
   indenterId     String?
   indenterName   String?
 
+  // Per-unit allocation for this PO line. For a non-union PO this is the single
+  // PR's unit; for a union PO it splits the line across every unit that raised a
+  // PR for the material (from PurchaseOrderItemAllocation). Empty when the PR was
+  // raised by a department/global role (no unit). Drives the per-unit stock split
+  // at inward. Array of { unitId, unitName, unitCode, allocatedQty }.
+  unitAllocations Json?
+
   // Sequential lot number per PO (Lot 1, 2, 3 … N). Each partial receipt against
   // the same PO is its own lot; null for direct/cash entries with no PO.
   lotNo        Int?
@@ -2592,8 +2599,18 @@ model MaterialInwardRegister {
   qcResult          QCResult?
   qtyAccepted       Float?
   qtyRejected       Float?
-  qcReportNo        String?
+  qtyHeld           Float?
+  qcReportNo        String? // Inward Inspection No. — entered/confirmed by QC
   qcReportRemark    String?
+
+  // Hold + re-inspection. When QC puts a lot ON_HOLD (e.g. pending docs / retest)
+  // the reason is captured here and the lot can be resent to QC. Each completed
+  // review round (including holds) is appended to qcHistory before the next round
+  // so nothing is lost across re-inspections. qcRound counts the current round.
+  holdReason String?
+  holdCount  Int     @default(0)
+  qcRound    Int     @default(1)
+  qcHistory  Json? // [{ round, result, reportNo, remark, reviewerId, finishedAt, holdReason, qtyAccepted, qtyRejected }]
   // Full inward-inspection report (the complete IIR form QC fills): material
   // description/category, document types, packing condition, DOM, qty as-per-PR
   // / ordered, rejection reason, etc. Summary qty/result fields above stay
@@ -2627,5 +2644,6 @@ enum InwardStatus {
   QC_REQUESTED
   QC_IN_REVIEW
   QC_DONE
+  ON_HOLD
   INWARDED
 }
