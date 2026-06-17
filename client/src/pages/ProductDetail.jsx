@@ -10,6 +10,8 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDate, formatDateTime } from '../utils/formatters';
 import MovementNotes from '../components/shared/MovementNotes';
+import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import ProductStickerPdf from '../components/pdf/ProductStickerPdf';
 
 const formatCurrency = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
@@ -729,11 +731,18 @@ function ProcurementChainTab({ product, isStores }) {
 
   return (
     <div className="space-y-4">
-      <div className="p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900">
-        Each card traces one inwarded batch back to its origin:
-        <strong> PR → PO → Lot N (invoice) → Batch</strong>.
-        Multiple lots can come from the same PO when material arrives in instalments.
-        {isStores && <span className="ml-1">Stores view: inspection request and report data are included below each batch.</span>}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900 flex-1 min-w-[240px]">
+          Each card traces one inwarded batch back to its origin:
+          <strong> PR → PO → Lot N (invoice) → Batch</strong>.
+          Multiple lots can come from the same PO when material arrives in instalments.
+          {isStores && <span className="ml-1">Stores view: inspection request and report data are included below each batch.</span>}
+        </div>
+        <DownloadPdfButton
+          document={<ProductStickerPdf product={product} batches={batches} />}
+          fileName={`Stickers-${product.materialCode || product.sku || product.name}.pdf`}
+          label={`Print all stickers (${batches.length})`}
+        />
       </div>
 
       {batches.map(b => {
@@ -761,6 +770,11 @@ function ProcurementChainTab({ product, isStores }) {
               <div className="flex items-center gap-2 shrink-0">
                 {insp?.dateOfExpiry && <ExpiryBadge dateOfExpiry={insp.dateOfExpiry} />}
                 {!insp && <Badge color="gray">Legacy (no QC link)</Badge>}
+                <DownloadPdfButton
+                  document={<ProductStickerPdf product={product} batches={[b]} />}
+                  fileName={`Sticker-${b.batchNo || b.id.slice(0, 8)}.pdf`}
+                  label="Sticker"
+                />
               </div>
             </div>
 

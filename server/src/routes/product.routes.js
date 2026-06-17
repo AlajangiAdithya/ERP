@@ -556,6 +556,105 @@ router.get('/:id', authenticate, async (req, res) => {
       },
     });
 
+    // New inward-register batches don't use the legacy QCInspection — their full
+    // chain (PR → PO → lot → QC report) lives on the MaterialInwardRegister row.
+    // Synthesize a sourceQcInspection-shaped object from it so the procurement
+    // chain tab links them up exactly like PO-flow batches (instead of showing
+    // "Legacy / no QC link").
+    const regIds = [...new Set(poBatches
+      .filter((b) => b.referenceType === 'MaterialInwardRegister' && !b.sourceQcInspection && b.referenceId)
+      .map((b) => b.referenceId))];
+    if (regIds.length) {
+      const regs = await prisma.materialInwardRegister.findMany({ where: { id: { in: regIds } } });
+      const poIds = [...new Set(regs.map((r) => r.purchaseOrderId).filter(Boolean))];
+      const poItemIds = [...new Set(regs.map((r) => r.purchaseOrderItemId).filter(Boolean))];
+      const userIds = [...new Set(regs.flatMap((r) => [r.qcReviewerId, r.qcRequestedById, r.createdById]).filter(Boolean))];
+      const prSelect = {
+        id: true, requestNumber: true,
+        manager: { select: { id: true, name: true } },
+        unit: { select: { id: true, name: true, code: true } },
+      };
+      const [pos, poItems, users] = await Promise.all([
+        poIds.length ? prisma.purchaseOrder.findMany({
+          where: { id: { in: poIds } },
+          select: {
+            id: true, orderNumber: true, customName: true, supplierName: true, mirNo: true,
+            purchaseRequest: { select: prSelect },
+            sourceRequests: { select: { purchaseRequest: { select: prSelect } } },
+          },
+        }) : [],
+        poItemIds.length ? prisma.purchaseOrderItem.findMany({ where: { id: { in: poItemIds } }, select: { id: true, quantity: true } }) : [],
+        userIds.length ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [],
+      ]);
+      const poMap = Object.fromEntries(pos.map((p) => [p.id, p]));
+      const poItemMap = Object.fromEntries(poItems.map((p) => [p.id, p]));
+      const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+      const docUrl = (docs, re) => (Array.isArray(docs) ? (docs.find((d) => re.test(d.label || '') || re.test(d.name || ''))?.url || null) : null);
+      const toDocObj = (v) => (Array.isArray(v) ? Object.fromEntries(v.map((k) => [k, true])) : (v && typeof v === 'object' ? v : {}));
+
+      const regMap = {};
+      for (const r of regs) {
+        const po = r.purchaseOrderId ? poMap[r.purchaseOrderId] : null;
+        const pr = po?.purchaseRequest || po?.sourceRequests?.[0]?.purchaseRequest || null;
+        const rep = r.qcReport || {};
+        const rq = r.qcRequest || {};
+        const isInvoice = ['INVOICE', 'CASH_PURCHASE'].includes(r.docType);
+        regMap[r.id] = {
+          id: r.id,
+          inspectionNumber: r.ionNo || r.qcReportNo || r.mirNo,
+          lotNumber: r.lotNo,
+          arrivedQty: r.qtyReceived,
+          batchNo: r.batchNo,
+          invoiceNo: isInvoice ? r.docNumber : null,
+          invoiceDate: isInvoice ? r.inwardDate : null,
+          invoiceFileUrl: docUrl(r.documents, /invoice/i),
+          lotReportFileUrl: docUrl(r.documents, /report/i),
+          materialReceiptDate: r.inwardDate,
+          result: r.qcResult || null,
+          dcNo: rq.dcNo || null,
+          gatePassNo: rq.gatePassNo || null,
+          gatePassType: rq.gatePassType || null,
+          requestCreatedBy: userMap[r.qcRequestedById] || userMap[r.createdById] || null,
+          createdAt: r.qcRequestedAt || r.createdAt,
+          inspectedBy: r.qcReviewerId ? (userMap[r.qcReviewerId] || null) : null,
+          inspectedAt: r.qcFinishedAt || null,
+          reportNo: r.qcReportNo || null,
+          reportDate: rep.reportDate || null,
+          qtyOrdered: r.purchaseOrderItemId ? (poItemMap[r.purchaseOrderItemId]?.quantity ?? null) : null,
+          qtyReceived: r.qtyReceived,
+          qtyAccepted: r.qtyAccepted,
+          qtyRejected: r.qtyRejected,
+          rejectionReason: rep.rejectionReason || null,
+          remarks: r.qcReportRemark || null,
+          inspectionLocation: rep.inspectionLocation || null,
+          materialCategory: rep.materialCategory || null,
+          documentTypes: toDocObj(rep.documentTypes),
+          packingCondition: rep.packingCondition || null,
+          packingDamageNotes: rep.packingDamageNotes || null,
+          dateOfManufacturing: rep.dateOfManufacturing || null,
+          dateOfExpiry: r.dateOfExpiry || null,
+          items: [{ id: r.id, arrivedQty: r.qtyReceived, purchaseOrderItem: { id: r.purchaseOrderItemId, productName: r.itemDescription, productUnit: r.uom } }],
+          purchaseOrder: po ? {
+            id: po.id, orderNumber: po.orderNumber, customName: po.customName,
+            supplierName: po.supplierName || r.supplierName, mirNo: po.mirNo || r.mirNo,
+            purchaseRequest: pr ? {
+              id: pr.id,
+              requestNumber: r.prNumbers || pr.requestNumber,
+              manager: pr.manager || (r.indenterName ? { name: r.indenterName } : null),
+              unit: pr.unit || null,
+            } : (r.prNumbers || r.indenterName
+              ? { requestNumber: r.prNumbers, manager: r.indenterName ? { name: r.indenterName } : null, unit: null }
+              : null),
+          } : null,
+        };
+      }
+      for (const b of poBatches) {
+        if (!b.sourceQcInspection && b.referenceType === 'MaterialInwardRegister' && regMap[b.referenceId]) {
+          b.sourceQcInspection = regMap[b.referenceId];
+        }
+      }
+    }
+
     // MIR level for this product = distinct MIR numbers across every PO-flow batch
     // (i.e. one increment per material-inward event). Sourced from the same chain
     // surfaced on the page; computing here keeps the UI honest for >5 batches.
