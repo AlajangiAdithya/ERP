@@ -1,77 +1,61 @@
-import { Document, Page, View, Text, Image } from '@react-pdf/renderer';
-import { LOGO_URL, formatDate } from './shared';
+import { Document, Page, View, Text } from '@react-pdf/renderer';
+import { formatDate } from './shared';
 
-// Store Stock Label — a printable A5 (landscape) sticker to stick on the
-// received material. One sticker per inwarded batch, carrying the key
-// traceability fields Stores asked for: product, qty, arrived date, invoice no,
-// MIR no, batch no, expiry, PO no, indenter. `batch` is a poBatch row whose
-// `sourceQcInspection` holds the resolved PR → PO → lot chain.
-const BORDER = '#222';
-const GRID = '#bbb';
+// Store Stock Label — content-only, paper-saving. No logo, no decorative
+// border: just the traceability table. Several stickers pack onto one A4 sheet
+// (each block stays whole, never split across a page) so printing wastes no
+// paper. One block per inwarded batch; `sourceQcInspection` holds the chain.
+const LINE = '#999';
+const cell = { borderRightWidth: 0.5, borderBottomWidth: 0.5, borderColor: LINE, paddingVertical: 3, paddingHorizontal: 5, justifyContent: 'center' };
 
-export function StickerPage({ product, batch }) {
+function KV({ w, label, value, big }) {
+  return (
+    <View style={[cell, { width: w }]}>
+      <Text style={{ fontSize: 6.5, color: '#666', letterSpacing: 0.3 }}>{label}</Text>
+      <Text style={{ fontSize: big ? 13 : 9.5, fontFamily: 'Helvetica-Bold', color: '#111' }}>{value || '—'}</Text>
+    </View>
+  );
+}
+
+function StickerBlock({ product, batch }) {
   const b = batch || {};
   const insp = b.sourceQcInspection || {};
   const po = insp.purchaseOrder || {};
   const pr = po.purchaseRequest || {};
   const unit = product?.unit || '';
-
   const qty = b.quantity != null ? `${Number(b.quantity).toLocaleString('en-IN')} ${unit}`.trim() : '—';
   const expiry = insp.dateOfExpiry || b.dateOfExpiry || null;
-  const rows = [
-    ['QUANTITY', qty],
-    ['BATCH NO.', b.batchNo || insp.batchNo || '—'],
-    ['ARRIVED DATE', formatDate(b.receivedDate)],
-    ['EXPIRY DATE', expiry ? formatDate(expiry) : '—'],
-    ['INVOICE NO.', insp.invoiceNo || '—'],
-    ['MIR NO.', po.mirNo || insp.mirNo || '—'],
-    ['PO NUMBER', po.orderNumber || '—'],
-    ['INDENTER', pr.manager?.name || '—'],
-  ];
+  const name = `${product?.name || '—'}${(product?.materialCode || product?.sku) ? `   ·   ${product.materialCode || product.sku}` : ''}`;
 
   return (
-    <Page size="A5" orientation="landscape" style={{ padding: 18, fontFamily: 'Helvetica', color: '#111' }}>
-      <View style={{ borderWidth: 2, borderColor: BORDER, padding: 14, height: '100%' }}>
-        {/* Brand row */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: BORDER, paddingBottom: 8, marginBottom: 10 }}>
-          <Image src={LOGO_URL} style={{ width: 96, height: 30, objectFit: 'contain' }} />
-          <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: '#0a2540', letterSpacing: 1 }}>STORE STOCK LABEL</Text>
-        </View>
-
-        {/* Product name */}
-        <View style={{ marginBottom: 10 }}>
-          <Text style={{ fontSize: 8, color: '#666' }}>PRODUCT</Text>
-          <Text style={{ fontSize: 22, fontFamily: 'Helvetica-Bold', color: '#111' }}>{product?.name || '—'}</Text>
-          {(product?.materialCode || product?.sku) && (
-            <Text style={{ fontSize: 9, color: '#666' }}>{product.materialCode || product.sku}</Text>
-          )}
-        </View>
-
-        {/* Traceability grid — 2 columns × 4 rows */}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', borderTopWidth: 1, borderLeftWidth: 1, borderColor: GRID }}>
-          {rows.map(([label, value]) => (
-            <View key={label} style={{ width: '50%', padding: 9, borderRightWidth: 1, borderBottomWidth: 1, borderColor: GRID }}>
-              <Text style={{ fontSize: 8, color: '#666', letterSpacing: 0.4 }}>{label}</Text>
-              <Text style={{ fontSize: 15, fontFamily: 'Helvetica-Bold', color: '#111' }}>{value || '—'}</Text>
-            </View>
-          ))}
-        </View>
-
-        <Text style={{ position: 'absolute', bottom: 10, right: 12, fontSize: 7, color: '#999' }}>
-          {insp.inspectionNumber ? `Ref: ${insp.inspectionNumber}` : ''}
-        </Text>
+    <View wrap={false} style={{ borderTopWidth: 0.5, borderLeftWidth: 0.5, borderColor: LINE, marginBottom: 12 }}>
+      <View style={{ flexDirection: 'row' }}>
+        <KV w="100%" label="PRODUCT" value={name} big />
       </View>
-    </Page>
+      <View style={{ flexDirection: 'row' }}>
+        <KV w="25%" label="QUANTITY" value={qty} />
+        <KV w="25%" label="BATCH NO." value={b.batchNo || insp.batchNo || '—'} />
+        <KV w="25%" label="ARRIVED DATE" value={formatDate(b.receivedDate)} />
+        <KV w="25%" label="EXPIRY DATE" value={expiry ? formatDate(expiry) : '—'} />
+      </View>
+      <View style={{ flexDirection: 'row' }}>
+        <KV w="25%" label="INVOICE NO." value={insp.invoiceNo || '—'} />
+        <KV w="25%" label="MIR NO." value={po.mirNo || insp.mirNo || '—'} />
+        <KV w="25%" label="PO NUMBER" value={po.orderNumber || '—'} />
+        <KV w="25%" label="INDENTER" value={pr.manager?.name || '—'} />
+      </View>
+    </View>
   );
 }
 
 export default function ProductStickerPdf({ product, batches }) {
   const list = Array.isArray(batches) ? batches : (batches ? [batches] : []);
+  const items = list.length ? list : [{}];
   return (
     <Document>
-      {list.length
-        ? list.map((b) => <StickerPage key={b.id} product={product} batch={b} />)
-        : <StickerPage product={product} batch={{}} />}
+      <Page size="A4" style={{ padding: 24, fontFamily: 'Helvetica', color: '#111' }}>
+        {items.map((b, i) => <StickerBlock key={b.id || i} product={product} batch={b} />)}
+      </Page>
     </Document>
   );
 }

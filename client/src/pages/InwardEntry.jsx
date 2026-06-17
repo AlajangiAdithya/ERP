@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Package, Plus, Truck, FlaskConical, ClipboardCheck, CheckCircle2,
+  Package, Plus, FlaskConical, ClipboardCheck, CheckCircle2,
   Search, Filter, X, Pencil, Trash2, ArrowDownToLine, Building2,
   Paperclip, Upload, Eye, FileText, FileSearch, ExternalLink, UserRound,
   Send, FileInput,
@@ -554,7 +554,6 @@ function AssignToSelect({ units, value, onChange, className }) {
 // ────────────────────────────────────────────────────────────────────
 function NewInwardModal({ editRow, onClose, onSaved }) {
   const isEdit = !!editRow;
-  const [source, setSource] = useState(editRow ? (editRow.poNumber ? 'po' : 'direct') : 'po');
   const [pos, setPos] = useState([]);
   const [products, setProducts] = useState([]);
   const [units, setUnits] = useState([]);
@@ -586,21 +585,28 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   });
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
 
-  // New + From PO → per-line qty/batch/expiry (a delivery carries several lines,
-  // each in its own batch). Direct & edit keep the single scalar fields.
-  const perLine = !isEdit && source === 'po';
-  // Direct/cash entry (a new direct row, or editing one). PO rows derive their
-  // assignment from the PR, so the assign-to picker is direct-only.
-  const isDirect = isEdit ? !editRow.poNumber : source === 'direct';
+  // The "RAPS Purchase Order" picker drives everything: its first option is
+  // "Cash Purchase" (poId === 'CASH'); the rest are real POs. No separate toggle.
+  const isCash = isEdit ? !editRow.poNumber : poId === 'CASH';
+  const isPo = isEdit ? !!editRow.poNumber : (!!poId && poId !== 'CASH');
+  // Direct/cash rows let Stores pick the assign-to (PO rows derive it from the PR).
+  const isDirect = isCash;
+  // From-PO receipts are per-line (a delivery carries several lines, each batched).
+  const perLine = !isEdit && isPo;
 
+  // POs for the picker — always load so the dropdown's list is ready.
   useEffect(() => {
-    if (isEdit) return; // edit only touches scalar fields
-    if (source === 'po') api.get('/material-inward/active-pos').then(({ data }) => setPos(data.orders || [])).catch(() => setPos([]));
-    if (source === 'direct') api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products || [])).catch(() => setProducts([]));
-  }, [source, isEdit]);
+    if (isEdit) return;
+    api.get('/material-inward/active-pos').then(({ data }) => setPos(data.orders || [])).catch(() => setPos([]));
+  }, [isEdit]);
 
-  // Units for the direct/cash "assign to" picker (also needed when editing a
-  // direct row to reassign it).
+  // Products for cash-purchase product linking.
+  useEffect(() => {
+    if (isEdit || !isCash) return;
+    api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products || [])).catch(() => setProducts([]));
+  }, [isCash, isEdit]);
+
+  // Units for the cash "assign to" picker (also needed when editing a direct row).
   useEffect(() => {
     if (!isDirect) return;
     api.get('/units').then(({ data }) => setUnits(Array.isArray(data) ? data : (data.units || []))).catch(() => setUnits([]));
@@ -626,6 +632,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
 
   const submit = async () => {
     setError('');
+    if (!isEdit && !poId) return setError('Select a Purchase Order or Cash Purchase.');
     if (perLine) {
       if (!poId) return setError('Pick a PO.');
       const lines = Object.entries(sel);
@@ -636,7 +643,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           return setError(`Enter a received quantity for ${it?.productName || 'each ticked line'}.`);
         }
       }
-    } else if (!isEdit && source === 'direct' && !f.itemDescription.trim()) {
+    } else if (!isEdit && isCash && !f.itemDescription.trim()) {
       return setError('Item description is required.');
     } else if (!perLine && (!f.qtyReceived || Number(f.qtyReceived) <= 0)) {
       return setError('Enter the received quantity.');
@@ -692,132 +699,112 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     }
   };
 
-  // Numbered step labels keep the form easy to fill top-to-bottom (only when
-  // creating; edit reuses the same blocks without the step numbers).
-  const step = (n, title) => (isEdit ? title : `${n} · ${title}`);
-
   return (
     <Modal isOpen onClose={onClose} title={isEdit ? `Edit ${editRow.mirNo}` : 'New Inward Entry'} size="xl">
       <div className="space-y-6">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
-        {/* Step 1 — how did the material come in? */}
+        {/* Source — one picker drives everything. First option is "Cash Purchase";
+            the rest are active POs. Picking Cash shows the cash-purchase format;
+            picking a PO shows its material lines. */}
         {!isEdit && (
-          <FormBlock title="1 · How did the material arrive?">
-            <div className="inline-flex bg-navy-50 rounded-lg p-0.5">
-              {['po', 'direct'].map((s) => (
-                <button key={s} onClick={() => setSource(s)}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-md transition ${source === s ? 'bg-white shadow text-navy-800' : 'text-navy-600'}`}>
-                  {s === 'po' ? <><Truck size={13} className="inline mr-1" />From PO</> : <><Package size={13} className="inline mr-1" />Direct / Cash</>}
-                </button>
-              ))}
-            </div>
-            <p className="text-[11px] text-gray-400">
-              {source === 'po'
-                ? 'Material against a Purchase Order — unit / department is auto-assigned from the PR.'
-                : 'Cash purchase or direct receipt — you choose which unit / department it is for.'}
-            </p>
-          </FormBlock>
-        )}
-
-        {/* From PO — pick the PO, then tick every line that arrived (each can be a
-            partial / batch receipt). Units are auto-assigned per line. */}
-        {!isEdit && source === 'po' && (
-          <FormBlock title="2 · Purchase order & material lines">
-            <Select label="RAPS Purchase Order *" value={poId} onChange={(e) => { setPoId(e.target.value); setSel({}); }}>
-              <option value="">Select active PO…</option>
+          <FormBlock title="Source">
+            <Select label="RAPS Purchase Order *" value={poId}
+              onChange={(e) => { const v = e.target.value; setPoId(v); setSel({}); set('docType', v === 'CASH' ? 'CASH_PURCHASE' : 'INVOICE'); }}>
+              <option value="">Select…</option>
+              <option value="CASH">Cash Purchase</option>
               {pos.map((p) => <option key={p.id} value={p.id}>{p.orderNumber} — {p.supplierName} {p.isUnion ? '(UNION)' : ''}</option>)}
             </Select>
-            {po && (
-              <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div><span className="text-gray-500">Supplier:</span> {po.supplierName}</div>
-                <div><span className="text-gray-500">PR:</span> {po.prNumbers || '—'}</div>
-                <div><span className="text-gray-500">Issued to:</span> {po.issuedToLabel || po.issuedToDept || '—'}</div>
-                <div><span className="text-gray-500">Indenter:</span> {po.indenterName || '—'}</div>
-              </div>
-            )}
-            {po && (
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[13px] font-semibold text-navy-700">Material lines received *</label>
-                  <span className="text-[11px] text-navy-500">{selectedCount} of {po.items.length} ticked</span>
-                </div>
-                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-[320px] overflow-y-auto">
-                  {po.items.map((it) => {
-                    const checked = !!sel[it.id];
-                    const v = sel[it.id] || {};
-                    const rem = remainingOf(it);
-                    return (
-                      <div key={it.id} className={`p-2.5 ${checked ? 'bg-navy-50/50' : ''}`}>
-                        <label className="flex items-start gap-2 cursor-pointer">
-                          <input type="checkbox" className="mt-0.5" checked={checked} onChange={() => toggleLine(it)} />
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[13px] font-medium text-navy-800">{it.productName}</div>
-                            <div className="text-[11px] text-gray-500">
-                              Ordered {fmtQty(it.quantity)} {it.productUnit} · Received {fmtQty(it.receivedQty || 0)} · <span className={rem > 0 ? 'text-emerald-600 font-semibold' : 'text-gray-400'}>Remaining {fmtQty(rem)}</span>
-                            </div>
-                            {it.issuedToLabel && (
-                              <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-navy-600">
-                                <Building2 size={10} /> → {it.issuedToLabel}
-                                {it.unitAllocations?.length > 1 && <span className="text-amber-600">(auto-split)</span>}
-                              </div>
-                            )}
-                          </div>
-                        </label>
-                        {checked && (
-                          <div className="mt-2 ml-6 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            <Input label="Qty received *" type="number" min="0" step="any" value={v.qty} onChange={(e) => setLine(it.id, 'qty', e.target.value)} />
-                            <Input label="Batch no." value={v.batchNo} onChange={(e) => setLine(it.id, 'batchNo', e.target.value)} />
-                            <Input label="Expiry" type="date" value={v.dateOfExpiry} onChange={(e) => setLine(it.id, 'dateOfExpiry', e.target.value)} />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="mt-1 text-[11px] text-gray-400">Each ticked line becomes its own MIR row (lot) with its own QC track. A line can be received in batches across several deliveries — just record the part that arrived.</p>
-              </div>
-            )}
-          </FormBlock>
-        )}
 
-        {/* Direct / cash — the stores person types the item and picks where it goes. */}
-        {!isEdit && source === 'direct' && (
-          <FormBlock title="2 · Material details">
-            <div className="space-y-3">
-              <Input label="Item Description *" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="What was received" />
-              <Input label="UOM" value={f.uom} onChange={(e) => set('uom', e.target.value)} placeholder="pcs / kg / litre" />
-              <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
-              <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
-            </div>
-            <p className="-mt-1 text-[11px] text-gray-400">Pick the unit or department this cash purchase is for — stock is reserved to it on inward. Leave as “General” to keep it in the shared pool.</p>
-            <div>
-              <label className="block text-[13px] font-semibold text-navy-700 mb-1">Link product (for stock) — optional</label>
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Search product…"
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500" />
-              </div>
-              {productSearch && (
-                <div className="mt-1 max-h-36 overflow-y-auto border rounded-md">
-                  {filteredProducts.slice(0, 30).map((p) => (
-                    <div key={p.id} onClick={() => { setProductId(p.id); setProductSearch(''); }}
-                      className="flex justify-between px-3 py-1.5 text-sm cursor-pointer hover:bg-navy-50 border-b border-gray-100 last:border-0">
-                      <span>{p.name} <span className="text-xs text-gray-400">{p.materialCode || p.sku}</span></span>
-                      <span className="text-xs text-gray-500">{p.currentStock} {p.unit}</span>
-                    </div>
-                  ))}
+            {/* From PO — info + the material lines that arrived. */}
+            {isPo && po && (
+              <>
+                <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div><span className="text-gray-500">Supplier:</span> {po.supplierName}</div>
+                  <div><span className="text-gray-500">PR:</span> {po.prNumbers || '—'}</div>
+                  <div><span className="text-gray-500">Issued to:</span> {po.issuedToLabel || po.issuedToDept || '—'}</div>
+                  <div><span className="text-gray-500">Indenter:</span> {po.indenterName || '—'}</div>
                 </div>
-              )}
-              {product && <p className="mt-1 text-xs text-navy-700">Linked: <strong>{product.name}</strong> — stock will be added on inward.</p>}
-              {!product && <p className="mt-1 text-[11px] text-gray-400">No product linked → recorded in the register only (no stock movement).</p>}
-            </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[13px] font-semibold text-navy-700">Material lines received *</label>
+                    <span className="text-[11px] text-navy-500">{selectedCount} of {po.items.length} ticked</span>
+                  </div>
+                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-[320px] overflow-y-auto">
+                    {po.items.map((it) => {
+                      const checked = !!sel[it.id];
+                      const v = sel[it.id] || {};
+                      const rem = remainingOf(it);
+                      return (
+                        <div key={it.id} className={`p-2.5 ${checked ? 'bg-navy-50/50' : ''}`}>
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input type="checkbox" className="mt-0.5" checked={checked} onChange={() => toggleLine(it)} />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[13px] font-medium text-navy-800">{it.productName}</div>
+                              <div className="text-[11px] text-gray-500">
+                                Ordered {fmtQty(it.quantity)} {it.productUnit} · Received {fmtQty(it.receivedQty || 0)} · <span className={rem > 0 ? 'text-emerald-600 font-semibold' : 'text-gray-400'}>Remaining {fmtQty(rem)}</span>
+                              </div>
+                              {it.issuedToLabel && (
+                                <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-navy-600">
+                                  <Building2 size={10} /> → {it.issuedToLabel}
+                                  {it.unitAllocations?.length > 1 && <span className="text-amber-600">(auto-split)</span>}
+                                </div>
+                              )}
+                            </div>
+                          </label>
+                          {checked && (
+                            <div className="mt-2 ml-6 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                              <Input label="Qty received *" type="number" min="0" step="any" value={v.qty} onChange={(e) => setLine(it.id, 'qty', e.target.value)} />
+                              <Input label="Batch no." value={v.batchNo} onChange={(e) => setLine(it.id, 'batchNo', e.target.value)} />
+                              <Input label="Expiry" type="date" value={v.dateOfExpiry} onChange={(e) => setLine(it.id, 'dateOfExpiry', e.target.value)} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1 text-[11px] text-gray-400">Each ticked line becomes its own MIR row (lot) with its own QC track. A line can be received in batches across several deliveries — just record the part that arrived.</p>
+                </div>
+              </>
+            )}
+
+            {/* Cash Purchase — the stores person types the item and picks where it goes. */}
+            {isCash && (
+              <div className="space-y-3 pt-1">
+                <Input label="Item Description *" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="What was received" />
+                <Input label="UOM" value={f.uom} onChange={(e) => set('uom', e.target.value)} placeholder="pcs / kg / litre" />
+                <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
+                <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
+                <p className="-mt-1 text-[11px] text-gray-400">Pick the unit or department this cash purchase is for — stock is reserved to it on inward. Leave as “General” to keep it in the shared pool.</p>
+                <div>
+                  <label className="block text-[13px] font-semibold text-navy-700 mb-1">Link product (for stock) — optional</label>
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Search product…"
+                      className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500" />
+                  </div>
+                  {productSearch && (
+                    <div className="mt-1 max-h-36 overflow-y-auto border rounded-md">
+                      {filteredProducts.slice(0, 30).map((p) => (
+                        <div key={p.id} onClick={() => { setProductId(p.id); setProductSearch(''); }}
+                          className="flex justify-between px-3 py-1.5 text-sm cursor-pointer hover:bg-navy-50 border-b border-gray-100 last:border-0">
+                          <span>{p.name} <span className="text-xs text-gray-400">{p.materialCode || p.sku}</span></span>
+                          <span className="text-xs text-gray-500">{p.currentStock} {p.unit}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {product && <p className="mt-1 text-xs text-navy-700">Linked: <strong>{product.name}</strong> — stock will be added on inward.</p>}
+                  {!product && <p className="mt-1 text-[11px] text-gray-400">No product linked → recorded in the register only (no stock movement).</p>}
+                </div>
+              </div>
+            )}
           </FormBlock>
         )}
 
         {/* Receipt details — vehicle / document and (for direct & edit) the
             qty / batch / expiry. Qty / batch / expiry are per-line in PO mode. */}
-        <FormBlock title={step('3', 'Receipt details')}>
+        <FormBlock title="Receipt details">
           <div className="space-y-3">
             <Input label="Vehicle details" value={f.vehicleDetails} onChange={(e) => set('vehicleDetails', e.target.value)} placeholder="e.g. AP 31 CD 1234" />
             <Select label="Document type" value={f.docType} onChange={(e) => set('docType', e.target.value)}>
