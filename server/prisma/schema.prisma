@@ -2543,17 +2543,17 @@ model CalendarEvent {
 // fully additive and needs no back-relation edits on existing models.
 // ──────────────────────────────────────────────────────────────
 model MaterialInwardRegister {
-  id              String        @id @default(uuid())
-  mirNo           String        @unique // RAPS/MIR/<FY>/<N> — auto
-  inwardDate      DateTime      @default(now())
-  vehicleDetails  String?
+  id             String   @id @default(uuid())
+  mirNo          String   @unique // RAPS/MIR/<FY>/<N> — auto
+  inwardDate     DateTime @default(now())
+  vehicleDetails String?
 
   // Invoice / Cash purchase / Delivery challan / Gate pass + its number
-  docType         InwardDocType @default(INVOICE)
-  docNumber       String?
+  docType   InwardDocType @default(INVOICE)
+  docNumber String?
   // Stores-uploaded supporting documents (invoice / DC / test report / COA …).
   // Array of { label, name, url, uploadedAt, uploadedById }.
-  documents       Json?
+  documents Json?
 
   // Source PO (optional). Snapshot fields are copied at creation so the row
   // stays readable even if the PO later changes.
@@ -2587,7 +2587,7 @@ model MaterialInwardRegister {
 
   // Sequential lot number per PO (Lot 1, 2, 3 … N). Each partial receipt against
   // the same PO is its own lot; null for direct/cash entries with no PO.
-  lotNo        Int?
+  lotNo Int?
 
   purpose      String?
   batchNo      String?
@@ -2595,11 +2595,15 @@ model MaterialInwardRegister {
 
   status InwardStatus @default(DRAFT)
 
+  // Inward Inspection ION No. — auto-generated when Stores sends the lot to QC
+  // (RAPS/IION/<FY>/<N>). Stores never controls/edits it.
+  ionNo String? @unique
+
   // QC request — filled by Stores when handing the lot to QC.
   qcRequestedAt    DateTime?
   qcRequestedById  String?
   qcRequestNote    String?
-  qcDocRequirement String? // COA / COC / Test report / etc.
+  qcDocRequirement String? // COA / COC / Test report / etc. (comma-joined list)
   // The inward-inspection request form Stores reviews before sending to QC:
   // packing condition on receipt, documents enclosed checklist, stores remark.
   // Auto-filled header fields come from the row itself; this holds the extras.
@@ -2619,16 +2623,16 @@ model MaterialInwardRegister {
   // the reason is captured here and the lot can be resent to QC. Each completed
   // review round (including holds) is appended to qcHistory before the next round
   // so nothing is lost across re-inspections. qcRound counts the current round.
-  holdReason String?
-  holdCount  Int     @default(0)
-  qcRound    Int     @default(1)
-  qcHistory  Json? // [{ round, result, reportNo, remark, reviewerId, finishedAt, holdReason, qtyAccepted, qtyRejected }]
+  holdReason   String?
+  holdCount    Int       @default(0)
+  qcRound      Int       @default(1)
+  qcHistory    Json? // [{ round, result, reportNo, remark, reviewerId, finishedAt, holdReason, qtyAccepted, qtyRejected }]
   // Full inward-inspection report (the complete IIR form QC fills): material
   // description/category, document types, packing condition, DOM, qty as-per-PR
   // / ordered, rejection reason, etc. Summary qty/result fields above stay
   // first-class for the register columns + stock logic.
-  qcReport          Json?
-  qcFinishedAt      DateTime?
+  qcReport     Json?
+  qcFinishedAt DateTime?
 
   // Inward completion — stock created.
   inwardedAt DateTime?

@@ -784,7 +784,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
         {/* Direct / cash — the stores person types the item and picks where it goes. */}
         {!isEdit && source === 'direct' && (
           <FormBlock title="2 · Material details">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-3">
               <Input label="Item Description *" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="What was received" />
               <Input label="UOM" value={f.uom} onChange={(e) => set('uom', e.target.value)} placeholder="pcs / kg / litre" />
               <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
@@ -818,7 +818,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
         {/* Receipt details — vehicle / document and (for direct & edit) the
             qty / batch / expiry. Qty / batch / expiry are per-line in PO mode. */}
         <FormBlock title={step('3', 'Receipt details')}>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="space-y-3">
             <Input label="Vehicle details" value={f.vehicleDetails} onChange={(e) => set('vehicleDetails', e.target.value)} placeholder="e.g. AP 31 CD 1234" />
             <Select label="Document type" value={f.docType} onChange={(e) => set('docType', e.target.value)}>
               {DOC_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
@@ -827,11 +827,11 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
             {!perLine && <Input label="Qty received *" type="number" min="0" step="any" value={f.qtyReceived} onChange={(e) => set('qtyReceived', e.target.value)} />}
             {!perLine && <Input label="Batch number" value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />}
             {!perLine && <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />}
+            {isEdit && isDirect && (
+              <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
+            )}
+            <Textarea label="Purpose" rows={2} value={f.purpose} onChange={(e) => set('purpose', e.target.value)} placeholder="What it is for (optional)" />
           </div>
-          {isEdit && isDirect && (
-            <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} className="sm:max-w-xs" />
-          )}
-          <Textarea label="Purpose" rows={2} value={f.purpose} onChange={(e) => set('purpose', e.target.value)} placeholder="What it is for (optional)" />
         </FormBlock>
 
         <div className="flex justify-end gap-2 pt-2 border-t">
@@ -965,16 +965,33 @@ function ReadKV({ label, value, span = false }) {
 // receipt condition + enclosed documents, attaches the invoice, and sends it ──
 const DOC_TYPE_CHECKS = ['Test Report', 'COC', 'COA', '3rd Party / Customer Clearance'];
 
+// Rows 12–16 are the only ones Stores fills — rows 0–11 (ION + PR/PO/quote
+// details) are auto-generated / locked, fetched from earlier actions.
+const IIR_EDITABLE_KEYS = new Set(['dcNo', 'gatePassNo', 'gatePassType', 'probableReturnDate', 'materialReceiptDate']);
+
 function RequestQcModal({ row, onClose, onDone }) {
   const [form, setForm] = useState(() => ({ ...iirRequestDefaults(row), ...(row.qcRequest || {}) }));
-  const [docRequirement, setDocRequirement] = useState(row.qcDocRequirement || '');
+  const [docsRequired, setDocsRequired] = useState(() => {
+    const r = row.qcRequest?.docsRequired;
+    if (Array.isArray(r)) return r;
+    if (row.qcDocRequirement) return row.qcDocRequirement.split(',').map((s) => s.trim()).filter(Boolean);
+    return [];
+  });
   const [invoice, setInvoice] = useState(null);
   const [reports, setReports] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+  const toggleDocReq = (d) => setDocsRequired((p) => (p.includes(d) ? p.filter((x) => x !== d) : [...p, d]));
   const refDocs = refDocsFor(row);
+
+  // Pull the auto / locked rows (ION + 1–11) from the PR / PO / quotation chain.
+  useEffect(() => {
+    api.get(`/material-inward/${row.id}/iir-auto`)
+      .then(({ data }) => setForm((p) => ({ ...p, ...(data.iir || {}) })))
+      .catch(() => {});
+  }, [row.id]);
 
   const submit = async () => {
     setSaving(true); setError('');
@@ -990,11 +1007,16 @@ function RequestQcModal({ row, onClose, onDone }) {
         fd.append('labels', JSON.stringify(labels));
         await api.post(`/material-inward/${row.id}/documents`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
-      // 2) Send the QC request with the inspection-request form snapshot.
+      // 2) Send the request. Only the editable rows + the documents-required list
+      //    go up; the ION and rows 1–11 are (re)generated server-side.
       await api.post(`/material-inward/${row.id}/request-qc`, {
-        qcDocRequirement: docRequirement,
         qcRequestNote: form.storesRemark || null,
-        qcRequest: form,
+        docsRequired,
+        qcRequest: {
+          dcNo: form.dcNo, gatePassNo: form.gatePassNo, gatePassType: form.gatePassType,
+          probableReturnDate: form.probableReturnDate, materialReceiptDate: form.materialReceiptDate,
+          storesRemark: form.storesRemark,
+        },
       });
       onDone();
     } catch (err) { setError(err.response?.data?.error || 'Failed'); setSaving(false); }
@@ -1007,22 +1029,32 @@ function RequestQcModal({ row, onClose, onDone }) {
 
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <p className="text-[11px] text-gray-500">
-            {row.mirNo}{row.lotNo != null ? ` · Lot ${row.lotNo}` : ''} · auto-filled from the register — review & edit, then send to QA/QC.
+            {row.mirNo}{row.lotNo != null ? ` · Lot ${row.lotNo}` : ''} · rows 1–11 are locked (auto-filled from the PR / PO / quotation). Fill rows 12–16 + the documents below, then send to QA/QC.
           </p>
           <DownloadPdfButton document={<InwardInspectionRequestPdf row={row} form={form} />} fileName={`IIR-Request-${row.mirNo}.pdf`} label="View / Print form" />
         </div>
 
         <FormBlock title="Inspection ION No. & Date">
-          <Input value={form.ionNoDate} onChange={(e) => set('ionNoDate', e.target.value)} placeholder="ION no. & date (if any)" />
+          <Input value={form.ionNoDate || ''} disabled placeholder="Auto-generated when sent to QC" />
         </FormBlock>
 
-        {/* The 16 numbered rows, in the four printed-form sections */}
+        {/* The 16 numbered rows. Rows 1–11 are locked (disabled); 12–16 editable. */}
         {IIR_REQUEST_SECTIONS.map((sec) => (
           <FormBlock key={sec.title} title={sec.title}>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {sec.rows.map((r) => (
-                <Input key={r.key} label={`${r.no}. ${r.label}`} value={form[r.key] || ''} onChange={(e) => set(r.key, e.target.value)} />
-              ))}
+              {sec.rows.map((r) => {
+                const editable = IIR_EDITABLE_KEYS.has(r.key);
+                return (
+                  <Input
+                    key={r.key}
+                    label={`${r.no}. ${r.label}${editable ? '' : '  🔒'}`}
+                    value={form[r.key] || ''}
+                    disabled={!editable}
+                    onChange={editable ? (e) => set(r.key, e.target.value) : undefined}
+                    placeholder={editable ? '' : '— from previous —'}
+                  />
+                );
+              })}
             </div>
           </FormBlock>
         ))}
@@ -1060,13 +1092,21 @@ function RequestQcModal({ row, onClose, onDone }) {
 
         {/* Instructions to QC + stores remark */}
         <FormBlock title="Instructions to QC">
-          <Select label="Documents required (for QC to verify)" value={docRequirement} onChange={(e) => setDocRequirement(e.target.value)}>
-            <option value="">— None / any —</option>
-            <option value="COA">COA</option>
-            <option value="COC">COC</option>
-            <option value="Test Report">Test Report</option>
-            <option value="3rd Party / Customer Clearance">3rd Party / Customer Clearance</option>
-          </Select>
+          <div>
+            <label className="block text-[13px] font-semibold text-navy-700 mb-1.5">Documents required (for QC to verify)</label>
+            <div className="flex flex-wrap gap-2">
+              {DOC_TYPE_CHECKS.map((d) => {
+                const on = docsRequired.includes(d);
+                return (
+                  <button key={d} type="button" onClick={() => toggleDocReq(d)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${on ? 'bg-navy-700 text-white border-navy-700 shadow-sm' : 'bg-white text-navy-700 border-navy-200 hover:bg-navy-50'}`}>
+                    {on && <CheckCircle2 size={12} className="inline mr-1 -mt-0.5" />}{d}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-[11px] text-gray-400">Tap the documents QC must verify — these pre-tick the “Documents verified” checklist on the QC inspection report.</p>
+          </div>
           <Textarea label="Remark / note to QC" rows={2} value={form.storesRemark} onChange={(e) => set('storesRemark', e.target.value)} placeholder="Anything QC should know before reviewing…" />
         </FormBlock>
 
@@ -1101,10 +1141,15 @@ function ReviewModal({ row, onClose, onDone }) {
     rejectionReason: rep.rejectionReason || '',
   });
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  // Pre-tick from QC's own prior save, else from the documents Stores asked QC
+  // to verify on the request form (qcRequest.docsRequired / qcDocRequirement).
+  const storesDocs = Array.isArray(row.qcRequest?.docsRequired) && row.qcRequest.docsRequired.length
+    ? row.qcRequest.docsRequired
+    : (row.qcDocRequirement ? row.qcDocRequirement.split(',').map((s) => s.trim()).filter(Boolean) : []);
   const [documentTypes, setDocumentTypes] = useState(
     Array.isArray(rep.documentTypes) && rep.documentTypes.length
       ? rep.documentTypes
-      : (DOC_TYPE_CHECKS.includes(row.qcDocRequirement) ? [row.qcDocRequirement] : []),
+      : storesDocs.filter((d) => DOC_TYPE_CHECKS.includes(d)),
   );
   const toggleDoc = (d) => setDocumentTypes((p) => (p.includes(d) ? p.filter((x) => x !== d) : [...p, d]));
 

@@ -72,6 +72,7 @@ const DOC_NUMBER_MAP = {
   QT:  { model: 'quotation',                field: 'quotationNumber' },
   QC:  { model: 'qCInspection',             field: 'inspectionNumber' },
   MIR: { model: 'materialInwardRegister',   field: 'mirNo' },
+  IION:{ model: 'materialInwardRegister',   field: 'ionNo' }, // Inward Inspection ION No.
   IR:  { model: 'qCInspection',             field: 'reportNo' },
   ISS: { model: 'productRequest',           field: 'issueNo' },
   PAY: { model: 'paymentRequest',           field: 'paymentNumber' },

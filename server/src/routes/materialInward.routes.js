@@ -4,6 +4,7 @@ const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const {
   paginate, applyDateFilter, generateSequentialNumber, withDocRetry, OWNER_DEPTS, deptForRole,
+  formatDDMMYY,
 } = require('../utils/helpers');
 const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 
@@ -207,6 +208,85 @@ function splitQtyAcrossUnits(row, qty) {
     }
     return { unitId: a.unitId, unitName: a.unitName, qty: q };
   });
+}
+
+// Build the auto / locked Inward-Inspection-Request fields (rows 1–11) for a
+// register row. Everything here is snapshotted from earlier actions — the PR,
+// the PO, the approved quotation and the supplier — so Stores never types it.
+// Rows 12–16 (DC / gate pass / receipt date) and the stores remark stay editable.
+const fmtDMY = (d) => (d ? new Date(d).toLocaleDateString('en-GB') : ''); // DD/MM/YYYY
+async function buildIirAuto(row) {
+  const out = {
+    ionNoDate: row.ionNo ? `${row.ionNo}  ·  ${fmtDMY(row.qcRequestedAt || new Date())}` : '',
+    prNoDate: row.prNumbers || '',          // 01
+    materialDesc: row.itemDescription || '', // 02
+    qtyAsPerPR: '',                          // 03
+    supplierDetails: row.supplierName || '', // 04
+    budgetaryQuote: '',                      // 05
+    supplierAssessment: '',                  // 06
+    poNoDate: '',                            // 07
+    qtyOrdered: '',                          // 08
+    deliveryRequiredBy: '',                  // 09
+    scopeOfWork: '',                         // 10
+    invoiceNoDate: '',                       // 11
+  };
+  // 11 — invoice / cash receipt doc lives on the row itself.
+  if (['INVOICE', 'CASH_PURCHASE'].includes(row.docType) && row.docNumber) {
+    out.invoiceNoDate = `${row.docNumber} · ${fmtDMY(row.inwardDate)}`;
+  }
+  if (!row.purchaseOrderId) return out; // direct / cash entry — no PR/PO chain.
+
+  const po = await prisma.purchaseOrder.findUnique({
+    where: { id: row.purchaseOrderId },
+    select: {
+      orderNumber: true, createdAt: true, supplierName: true,
+      supplier: { select: { supplierAssessmentPdfUrl: true, assessmentFiscalYear: true } },
+      quotation: { select: { quotationNumber: true, totalAmount: true } },
+    },
+  });
+  if (po) {
+    out.poNoDate = `${po.orderNumber}${po.createdAt ? ` · ${fmtDMY(po.createdAt)}` : ''}`;
+    out.supplierDetails = po.supplierName || out.supplierDetails;
+    out.supplierAssessment = po.supplier?.supplierAssessmentPdfUrl
+      ? `Attached${po.supplier.assessmentFiscalYear ? ` (FY ${po.supplier.assessmentFiscalYear})` : ''}`
+      : 'Not on file';
+    out.budgetaryQuote = po.quotation
+      ? `${po.quotation.quotationNumber}${po.quotation.totalAmount != null ? ` · ₹${po.quotation.totalAmount}` : ''}`
+      : '';
+  }
+
+  if (row.purchaseOrderItemId) {
+    const poItem = await prisma.purchaseOrderItem.findUnique({
+      where: { id: row.purchaseOrderItemId },
+      select: {
+        quantity: true, productUnit: true, purchaseRequestItemId: true,
+        // Union PO lines bind PR items via allocations rather than a direct FK.
+        allocations: { select: { purchaseRequestItemId: true } },
+      },
+    });
+    if (poItem) {
+      if (poItem.quantity != null) out.qtyOrdered = `${poItem.quantity} ${poItem.productUnit || row.uom || ''}`.trim();
+      const prItemIds = [
+        poItem.purchaseRequestItemId,
+        ...(poItem.allocations || []).map((a) => a.purchaseRequestItemId),
+      ].filter(Boolean);
+      if (prItemIds.length) {
+        const prItems = await prisma.purchaseRequestItem.findMany({
+          where: { id: { in: [...new Set(prItemIds)] } },
+          select: { requestedQty: true, productUnit: true, requiredByDate: true, scopeOfWork: true },
+        });
+        if (prItems.length) {
+          const totalReq = prItems.reduce((s, p) => s + (p.requestedQty || 0), 0);
+          const uom = prItems[0].productUnit || row.uom || '';
+          out.qtyAsPerPR = totalReq ? `${totalReq} ${uom}`.trim() : '';
+          const dates = prItems.map((p) => p.requiredByDate).filter(Boolean);
+          if (dates.length) out.deliveryRequiredBy = fmtDMY(dates.sort((a, b) => new Date(a) - new Date(b))[0]);
+          out.scopeOfWork = [...new Set(prItems.map((p) => p.scopeOfWork).filter(Boolean))].join(' · ');
+        }
+      }
+    }
+  }
+  return out;
 }
 
 // ── GET /api/material-inward/active-pos ───────────────────────────────
@@ -607,8 +687,28 @@ router.delete('/:id/documents/:index', authenticate, authorize(...WRITE_ROLES), 
   }
 });
 
+// Documents Stores can ask QC to verify (also pre-check the QC report checklist).
+const DOC_REQUIREMENTS = ['Test Report', 'COC', 'COA', '3rd Party / Customer Clearance'];
+
+// ── GET /api/material-inward/:id/iir-auto ─────────────────────────────
+// The auto / locked Inward-Inspection-Request fields (rows 1–11) for the form.
+// Stores opens the request form → these come pre-filled and read-only.
+router.get('/:id/iir-auto', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+  try {
+    const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
+    if (!row) return res.status(404).json({ error: 'Entry not found' });
+    const iir = await buildIirAuto(row);
+    res.json({ iir });
+  } catch (err) {
+    console.error('iir-auto error:', err);
+    res.status(500).json({ error: 'Failed to load inspection-request details' });
+  }
+});
+
 // ── POST /api/material-inward/:id/request-qc ──────────────────────────
-// Stores hands the lot to QC. Captures the document requirement + note.
+// Stores hands the lot to QC. The ION No. is auto-generated and rows 1–11 are
+// re-derived server-side (locked); Stores only supplies rows 12–16, the remark,
+// and which documents QC must verify.
 router.post('/:id/request-qc', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
@@ -617,30 +717,48 @@ router.post('/:id/request-qc', authenticate, authorize(...WRITE_ROLES), async (r
       return res.status(400).json({ error: 'QC has already been taken up for this entry' });
     }
 
-    // Whitelist the Inward Inspection Request form (RAPS/IIR Rev 01) Stores fills.
-    // Each field maps to a numbered row on the printed form; header values stay
-    // first-class on the row and are auto-filled into the form on the client.
     const rq = req.body?.qcRequest || {};
     const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
-    const FORM_KEYS = [
-      'ionNoDate', 'prNoDate', 'materialDesc', 'qtyAsPerPR', 'supplierDetails',
-      'budgetaryQuote', 'supplierAssessment', 'poNoDate', 'qtyOrdered',
-      'deliveryRequiredBy', 'scopeOfWork', 'invoiceNoDate', 'dcNo', 'gatePassNo',
-      'gatePassType', 'probableReturnDate', 'materialReceiptDate', 'storesRemark',
-    ];
-    const qcRequest = { requestedAt: new Date().toISOString() };
-    FORM_KEYS.forEach((k) => { qcRequest[k] = str(rq[k]); });
+    // Locked rows 1–11 are re-derived from the PR/PO chain — never trusted from
+    // the client. The ION No. (row 0) is auto-generated below.
+    const auto = await buildIirAuto(row);
+    // Documents Stores selected for QC to verify (whitelist).
+    const docsRequired = Array.isArray(req.body?.docsRequired)
+      ? req.body.docsRequired.filter((d) => DOC_REQUIREMENTS.includes(d))
+      : [];
 
-    const updated = await prisma.materialInwardRegister.update({
-      where: { id: row.id },
-      data: {
-        status: 'QC_REQUESTED',
-        qcRequestedAt: new Date(),
-        qcRequestedById: req.user.id,
-        qcRequestNote: req.body?.qcRequestNote?.trim() || null,
-        qcDocRequirement: req.body?.qcDocRequirement?.trim() || null,
-        qcRequest,
-      },
+    const qcRequest = {
+      requestedAt: new Date().toISOString(),
+      // Auto / locked (rows 0–11):
+      ...auto,
+      // Stores-editable (rows 12–16):
+      dcNo: str(rq.dcNo),
+      gatePassNo: str(rq.gatePassNo),
+      gatePassType: str(rq.gatePassType),
+      probableReturnDate: str(rq.probableReturnDate),
+      materialReceiptDate: str(rq.materialReceiptDate) || fmtDMY(row.inwardDate),
+      storesRemark: str(rq.storesRemark),
+      // Documents QC must verify → pre-checks the report checklist.
+      docsRequired,
+    };
+
+    // Generate the ION No. once (kept across re-requests). withDocRetry handles
+    // the unique-constraint race on ionNo.
+    const updated = await withDocRetry(async () => {
+      const ionNo = row.ionNo || await generateSequentialNumber(prisma, 'IION');
+      qcRequest.ionNoDate = `${ionNo}  ·  ${fmtDMY(row.qcRequestedAt || new Date())}`;
+      return prisma.materialInwardRegister.update({
+        where: { id: row.id },
+        data: {
+          status: 'QC_REQUESTED',
+          ionNo,
+          qcRequestedAt: new Date(),
+          qcRequestedById: req.user.id,
+          qcRequestNote: str(req.body?.qcRequestNote) || qcRequest.storesRemark,
+          qcDocRequirement: docsRequired.join(', ') || null,
+          qcRequest,
+        },
+      });
     });
     await prisma.notification.create({
       data: {
