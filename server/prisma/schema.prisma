@@ -227,6 +227,27 @@ model Product {
   unitStocks           ProductUnitStock[]
   deptStocks           ProductDeptStock[]
   materialPools        MaterialPool[]
+  specs                ProductSpec[]
+}
+
+// ──── PRODUCT MATERIAL SPECS (reusable spec-PDF library per product) ────
+// A growing library of material-specification PDFs attached to a Product.
+// Populated when raising a PR (pick an existing spec or upload a new one) and
+// manageable directly from the Product Detail page by Stores/Admin. Distinct
+// from Product.msds (single safety sheet) and PurchaseRequestItem.specAttachmentUrl
+// (the one spec chosen for that PR line). uploadedById/Name are snapshots — no
+// back-relation on User is kept so that model stays untouched.
+model ProductSpec {
+  id             String   @id @default(uuid())
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url            String
+  name           String
+  uploadedById   String?
+  uploadedByName String?
+  createdAt      DateTime @default(now())
+
+  @@index([productId])
 }
 
 // ──── PER-UNIT INVENTORY (Phase 6) ────
@@ -530,16 +551,20 @@ model Supplier {
   approvalDate               DateTime?
   typeAndExtentOfControl     String?
   remarks                    String?
-  // Vendor Evaluation PDF — uploaded once when the supplier is first onboarded.
-  // Survives FY data resets; never re-required.
-  vendorEvaluationPdfUrl     String?
-  vendorEvaluationUploadedAt DateTime?
-  // Supplier Assessment PDF — valid only for the financial year stored in
-  // `assessmentFiscalYear`. After FY rollover, a new assessment must be uploaded
-  // before the supplier can be used on a new quotation.
+  // Supplier Assessment (SA) — the PRIMARY evaluation captured once at onboarding
+  // and kept on file permanently. `supplierAssessmentDate` is the document date the
+  // Purchase Officer enters; the SA is valid for 1 year from that date.
+  // `assessmentFiscalYear` is legacy and no longer drives validity.
   supplierAssessmentPdfUrl   String?
+  supplierAssessmentDate     DateTime?
   assessmentFiscalYear       String?
   assessmentUploadedAt       DateTime?
+  // Vendor Re-Evaluation (VE) — recurring yearly re-evaluation. Full history lives
+  // in `vendorEvaluations`; the fields below denormalize the LATEST VE so the
+  // compliance gate and quotation reads stay cheap. Valid 1 year from `vendorEvaluationDate`.
+  vendorEvaluationPdfUrl     String?
+  vendorEvaluationDate       DateTime?
+  vendorEvaluationUploadedAt DateTime?
   createdAt                  DateTime                        @default(now())
   updatedAt                  DateTime                        @updatedAt
   quotations                 Quotation[]
@@ -548,7 +573,24 @@ model Supplier {
   purchaseOrderItems         PurchaseOrderItem[]
   reEvaluations              SupplierReEvaluation[]
   assessmentForms            SupplierAssessmentForm[]
+  vendorEvaluations          SupplierVendorEvaluation[]
   performanceRatings         SupplierPerformanceRatingItem[]
+}
+
+// ──── VENDOR RE-EVALUATION PDFs (one row per yearly re-evaluation) ────
+// The latest row is the active VE; older rows are retained (saved) but unused.
+// Denormalized onto Supplier.vendorEvaluation* for cheap compliance reads.
+model SupplierVendorEvaluation {
+  id               String   @id @default(uuid())
+  supplierId       String
+  supplier         Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  pdfUrl           String
+  documentDate     DateTime // re-evaluation date entered by the Purchase Officer
+  uploadedByUserId String?
+  uploadedByName   String?
+  createdAt        DateTime @default(now())
+
+  @@index([supplierId])
 }
 
 enum SupplierMaterialType {

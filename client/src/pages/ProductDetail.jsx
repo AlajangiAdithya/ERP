@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowDown, ArrowUp, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine, FileText, GitBranch, Box } from 'lucide-react';
+import { ArrowLeft, ArrowDown, ArrowUp, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine, FileText, GitBranch, Box, Paperclip, Upload, X } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -1009,6 +1009,9 @@ export default function ProductDetail() {
   const [activeTab, setActiveTab] = useState('overview');
   const [requoteSource, setRequoteSource] = useState(null);
   const [requoteOpen, setRequoteOpen] = useState(false);
+  // Material-spec library management (Stores/Admin only).
+  const [specUploading, setSpecUploading] = useState(false);
+  const [specError, setSpecError] = useState('');
 
   const loadProduct = () => {
     return Promise.all([
@@ -1036,6 +1039,35 @@ export default function ProductDetail() {
   const openRequote = (row) => {
     setRequoteSource(row);
     setRequoteOpen(true);
+  };
+
+  const canManageSpecs = user?.role === 'ADMIN' || user?.role === 'STORE_MANAGER';
+
+  const uploadSpec = async (file) => {
+    if (!file) return;
+    if (file.type !== 'application/pdf') { setSpecError('PDF only'); return; }
+    if (file.size > 10 * 1024 * 1024) { setSpecError('Max 10 MB'); return; }
+    setSpecUploading(true);
+    setSpecError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await api.post(`/products/${id}/specs`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await loadProduct();
+    } catch (err) {
+      setSpecError(err.response?.data?.error || 'Upload failed');
+    }
+    setSpecUploading(false);
+  };
+
+  const removeSpec = async (specId) => {
+    if (!confirm('Remove this spec from the product?')) return;
+    try {
+      await api.delete(`/products/${id}/specs/${specId}`);
+      await loadProduct();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to remove spec');
+    }
   };
 
   if (loading) {
@@ -1133,6 +1165,53 @@ export default function ProductDetail() {
           )}
         </Card>
       </div>
+
+      {/* Material Specifications — reusable spec-PDF library (also picked when raising PRs) */}
+      <Card>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+            <FileText size={15} className="text-navy-700" /> Material Specifications
+            <span className="text-xs font-normal text-gray-400">({(product.specs || []).length})</span>
+          </h3>
+          {canManageSpecs && (
+            <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs text-navy-700 hover:underline">
+              <Upload size={13} /> {specUploading ? 'Uploading…' : 'Upload spec PDF'}
+              <input
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                disabled={specUploading}
+                onChange={(e) => uploadSpec(e.target.files?.[0])}
+              />
+            </label>
+          )}
+        </div>
+        {specError && <div className="mb-2 text-[11px] text-red-600">{specError}</div>}
+        {(product.specs || []).length === 0 ? (
+          <p className="text-sm text-gray-400 italic">
+            No specs stored yet. Specs added while raising Purchase Requests for this material show up here.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {product.specs.map((s) => (
+              <li key={s.id} className="flex items-center gap-2 text-sm border border-gray-100 rounded px-2.5 py-1.5 hover:bg-gray-50">
+                <Paperclip size={13} className="text-gray-400 flex-shrink-0" />
+                <a href={s.url} target="_blank" rel="noreferrer" className="text-navy-700 hover:underline truncate flex-1">
+                  {s.name}
+                </a>
+                <span className="text-[11px] text-gray-400 flex-shrink-0">
+                  {s.uploadedByName ? `${s.uploadedByName} · ` : ''}{formatDate(s.createdAt)}
+                </span>
+                {canManageSpecs && (
+                  <button onClick={() => removeSpec(s.id)} className="text-gray-300 hover:text-red-600 flex-shrink-0" title="Remove">
+                    <X size={14} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       {/* Tabs */}
       <Card>

@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Input, { Select, Textarea } from '../components/ui/Input';
+import { UOM_OPTIONS } from '../utils/units';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
@@ -543,8 +544,10 @@ function CreateGatePassModal({ onClose, onCreated }) {
                         value={it.quantity} onChange={e => updateItem(idx, 'quantity', e.target.value)} />
                     </td>
                     <td className="px-2 py-2">
-                      <input className={`${cellInput} text-center`}
-                        value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)} />
+                      <select className={`${cellInput} text-center`}
+                        value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)}>
+                        {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                      </select>
                     </td>
                     <td className="px-2 py-2">
                       <input className={cellInput}

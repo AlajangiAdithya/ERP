@@ -14,6 +14,7 @@ import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import PageHero from '../components/shared/PageHero';
 import { formatDate } from '../utils/formatters';
+import { UOM_OPTIONS } from '../utils/units';
 import { checkFileSize } from '../utils/fileGuard';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import InwardInspectionReportPdf from '../components/pdf/InwardInspectionReportPdf';
@@ -843,7 +844,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                 {itemMode === 'new' && (
                   <>
                     <Input label="Item Description *" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="Name of the new item" />
-                    <Input label="UOM" value={f.uom} onChange={(e) => set('uom', e.target.value)} placeholder="pcs / kg / litre" />
+                    <Select label="UOM" value={f.uom || ''} onChange={(e) => set('uom', e.target.value)}>
+                      <option value="">Select UOM…</option>
+                      {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                    </Select>
                     <p className="-mt-1 text-[11px] text-gray-400">New item not in the product master → recorded in the register only (no stock movement).</p>
                   </>
                 )}
@@ -1911,8 +1915,10 @@ function RecordInwardModal({ onClose, onCreated }) {
                         value={it.quantity} onChange={e => updateItem(idx, 'quantity', e.target.value)} />
                     </td>
                     <td className="px-2 py-2">
-                      <input className={`${cellInput} text-center`}
-                        value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)} />
+                      <select className={`${cellInput} text-center`}
+                        value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)}>
+                        {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                      </select>
                     </td>
                     <td className="px-2 py-2">
                       <input className={cellInput}

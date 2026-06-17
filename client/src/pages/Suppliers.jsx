@@ -13,7 +13,13 @@ import Input, { Select, Textarea } from '../components/ui/Input';
 import SearchBar from '../components/shared/SearchBar';
 import Pagination from '../components/shared/Pagination';
 import PageHero from '../components/shared/PageHero';
+import ExpiryDot from '../components/shared/ExpiryDot';
 import { formatDate } from '../utils/formatters';
+import { supplierComplianceStatus } from '../utils/supplierCompliance';
+
+// The structured Re-Evaluation + Assessment data-entry forms are hidden for now —
+// per spec only the SA and VE PDF documents matter. Flip to true to restore them.
+const SHOW_STRUCTURED_FORMS = false;
 
 const MATERIAL_TYPE_OPTS = [
   { value: '', label: '—' },
@@ -186,7 +192,6 @@ export default function Suppliers() {
       {uploadingFor && (
         <PdfUploadModal
           uploadingFor={uploadingFor}
-          currentFY={currentFY}
           onClose={() => setUploadingFor(null)}
           onSaved={() => { setUploadingFor(null); fetchSuppliers(); }}
         />
@@ -268,26 +273,28 @@ function ApprovedSupplierTable({ suppliers, currentFY, canEdit, onEditSupplier, 
             const r = s.currentReEvaluation;
             const ratingValue = r?.performanceRating;
             const ratingBelow = ratingValue != null && ratingValue < 85;
+            const st = supplierComplianceStatus(s);
             return (
               <tr key={s.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                 <td className="px-2 py-2 border-b text-gray-700 font-mono">{s.vendorIdNo || '—'}</td>
                 <td className="px-2 py-2 border-b">
                   <div className="font-medium text-navy-700">{s.name}</div>
                   {s.gstNumber && <div className="text-[10px] text-gray-500">GST: {s.gstNumber}</div>}
-                  {(s.hasVendorEvaluation || s.assessmentValidForCurrentFY) && (
-                    <div className="flex gap-1 mt-1">
-                      {s.hasVendorEvaluation && (
-                        <a href={s.vendorEvaluationPdfUrl} target="_blank" rel="noreferrer" className="text-[10px] text-navy-700 hover:underline">
-                          <FileText size={10} className="inline" /> VE
-                        </a>
-                      )}
-                      {s.assessmentValidForCurrentFY && (
-                        <a href={s.supplierAssessmentPdfUrl} target="_blank" rel="noreferrer" className="text-[10px] text-navy-700 hover:underline">
-                          <FileText size={10} className="inline" /> SA
-                        </a>
-                      )}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    {st.hasSA ? (
+                      <a href={s.supplierAssessmentPdfUrl} target="_blank" rel="noreferrer" className="text-[10px] text-navy-700 hover:underline" title={s.supplierAssessmentDate ? `SA dated ${formatDate(s.supplierAssessmentDate)}` : 'SA — no date set'}>
+                        <FileText size={10} className="inline" /> SA{s.supplierAssessmentDate ? ` ${formatDate(s.supplierAssessmentDate)}` : ''}
+                      </a>
+                    ) : (
+                      <span className="text-[10px] text-red-600 font-semibold">SA missing</span>
+                    )}
+                    {st.hasVE && (
+                      <a href={s.vendorEvaluationPdfUrl} target="_blank" rel="noreferrer" className="text-[10px] text-navy-700 hover:underline" title={s.vendorEvaluationDate ? `Latest VE dated ${formatDate(s.vendorEvaluationDate)}` : 'VE — no date set'}>
+                        <FileText size={10} className="inline" /> VE{s.vendorEvaluationDate ? ` ${formatDate(s.vendorEvaluationDate)}` : ''}
+                      </a>
+                    )}
+                    <ExpiryDot status={st} />
+                  </div>
                 </td>
                 <td className="px-2 py-2 border-b text-gray-700 max-w-[180px]">{s.address || '—'}</td>
                 <td className="px-2 py-2 border-b text-gray-700">
@@ -319,18 +326,22 @@ function ApprovedSupplierTable({ suppliers, currentFY, canEdit, onEditSupplier, 
                         <button onClick={() => onEditSupplier(s)} className="text-[11px] text-navy-700 hover:underline text-left">
                           <Pencil size={11} className="inline" /> Edit row
                         </button>
-                        <button onClick={() => onReEvaluate(s)} className="text-[11px] text-navy-700 hover:underline text-left">
-                          <Star size={11} className="inline" /> Re-evaluate
-                        </button>
-                        <button onClick={() => onAssess(s)} className="text-[11px] text-navy-700 hover:underline text-left">
-                          <ClipboardCheck size={11} className="inline" /> Assessment form
+                        <button onClick={() => onUpload(s, 'supplier-assessment')} className="text-[11px] text-navy-700 hover:underline text-left">
+                          <Upload size={11} className="inline" /> SA PDF (primary)
                         </button>
                         <button onClick={() => onUpload(s, 'vendor-evaluation')} className="text-[11px] text-navy-700 hover:underline text-left">
-                          <Upload size={11} className="inline" /> VE PDF
+                          <Upload size={11} className="inline" /> VE PDF (re-eval)
                         </button>
-                        <button onClick={() => onUpload(s, 'supplier-assessment')} className="text-[11px] text-navy-700 hover:underline text-left">
-                          <Upload size={11} className="inline" /> Assess. PDF
-                        </button>
+                        {SHOW_STRUCTURED_FORMS && (
+                          <>
+                            <button onClick={() => onReEvaluate(s)} className="text-[11px] text-navy-700 hover:underline text-left">
+                              <Star size={11} className="inline" /> Re-evaluate
+                            </button>
+                            <button onClick={() => onAssess(s)} className="text-[11px] text-navy-700 hover:underline text-left">
+                              <ClipboardCheck size={11} className="inline" /> Assessment form
+                            </button>
+                          </>
+                        )}
                       </>
                     ) : (
                       <span className="text-[11px] text-gray-400 italic">View only</span>
@@ -423,7 +434,8 @@ function SupplierFormModal({ supplier, onClose, onSaved }) {
         {!isEdit && (
           <p className="text-xs text-gray-500 bg-amber-50 border border-amber-200 rounded p-2">
             Vendor ID is assigned automatically (format <strong>RAPS/SUP/####</strong>).
-            After saving, capture the structured Assessment Form and the first Re-evaluation from the row actions.
+            After saving, upload the <strong>Supplier Assessment (SA)</strong> PDF from the row actions —
+            it's required before this supplier can be used on a quotation. Add a <strong>Vendor Re-Evaluation (VE)</strong> each year after that.
           </p>
         )}
 
@@ -695,21 +707,31 @@ function AssessmentFormModal({ supplier, financialYear, onClose, onSaved }) {
 }
 
 // ─── PDF upload (vendor evaluation / annual assessment) ───────────────
-function PdfUploadModal({ uploadingFor, currentFY, onClose, onSaved }) {
+function PdfUploadModal({ uploadingFor, onClose, onSaved }) {
+  const isVE = uploadingFor.kind === 'vendor-evaluation';
   const [file, setFile] = useState(null);
+  const [documentDate, setDocumentDate] = useState(toDateInput(new Date().toISOString()));
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
+  // Validity = document date + 1 year. Shown so the purchase officer sees exactly
+  // when this PDF will expire before they save.
+  const expiryPreview = documentDate
+    ? (() => { const d = new Date(documentDate); d.setFullYear(d.getFullYear() + 1); return formatDate(d.toISOString()); })()
+    : '';
+
   const submit = async () => {
     if (!file) { setError('Choose a PDF file first'); return; }
     if (file.type !== 'application/pdf') { setError('Only PDF files are allowed'); return; }
+    if (!documentDate) { setError('Enter the document date'); return; }
     setUploading(true);
     setError('');
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const endpoint = uploadingFor.kind === 'vendor-evaluation'
+      fd.append('documentDate', documentDate);
+      const endpoint = isVE
         ? `/suppliers/${uploadingFor.supplier.id}/vendor-evaluation`
         : `/suppliers/${uploadingFor.supplier.id}/supplier-assessment`;
       await api.post(endpoint, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
@@ -725,15 +747,31 @@ function PdfUploadModal({ uploadingFor, currentFY, onClose, onSaved }) {
     <Modal
       isOpen
       onClose={onClose}
-      title={`Upload ${uploadingFor.kind === 'vendor-evaluation' ? 'Vendor Evaluation PDF' : `Supplier Assessment PDF (FY ${currentFY})`}`}
+      title={isVE ? 'Upload Vendor Re-Evaluation (VE) PDF' : 'Upload Supplier Assessment (SA) PDF'}
       size="md"
     >
       <div className="space-y-3">
         <p className="text-sm text-gray-700">Supplier: <strong>{uploadingFor.supplier.name}</strong></p>
-        {uploadingFor.kind === 'vendor-evaluation' ? (
-          <p className="text-xs text-gray-500">One-time form. Once uploaded it stays on file across financial years.</p>
+        {isVE ? (
+          <p className="text-xs text-gray-500">
+            Yearly re-evaluation. The latest one becomes the active document; older ones stay on file.
+            Valid for <strong>1 year</strong> from the date you enter.
+          </p>
         ) : (
-          <p className="text-xs text-gray-500">Valid for the current Indian financial year (April–March) only. Must be re-uploaded each FY.</p>
+          <p className="text-xs text-gray-500">
+            The primary assessment, kept on file. Valid for <strong>1 year</strong> from the date you enter —
+            after that a Vendor Re-Evaluation (VE) is required.
+          </p>
+        )}
+        <Input
+          label="Document date *"
+          type="date"
+          value={documentDate}
+          onChange={(e) => setDocumentDate(e.target.value)}
+          required
+        />
+        {expiryPreview && (
+          <p className="text-xs text-gray-600">Will be valid until <strong>{expiryPreview}</strong>.</p>
         )}
         <input
           ref={fileInputRef}

@@ -5,6 +5,7 @@ const { authenticate } = require('../middleware/auth');
 const { authorize, authorizeMinRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
 const { paginate, getFinancialYear, withDocRetry } = require('../utils/helpers');
+const { supplierComplianceStatus } = require('../utils/supplierCompliance');
 const {
   vendorEvaluationUpload,
   supplierAssessmentUpload,
@@ -33,8 +34,9 @@ const decorate = (supplier, currentFY) => {
     ...rest,
     currentFinancialYear: fy,
     hasVendorEvaluation: !!supplier.vendorEvaluationPdfUrl,
-    assessmentValidForCurrentFY:
-      !!supplier.supplierAssessmentPdfUrl && supplier.assessmentFiscalYear === fy,
+    // Date-driven SA/VE compliance (see utils/supplierCompliance.js). Drives the
+    // red blinking expiry dot and the procurement gate.
+    compliance: supplierComplianceStatus(supplier),
     currentReEvaluation: latestReEval,
   };
 };
@@ -160,8 +162,9 @@ router.get('/:id', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const supplier = await prisma.supplier.findUnique({
       where: { id: req.params.id },
       include: {
-        reEvaluations:   { orderBy: { evaluationDate: 'desc' } },
-        assessmentForms: { orderBy: { createdAt: 'desc' } },
+        reEvaluations:    { orderBy: { evaluationDate: 'desc' } },
+        assessmentForms:  { orderBy: { createdAt: 'desc' } },
+        vendorEvaluations: { orderBy: { documentDate: 'desc' } },
       },
     });
     if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
@@ -194,13 +197,36 @@ router.post(
   async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'A PDF file is required' });
+      const documentDate = req.body.documentDate ? new Date(req.body.documentDate) : null;
+      if (!documentDate || Number.isNaN(documentDate.getTime())) {
+        return res.status(400).json({ error: 'A re-evaluation document date is required' });
+      }
       const supplier = await prisma.supplier.findUnique({ where: { id: req.params.id } });
       if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
 
       const url = publicUrlFor('vendor-evaluations', req.file.filename);
+      // Append to the VE history, then denormalize the latest (by document date)
+      // onto the supplier so the gate and UI read it cheaply.
+      await prisma.supplierVendorEvaluation.create({
+        data: {
+          supplierId: supplier.id,
+          pdfUrl: url,
+          documentDate,
+          uploadedByUserId: req.user.id,
+          uploadedByName: req.user.name,
+        },
+      });
+      const latest = await prisma.supplierVendorEvaluation.findFirst({
+        where: { supplierId: supplier.id },
+        orderBy: { documentDate: 'desc' },
+      });
       const updated = await prisma.supplier.update({
         where: { id: req.params.id },
-        data: { vendorEvaluationPdfUrl: url, vendorEvaluationUploadedAt: new Date() },
+        data: {
+          vendorEvaluationPdfUrl: latest.pdfUrl,
+          vendorEvaluationDate: latest.documentDate,
+          vendorEvaluationUploadedAt: new Date(),
+        },
       });
 
       await prisma.auditLog.create({
@@ -209,7 +235,7 @@ router.post(
           action: supplier.vendorEvaluationPdfUrl ? 'REPLACE' : 'CREATE',
           entity: 'Supplier.VendorEvaluation',
           entityId: supplier.id,
-          details: { supplierName: supplier.name, url },
+          details: { supplierName: supplier.name, url, documentDate },
           ipAddress: req.ip,
         },
       });
@@ -230,15 +256,20 @@ router.post(
   async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'A PDF file is required' });
+      const documentDate = req.body.documentDate ? new Date(req.body.documentDate) : null;
+      if (!documentDate || Number.isNaN(documentDate.getTime())) {
+        return res.status(400).json({ error: 'An assessment document date is required' });
+      }
       const supplier = await prisma.supplier.findUnique({ where: { id: req.params.id } });
       if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
 
       const url = publicUrlFor('supplier-assessments', req.file.filename);
-      const fy = getFinancialYear();
+      const fy = getFinancialYear(documentDate);
       const updated = await prisma.supplier.update({
         where: { id: req.params.id },
         data: {
           supplierAssessmentPdfUrl: url,
+          supplierAssessmentDate: documentDate,
           assessmentFiscalYear: fy,
           assessmentUploadedAt: new Date(),
         },
@@ -247,10 +278,10 @@ router.post(
       await prisma.auditLog.create({
         data: {
           userId: req.user.id,
-          action: 'CREATE',
+          action: supplier.supplierAssessmentPdfUrl ? 'REPLACE' : 'CREATE',
           entity: 'Supplier.Assessment',
           entityId: supplier.id,
-          details: { supplierName: supplier.name, fiscalYear: fy, url },
+          details: { supplierName: supplier.name, documentDate, url },
           ipAddress: req.ip,
         },
       });

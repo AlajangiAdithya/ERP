@@ -41,6 +41,27 @@ const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'QC', 'LAB', 'METROL
 // first-level approval before flowing on to ADMIN.
 const QC_MANAGED_ROLES = ['LAB', 'METROLOGY', 'NDT'];
 
+// Accumulates an item's chosen/uploaded spec PDF into the product's reusable
+// spec library (ProductSpec), de-duped by URL so re-selecting an existing spec
+// doesn't create a duplicate. No-op when the item has no product or no spec.
+async function persistItemSpecToLibrary(client, item, user) {
+  if (!item?.productId || !item?.specAttachmentUrl) return;
+  const existing = await client.productSpec.findFirst({
+    where: { productId: item.productId, url: item.specAttachmentUrl },
+    select: { id: true },
+  });
+  if (existing) return;
+  await client.productSpec.create({
+    data: {
+      productId: item.productId,
+      url: item.specAttachmentUrl,
+      name: item.specAttachmentName || 'spec.pdf',
+      uploadedById: user?.id || null,
+      uploadedByName: user?.name || null,
+    },
+  });
+}
+
 const createSchema = z.object({
   notes: z.string().optional(),
   // Optional — global-role requesters (STORE_MANAGER, DESIGNS, PLANNING) must
@@ -784,6 +805,12 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
     }
     const requestNumber = request.requestNumber;
 
+    // Accumulate each item's spec PDF into its product's reusable spec library
+    // so it can be re-selected on future PRs and shows on the product page.
+    for (const item of itemsResolved) {
+      await persistItemSpecToLibrary(prisma, item, req.user);
+    }
+
     // Audit log
     await prisma.auditLog.create({
       data: {
@@ -919,6 +946,11 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
         },
       });
     });
+
+    // Accumulate edited items' spec PDFs into their product's spec library too.
+    for (const item of itemsResolved) {
+      await persistItemSpecToLibrary(prisma, item, req.user);
+    }
 
     const updated = await prisma.purchaseRequest.findUnique({
       where: { id: request.id },

@@ -13,6 +13,7 @@ import Table from '../components/ui/Table';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input, { Select } from '../components/ui/Input';
+import { UOM_OPTIONS } from '../utils/units';
 import SearchBar from '../components/shared/SearchBar';
 import Pagination from '../components/shared/Pagination';
 import PageHero from '../components/shared/PageHero';
@@ -348,7 +349,7 @@ export default function Products() {
                 {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools & Fastners', 'Tools & Fixtures', 'Stationery', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
               </Select>
               <Select label="Unit" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
-                {['pcs', 'kg', 'litre', 'meter', 'Sq. mtr', 'box', 'set'].map(u => <option key={u} value={u}>{u}</option>)}
+                {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
               </Select>
               <Input label="Min Stock Level" type="number" value={form.minStockLevel} onChange={(e) => setForm({ ...form, minStockLevel: e.target.value })} />
             </div>

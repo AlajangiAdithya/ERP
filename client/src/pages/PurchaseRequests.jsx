@@ -10,8 +10,10 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
+import { UOM_OPTIONS } from '../utils/units';
 import PRPdf from '../components/pdf/PRPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import MaterialSpecPicker from '../components/shared/MaterialSpecPicker';
 
 const statusColor = (s) => ({
   PENDING_QC: 'yellow',
@@ -83,6 +85,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const { user } = useAuth();
   const isEdit = !!requestToEdit;
   const emptyItem = {
+    productId: null,
     productName: '', productUnit: 'kg', requestedQty: '',
     materialType: '', materialSpecification: '', qapNo: '', drawingNo: '',
     materialRequiredFor: '', internalWorkOrder: '',
@@ -92,6 +95,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     specAttachmentUrl: '', specAttachmentName: '',
   };
   const itemFromExisting = (i) => ({
+    productId: i.productId || null,
     productName: i.productName || '',
     productUnit: i.productUnit || 'pcs',
     requestedQty: i.requestedQty != null ? String(i.requestedQty) : '',
@@ -113,6 +117,8 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const [items, setItems] = useState([{ ...emptyItem }]);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  // Material/spec picker — { idx, mode } identifies which row + which tab opens.
+  const [picker, setPicker] = useState(null);
   // Per-item upload state — keyed by row index; tracks {uploading, error} so the
   // UI can show a spinner / error inline without blocking other rows.
   const [specUpload, setSpecUpload] = useState({});
@@ -204,6 +210,23 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     setItems(updated);
   };
 
+  // Apply a pick from the MaterialSpecPicker onto its row. Existing picks carry a
+  // productId + (optional) chosen/uploaded spec; New picks just fill the name +
+  // (optional) freshly uploaded spec. Only provided fields overwrite the row.
+  const applyPicker = (payload) => {
+    if (!picker) return;
+    const idx = picker.idx;
+    const updated = [...items];
+    const row = { ...updated[idx] };
+    if (payload.productName !== undefined) row.productName = payload.productName;
+    row.productId = payload.productId ?? null;
+    if (payload.productUnit) row.productUnit = payload.productUnit;
+    row.specAttachmentUrl = payload.specAttachmentUrl || '';
+    row.specAttachmentName = payload.specAttachmentName || '';
+    updated[idx] = row;
+    setItems(updated);
+  };
+
   const submit = async () => {
     const validItems = items.filter(i => i.productName.trim());
     if (validItems.length === 0) return alert('Enter at least one material description');
@@ -215,6 +238,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
         items: validItems.map(i => ({
           productName: i.productName.trim(),
           productUnit: i.productUnit || 'pcs',
+          productId: i.productId || undefined,
           requestedQty: parseFloat(i.requestedQty) || 1,
           materialType: i.materialType || undefined,
           materialSpecification: i.materialSpecification || undefined,
@@ -245,7 +269,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     setSaving(false);
   };
 
-  const unitOptions = ['kg', 'litre', 'pcs', 'meter', 'Sq. mtr', 'ton', 'box', 'drum', 'bag', 'roll', 'set'];
+  const unitOptions = UOM_OPTIONS;
   const today = new Date().toISOString().split('T')[0];
 
   // Paper-form cell styles
@@ -363,6 +387,29 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                     <input type="text" value={item.productName}
                       onChange={(e) => updateItem(idx, 'productName', e.target.value)}
                       className={cellInput} placeholder="Description..." />
+                    {/* Input aids: pick an existing catalogue material (with its
+                        saved specs) or flag a new one + upload its spec. */}
+                    <div className="flex items-center gap-1.5 px-1.5 pb-1 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setPicker({ idx, mode: 'existing' })}
+                        className="text-[10px] px-1.5 py-0.5 rounded border border-navy-300 text-navy-700 hover:bg-navy-50"
+                      >
+                        Existing
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPicker({ idx, mode: 'new' })}
+                        className="text-[10px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+                      >
+                        New
+                      </button>
+                      {item.productId && (
+                        <span className="text-[9px] text-green-600 font-medium inline-flex items-center gap-0.5" title="Linked to an existing catalogue material">
+                          <CheckCircle size={9} /> linked
+                        </span>
+                      )}
+                    </div>
                   </td>
                 ))}
               </tr>
@@ -598,6 +645,16 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
           </Button>
         </div>
       </div>
+
+      {picker && (
+        <MaterialSpecPicker
+          isOpen
+          mode={picker.mode}
+          initial={items[picker.idx] || {}}
+          onClose={() => setPicker(null)}
+          onApply={applyPicker}
+        />
+      )}
     </Modal>
   );
 }

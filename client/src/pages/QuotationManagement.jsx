@@ -9,7 +9,10 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import SupplierAutocomplete, { supplierContactString, matchSuppliers } from '../components/shared/SupplierAutocomplete';
-import { formatDateTime } from '../utils/formatters';
+import ExpiryDot from '../components/shared/ExpiryDot';
+import { formatDateTime, formatDate } from '../utils/formatters';
+import { supplierComplianceStatus } from '../utils/supplierCompliance';
+import { UOM_OPTIONS } from '../utils/units';
 
 const formatCurrency = (amt) => `₹${Number(amt).toLocaleString('en-IN')}`;
 
@@ -116,16 +119,13 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
           .catch(() => {})
       );
 
-      // Load suppliers in parallel: the assessment-expired soft-warning index,
-      // plus the Approved Supplier List used to fill the "Existing" dropdowns.
+      // Load suppliers in parallel: the SA/VE compliance index (drives the
+      // pre-submit blocking warning), plus the Approved Supplier List used to
+      // fill the "Existing" dropdowns.
       const suppliersPromise = api.get('/suppliers?limit=all').then(({ data }) => {
         const idx = {};
         for (const s of data.suppliers || []) {
-          idx[s.id] = {
-            name: s.name,
-            assessmentValid: !!s.assessmentValidForCurrentFY,
-            assessmentFiscalYear: s.assessmentFiscalYear || null,
-          };
+          idx[s.id] = { name: s.name, status: supplierComplianceStatus(s) };
         }
         setSupplierIndex(idx);
         setCurrentFY(data.currentFinancialYear || '');
@@ -155,13 +155,14 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     }
   }, [isOpen, purchaseRequest]);
 
-  // Suppliers selected on any row whose assessment is missing/expired.
-  const expiredAssessmentSuppliers = useMemo(() => {
+  // Suppliers selected on any row that are not compliant (missing/expired SA or
+  // VE). These hard-block submission, so warn before the PO clicks Submit.
+  const nonCompliantSuppliers = useMemo(() => {
     const seen = new Map();
     for (const row of items) {
       const sid = row.supplierId;
       const info = sid ? supplierIndex[sid] : null;
-      if (info && !info.assessmentValid && !seen.has(sid)) {
+      if (info && info.status && !info.status.compliant && !seen.has(sid)) {
         seen.set(sid, info);
       }
     }
@@ -309,18 +310,11 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
 
         {complianceIssues.length > 0 && (
           <div className="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-900">
-            <p className="font-semibold mb-1">Supplier compliance documents required{complianceFY ? ` for FY ${complianceFY}` : ''}</p>
+            <p className="font-semibold mb-1">Supplier compliance required before this quotation can be submitted</p>
             <ul className="list-disc pl-5 space-y-0.5 text-xs">
               {complianceIssues.map((iss) => (
                 <li key={iss.supplierId}>
-                  <strong>{iss.supplierName}</strong>
-                  {' '}— missing{' '}
-                  {iss.missing.map((m, idx) => (
-                    <span key={m}>
-                      {idx > 0 ? ', ' : ''}
-                      {m === 'vendor-evaluation' ? 'Vendor Evaluation PDF' : `Supplier Assessment PDF (FY ${complianceFY})`}
-                    </span>
-                  ))}
+                  <strong>{iss.supplierName}</strong> — {iss.reason || 'SA / VE document required'}
                 </li>
               ))}
             </ul>
@@ -330,30 +324,28 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
               rel="noreferrer"
               className="inline-block mt-2 text-xs font-semibold text-red-900 underline hover:text-red-700"
             >
-              Open Suppliers page to upload PDFs →
+              Open Suppliers page to upload SA / VE PDFs →
             </a>
             <p className="text-[11px] text-red-700 mt-1">After uploading, click "Submit Quotation" again.</p>
           </div>
         )}
 
-        {expiredAssessmentSuppliers.length > 0 && (
-          <div className="bg-amber-50 border border-amber-300 rounded p-3 text-sm text-amber-900">
+        {nonCompliantSuppliers.length > 0 && (
+          <div className="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-900">
             <div className="flex items-start gap-2">
-              <AlertCircle size={16} className="flex-shrink-0 mt-0.5 text-amber-700" />
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5 text-red-700" />
               <div className="flex-1">
-                <p className="font-semibold mb-1">
-                  Supplier assessment expired{currentFY ? ` for FY ${currentFY}` : ''}
-                </p>
+                <p className="font-semibold mb-1">Supplier documents missing or expired — submission will be blocked</p>
                 <ul className="text-xs space-y-0.5 list-disc list-inside">
-                  {expiredAssessmentSuppliers.map((s) => (
-                    <li key={s.id}>
-                      <strong>{s.name}</strong>
-                      {s.assessmentFiscalYear ? ` — last assessed in FY ${s.assessmentFiscalYear}` : ' — no assessment on file'}
+                  {nonCompliantSuppliers.map((s) => (
+                    <li key={s.id} className="flex items-center gap-1.5">
+                      <strong>{s.name}</strong> — {s.status?.reason}
+                      <ExpiryDot status={s.status} showLabel={false} />
                     </li>
                   ))}
                 </ul>
                 <p className="text-[11px] mt-1.5">
-                  You can still submit this quotation — the assessment can be uploaded later from the Suppliers page.
+                  Upload the required Supplier Assessment / Vendor Re-Evaluation PDF on the Suppliers page first.
                 </p>
               </div>
             </div>
@@ -447,8 +439,10 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
                     </div>
                     <div className="col-span-1">
                       <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Unit</label>
-                      <input value={item.productUnit} onChange={(e) => updateItem(idx, 'productUnit', e.target.value)}
-                        className="w-full px-2 py-1.5 border rounded text-sm" />
+                      <select value={item.productUnit} onChange={(e) => updateItem(idx, 'productUnit', e.target.value)}
+                        className="w-full px-2 py-1.5 border rounded text-sm">
+                        {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                      </select>
                     </div>
                     <div className="col-span-2">
                       <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Qty</label>
@@ -794,18 +788,11 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
 
         {complianceIssues.length > 0 && (
           <div className="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-900">
-            <p className="font-semibold mb-1">Supplier compliance documents required{complianceFY ? ` for FY ${complianceFY}` : ''}</p>
+            <p className="font-semibold mb-1">Supplier compliance required before this quotation can be submitted</p>
             <ul className="list-disc pl-5 space-y-0.5 text-xs">
               {complianceIssues.map((iss) => (
                 <li key={iss.supplierId}>
-                  <strong>{iss.supplierName}</strong>
-                  {' '}— missing{' '}
-                  {iss.missing.map((m, idx) => (
-                    <span key={m}>
-                      {idx > 0 ? ', ' : ''}
-                      {m === 'vendor-evaluation' ? 'Vendor Evaluation PDF' : `Supplier Assessment PDF (FY ${complianceFY})`}
-                    </span>
-                  ))}
+                  <strong>{iss.supplierName}</strong> — {iss.reason || 'SA / VE document required'}
                 </li>
               ))}
             </ul>
@@ -815,7 +802,7 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
               rel="noreferrer"
               className="inline-block mt-2 text-xs font-semibold text-red-900 underline hover:text-red-700"
             >
-              Open Suppliers page to upload PDFs →
+              Open Suppliers page to upload SA / VE PDFs →
             </a>
           </div>
         )}
@@ -991,7 +978,7 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
 // Aggregate unique suppliers across a quotation's items and return their
 // compliance status (Vendor Evaluation + current-FY Supplier Assessment).
 // Admins must be able to view both PDFs before approving.
-function buildSupplierCompliance(quotation, currentFY) {
+function buildSupplierCompliance(quotation) {
   const map = new Map();
   for (const it of quotation.items || []) {
     const s = it.supplier;
@@ -1004,7 +991,6 @@ function buildSupplierCompliance(quotation, currentFY) {
           supplierName: it.supplierName || 'Unknown supplier',
           vendorEvaluationPdfUrl: null,
           supplierAssessmentPdfUrl: null,
-          assessmentFiscalYear: null,
         });
       }
       continue;
@@ -1012,64 +998,63 @@ function buildSupplierCompliance(quotation, currentFY) {
     if (!map.has(s.id)) map.set(s.id, { ...s });
   }
   return [...map.values()].map(s => {
-    const hasEval = !!s.vendorEvaluationPdfUrl;
-    const hasAssessment = !!s.supplierAssessmentPdfUrl && s.assessmentFiscalYear === currentFY;
-    return { ...s, hasEval, hasAssessment, compliant: hasEval && hasAssessment };
+    const status = supplierComplianceStatus(s);
+    return { ...s, status, compliant: status.compliant };
   });
 }
 
-function SupplierComplianceStrip({ quotation, currentFY }) {
-  const suppliers = buildSupplierCompliance(quotation, currentFY);
+function SupplierComplianceStrip({ quotation }) {
+  const suppliers = buildSupplierCompliance(quotation);
   if (suppliers.length === 0) return null;
   const allCompliant = suppliers.every(s => s.compliant);
   return (
-    <div className={`mt-3 border rounded p-2 text-xs ${allCompliant ? 'border-green-200 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
+    <div className={`mt-3 border rounded p-2 text-xs ${allCompliant ? 'border-green-200 bg-green-50' : 'border-red-300 bg-red-50'}`}>
       <div className="flex items-center gap-1 font-semibold mb-1">
-        {allCompliant ? <CheckCircle size={12} className="text-green-700" /> : <AlertCircle size={12} className="text-amber-700" />}
-        <span className={allCompliant ? 'text-green-800' : 'text-amber-900'}>
-          Supplier compliance {allCompliant ? '— all documents on file' : `— action required (FY ${currentFY})`}
+        {allCompliant ? <CheckCircle size={12} className="text-green-700" /> : <AlertCircle size={12} className="text-red-700" />}
+        <span className={allCompliant ? 'text-green-800' : 'text-red-900'}>
+          Supplier compliance {allCompliant ? '— all documents valid' : '— action required'}
         </span>
       </div>
       <ul className="space-y-1.5">
-        {suppliers.map((s, idx) => (
-          <li key={s.supplierId || idx} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="font-medium text-gray-800">{s.supplierName}</span>
-            {s.vendorEvaluationPdfUrl ? (
-              <a
-                href={s.vendorEvaluationPdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 text-blue-700 hover:underline"
-              >
-                <Eye size={11} /> View Vendor Evaluation
-              </a>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-red-700">
-                <AlertCircle size={11} /> Vendor Evaluation missing
-              </span>
-            )}
-            {s.hasAssessment ? (
-              <a
-                href={s.supplierAssessmentPdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 text-blue-700 hover:underline"
-              >
-                <Eye size={11} /> View Assessment (FY {s.assessmentFiscalYear})
-              </a>
-            ) : s.supplierAssessmentPdfUrl ? (
-              <span className="inline-flex items-center gap-1 text-red-700">
-                <AlertCircle size={11} /> Assessment expired (FY {s.assessmentFiscalYear})
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-red-700">
-                <AlertCircle size={11} /> Assessment missing
-              </span>
-            )}
-          </li>
-        ))}
+        {suppliers.map((s, idx) => {
+          const st = s.status;
+          return (
+            <li key={s.supplierId || idx} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-medium text-gray-800">{s.supplierName}</span>
+              {s.supplierAssessmentPdfUrl && (
+                <a
+                  href={s.supplierAssessmentPdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-blue-700 hover:underline"
+                >
+                  <Eye size={11} /> SA{s.supplierAssessmentDate ? ` (${formatDate(s.supplierAssessmentDate)})` : ''}
+                </a>
+              )}
+              {s.vendorEvaluationPdfUrl && (
+                <a
+                  href={s.vendorEvaluationPdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-blue-700 hover:underline"
+                >
+                  <Eye size={11} /> VE{s.vendorEvaluationDate ? ` (${formatDate(s.vendorEvaluationDate)})` : ''}
+                </a>
+              )}
+              {!st.compliant ? (
+                <span className="inline-flex items-center gap-1 text-red-700 font-semibold">
+                  {st.expired ? <ExpiryDot status={st} showLabel={false} /> : <AlertCircle size={11} />} {st.reason}
+                </span>
+              ) : st.expiringSoon ? (
+                <ExpiryDot status={st} />
+              ) : (
+                <span className="text-green-700">valid till {formatDate(st.activeExpiry)}</span>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -2108,22 +2093,16 @@ function OpenPoolsSection({ onUpdated, reloadKey }) {
               {/* Compliance issue banner — same style as single-PR modal */}
               {s.complianceIssues.length > 0 && (
                 <div className="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-900">
-                  <p className="font-semibold mb-1">Supplier compliance documents required{s.complianceFY ? ` for FY ${s.complianceFY}` : ''}</p>
+                  <p className="font-semibold mb-1">Supplier compliance required before this quotation can be submitted</p>
                   <ul className="list-disc pl-5 space-y-0.5 text-xs">
                     {s.complianceIssues.map((iss) => (
                       <li key={iss.supplierId}>
-                        <strong>{iss.supplierName}</strong> — missing{' '}
-                        {iss.missing.map((m, idx) => (
-                          <span key={m}>
-                            {idx > 0 ? ', ' : ''}
-                            {m === 'vendor-evaluation' ? 'Vendor Evaluation PDF' : `Supplier Assessment PDF (FY ${s.complianceFY})`}
-                          </span>
-                        ))}
+                        <strong>{iss.supplierName}</strong> — {iss.reason || 'SA / VE document required'}
                       </li>
                     ))}
                   </ul>
                   <a href="/suppliers" target="_blank" rel="noreferrer" className="inline-block mt-2 text-xs font-semibold text-red-900 underline hover:text-red-700">
-                    Open Suppliers page to upload PDFs →
+                    Open Suppliers page to upload SA / VE PDFs →
                   </a>
                 </div>
               )}
@@ -2397,10 +2376,10 @@ function PoolByMaterialSection({ onUpdated }) {
 
             {s.complianceIssues.length > 0 && (
               <div className="bg-red-50 border border-red-300 rounded p-3 text-xs text-red-900 mb-3">
-                <p className="font-semibold mb-1">Supplier compliance documents required</p>
+                <p className="font-semibold mb-1">Supplier compliance required before this quotation can be submitted</p>
                 <ul className="list-disc pl-5 space-y-0.5">
                   {s.complianceIssues.map((iss) => (
-                    <li key={iss.supplierId}><strong>{iss.supplierName}</strong> — missing Vendor Evaluation PDF</li>
+                    <li key={iss.supplierId}><strong>{iss.supplierName}</strong> — {iss.reason || 'SA / VE document required'}</li>
                   ))}
                 </ul>
                 <a href="/suppliers" target="_blank" rel="noreferrer" className="inline-block mt-2 font-semibold underline">

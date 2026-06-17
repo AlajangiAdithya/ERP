@@ -4,7 +4,7 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorizeMinRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
-const { msdsUpload, publicUrlFor } = require('../middleware/upload');
+const { msdsUpload, prSpecsUpload, publicUrlFor } = require('../middleware/upload');
 const {
   paginate, normalizeMaterialType, MATERIAL_TYPES,
 } = require('../utils/helpers');
@@ -459,6 +459,57 @@ router.get('/:id/supplier-history', authenticate, async (req, res) => {
   }
 });
 
+// ──── PRODUCT MATERIAL SPECS (reusable spec-PDF library) ────
+// GET /api/products/:id/specs — list a product's spec PDFs (newest first).
+// Open to any authenticated user (PR picker + Product Detail read it).
+router.get('/:id/specs', authenticate, async (req, res) => {
+  try {
+    const specs = await prisma.productSpec.findMany({
+      where: { productId: req.params.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(specs);
+  } catch (error) {
+    console.error('List product specs error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/products/:id/specs — Stores/Admin upload a spec PDF to the library.
+// Reuses the pr-specs uploader so PR-time and product-page uploads share storage.
+router.post('/:id/specs', authenticate, authorizeMinRole('STORE_MANAGER'), prSpecsUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const product = await prisma.product.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+    const spec = await prisma.productSpec.create({
+      data: {
+        productId: req.params.id,
+        url: publicUrlFor('pr-specs', req.file.filename),
+        name: req.file.originalname || req.file.filename,
+        uploadedById: req.user.id,
+        uploadedByName: req.user.name || null,
+      },
+    });
+    res.status(201).json(spec);
+  } catch (error) {
+    console.error('Upload product spec error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/products/:id/specs/:specId — Stores/Admin remove a spec link.
+router.delete('/:id/specs/:specId', authenticate, authorizeMinRole('STORE_MANAGER'), async (req, res) => {
+  try {
+    await prisma.productSpec.delete({ where: { id: req.params.specId } });
+    res.json({ message: 'Spec removed' });
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Spec not found' });
+    console.error('Delete product spec error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/products/:id
 router.get('/:id', authenticate, async (req, res) => {
   try {
@@ -467,6 +518,7 @@ router.get('/:id', authenticate, async (req, res) => {
       include: {
         stockMovements: { orderBy: { createdAt: 'desc' }, take: 50 },
         unitStocks: { include: { unit: { select: { id: true, name: true, code: true } } } },
+        specs: { orderBy: { createdAt: 'desc' } },
       },
     });
 

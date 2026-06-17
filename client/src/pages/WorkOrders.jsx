@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Input, { Textarea, Select } from '../components/ui/Input';
+import { UOM_OPTIONS } from '../utils/units';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
@@ -1010,9 +1011,9 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
   const [bgDateTouched, setBgDateTouched] = useState(false);
 
   // Material line items — S.No / Description / Quantity / UOM. At least one row.
-  const [items, setItems] = useState([{ description: '', quantity: '', uom: 'Nos' }]);
+  const [items, setItems] = useState([{ description: '', quantity: '', uom: 'Nos.' }]);
   const setItem = (i, k, v) => setItems((rows) => rows.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
-  const addItem = () => setItems((rows) => [...rows, { description: '', quantity: '', uom: 'Nos' }]);
+  const addItem = () => setItems((rows) => [...rows, { description: '', quantity: '', uom: 'Nos.' }]);
   const removeItem = (i) => setItems((rows) => (rows.length > 1 ? rows.filter((_, idx) => idx !== i) : rows));
 
   // PDC + 2 calendar months, as yyyy-mm-dd for the date input.
@@ -1108,7 +1109,10 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
                         <Input type="number" step="any" min="0" value={row.quantity} onChange={(e) => setItem(i, 'quantity', e.target.value)} />
                       </td>
                       <td className="px-2 py-1">
-                        <Input value={row.uom} onChange={(e) => setItem(i, 'uom', e.target.value)} placeholder="Nos" />
+                        <Select value={row.uom} onChange={(e) => setItem(i, 'uom', e.target.value)}>
+                          <option value="">UOM…</option>
+                          {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                        </Select>
                       </td>
                       <td className="px-2 py-1 text-center">
                         <button
