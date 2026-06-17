@@ -4,6 +4,7 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorizeMinRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
+const { msdsUpload, publicUrlFor } = require('../middleware/upload');
 const {
   paginate, normalizeMaterialType, MATERIAL_TYPES,
 } = require('../utils/helpers');
@@ -89,6 +90,9 @@ const productSchema = z.object({
   category: z.string().optional(),
   unit: z.string().optional(),
   minStockLevel: z.number().min(0).optional(),
+  // Storage handling — free text, editable from the products list.
+  shelfLife: z.string().trim().optional().nullable(),
+  storageTemp: z.string().trim().optional().nullable(),
 });
 
 // GET /api/products
@@ -624,6 +628,37 @@ router.put('/:id', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('UP
       return res.status(409).json({ error: 'Identification number already in use' });
     }
     console.error('Update product error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/products/:id/msds — upload / replace the Material Safety Data Sheet.
+router.post('/:id/msds', authenticate, authorizeMinRole('STORE_MANAGER'), msdsUpload.single('msds'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const product = await prisma.product.update({
+      where: { id: req.params.id },
+      data: { msdsUrl: publicUrlFor('msds', req.file.filename), msdsName: req.file.originalname || req.file.filename },
+    });
+    res.json(product);
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Product not found' });
+    console.error('MSDS upload error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/products/:id/msds — remove the MSDS link.
+router.delete('/:id/msds', authenticate, authorizeMinRole('STORE_MANAGER'), async (req, res) => {
+  try {
+    const product = await prisma.product.update({
+      where: { id: req.params.id },
+      data: { msdsUrl: null, msdsName: null },
+    });
+    res.json(product);
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Product not found' });
+    console.error('MSDS remove error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

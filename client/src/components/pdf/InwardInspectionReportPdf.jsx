@@ -84,13 +84,12 @@ export function ReportPage({ row }) {
 
       <Line>Report reference no.: {rep.reportReferenceNo || ''}</Line>
 
-      {/* Packing condition */}
+      {/* Packing condition — single check after "Sealed"; "Broken, if damages
+          mention ___" is a fill-in line (matches the printed form exactly). */}
       <View style={{ flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: BORDER, padding: 4, alignItems: 'center' }}>
         <Text style={{ fontSize: 8, marginRight: 3 }}>Packing condition - Sealed</Text>
         <Box checked={sealed} />
-        <Text style={{ fontSize: 8, marginLeft: 10, marginRight: 3 }}>Broken</Text>
-        <Box checked={broken} />
-        <Text style={{ fontSize: 8, marginLeft: 6 }}>, if damages mention: {rep.packingDamageNotes || ''}</Text>
+        <Text style={{ fontSize: 8, marginLeft: 10 }}>Broken, if damages mention: {rep.packingDamageNotes || (broken ? 'Broken' : '')}</Text>
       </View>
 
       <KV label="Batch no./Identification" value={r.batchNo} />

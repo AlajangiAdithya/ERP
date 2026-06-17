@@ -157,6 +157,34 @@ function issuedToForItem(po, item) {
   return { ...base, issuedToUnitId, issuedToDept, issuedToLabel, unitAllocations };
 }
 
+// Resolve the issued-to target for a direct / cash-purchase entry from what
+// Stores picked: a unit (issuedToUnitId), an owner department (issuedToDept),
+// or neither (the general / unassigned pool). The human label is derived
+// server-side so it always matches the chosen target — no trust in client text.
+// Mutates `target` (the create data or a PATCH patch) in place.
+async function resolveDirectIssuedTo(target, b) {
+  target.issuedToUnitId = null;
+  target.issuedToDept = null;
+  target.issuedToLabel = null;
+  target.unitAllocations = null;
+  if (b.issuedToUnitId) {
+    const unit = await prisma.unit.findUnique({
+      where: { id: b.issuedToUnitId },
+      select: { id: true, name: true, code: true },
+    });
+    if (unit) {
+      target.issuedToUnitId = unit.id;
+      target.issuedToLabel = `${unit.name} (${unit.code})`;
+      return;
+    }
+  }
+  const dept = (b.issuedToDept || '').trim();
+  if (dept && OWNER_DEPTS.includes(dept)) {
+    target.issuedToDept = dept;
+    target.issuedToLabel = dept;
+  }
+}
+
 // Split an accepted qty across the row's units at inward time. A single bound
 // unit takes the whole qty; a multi-unit (union) row splits proportionally to
 // each unit's allocated qty (even split if allocations are unweighted). The last
@@ -267,7 +295,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const [users, units, products, mivItems, pos, poItems] = await Promise.all([
       userIds.size ? prisma.user.findMany({ where: { id: { in: [...userIds] } }, select: { id: true, name: true, role: true } }) : [],
       unitIds.size ? prisma.unit.findMany({ where: { id: { in: [...unitIds] } }, select: { id: true, name: true, code: true } }) : [],
-      productIds.size ? prisma.product.findMany({ where: { id: { in: [...productIds] } }, select: { id: true, name: true, sku: true, materialCode: true, unit: true } }) : [],
+      productIds.size ? prisma.product.findMany({ where: { id: { in: [...productIds] } }, select: { id: true, name: true, sku: true, materialCode: true, unit: true, shelfLife: true, storageTemp: true, msdsUrl: true } }) : [],
       batchNos.size ? prisma.requestItem.findMany({
         where: { materialBatchNo: { in: [...batchNos] } },
         select: {
@@ -398,6 +426,11 @@ router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
         data.uom = item.productUnit;
         data.productId = item.productId || null;
       }
+    } else {
+      // Direct / cash purchase — Stores chooses where the material is bound
+      // (a unit, an owner department, or the general pool). Resolved + labelled
+      // server-side so the assignment is trusted, mirroring the PO flow.
+      await resolveDirectIssuedTo(data, b);
     }
 
     if (!data.itemDescription) return res.status(400).json({ error: 'Item description is required' });
@@ -508,6 +541,11 @@ router.patch('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) =
     if (b.itemDescription !== undefined && !row.purchaseOrderId) patch.itemDescription = b.itemDescription?.trim() || row.itemDescription;
     if (b.uom !== undefined && !row.purchaseOrderId) patch.uom = b.uom?.trim() || null;
     if (b.productId !== undefined && !row.purchaseOrderId) patch.productId = b.productId || null;
+    // Reassignment is only meaningful for direct/cash rows (PO rows derive it
+    // from the PR). Re-resolve the unit/dept + label server-side.
+    if (!row.purchaseOrderId && (b.issuedToUnitId !== undefined || b.issuedToDept !== undefined)) {
+      await resolveDirectIssuedTo(patch, b);
+    }
 
     const updated = await prisma.materialInwardRegister.update({ where: { id: row.id }, data: patch });
     res.json(updated);

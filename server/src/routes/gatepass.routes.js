@@ -682,14 +682,58 @@ router.put('/:id/store-review', authenticate, authorize('STORE_MANAGER', 'ADMIN'
 // instead — that creates a single Trip and attaches multiple gatepasses to it.
 router.put('/:id/logistics-assign', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
   try {
-    const { vehicleId, driverId } = req.body || {};
-    if (!vehicleId) return res.status(400).json({ error: 'vehicleId is required' });
+    const { vehicleId, driverId, privateVehicle } = req.body || {};
+    if (!vehicleId && !privateVehicle) {
+      return res.status(400).json({ error: 'vehicleId or privateVehicle details are required' });
+    }
 
     const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
     if (!existing.kind) return res.status(400).json({ error: 'Only v2 (LOCAL_JOB/OUTSIDE) gate passes use logistics assignment' });
     if (existing.status !== 'PENDING_LOGISTICS') {
       return res.status(400).json({ error: 'Gate pass is not awaiting Logistics' });
+    }
+
+    // ── Private / hired vehicle: not in the register. Store details inline. ──
+    if (privateVehicle && !vehicleId) {
+      const regNumber = (privateVehicle.regNumber || '').trim();
+      const pvDriverName = (privateVehicle.driverName || '').trim();
+      const pvDriverPhone = (privateVehicle.driverPhone || '').trim() || null;
+      if (!regNumber) return res.status(400).json({ error: 'Private vehicle number is required' });
+      if (!pvDriverName) return res.status(400).json({ error: 'Driver name is required for a private vehicle' });
+
+      const updatedPrivate = await prisma.gatePass.update({
+        where: { id: req.params.id },
+        data: {
+          assignedVehicleId: null,
+          assignedDriverId: null,
+          privateVehicle: true,
+          vehicleNo: regNumber.toUpperCase(),
+          driverName: pvDriverName,
+          driverPhone: pvDriverPhone,
+          logisticsById: req.user.id,
+          logisticsAt: new Date(),
+        },
+        include: GATEPASS_INCLUDE,
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'LOGISTICS_ASSIGN_VEHICLE',
+          entity: 'GatePass',
+          entityId: updatedPrivate.id,
+          details: {
+            passNumber: updatedPrivate.passNumber,
+            privateVehicle: true,
+            vehicleNo: updatedPrivate.vehicleNo,
+            driverName: updatedPrivate.driverName,
+          },
+          ipAddress: req.ip,
+        },
+      });
+
+      return res.json(updatedPrivate);
     }
 
     const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } });
@@ -708,10 +752,12 @@ router.put('/:id/logistics-assign', authenticate, authorize('LOGISTICS', 'ADMIN'
       data: {
         assignedVehicleId: vehicle.id,
         assignedDriverId: driver?.id || null,
+        privateVehicle: false,
         logisticsById: req.user.id,
         logisticsAt: new Date(),
         vehicleNo: vehicle.regNumber,
         driverName: driver?.name || vehicle.driverName,
+        driverPhone: driver?.phone || vehicle.driverPhone || null,
       },
       include: GATEPASS_INCLUDE,
     });
@@ -759,7 +805,7 @@ router.post('/:id/logistics-dispatch', authenticate, authorize('LOGISTICS', 'ADM
       if (existing.status !== 'PENDING_LOGISTICS') {
         return res.status(400).json({ error: 'Gate pass is not awaiting Logistics dispatch' });
       }
-      if (!existing.assignedVehicleId) {
+      if (!existing.assignedVehicleId && !existing.privateVehicle) {
         return res.status(400).json({ error: 'Assign a vehicle before dispatching' });
       }
       if (existing.kind === 'OUTSIDE' && !req.file) {

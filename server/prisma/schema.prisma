@@ -207,6 +207,13 @@ model Product {
   unit                 String                     @default("pcs")
   currentStock         Float                      @default(0)
   minStockLevel        Float                      @default(0)
+  // Storage handling — filled by Stores at inward, editable anytime from the
+  // products list. Free text (e.g. "12 months", "2-8°C / dry"). MSDS = Material
+  // Safety Data Sheet (uploaded PDF).
+  shelfLife            String?
+  storageTemp          String?
+  msdsUrl              String?
+  msdsName             String?
   isActive             Boolean                    @default(true)
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
@@ -1155,6 +1162,11 @@ model GatePass {
   collectedBy          User?              @relation("GatePassCollector", fields: [collectedById], references: [id])
   vehicleNo            String? // Filled by Store Incharge when arranging the vehicle
   driverName           String? // Filled by Store Incharge when arranging the vehicle
+  driverPhone          String? // Driver contact — captured for private/hired dispatch
+  // Logistics dispatched this gate pass with a one-off hired/private vehicle that
+  // isn't in the Vehicle register. vehicleNo/driverName/driverPhone hold the details
+  // and assignedVehicleId stays null.
+  privateVehicle       Boolean            @default(false)
   invoiceNo            String?
   dcNo                 String?
   purpose              String? // Legacy (now per-item)

@@ -185,6 +185,14 @@ const qmsDocUpload = multer({
   limits: { fileSize: SIZE_DOC },
 });
 
+// Material Safety Data Sheet (MSDS) PDF attached to a Product. Stores uploads;
+// everyone views. One per product (re-upload replaces the link).
+const msdsUpload = multer({
+  storage: makeStorage('msds'),
+  fileFilter: pdfOnly,
+  limits: { fileSize: SIZE_PDF },
+});
+
 const publicUrlFor = (subdir, filename) => `/uploads/${subdir}/${filename}`;
 
 module.exports = {
@@ -204,6 +212,7 @@ module.exports = {
   trainingDocUpload,
   qmsCertUpload,
   qmsDocUpload,
+  msdsUpload,
   publicUrlFor,
   UPLOAD_ROOT,
 };

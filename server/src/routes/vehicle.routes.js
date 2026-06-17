@@ -7,6 +7,9 @@ const router = express.Router();
 
 const VEHICLE_STATUSES = ['ACTIVE', 'INACTIVE', 'MAINTENANCE'];
 
+// Gate-pass statuses where a vehicle is still "out" / committed on an OUTWARD job.
+const ACTIVE_ASSIGN_STATUSES = ['PENDING_LOGISTICS', 'IN_TRANSIT', 'PENDING_RETURN'];
+
 const VEHICLE_INCLUDE = {
   createdBy: { select: { id: true, name: true, role: true } },
 };
@@ -38,6 +41,14 @@ router.get('/', authenticate, async (req, res) => {
           select: { id: true, tripNumber: true, status: true },
           take: 1,
         },
+        // Gate passes this vehicle is still committed to (assigned/in-transit/awaiting
+        // return). Lets the dispatch dropdown show "already assigned to GP-xxx" while
+        // still allowing the same vehicle to be picked again.
+        gatePasses: {
+          where: { status: { in: ACTIVE_ASSIGN_STATUSES } },
+          select: { id: true, passNumber: true, status: true },
+          orderBy: { dispatchedAt: 'desc' },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -46,6 +57,7 @@ router.get('/', authenticate, async (req, res) => {
       ...v,
       onJob: v.trips.length > 0,
       activeTrip: v.trips[0] || null,
+      activeAssignments: v.gatePasses || [],
     }));
 
     res.json({ vehicles: enriched });

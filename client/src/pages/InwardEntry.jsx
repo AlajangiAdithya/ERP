@@ -101,6 +101,11 @@ const DOC_TYPES = [
   { value: 'DELIVERY_CHALLAN', label: 'Delivery Challan' },
   { value: 'GATE_PASS', label: 'Gate Pass' },
 ];
+
+// Owner departments a direct / cash purchase can be assigned to (mirrors the
+// server's OWNER_DEPTS). Units come from /units; everything else stays the
+// general pool.
+const ASSIGN_DEPTS = ['Designs', 'QC', 'Lab', 'Metrology', 'NDT', 'Safety', 'Planning'];
 const docLabel = (v) => DOC_TYPES.find((d) => d.value === v)?.label || v;
 
 const STATUS_META = {
@@ -525,6 +530,25 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
   );
 }
 
+// Assign-to picker for direct / cash purchases. Stores chooses the unit or
+// owner department the material is reserved for (or leaves it in the general
+// pool). PO rows don't use this — they inherit the assignment from the PR.
+function AssignToSelect({ units, value, onChange, className }) {
+  return (
+    <Select label="Assign to" value={value} onChange={(e) => onChange(e.target.value)} className={className}>
+      <option value="">General / Unassigned pool</option>
+      {units.length > 0 && (
+        <optgroup label="Units">
+          {units.map((u) => <option key={u.id} value={`unit:${u.id}`}>{u.name} ({u.code})</option>)}
+        </optgroup>
+      )}
+      <optgroup label="Departments">
+        {ASSIGN_DEPTS.map((d) => <option key={d} value={`dept:${d}`}>{d}</option>)}
+      </optgroup>
+    </Select>
+  );
+}
+
 // ────────────────────────────────────────────────────────────────────
 // New / Edit inward entry
 // ────────────────────────────────────────────────────────────────────
@@ -533,6 +557,13 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   const [source, setSource] = useState(editRow ? (editRow.poNumber ? 'po' : 'direct') : 'po');
   const [pos, setPos] = useState([]);
   const [products, setProducts] = useState([]);
+  const [units, setUnits] = useState([]);
+  // Direct / cash entries: where Stores assigns the material. Encoded as
+  // "unit:<id>" / "dept:<name>" / "" (general pool).
+  const [assignTo, setAssignTo] = useState(
+    editRow?.issuedToUnitId ? `unit:${editRow.issuedToUnitId}`
+      : editRow?.issuedToDept ? `dept:${editRow.issuedToDept}` : '',
+  );
   const [poId, setPoId] = useState('');
   // Multi-line PO receipt: sel[poItemId] = { qty, batchNo, dateOfExpiry }. A key's
   // presence means the line is ticked for this delivery.
@@ -558,12 +589,22 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   // New + From PO → per-line qty/batch/expiry (a delivery carries several lines,
   // each in its own batch). Direct & edit keep the single scalar fields.
   const perLine = !isEdit && source === 'po';
+  // Direct/cash entry (a new direct row, or editing one). PO rows derive their
+  // assignment from the PR, so the assign-to picker is direct-only.
+  const isDirect = isEdit ? !editRow.poNumber : source === 'direct';
 
   useEffect(() => {
     if (isEdit) return; // edit only touches scalar fields
     if (source === 'po') api.get('/material-inward/active-pos').then(({ data }) => setPos(data.orders || [])).catch(() => setPos([]));
     if (source === 'direct') api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products || [])).catch(() => setProducts([]));
   }, [source, isEdit]);
+
+  // Units for the direct/cash "assign to" picker (also needed when editing a
+  // direct row to reassign it).
+  useEffect(() => {
+    if (!isDirect) return;
+    api.get('/units').then(({ data }) => setUnits(Array.isArray(data) ? data : (data.units || []))).catch(() => setUnits([]));
+  }, [isDirect]);
 
   const po = pos.find((p) => p.id === poId);
   const remainingOf = (it) => (it.quantity || 0) - (it.receivedQty || 0);
@@ -600,6 +641,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     } else if (!perLine && (!f.qtyReceived || Number(f.qtyReceived) <= 0)) {
       return setError('Enter the received quantity.');
     }
+    // Decode the assign-to picker into the unit / dept the server resolves.
+    const issuedToUnitId = assignTo.startsWith('unit:') ? assignTo.slice(5) : null;
+    const issuedToDept = assignTo.startsWith('dept:') ? assignTo.slice(5) : null;
     setSaving(true);
     try {
       if (isEdit) {
@@ -607,7 +651,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           vehicleDetails: f.vehicleDetails, docType: f.docType, docNumber: f.docNumber,
           qtyReceived: f.qtyReceived, batchNo: f.batchNo, dateOfExpiry: f.dateOfExpiry || null,
           purpose: f.purpose,
-          ...(editRow.poNumber ? {} : { itemDescription: f.itemDescription, uom: f.uom, productId: productId || editRow.productId || null }),
+          ...(editRow.poNumber ? {} : { itemDescription: f.itemDescription, uom: f.uom, productId: productId || editRow.productId || null, issuedToUnitId, issuedToDept }),
         });
       } else if (perLine) {
         // One delivery → many lines → one MIR row each (server assigns lots).
@@ -633,6 +677,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           uom: f.uom,
           supplierName: f.supplierName,
           productId: productId || null,
+          // Stores-chosen assignment (unit / owner dept / general pool).
+          issuedToUnitId,
+          issuedToDept,
           // Direct/cash entries default an invoice doc-type to Cash Purchase.
           docType: f.docType === 'INVOICE' ? 'CASH_PURCHASE' : f.docType,
         };
@@ -645,26 +692,38 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     }
   };
 
+  // Numbered step labels keep the form easy to fill top-to-bottom (only when
+  // creating; edit reuses the same blocks without the step numbers).
+  const step = (n, title) => (isEdit ? title : `${n} · ${title}`);
+
   return (
     <Modal isOpen onClose={onClose} title={isEdit ? `Edit ${editRow.mirNo}` : 'New Inward Entry'} size="xl">
-      <div className="space-y-4">
+      <div className="space-y-6">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
+        {/* Step 1 — how did the material come in? */}
         {!isEdit && (
-          <div className="inline-flex bg-navy-50 rounded-lg p-0.5">
-            {['po', 'direct'].map((s) => (
-              <button key={s} onClick={() => setSource(s)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${source === s ? 'bg-white shadow text-navy-800' : 'text-navy-600'}`}>
-                {s === 'po' ? <><Truck size={13} className="inline mr-1" />From PO</> : <><Package size={13} className="inline mr-1" />Direct / Cash</>}
-              </button>
-            ))}
-          </div>
+          <FormBlock title="1 · How did the material arrive?">
+            <div className="inline-flex bg-navy-50 rounded-lg p-0.5">
+              {['po', 'direct'].map((s) => (
+                <button key={s} onClick={() => setSource(s)}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-md transition ${source === s ? 'bg-white shadow text-navy-800' : 'text-navy-600'}`}>
+                  {s === 'po' ? <><Truck size={13} className="inline mr-1" />From PO</> : <><Package size={13} className="inline mr-1" />Direct / Cash</>}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-gray-400">
+              {source === 'po'
+                ? 'Material against a Purchase Order — unit / department is auto-assigned from the PR.'
+                : 'Cash purchase or direct receipt — you choose which unit / department it is for.'}
+            </p>
+          </FormBlock>
         )}
 
         {/* From PO — pick the PO, then tick every line that arrived (each can be a
             partial / batch receipt). Units are auto-assigned per line. */}
         {!isEdit && source === 'po' && (
-          <div className="space-y-3">
+          <FormBlock title="2 · Purchase order & material lines">
             <Select label="RAPS Purchase Order *" value={poId} onChange={(e) => { setPoId(e.target.value); setSel({}); }}>
               <option value="">Select active PO…</option>
               {pos.map((p) => <option key={p.id} value={p.id}>{p.orderNumber} — {p.supplierName} {p.isUnion ? '(UNION)' : ''}</option>)}
@@ -719,15 +778,19 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                 <p className="mt-1 text-[11px] text-gray-400">Each ticked line becomes its own MIR row (lot) with its own QC track. A line can be received in batches across several deliveries — just record the part that arrived.</p>
               </div>
             )}
-          </div>
+          </FormBlock>
         )}
+
+        {/* Direct / cash — the stores person types the item and picks where it goes. */}
         {!isEdit && source === 'direct' && (
-          <div className="space-y-3">
+          <FormBlock title="2 · Material details">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Input label="Item Description *" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} />
+              <Input label="Item Description *" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="What was received" />
               <Input label="UOM" value={f.uom} onChange={(e) => set('uom', e.target.value)} placeholder="pcs / kg / litre" />
-              <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} />
+              <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
+              <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
             </div>
+            <p className="-mt-1 text-[11px] text-gray-400">Pick the unit or department this cash purchase is for — stock is reserved to it on inward. Leave as “General” to keep it in the shared pool.</p>
             <div>
               <label className="block text-[13px] font-semibold text-navy-700 mb-1">Link product (for stock) — optional</label>
               <div className="relative">
@@ -749,21 +812,27 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
               {product && <p className="mt-1 text-xs text-navy-700">Linked: <strong>{product.name}</strong> — stock will be added on inward.</p>}
               {!product && <p className="mt-1 text-[11px] text-gray-400">No product linked → recorded in the register only (no stock movement).</p>}
             </div>
-          </div>
+          </FormBlock>
         )}
 
-        {/* Common header fields. Qty / batch / expiry are per-line in PO mode. */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Input label="Vehicle details" value={f.vehicleDetails} onChange={(e) => set('vehicleDetails', e.target.value)} placeholder="e.g. AP 31 CD 1234" />
-          <Select label="Document type" value={f.docType} onChange={(e) => set('docType', e.target.value)}>
-            {DOC_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-          </Select>
-          <Input label="Document number" value={f.docNumber} onChange={(e) => set('docNumber', e.target.value)} placeholder="Invoice / DC / GP no." />
-          {!perLine && <Input label="Qty received *" type="number" min="0" step="any" value={f.qtyReceived} onChange={(e) => set('qtyReceived', e.target.value)} />}
-          {!perLine && <Input label="Batch number" value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />}
-          {!perLine && <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />}
-        </div>
-        <Textarea label="Purpose" rows={2} value={f.purpose} onChange={(e) => set('purpose', e.target.value)} />
+        {/* Receipt details — vehicle / document and (for direct & edit) the
+            qty / batch / expiry. Qty / batch / expiry are per-line in PO mode. */}
+        <FormBlock title={step('3', 'Receipt details')}>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Input label="Vehicle details" value={f.vehicleDetails} onChange={(e) => set('vehicleDetails', e.target.value)} placeholder="e.g. AP 31 CD 1234" />
+            <Select label="Document type" value={f.docType} onChange={(e) => set('docType', e.target.value)}>
+              {DOC_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </Select>
+            <Input label="Document number" value={f.docNumber} onChange={(e) => set('docNumber', e.target.value)} placeholder="Invoice / DC / GP no." />
+            {!perLine && <Input label="Qty received *" type="number" min="0" step="any" value={f.qtyReceived} onChange={(e) => set('qtyReceived', e.target.value)} />}
+            {!perLine && <Input label="Batch number" value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />}
+            {!perLine && <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />}
+          </div>
+          {isEdit && isDirect && (
+            <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} className="sm:max-w-xs" />
+          )}
+          <Textarea label="Purpose" rows={2} value={f.purpose} onChange={(e) => set('purpose', e.target.value)} placeholder="What it is for (optional)" />
+        </FormBlock>
 
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -1072,7 +1141,7 @@ function ReviewModal({ row, onClose, onDone }) {
   );
 
   return (
-    <Modal isOpen onClose={onClose} title={`QC Inward Inspection Report — ${row.mirNo}`} size="full">
+    <Modal isOpen onClose={onClose} title={`Inward Inspection Report (RAPS/IIR Rev 01) — ${row.mirNo}`} size="full">
       <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
@@ -1292,7 +1361,7 @@ function ReportViewModal({ row, onClose }) {
   ].filter((u) => /\.pdf(\?|$)/i.test(u));
 
   return (
-    <Modal isOpen onClose={onClose} title={`Inward Inspection Report — ${row.mirNo}`} size="full">
+    <Modal isOpen onClose={onClose} title={`Inward Inspection Report (RAPS/IIR Rev 01) — ${row.mirNo}`} size="full">
       <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>

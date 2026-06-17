@@ -680,10 +680,10 @@ function DetailModal({ gatePass: initial, onClose, onAction }) {
           <Field label="Dispatched-to (summary)" value={g.partyName} />
           {(g.assignedVehicle || g.vehicleNo) && (
             <Field
-              label="Vehicle"
+              label={g.privateVehicle ? 'Vehicle (Private / Hired)' : 'Vehicle'}
               value={g.assignedVehicle
-                ? `${g.assignedVehicle.regNumber}${g.assignedVehicle.driverName ? ` · ${g.assignedVehicle.driverName}` : ''}`
-                : `${g.vehicleNo || '—'}${g.driverName ? ` · ${g.driverName}` : ''}`}
+                ? `${g.assignedVehicle.regNumber}${g.assignedVehicle.driverName ? ` · ${g.assignedVehicle.driverName}` : ''}${g.assignedVehicle.driverPhone ? ` · ${g.assignedVehicle.driverPhone}` : ''}`
+                : `${g.vehicleNo || '—'}${g.driverName ? ` · ${g.driverName}` : ''}${g.driverPhone ? ` · ${g.driverPhone}` : ''}`}
             />
           )}
           {g.invoiceNo && <Field label="Invoice No." value={g.invoiceNo} />}
@@ -922,9 +922,17 @@ function StoreReviewBox({ busy, onSubmit }) {
   );
 }
 
+const PRIVATE_VEHICLE = '__PRIVATE__';
+
+// "Already on GP-x, GP-y" note for a vehicle, excluding the gate pass being viewed.
+function otherAssignments(v, currentId) {
+  return (v?.activeAssignments || []).filter((a) => a.id !== currentId);
+}
+
 function LogisticsBox({ g, busy, onAssigned, onDispatched, setError }) {
   const [vehicles, setVehicles] = useState([]);
   const [vehicleId, setVehicleId] = useState(g.assignedVehicleId || '');
+  const [pv, setPv] = useState({ regNumber: '', vehicleType: '', driverName: '', driverPhone: '' });
   const [signedPdf, setSignedPdf] = useState(null);
   const [remarks, setRemarks] = useState('');
   const [localBusy, setLocalBusy] = useState(false);
@@ -935,11 +943,28 @@ function LogisticsBox({ g, busy, onAssigned, onDispatched, setError }) {
       .catch(() => setVehicles([]));
   }, []);
 
+  const isPrivate = vehicleId === PRIVATE_VEHICLE;
+
   const assign = async () => {
-    if (!vehicleId) return setError('Pick a vehicle');
+    if (isPrivate) {
+      if (!pv.regNumber.trim()) return setError('Enter the private vehicle number');
+      if (!pv.driverName.trim()) return setError('Enter the driver name');
+    } else if (!vehicleId) {
+      return setError('Pick a vehicle');
+    }
     setError(''); setLocalBusy(true);
     try {
-      await api.put(`/gatepasses/${g.id}/logistics-assign`, { vehicleId });
+      const body = isPrivate
+        ? {
+            privateVehicle: {
+              regNumber: pv.regNumber.trim(),
+              vehicleType: pv.vehicleType.trim() || undefined,
+              driverName: pv.driverName.trim(),
+              driverPhone: pv.driverPhone.trim() || undefined,
+            },
+          }
+        : { vehicleId };
+      await api.put(`/gatepasses/${g.id}/logistics-assign`, body);
       onAssigned();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to assign vehicle');
@@ -966,25 +991,73 @@ function LogisticsBox({ g, busy, onAssigned, onDispatched, setError }) {
     setLocalBusy(false);
   };
 
-  const assigned = !!g.assignedVehicleId;
+  const assigned = !!g.assignedVehicleId || !!g.privateVehicle;
   const working = busy || localBusy;
+
+  const selectedVehicle = !isPrivate ? vehicles.find((v) => v.id === vehicleId) : null;
+  const selectedOthers = otherAssignments(selectedVehicle, g.id);
 
   return (
     <div className="p-3 bg-amber-50 border border-amber-200 rounded space-y-3">
       <p className="text-xs font-medium text-amber-800">
-        {assigned ? 'Vehicle assigned — confirm dispatch' : 'Assign a vehicle from the register'}
+        {assigned ? 'Vehicle assigned — confirm dispatch' : 'Assign a vehicle from the register, or use a private / hired one'}
       </p>
 
       {!assigned && (
         <>
           <Select label="Vehicle *" value={vehicleId} onChange={e => setVehicleId(e.target.value)}>
             <option value="">— Select a vehicle —</option>
-            {vehicles.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.regNumber} · {v.vehicleType || 'Vehicle'} · {v.driverName || 'No driver'}
-              </option>
-            ))}
+            <option value={PRIVATE_VEHICLE}>🚗 Private / Hired vehicle (enter details)</option>
+            {vehicles.map((v) => {
+              const others = otherAssignments(v, g.id);
+              return (
+                <option key={v.id} value={v.id}>
+                  {v.regNumber} · {v.vehicleType || 'Vehicle'} · {v.driverName || 'No driver'}
+                  {others.length ? `  — already on ${others.map(a => a.passNumber).join(', ')}` : ''}
+                </option>
+              );
+            })}
           </Select>
+
+          {isPrivate && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-2.5 bg-white border border-amber-200 rounded">
+              <Input
+                label="Vehicle No. *"
+                value={pv.regNumber}
+                onChange={e => setPv(p => ({ ...p, regNumber: e.target.value }))}
+                placeholder="KA01AB1234"
+              />
+              <Input
+                label="Vehicle Type"
+                value={pv.vehicleType}
+                onChange={e => setPv(p => ({ ...p, vehicleType: e.target.value }))}
+                placeholder="Truck / Tempo / Car"
+              />
+              <Input
+                label="Driver Name *"
+                value={pv.driverName}
+                onChange={e => setPv(p => ({ ...p, driverName: e.target.value }))}
+                placeholder="Driver full name"
+              />
+              <Input
+                label="Driver Phone"
+                value={pv.driverPhone}
+                onChange={e => setPv(p => ({ ...p, driverPhone: e.target.value }))}
+                placeholder="10-digit mobile"
+              />
+            </div>
+          )}
+
+          {!isPrivate && selectedOthers.length > 0 && (
+            <p className="text-xs text-amber-700 flex items-start gap-1">
+              <AlertCircle size={13} className="mt-0.5 flex-shrink-0" />
+              <span>
+                This vehicle is already assigned to {selectedOthers.map(a => a.passNumber).join(', ')}.
+                You can still use it if it hasn’t left the campus.
+              </span>
+            </p>
+          )}
+
           <div className="flex justify-end">
             <Button disabled={working || !vehicleId} onClick={assign}>
               <Truck size={14} /> Assign Vehicle
@@ -995,10 +1068,21 @@ function LogisticsBox({ g, busy, onAssigned, onDispatched, setError }) {
 
       {assigned && (
         <>
-          <div className="text-sm text-gray-700">
-            <span className="font-mono">{g.assignedVehicle?.regNumber}</span>
-            {g.assignedVehicle?.driverName && <span className="text-gray-500"> · {g.assignedVehicle.driverName}</span>}
-            {g.assignedVehicle?.driverPhone && <span className="text-gray-500"> · {g.assignedVehicle.driverPhone}</span>}
+          <div className="text-sm text-gray-700 flex items-center gap-2 flex-wrap">
+            {g.assignedVehicle ? (
+              <span>
+                <span className="font-mono">{g.assignedVehicle.regNumber}</span>
+                {g.assignedVehicle.driverName && <span className="text-gray-500"> · {g.assignedVehicle.driverName}</span>}
+                {g.assignedVehicle.driverPhone && <span className="text-gray-500"> · {g.assignedVehicle.driverPhone}</span>}
+              </span>
+            ) : (
+              <span>
+                <span className="font-mono">{g.vehicleNo}</span>
+                {g.driverName && <span className="text-gray-500"> · {g.driverName}</span>}
+                {g.driverPhone && <span className="text-gray-500"> · {g.driverPhone}</span>}
+              </span>
+            )}
+            {g.privateVehicle && <Badge color="purple">Private / Hired</Badge>}
           </div>
           {g.kind === 'OUTSIDE' && (
             <div>
