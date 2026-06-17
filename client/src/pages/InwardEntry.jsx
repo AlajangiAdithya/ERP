@@ -569,6 +569,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   const [sel, setSel] = useState({});
   const [productId, setProductId] = useState('');
   const [productSearch, setProductSearch] = useState('');
+  // Cash purchase: is the material an existing product (link it) or a brand-new
+  // item (free-text). Picked first, before any item fields.
+  const [itemMode, setItemMode] = useState('existing'); // 'existing' | 'new'
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [f, setF] = useState({
@@ -630,6 +633,20 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     (p.sku || '').toLowerCase().includes(productSearch.toLowerCase()));
   const product = products.find((p) => p.id === productId);
 
+  // Switch existing/new — reset the item fields so the two paths never bleed.
+  const pickItemMode = (m) => {
+    setItemMode(m);
+    setProductId('');
+    setProductSearch('');
+    setF((p) => ({ ...p, itemDescription: '', uom: '' }));
+  };
+  // Pick an existing product → fill the description / UOM from the master.
+  const pickProduct = (p) => {
+    setProductId(p.id);
+    setProductSearch('');
+    setF((prev) => ({ ...prev, itemDescription: p.name, uom: p.unit || prev.uom }));
+  };
+
   const submit = async () => {
     setError('');
     if (!isEdit && !poId) return setError('Select a Purchase Order or Cash Purchase.');
@@ -643,9 +660,11 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           return setError(`Enter a received quantity for ${it?.productName || 'each ticked line'}.`);
         }
       }
-    } else if (!isEdit && isCash && !f.itemDescription.trim()) {
-      return setError('Item description is required.');
-    } else if (!perLine && (!f.qtyReceived || Number(f.qtyReceived) <= 0)) {
+    } else if (!isEdit && isCash) {
+      if (itemMode === 'existing' && !productId) return setError('Select an existing product.');
+      if (itemMode === 'new' && !f.itemDescription.trim()) return setError('Enter the new item description.');
+    }
+    if (!perLine && (!f.qtyReceived || Number(f.qtyReceived) <= 0)) {
       return setError('Enter the received quantity.');
     }
     // Decode the assign-to picker into the unit / dept the server resolves.
@@ -768,35 +787,70 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
               </>
             )}
 
-            {/* Cash Purchase — the stores person types the item and picks where it goes. */}
+            {/* Cash Purchase — pick existing vs new item first, then the details. */}
             {isCash && (
               <div className="space-y-3 pt-1">
-                <Input label="Item Description *" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="What was received" />
-                <Input label="UOM" value={f.uom} onChange={(e) => set('uom', e.target.value)} placeholder="pcs / kg / litre" />
+                <div>
+                  <label className="block text-[13px] font-semibold text-navy-700 mb-1.5">Existing or new item?</label>
+                  <div className="inline-flex bg-navy-50 rounded-lg p-0.5">
+                    {[['existing', 'Existing item'], ['new', 'New item']].map(([m, lbl]) => (
+                      <button key={m} type="button" onClick={() => pickItemMode(m)}
+                        className={`px-4 py-1.5 text-xs font-semibold rounded-md transition ${itemMode === m ? 'bg-white shadow text-navy-800' : 'text-navy-600'}`}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Existing → pick from the product master (desc / UOM auto-fill). */}
+                {itemMode === 'existing' && (
+                  <div>
+                    <label className="block text-[13px] font-semibold text-navy-700 mb-1">Select product *</label>
+                    {product ? (
+                      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-navy-50 border border-navy-200 rounded-lg">
+                        <span className="text-sm text-navy-800">
+                          <strong>{product.name}</strong> <span className="text-xs text-gray-400">{product.materialCode || product.sku}</span>
+                          <span className="text-xs text-gray-500"> · {product.currentStock} {product.unit} in stock</span>
+                        </span>
+                        <button type="button" onClick={() => { setProductId(''); setF((p) => ({ ...p, itemDescription: '', uom: '' })); }}
+                          className="text-xs text-navy-600 hover:text-navy-800 font-semibold shrink-0">Change</button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="relative">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Search product…"
+                            className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500" />
+                        </div>
+                        {productSearch && (
+                          <div className="mt-1 max-h-36 overflow-y-auto border rounded-md">
+                            {filteredProducts.slice(0, 30).map((p) => (
+                              <div key={p.id} onClick={() => pickProduct(p)}
+                                className="flex justify-between px-3 py-1.5 text-sm cursor-pointer hover:bg-navy-50 border-b border-gray-100 last:border-0">
+                                <span>{p.name} <span className="text-xs text-gray-400">{p.materialCode || p.sku}</span></span>
+                                <span className="text-xs text-gray-500">{p.currentStock} {p.unit}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <p className="mt-1 text-[11px] text-gray-400">Stock is added to this product on inward.</p>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* New → free-text item not yet in the product master. */}
+                {itemMode === 'new' && (
+                  <>
+                    <Input label="Item Description *" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="Name of the new item" />
+                    <Input label="UOM" value={f.uom} onChange={(e) => set('uom', e.target.value)} placeholder="pcs / kg / litre" />
+                    <p className="-mt-1 text-[11px] text-gray-400">New item not in the product master → recorded in the register only (no stock movement).</p>
+                  </>
+                )}
+
                 <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
                 <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
                 <p className="-mt-1 text-[11px] text-gray-400">Pick the unit or department this cash purchase is for — stock is reserved to it on inward. Leave as “General” to keep it in the shared pool.</p>
-                <div>
-                  <label className="block text-[13px] font-semibold text-navy-700 mb-1">Link product (for stock) — optional</label>
-                  <div className="relative">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Search product…"
-                      className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500" />
-                  </div>
-                  {productSearch && (
-                    <div className="mt-1 max-h-36 overflow-y-auto border rounded-md">
-                      {filteredProducts.slice(0, 30).map((p) => (
-                        <div key={p.id} onClick={() => { setProductId(p.id); setProductSearch(''); }}
-                          className="flex justify-between px-3 py-1.5 text-sm cursor-pointer hover:bg-navy-50 border-b border-gray-100 last:border-0">
-                          <span>{p.name} <span className="text-xs text-gray-400">{p.materialCode || p.sku}</span></span>
-                          <span className="text-xs text-gray-500">{p.currentStock} {p.unit}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {product && <p className="mt-1 text-xs text-navy-700">Linked: <strong>{product.name}</strong> — stock will be added on inward.</p>}
-                  {!product && <p className="mt-1 text-[11px] text-gray-400">No product linked → recorded in the register only (no stock movement).</p>}
-                </div>
               </div>
             )}
           </FormBlock>
