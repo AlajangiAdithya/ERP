@@ -3,7 +3,7 @@ import {
   Plus, Trash2, RotateCcw, CheckCircle2, Truck, PackageCheck,
   Send, ShieldCheck, Calculator, Stamp, XCircle, Clock, AlertCircle, LayoutList,
   DoorOpen, FileText, Upload, FileDown, ClipboardList, Briefcase,
-  GitBranch, ArrowRight, ArrowDown, User, Workflow,
+  GitBranch, ArrowRight, ArrowDown, User, Workflow, Eye, Filter,
 } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
@@ -20,9 +20,14 @@ import { formatDate, formatDateTime } from '../utils/formatters';
 import GatePassPdf from '../components/pdf/GatePassPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 
-const REGISTERS = [
-  { key: 'OUTWARD', label: 'Outward Register (RAMS/GPR/01)', Icon: DoorOpen },
-  { key: 'LOCAL_JOB_REG', label: 'Local Job Work Register (RAPS/JL-JW)', Icon: Briefcase },
+// The two formats a gate pass can take. The toggle at the top of the page
+// switches which register format (columns + workflow) is shown, and seeds the
+// kind chosen when a new gate pass is created.
+//  • OUTSIDE   → Outward register (RAMS/GPR/01) — delivered to a site office.
+//  • LOCAL_JOB → Local Job Work register (RAPS/JL-JW) — returns to stores.
+const KIND_VIEWS = [
+  { key: 'OUTSIDE',   label: 'Outward (RAMS/GPR/01)',   Icon: DoorOpen },
+  { key: 'LOCAL_JOB', label: 'Local Job (RAPS/JL-JW)',  Icon: Briefcase },
 ];
 
 const STATUS_TABS = [
@@ -52,6 +57,9 @@ const STATUS_META = {
   REJECTED:             { color: 'red',    label: 'Rejected' },
   OPEN:                 { color: 'yellow', label: 'Open (legacy)' },
 };
+// Status colour → sheet Pill tone.
+const TONE_BY_COLOR = { gray: 'gray', yellow: 'amber', blue: 'blue', green: 'green', red: 'red', purple: 'purple', orange: 'amber' };
+const statusTone = (s) => TONE_BY_COLOR[STATUS_META[s]?.color] || 'gray';
 
 const KIND_META = {
   LOCAL_JOB: { color: 'purple', label: 'Local Job' },
@@ -132,54 +140,105 @@ function ReturnDueBadge({ info, compact = false }) {
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Inline actions — which workflow steps a given role can take on a row, right
+// now. Mirrors the server's stage/role gating so the buttons only ever appear
+// when the action will actually succeed.
+// ──────────────────────────────────────────────────────────────────────────────
+function availableActions(g, role) {
+  const isAdmin = role === 'ADMIN';
+  const isV2 = !!g.kind;
+  const isOutside = g.kind === 'OUTSIDE';
+  const isLocalJob = g.kind === 'LOCAL_JOB';
+  const isReturnable = g.passType === 'RETURNABLE';
+  const acts = [];
+
+  if (g.status === 'PENDING_STORE' && (role === 'STORE_MANAGER' || isAdmin)) acts.push('store-approve');
+  if (g.status === 'PENDING_ACCOUNTS' && isOutside && (role === 'ACCOUNTING' || role === 'FINANCE' || isAdmin)) acts.push('accounts-invoice');
+  if (g.status === 'PENDING_STORE_REVIEW' && (role === 'STORE_MANAGER' || isAdmin)) acts.push('store-review');
+  if (g.status === 'PENDING_LOGISTICS' && isV2 && (role === 'LOGISTICS' || isAdmin)) acts.push('logistics');
+  if (g.status === 'IN_TRANSIT' && isOutside && (role === 'LOGISTICS' || isAdmin)) acts.push('arrival-ack');
+  if ((role === 'STORE_MANAGER' || isAdmin) && (
+    (g.status === 'IN_TRANSIT' && isLocalJob) ||
+    (g.status === 'PENDING_RETURN' && isOutside && isReturnable)
+  )) acts.push('stores-ack');
+
+  const stageRole = {
+    PENDING_STORE: ['STORE_MANAGER', 'ADMIN'],
+    PENDING_ACCOUNTS: ['ACCOUNTING', 'FINANCE', 'ADMIN'],
+    PENDING_STORE_REVIEW: ['STORE_MANAGER', 'ADMIN'],
+    PENDING_LOGISTICS: ['LOGISTICS', 'ADMIN'],
+  }[g.status];
+  if (stageRole && stageRole.includes(role) && isV2) acts.push('reject');
+
+  return acts;
+}
+
+const ACTION_DEFS = {
+  'store-approve':   { title: 'Stores Approval',     short: 'Approve',  tone: 'amber', Icon: ShieldCheck },
+  'accounts-invoice':{ title: 'Accounts — Invoice',  short: 'Invoice',  tone: 'amber', Icon: Calculator },
+  'store-review':    { title: 'Stores Final Review', short: 'Review',   tone: 'amber', Icon: PackageCheck },
+  'logistics':       { title: 'Logistics — Dispatch',short: 'Vehicle',  tone: 'blue',  Icon: Truck },
+  'arrival-ack':     { title: 'Acknowledge Arrival', short: 'Arrival',  tone: 'blue',  Icon: Stamp },
+  'stores-ack':      { title: 'Close Gate Pass',     short: 'Close',    tone: 'green', Icon: CheckCircle2 },
+};
+
 export default function GatePass() {
   const { user } = useAuth();
-  const canCreate = ['MANAGER', 'ADMIN', 'PLANNING'].includes(user?.role);
-  const [register, setRegister] = useState('OUTWARD');
-  const [activeTab, setActiveTab] = useState(DEFAULT_TAB_BY_ROLE[user?.role] || 'PENDING_STORE');
+  const role = user?.role;
+  const canCreate = ['MANAGER', 'ADMIN', 'PLANNING'].includes(role);
+  const [view, setView] = useState('OUTSIDE'); // 'OUTSIDE' | 'LOCAL_JOB'
+  const [activeTab, setActiveTab] = useState(DEFAULT_TAB_BY_ROLE[role] || 'PENDING_STORE');
   const [gatePasses, setGatePasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showFlow, setShowFlow] = useState(false);
-  const [detail, setDetail] = useState(null);
+  const [detail, setDetail] = useState(null);     // read-only view
+  const [actionFor, setActionFor] = useState(null); // { gatePass, type }
   const [refreshKey, setRefreshKey] = useState(0);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
   const load = () => {
     setLoading(true);
-    const params = {
-      direction: 'OUTWARD',
-      limit: 200,
-      fromDate: fromDate || undefined,
-      toDate: toDate || undefined,
-    };
-    if (register === 'OUTWARD' && activeTab !== 'ALL') params.status = activeTab;
-    api.get('/gatepasses', { params })
+    api.get('/gatepasses', {
+      params: {
+        direction: 'OUTWARD',
+        limit: 500,
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
+      },
+    })
       .then(({ data }) => setGatePasses(data.gatePasses || []))
       .catch(() => setGatePasses([]))
       .finally(() => setLoading(false));
   };
+  useEffect(load, [refreshKey, fromDate, toDate]);
 
-  useEffect(load, [register, activeTab, refreshKey, fromDate, toDate]);
+  // Rows belonging to the chosen register format. Outward also picks up legacy
+  // (kind=null) FIM send-out rows so they stay visible somewhere.
+  const viewRows = useMemo(() => gatePasses.filter((g) => (
+    view === 'LOCAL_JOB' ? g.kind === 'LOCAL_JOB' : (g.kind === 'OUTSIDE' || !g.kind)
+  )), [gatePasses, view]);
 
-  // Reset date filter when switching registers so the new view isn't
-  // accidentally filtered by leftover dates from the prior register.
-  useEffect(() => {
-    setFromDate('');
-    setToDate('');
-  }, [register]);
+  const counts = useMemo(() => {
+    const c = { ALL: viewRows.length };
+    viewRows.forEach((g) => { c[g.status] = (c[g.status] || 0) + 1; });
+    return c;
+  }, [viewRows]);
 
-  const localJobRows = useMemo(
-    () => gatePasses.filter((g) => g.kind === 'LOCAL_JOB'),
-    [gatePasses]
+  const filtered = useMemo(
+    () => (activeTab === 'ALL' ? viewRows : viewRows.filter((g) => g.status === activeTab)),
+    [viewRows, activeTab]
   );
+
+  const refresh = () => setRefreshKey((k) => k + 1);
 
   return (
     <div className="space-y-6">
       <PageHero
         title="Gate Pass"
-        subtitle="OUTWARD movement — Local Job (returns to stores) or Outside (delivered to a site office). Two registers as per RAMS/GPR/01 and RAPS/JL-JW."
+        subtitle="OUTWARD movement in one register sheet — pick Outward (delivered to a site office) or Local Job (returns to stores). Every step is actioned right in the row."
         eyebrow="Outward Movement"
         icon={DoorOpen}
         actions={
@@ -196,65 +255,86 @@ export default function GatePass() {
         }
       />
 
+      {/* Register format toggle — swaps the sheet columns + workflow. */}
       <div className="flex flex-wrap gap-2 border-b border-gray-200">
-        {REGISTERS.map(({ key, label, Icon }) => (
+        {KIND_VIEWS.map(({ key, label, Icon }) => (
           <button
             key={key}
-            onClick={() => setRegister(key)}
+            onClick={() => setView(key)}
             className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              register === key ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              view === key ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}>
             <Icon size={14} className="inline mr-1.5" />{label}
           </button>
         ))}
       </div>
 
-      {register === 'OUTWARD' ? (
-        <>
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="flex flex-wrap gap-2 border-b border-gray-200">
-              {STATUS_TABS.map(({ key, label, Icon }) => (
-                <button
-                  key={key}
-                  onClick={() => setActiveTab(key)}
-                  className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
-                    activeTab === key ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}>
-                  <Icon size={14} className="inline mr-1.5" />{label}
-                </button>
-              ))}
-            </div>
-            <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
+      <Card className="p-4 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-navy-500">
+            <Filter size={13} /> Showing <span className="font-bold text-navy-800">{filtered.length}</span> of {viewRows.length}
           </div>
+          <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
+        </div>
 
-          {loading ? (
-            <p className="text-sm text-gray-500">Loading…</p>
-          ) : gatePasses.length === 0 ? (
-            <Card className="text-center text-gray-500 py-10">
+        <div className="flex flex-wrap gap-2">
+          {STATUS_TABS.map(({ key, label, Icon }) => {
+            const on = activeTab === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${on ? 'bg-navy-800 text-white shadow-sm' : 'bg-navy-50 text-navy-700 hover:bg-navy-100'}`}>
+                <Icon size={13} /> {label}
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none ${on ? 'bg-white/20 text-white' : 'bg-white text-navy-500'}`}>{counts[key] || 0}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+
+      {loading ? (
+        <Card><p className="text-navy-500 text-center py-8">Loading…</p></Card>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <div className="text-center py-12">
+            <DoorOpen size={32} className="mx-auto text-navy-300 mb-3" />
+            <p className="text-navy-700 font-semibold">No gate passes here</p>
+            <p className="text-navy-500 text-sm mt-1">
               {activeTab === 'ALL'
-                ? 'No outward gate passes found.'
-                : `No outward gate passes in ${STATUS_META[activeTab]?.label.toLowerCase()}.`}
-            </Card>
-          ) : (
-            <OutwardTable rows={gatePasses} onView={setDetail} />
-          )}
-        </>
+                ? `No ${view === 'LOCAL_JOB' ? 'local job' : 'outward'} gate passes yet.`
+                : `Nothing in ${STATUS_META[activeTab]?.label.toLowerCase()}.`}
+            </p>
+          </div>
+        </Card>
       ) : (
-        <LocalJobRegister rows={localJobRows} loading={loading} onView={setDetail} />
+        <GatePassSheet
+          rows={filtered}
+          view={view}
+          role={role}
+          onView={setDetail}
+          onAction={(gatePass, type) => setActionFor({ gatePass, type })}
+        />
       )}
 
       {showCreate && (
         <CreateGatePassModal
+          defaultKind={view}
           onClose={() => setShowCreate(false)}
-          onCreated={() => { setShowCreate(false); setRefreshKey(k => k + 1); }}
+          onCreated={() => { setShowCreate(false); refresh(); }}
         />
       )}
 
       {detail && (
-        <DetailModal
-          gatePass={detail}
-          onClose={() => setDetail(null)}
-          onAction={() => { setDetail(null); setRefreshKey(k => k + 1); }}
+        <DetailModal gatePass={detail} onClose={() => setDetail(null)} />
+      )}
+
+      {actionFor && (
+        <ActionModal
+          gatePass={actionFor.gatePass}
+          type={actionFor.type}
+          onClose={() => setActionFor(null)}
+          onDone={() => { setActionFor(null); refresh(); }}
         />
       )}
 
@@ -263,60 +343,143 @@ export default function GatePass() {
   );
 }
 
-function OutwardTable({ rows, onView }) {
+// ────────────────────────────────────────────────────────────────────
+// The Excel-style register sheet — one row per gate pass, columns adapt to the
+// chosen format, every workflow step actioned inline from the row.
+// ────────────────────────────────────────────────────────────────────
+function GatePassSheet({ rows, view, role, onView, onAction }) {
+  const isLocal = view === 'LOCAL_JOB';
   return (
-    <Card className="p-0 overflow-hidden">
+    <Card className="!p-0 overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr className="text-left text-gray-600">
-              <th className="px-4 py-2 font-medium">Pass No.</th>
-              <th className="px-4 py-2 font-medium">Date</th>
-              <th className="px-4 py-2 font-medium">Kind</th>
-              <th className="px-4 py-2 font-medium">Dispatched To / Destination</th>
-              <th className="px-4 py-2 font-medium">Items</th>
-              <th className="px-4 py-2 font-medium">Vehicle</th>
-              <th className="px-4 py-2 font-medium">Raised By</th>
-              <th className="px-4 py-2 font-medium">Status</th>
-              <th className="px-4 py-2 font-medium text-right">Action</th>
+        <table className="min-w-full text-[11.5px] border-separate border-spacing-0">
+          <thead className="sticky top-0 z-20">
+            <tr>
+              <Th sticky>Pass No.</Th>
+              {isLocal && <Th>JW / PO No.</Th>}
+              <Th>Date</Th>
+              {isLocal ? (
+                <>
+                  <Th>Item(s)</Th>
+                  <Th>Purpose</Th>
+                  <Th>Probable Rtn.</Th>
+                  <Th>Issued To Dept</Th>
+                  <Th groupEnd>Return Date</Th>
+                </>
+              ) : (
+                <>
+                  <Th>Dispatched To / Dest.</Th>
+                  <Th>Item(s)</Th>
+                  <Th>Pass Type</Th>
+                  <Th groupEnd>Invoice / DC</Th>
+                </>
+              )}
+              <Th>Vehicle</Th>
+              <Th>Raised By</Th>
+              <Th>Status / Stage</Th>
+              <Th>Action</Th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((g, i) => (
-              <tr key={g.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
-                <td className="px-4 py-2 font-medium text-navy-700">{g.passNumber}</td>
-                <td className="px-4 py-2">{formatDate(g.date)}</td>
-                <td className="px-4 py-2">
-                  {g.kind ? (
-                    <Badge color={KIND_META[g.kind]?.color}>{KIND_META[g.kind]?.label}</Badge>
-                  ) : <span className="text-gray-400 text-xs">Legacy / FIM</span>}
-                </td>
-                <td className="px-4 py-2">{g.partyName || '—'}</td>
-                <td className="px-4 py-2 text-gray-500">{g.items?.length || 0}</td>
-                <td className="px-4 py-2 text-gray-600">
-                  {g.assignedVehicle ? (
-                    <span className="text-xs">
-                      <span className="font-mono">{g.assignedVehicle.regNumber}</span>
-                      {g.assignedVehicle.driverName && <span className="text-gray-500"> · {g.assignedVehicle.driverName}</span>}
-                    </span>
-                  ) : g.vehicleNo
-                    ? <span className="text-xs">{g.vehicleNo}{g.driverName ? ` · ${g.driverName}` : ''}</span>
-                    : <span className="text-gray-400">Pending</span>}
-                </td>
-                <td className="px-4 py-2 text-gray-600">{g.createdBy?.name || '—'}</td>
-                <td className="px-4 py-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <Badge color={STATUS_META[g.status]?.color || 'gray'}>
-                      {STATUS_META[g.status]?.label || g.status}
-                    </Badge>
-                    <ReturnDueBadge info={returnDueInfo(g)} compact />
-                  </div>
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <Button variant="ghost" size="sm" onClick={() => onView(g)}>View</Button>
-                </td>
-              </tr>
-            ))}
+            {rows.map((g, i) => {
+              const meta = STATUS_META[g.status] || { label: g.status, color: 'gray' };
+              const zebra = i % 2 ? 'bg-brand-gray' : 'bg-white';
+              const accent =
+                g.status === 'CLOSED' ? 'border-l-green-500'
+                : g.status === 'REJECTED' ? 'border-l-red-500'
+                : g.status === 'IN_TRANSIT' ? 'border-l-blue-500'
+                : g.status?.startsWith('PENDING') ? 'border-l-amber-500'
+                : 'border-l-navy-300';
+              const due = returnDueInfo(g);
+              const earliest = earliestReturn(g);
+              const acts = availableActions(g, role);
+              const vehicleNode = g.assignedVehicle ? (
+                <span className="text-[10px]">
+                  <span className="font-mono">{g.assignedVehicle.regNumber}</span>
+                  {g.assignedVehicle.driverName && <span className="text-gray-500"> · {g.assignedVehicle.driverName}</span>}
+                </span>
+              ) : g.vehicleNo
+                ? <span className="text-[10px]">{g.vehicleNo}{g.driverName ? ` · ${g.driverName}` : ''}</span>
+                : <span className="text-gray-400">Pending</span>;
+
+              return (
+                <tr key={g.id} className={`group ${zebra} hover:bg-navy-50 transition-colors`}>
+                  <Td sticky className={`border-l-4 ${accent}`}>
+                    <button onClick={() => onView(g)} className="font-mono text-[11px] font-semibold text-navy-800 hover:text-navy-600 hover:underline">
+                      {g.passNumber}
+                    </button>
+                    <div className="mt-1 flex items-center gap-1 flex-wrap">
+                      {g.kind
+                        ? <Pill tone={g.kind === 'LOCAL_JOB' ? 'purple' : 'blue'}>{KIND_META[g.kind]?.label}</Pill>
+                        : <Pill tone="gray">Legacy / FIM</Pill>}
+                      <ReturnDueBadge info={due} compact />
+                    </div>
+                  </Td>
+
+                  {isLocal && <Td className="font-mono text-[10px] text-navy-700">{g.jobWorkNo || <Dash />}</Td>}
+                  <Td>{formatDate(g.date)}</Td>
+
+                  {isLocal ? (
+                    <>
+                      <Td nowrap={false} className="min-w-[180px] max-w-[260px]"><ItemsCell items={g.items} /></Td>
+                      <Td nowrap={false} className="max-w-[160px]"><span className="text-gray-600 line-clamp-2">{joinField(g.items, 'itemPurpose') || <Dash />}</span></Td>
+                      <Td>{earliest ? formatDate(earliest) : <Dash />}</Td>
+                      <Td nowrap={false} className="max-w-[140px]">{joinField(g.items, 'dispatchedTo') || g.partyName || <Dash />}</Td>
+                      <Td groupEnd>{g.actualReturnDate ? formatDate(g.actualReturnDate) : <Dash />}</Td>
+                    </>
+                  ) : (
+                    <>
+                      <Td nowrap={false} className="max-w-[170px]">{g.partyName || <Dash />}</Td>
+                      <Td nowrap={false} className="min-w-[180px] max-w-[260px]"><ItemsCell items={g.items} /></Td>
+                      <Td className="text-gray-600">{g.passType ? PASS_TYPE_LABEL[g.passType] : <Dash />}</Td>
+                      <Td groupEnd className="text-[10px] text-gray-600">
+                        {g.invoiceNo || g.dcNo
+                          ? <>{g.invoiceNo && <div>Inv: {g.invoiceNo}</div>}{g.dcNo && <div>DC: {g.dcNo}</div>}</>
+                          : <Dash />}
+                      </Td>
+                    </>
+                  )}
+
+                  <Td nowrap={false} className="max-w-[150px]">
+                    {vehicleNode}
+                    {g.privateVehicle && <div className="mt-0.5"><Pill tone="purple">Private / Hired</Pill></div>}
+                  </Td>
+                  <Td nowrap={false} className="max-w-[130px]">{g.createdBy?.name || <Dash />}</Td>
+                  <Td nowrap={false} className="max-w-[160px]">
+                    <Pill tone={statusTone(g.status)}>{meta.label}</Pill>
+                    {g.rejectedReason && <div className="text-[10px] text-rose-700 mt-0.5 line-clamp-2" title={g.rejectedReason}>⚠ {g.rejectedReason}</div>}
+                  </Td>
+
+                  {/* Action */}
+                  <Td nowrap={false} className="min-w-[150px]">
+                    <div className="flex flex-col gap-1 items-start">
+                      {acts.filter((t) => t !== 'reject').map((t) => {
+                        const def = ACTION_DEFS[t];
+                        const label = t === 'logistics' && (g.assignedVehicleId || g.privateVehicle) ? 'Dispatch' : def.short;
+                        const Icon = def.Icon;
+                        return (
+                          <ActBtn key={t} tone={def.tone} onClick={() => onAction(g, t)}>
+                            <Icon size={11} /> {label}
+                          </ActBtn>
+                        );
+                      })}
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <DownloadPdfButton
+                          document={<GatePassPdf data={g} />}
+                          fileName={`${g.passNumber}.pdf`}
+                          label="PDF"
+                          className="!px-2 !py-1 !text-[10px]"
+                        />
+                        <IconBtn title="View details" onClick={() => onView(g)}><Eye size={13} /></IconBtn>
+                        {acts.includes('reject') && (
+                          <IconBtn title="Reject" danger onClick={() => onAction(g, 'reject')}><XCircle size={13} /></IconBtn>
+                        )}
+                      </div>
+                    </div>
+                  </Td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -324,73 +487,148 @@ function OutwardTable({ rows, onView }) {
   );
 }
 
-function LocalJobRegister({ rows, loading, onView }) {
-  if (loading) return <p className="text-sm text-gray-500">Loading…</p>;
-  if (rows.length === 0) {
-    return <Card className="text-center text-gray-500 py-10">No local job work gate passes yet.</Card>;
-  }
-
-  // The Local Job Work Register flattens items so each row is one component
-  // (matching the RAPS/JL-JW form layout).
-  const flat = [];
-  rows.forEach((g) => {
-    (g.items || []).forEach((it) => flat.push({ g, it }));
-  });
-
+// Compact stacked list of a pass's items inside one cell.
+function ItemsCell({ items = [] }) {
+  if (!items.length) return <Dash />;
+  const show = items.slice(0, 3);
   return (
-    <Card className="p-0 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs" style={{ minWidth: 1500 }}>
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr className="text-left text-gray-600">
-              <th className="px-2 py-2 font-medium">JW No.</th>
-              <th className="px-2 py-2 font-medium">Date</th>
-              <th className="px-2 py-2 font-medium">Gate Pass No.</th>
-              <th className="px-2 py-2 font-medium">Item Description</th>
-              <th className="px-2 py-2 font-medium">Qty</th>
-              <th className="px-2 py-2 font-medium">Purpose</th>
-              <th className="px-2 py-2 font-medium">Probable Rtn. Dt</th>
-              <th className="px-2 py-2 font-medium">Requested By</th>
-              <th className="px-2 py-2 font-medium">Stores Sign (Issue)</th>
-              <th className="px-2 py-2 font-medium">Return Date</th>
-              <th className="px-2 py-2 font-medium">Issued To Dept</th>
-              <th className="px-2 py-2 font-medium">Receiver Sign</th>
-              <th className="px-2 py-2 font-medium">Stores Sign (Recv)</th>
-              <th className="px-2 py-2 font-medium">Remarks</th>
-              <th className="px-2 py-2 font-medium text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {flat.map(({ g, it }, idx) => (
-              <tr key={`${g.id}-${it.id || idx}`} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
-                <td className="px-2 py-1.5 font-mono">{g.jobWorkNo || '—'}</td>
-                <td className="px-2 py-1.5">{formatDate(g.date)}</td>
-                <td className="px-2 py-1.5 font-mono text-navy-700">{g.passNumber}</td>
-                <td className="px-2 py-1.5">{it.description}</td>
-                <td className="px-2 py-1.5">{it.quantity} {it.unit}</td>
-                <td className="px-2 py-1.5">{it.itemPurpose || '—'}</td>
-                <td className="px-2 py-1.5">{it.probableReturnDate ? formatDate(it.probableReturnDate) : '—'}</td>
-                <td className="px-2 py-1.5">{g.requestedBy?.name || g.createdBy?.name || '—'}</td>
-                <td className="px-2 py-1.5">{g.storeIncharge?.name || '—'}</td>
-                <td className="px-2 py-1.5">{g.actualReturnDate ? formatDate(g.actualReturnDate) : '—'}</td>
-                <td className="px-2 py-1.5">{it.dispatchedTo || '—'}</td>
-                <td className="px-2 py-1.5">{g.localReturnedBy?.name || '—'}</td>
-                <td className="px-2 py-1.5">{g.localReturnedBy?.name || g.storeIncharge?.name || '—'}</td>
-                <td className="px-2 py-1.5">{it.contactPersonDetails || g.remarks || '—'}</td>
-                <td className="px-2 py-1.5 text-right">
-                  <Button variant="ghost" size="sm" onClick={() => onView(g)}>View</Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+    <div className="space-y-0.5">
+      {show.map((it, i) => (
+        <div key={it.id || i} className="text-[10.5px]">
+          <span className="text-navy-800">{it.description}</span>
+          {it.quantity != null && <span className="text-gray-400"> · {it.quantity} {it.unit || ''}</span>}
+        </div>
+      ))}
+      {items.length > 3 && <div className="text-[10px] text-gray-400">+{items.length - 3} more</div>}
+    </div>
   );
 }
 
-function CreateGatePassModal({ onClose, onCreated }) {
-  const [kind, setKind] = useState('LOCAL_JOB');
+const earliestReturn = (g) => {
+  const ds = (g.items || []).map((i) => i.probableReturnDate).filter(Boolean).map((d) => new Date(d));
+  if (!ds.length) return null;
+  return new Date(Math.min(...ds.map((d) => d.getTime())));
+};
+const joinField = (items, key) => {
+  const s = [...new Set((items || []).map((i) => i[key]).filter(Boolean))];
+  return s.length ? s.join('; ') : null;
+};
+
+// ─── Excel-sheet primitives (shared look with the Inward register) ──────────
+function Th({ children, sticky = false, groupEnd = false }) {
+  return (
+    <th className={`px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-navy-500 bg-navy-50 border-b border-navy-100 whitespace-nowrap
+      ${sticky ? 'sticky left-0 z-30 bg-navy-50' : ''} ${groupEnd ? 'border-r-2 border-navy-100' : ''}`}>
+      {children}
+    </th>
+  );
+}
+function Td({ children, sticky = false, groupEnd = false, nowrap = true, className = '' }) {
+  return (
+    <td className={`px-3 py-2.5 align-top border-b border-gray-100 text-navy-700
+      ${nowrap ? 'whitespace-nowrap' : ''} ${sticky ? 'sticky left-0 z-10 bg-inherit' : ''} ${groupEnd ? 'border-r-2 border-gray-100' : ''} ${className}`}>
+      {children}
+    </td>
+  );
+}
+const Dash = () => <span className="text-gray-300 select-none">—</span>;
+
+const PILL_TONES = {
+  gray:   'bg-gray-100 text-gray-600 ring-gray-200',
+  amber:  'bg-amber-50 text-amber-700 ring-amber-200',
+  blue:   'bg-blue-50 text-blue-700 ring-blue-200',
+  green:  'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  red:    'bg-rose-50 text-rose-700 ring-rose-200',
+  purple: 'bg-purple-50 text-purple-700 ring-purple-200',
+};
+const Pill = ({ tone = 'gray', children }) => (
+  <span className={`inline-flex items-center text-[9px] font-semibold px-1.5 py-0.5 rounded-full ring-1 ${PILL_TONES[tone]}`}>{children}</span>
+);
+
+const ACT_TONES = {
+  amber: 'bg-amber-500 hover:bg-amber-600',
+  blue:  'bg-blue-600 hover:bg-blue-700',
+  green: 'bg-emerald-600 hover:bg-emerald-700',
+};
+const ActBtn = ({ tone = 'blue', busy, onClick, children }) => (
+  <button onClick={onClick} disabled={busy}
+    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-white transition disabled:opacity-50 ${ACT_TONES[tone]}`}>
+    {children}
+  </button>
+);
+const IconBtn = ({ title, danger, onClick, children }) => (
+  <button title={title} onClick={onClick}
+    className={`p-1.5 rounded-md transition ${danger ? 'text-gray-400 hover:text-rose-600 hover:bg-rose-100' : 'text-navy-600 hover:text-navy-800 hover:bg-navy-100'}`}>
+    {children}
+  </button>
+);
+
+// ────────────────────────────────────────────────────────────────────
+// Action popup — launched from a row button. Renders just the focused box for
+// the chosen workflow step; reuses the same step components as before.
+// ────────────────────────────────────────────────────────────────────
+function ActionModal({ gatePass, type, onClose, onDone }) {
+  const [g, setG] = useState(gatePass);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [rejectReason, setRejectReason] = useState('');
+
+  const reload = async () => {
+    try { const { data } = await api.get(`/gatepasses/${g.id}`); setG(data); }
+    catch { /* ignore */ }
+  };
+
+  const act = async (url, body, method = 'put') => {
+    setError(''); setBusy(true);
+    try { await api[method](url, body || {}); onDone(); }
+    catch (err) { setError(err.response?.data?.error || 'Action failed'); setBusy(false); }
+  };
+
+  const isReturnable = g.passType === 'RETURNABLE';
+  const title = type === 'reject' ? 'Reject Gate Pass' : (ACTION_DEFS[type]?.title || 'Action');
+
+  return (
+    <Modal isOpen onClose={onClose} title={`${title} — ${g.passNumber}`} size="md">
+      <div className="space-y-3">
+        {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+
+        {type === 'store-approve' && (
+          <StoreApproveBox g={g} busy={busy} onSubmit={(b) => act(`/gatepasses/${g.id}/store-approve`, b)} />
+        )}
+        {type === 'accounts-invoice' && (
+          <AccountsInvoiceBox busy={busy} onSubmit={(b) => act(`/gatepasses/${g.id}/accounts-invoice`, b)} />
+        )}
+        {type === 'store-review' && (
+          <StoreReviewBox busy={busy} onSubmit={(b) => act(`/gatepasses/${g.id}/store-review`, b)} />
+        )}
+        {type === 'logistics' && (
+          <LogisticsBox g={g} busy={busy} onAssigned={reload} onDispatched={onDone} setError={setError} />
+        )}
+        {type === 'arrival-ack' && (
+          <LogisticsArrivalAckBox isReturnable={isReturnable} busy={busy} onSubmit={(b) => act(`/gatepasses/${g.id}/arrival-ack`, b)} />
+        )}
+        {type === 'stores-ack' && (
+          <StoresAckBox g={g} busy={busy} onSubmit={(b) => act(`/gatepasses/${g.id}/stores-ack`, b)} />
+        )}
+        {type === 'reject' && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded space-y-2">
+            <Textarea label="Rejection reason *" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} />
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+              <Button variant="danger" size="sm" disabled={busy || !rejectReason.trim()}
+                onClick={() => act(`/gatepasses/${g.id}/reject`, { reason: rejectReason.trim() })}>
+                Confirm Reject
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', onClose, onCreated }) {
+  const [kind, setKind] = useState(defaultKind === 'OUTSIDE' ? 'OUTSIDE' : 'LOCAL_JOB');
   const [siteName, setSiteName] = useState('');
   const [jobWorkNo, setJobWorkNo] = useState('');
   const [jobWorkDate, setJobWorkDate] = useState('');
@@ -603,63 +841,15 @@ function CreateGatePassModal({ onClose, onCreated }) {
   );
 }
 
-function DetailModal({ gatePass: initial, onClose, onAction }) {
-  const { user } = useAuth();
-  const [g, setG] = useState(initial);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [rejectReason, setRejectReason] = useState('');
-  const [showRejectBox, setShowRejectBox] = useState(false);
-
-  const reload = async () => {
-    try {
-      const { data } = await api.get(`/gatepasses/${g.id}`);
-      setG(data);
-    } catch { /* ignore */ }
-  };
-
-  const act = async (url, body, method = 'put') => {
-    setError(''); setBusy(true);
-    try {
-      const { data } = await api[method](url, body || {});
-      setG(data);
-      onAction();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Action failed');
-    }
-    setBusy(false);
-  };
-
-  const role = user?.role;
-  const isAdmin = role === 'ADMIN';
-  const isV2 = !!g.kind;
-  const isOutside = g.kind === 'OUTSIDE';
+// Read-only detail view — full fields, approval trail, items and the PDF.
+// Every workflow action now lives inline in the sheet; this modal only informs.
+function DetailModal({ gatePass: g, onClose }) {
   const isLocalJob = g.kind === 'LOCAL_JOB';
-
-  const canStoreApprove = g.status === 'PENDING_STORE' && (role === 'STORE_MANAGER' || isAdmin);
-  const canAccountsInvoice = g.status === 'PENDING_ACCOUNTS' && isOutside && (role === 'ACCOUNTING' || role === 'FINANCE' || isAdmin);
-  const canStoreReview = g.status === 'PENDING_STORE_REVIEW' && (role === 'STORE_MANAGER' || isAdmin);
-  const canLogistics = g.status === 'PENDING_LOGISTICS' && isV2 && (role === 'LOGISTICS' || isAdmin);
-  const canArrivalAck = g.status === 'IN_TRANSIT' && isOutside && (role === 'LOGISTICS' || isAdmin);
-  const isReturnable = g.passType === 'RETURNABLE';
-  // Stores closes the pass: LOCAL_JOB from IN_TRANSIT (any pass type),
-  // OUTSIDE returnable from PENDING_RETURN (after Logistics confirmed arrival).
-  const canStoresAck =
-    (role === 'STORE_MANAGER' || isAdmin) && (
-      (g.status === 'IN_TRANSIT' && isLocalJob) ||
-      (g.status === 'PENDING_RETURN' && isOutside && isReturnable)
-    );
   const dueInfo = returnDueInfo(g);
-
-  const canReject =
-    ['PENDING_STORE', 'PENDING_ACCOUNTS', 'PENDING_STORE_REVIEW', 'PENDING_LOGISTICS'].includes(g.status) &&
-    (canStoreApprove || canAccountsInvoice || canStoreReview || canLogistics);
 
   return (
     <Modal isOpen onClose={onClose} title={`Gate Pass ${g.passNumber}`} size="xl">
       <div className="space-y-4">
-        {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
-
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2 flex-wrap">
             <Badge color={STATUS_META[g.status]?.color || 'gray'}>{STATUS_META[g.status]?.label || g.status}</Badge>
@@ -730,66 +920,8 @@ function DetailModal({ gatePass: initial, onClose, onAction }) {
           </div>
         )}
 
-        <div className="border-t border-gray-200 pt-4 space-y-3">
-          {canStoreApprove && (
-            <StoreApproveBox g={g} busy={busy} onSubmit={(body) => act(`/gatepasses/${g.id}/store-approve`, body)} />
-          )}
-
-          {canAccountsInvoice && (
-            <AccountsInvoiceBox busy={busy} onSubmit={(body) => act(`/gatepasses/${g.id}/accounts-invoice`, body)} />
-          )}
-
-          {canStoreReview && (
-            <StoreReviewBox busy={busy} onSubmit={(body) => act(`/gatepasses/${g.id}/store-review`, body)} />
-          )}
-
-          {canLogistics && (
-            <LogisticsBox
-              g={g}
-              busy={busy}
-              onAssigned={reload}
-              onDispatched={() => { onAction(); reload(); }}
-              setError={setError}
-            />
-          )}
-
-          {canArrivalAck && (
-            <LogisticsArrivalAckBox
-              isReturnable={isReturnable}
-              busy={busy}
-              onSubmit={(body) => act(`/gatepasses/${g.id}/arrival-ack`, body)}
-            />
-          )}
-
-          {canStoresAck && (
-            <StoresAckBox g={g} busy={busy} onSubmit={(body) => act(`/gatepasses/${g.id}/stores-ack`, body)} />
-          )}
-
-          {canReject && !showRejectBox && (
-            <div className="flex justify-end">
-              <Button variant="danger" disabled={busy} onClick={() => setShowRejectBox(true)}>
-                <XCircle size={14} /> Reject
-              </Button>
-            </div>
-          )}
-
-          {showRejectBox && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded space-y-2">
-              <Textarea
-                label="Rejection reason *"
-                value={rejectReason}
-                onChange={e => setRejectReason(e.target.value)}
-                rows={2}
-              />
-              <div className="flex justify-end gap-2">
-                <Button variant="secondary" size="sm" onClick={() => { setShowRejectBox(false); setRejectReason(''); }}>Cancel</Button>
-                <Button variant="danger" size="sm" disabled={busy || !rejectReason.trim()}
-                  onClick={() => act(`/gatepasses/${g.id}/reject`, { reason: rejectReason.trim() })}>
-                  Confirm Reject
-                </Button>
-              </div>
-            </div>
-          )}
+        <div className="flex justify-end pt-2 border-t border-gray-200">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
         </div>
       </div>
     </Modal>

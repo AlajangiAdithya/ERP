@@ -1,9 +1,11 @@
 // Hidden owner-only endpoints. All routes are 404 for anyone except SUPERADMIN.
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcrypt');
 const { exec } = require('child_process');
 const { promisify } = require('util');
+const { Prisma } = require('@prisma/client');
 const { authenticate } = require('../middleware/auth');
 const { superadminOnly } = require('../middleware/superadminOnly');
 const { generateAccessToken } = require('../utils/jwt');
@@ -11,6 +13,10 @@ const prisma = require('../config/db');
 const { listBackupTree, signBackupUrl, previewBackup } = require('../services/s3Browse');
 
 const execAsync = promisify(exec);
+
+// Root of all locally-stored uploads (mirrors middleware/upload.js UPLOAD_ROOT).
+// Used to physically delete file blobs when an upload reference is removed.
+const UPLOAD_ROOT = path.resolve(__dirname, '../../uploads');
 
 const router = express.Router();
 
@@ -24,28 +30,41 @@ router.use(authenticate, superadminOnly);
 
 // Whitelisted Prisma model names. We never let the URL drive which model is touched
 // without a check — typing /api/superadmin/table/foo would otherwise crash with
-// `prisma.foo` undefined and could expose internal errors. The list mirrors the
-// schema's models; expand if new ones are added.
-const TABLES = [
-  'User', 'Unit', 'Session', 'AuditLog', 'Product', 'ProductBatch', 'ProductUnitStock',
-  'ProductRequest', 'RequestItem', 'StockMovement', 'PurchaseRequest', 'PurchaseRequestItem',
-  'Quotation', 'QuotationItem', 'QuotationSource', 'PurchaseOrder', 'PurchaseOrderItem',
-  'PurchaseOrderSource', 'PurchaseOrderItemAllocation', 'PaymentRequest', 'QCInspection',
-  'QCInspectionItem', 'GatePass', 'GatePassItem', 'InterOfficeNote', 'IONItem',
-  'InventoryTransferRequest', 'InventoryTransferItem', 'Supplier', 'SupplierReEvaluation',
-  'SupplierAssessmentForm', 'SupplierPerformanceRating', 'SupplierPerformanceRatingItem',
-  'MaterialPool', 'MaterialPoolItem', 'Vehicle', 'Driver', 'VehicleTrip',
-  'WorkOrder', 'WorkOrderExtension', 'WorkOrderInvoice', 'WorkOrderBgEntry',
-  'WorkOrderInsuranceEntry', 'WorkOrderClosure', 'WorkOrderClosureDoc',
-  'WorkOrderHoldRequest', 'WorkOrderAlarm', 'WorkOrderAlarmNote',
-  'WorkOrderClosureWeeklyFollowup', 'Notification', 'CalibrationItem', 'CalibrationRecord',
-  'Machinery', 'FireExtinguisher', 'Employee', 'SkillMatrix', 'TrainingPlan',
-  'TrainingPlanItem', 'TrainingSession', 'TrainingAttendee', 'AttendanceEmployee',
-  'AttendanceEntry', 'AttendanceMonthSubmission',
-];
+// `prisma.foo` undefined and could expose internal errors. Derived straight from
+// the Prisma schema (DMMF) so every model is always present — no more hand-kept
+// list drifting out of sync (which previously hid e.g. MaterialInwardRegister).
+const TABLES = Prisma.dmmf.datamodel.models.map((m) => m.name);
 
 // Convert PascalCase table name to camelCase Prisma model accessor.
 const modelKey = (table) => table.charAt(0).toLowerCase() + table.slice(1);
+
+// Scalar String fields of a model, cached — used to build the case-insensitive
+// "search this table" OR filter for the row editor. id is a String too, so an
+// exact/partial id search works for free.
+const _searchFieldCache = {};
+const searchableFields = (modelName) => {
+  if (_searchFieldCache[modelName]) return _searchFieldCache[modelName];
+  const model = Prisma.dmmf.datamodel.models.find((m) => m.name === modelName);
+  const fields = model
+    ? model.fields
+        .filter((f) => f.kind === 'scalar' && f.type === 'String' && !f.isList)
+        .map((f) => f.name)
+    : [];
+  _searchFieldCache[modelName] = fields;
+  return fields;
+};
+
+// Best-effort physical delete of a locally-stored upload. Only touches files
+// under UPLOAD_ROOT served at /uploads/* — external/absolute URLs are ignored,
+// and path-traversal outside the uploads root is refused. Missing files are fine.
+const unlinkLocalUpload = (url) => {
+  if (!url || typeof url !== 'string' || !url.startsWith('/uploads/')) return;
+  const rel = url.replace(/^\/uploads\//, '');
+  const target = path.resolve(UPLOAD_ROOT, rel);
+  const root = path.resolve(UPLOAD_ROOT);
+  if (target !== root && !target.startsWith(root + path.sep)) return; // traversal guard
+  fs.promises.unlink(target).catch(() => {}); // blob may already be gone — ignore
+};
 
 // Raw Prisma errors are multi-line stack-like blobs; translate the common
 // codes into something readable in the Realtime Corrections error banner.
@@ -85,25 +104,40 @@ router.get('/tables', async (req, res) => {
   }
 });
 
-// GET /api/superadmin/table/:name?page=1&limit=50
+// GET /api/superadmin/table/:name?page=1&limit=50&q=text
+// q (optional) searches every String column of the model (case-insensitive,
+// substring) so the operator can jump straight to the row they need instead of
+// paging through everything. Pagination + total reflect the filtered set.
 router.get('/table/:name', async (req, res) => {
   const { name } = req.params;
   if (!TABLES.includes(name)) return res.status(404).json({ error: 'Unknown table' });
   const key = modelKey(name);
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+  const q = (req.query.q || '').trim();
+
+  let where;
+  if (q) {
+    const fields = searchableFields(name);
+    if (fields.length) {
+      where = { OR: fields.map((f) => ({ [f]: { contains: q, mode: 'insensitive' } })) };
+    }
+  }
+  const findArgs = { skip: (page - 1) * limit, take: limit, ...(where && { where }) };
+  const countArgs = where ? { where } : undefined;
+
   try {
     const [rows, total] = await Promise.all([
-      prisma[key].findMany({ skip: (page - 1) * limit, take: limit, orderBy: { createdAt: 'desc' } }),
-      prisma[key].count(),
+      prisma[key].findMany({ ...findArgs, orderBy: { createdAt: 'desc' } }),
+      prisma[key].count(countArgs),
     ]);
     res.json({ rows, total, page, totalPages: Math.ceil(total / limit) });
   } catch (e) {
     // Tables without createdAt fall back to no ordering
     try {
       const [rows, total] = await Promise.all([
-        prisma[key].findMany({ skip: (page - 1) * limit, take: limit }),
-        prisma[key].count(),
+        prisma[key].findMany(findArgs),
+        prisma[key].count(countArgs),
       ]);
       res.json({ rows, total, page, totalPages: Math.ceil(total / limit) });
     } catch (e2) {
@@ -158,22 +192,25 @@ router.delete('/table/:name/row/:id', async (req, res) => {
 // ────────────────────────────────────────────────────────────
 //  Uploads inventory — aggregated view of every file URL stored
 //  across the schema. Lets SUPERADMIN audit and prune attachments
-//  (PR specs, quotation/PO PDFs, supplier docs, QC invoices, …)
-//  from one place. "Delete" nulls the DB field; the file blob on
-//  disk is intentionally left alone.
+//  (PR specs, quotation/PO PDFs, supplier docs, QC invoices, MSDS,
+//  calibration/AMC/QMS docs, …) from one place. "Delete" clears the
+//  DB field AND removes the physical file blob from disk.
 // ────────────────────────────────────────────────────────────
 
 // Schema of every file-bearing field. Drives both the aggregate listing and
 // the delete handler (only fields listed here are deletable).
 const FILE_FIELDS = {
+  Product: [{ field: 'msdsUrl', label: 'MSDS' }],
   PurchaseRequest: [{ field: 'materialSpecsPdfUrl', label: 'Material Specs PDF' }],
   PurchaseRequestItem: [{ field: 'specAttachmentUrl', label: 'Item Spec Attachment' }],
   Supplier: [
     { field: 'vendorEvaluationPdfUrl', label: 'Vendor Evaluation PDF', uploadedAtField: 'vendorEvaluationUploadedAt' },
     { field: 'supplierAssessmentPdfUrl', label: 'Supplier Assessment PDF', uploadedAtField: 'assessmentUploadedAt' },
   ],
+  SupplierVendorEvaluation: [{ field: 'pdfUrl', label: 'Vendor Evaluation PDF (record)' }],
   SupplierAssessmentForm: [{ field: 'isoCertificateUrl', label: 'ISO Certificate' }],
   Quotation: [{ field: 'quotationPdfUrl', label: 'Quotation PDF' }],
+  QuotationItem: [{ field: 'quotationPdfUrl', label: 'Item Quotation PDF' }],
   PurchaseOrder: [{ field: 'poDocumentUrl', label: 'Signed PO PDF' }],
   QCInspection: [
     { field: 'invoiceFileUrl', label: 'Lot Invoice PDF' },
@@ -192,6 +229,12 @@ const FILE_FIELDS = {
     { field: 'deliveryAckSignedUrl', label: 'Delivery Ack (Signed)' },
   ],
   WorkOrderClosureDoc: [{ field: 'fileUrl', label: 'Closure Doc' }],
+  CalibrationItem: [{ field: 'calibrationCertificate', label: 'Calibration Certificate' }],
+  CalibrationRecord: [{ field: 'certificateAttachment', label: 'Calibration Cert (FY record)' }],
+  Machinery: [{ field: 'amcAttachment', label: 'AMC Document' }],
+  FireExtinguisher: [{ field: 'attachment', label: 'Fire Ext. Service Doc' }],
+  QmsCertification: [{ field: 'fileUrl', label: 'QMS Certification' }],
+  QmsDocument: [{ field: 'fileUrl', label: 'QMS Document' }],
   TrainingSession: [
     { field: 'facultySign', label: 'Faculty Signature' },
     { field: 'trainingNotesUrl', label: 'Training Notes' },
@@ -200,6 +243,13 @@ const FILE_FIELDS = {
   ],
   TrainingAttendee: [{ field: 'signUrl', label: 'Attendee Signature' }],
   SkillMatrix: [{ field: 'headOfDeptSig', label: 'HOD Signature' }],
+};
+
+// File-bearing JSON ARRAY columns. Each entry is an array of objects with a
+// `url` property; the delete handler addresses one entry as "<field>[N]".
+const JSON_ARRAY_FILE_FIELDS = {
+  QCInspection: 'uploadedDocs',
+  MaterialInwardRegister: 'documents',
 };
 
 // GET /api/superadmin/uploads — every file URL across the schema, newest first.
@@ -542,7 +592,144 @@ router.get('/uploads', async (req, res) => {
       url: s.headOfDeptSig, uploadedAt: s.ratedOn || s.updatedAt, uploadedBy: null,
     }));
 
-    // 18. QCInspection.uploadedDocs — JSON array of {filename, url, uploadedById, uploadedAt}
+    // 18. Product.msdsUrl — Material Safety Data Sheet
+    const prodMsds = await prisma.product.findMany({
+      where: { msdsUrl: { not: null } },
+      select: { id: true, sku: true, name: true, msdsName: true, msdsUrl: true, updatedAt: true },
+    });
+    prodMsds.forEach((p) => uploads.push({
+      table: 'Product', recordId: p.id, field: 'msdsUrl',
+      label: `MSDS${p.msdsName ? `: ${p.msdsName}` : ''}`,
+      recordLabel: `${p.sku || ''} · ${p.name || ''}`.trim(),
+      url: p.msdsUrl, uploadedAt: p.updatedAt, uploadedBy: null,
+    }));
+
+    // 19. QuotationItem.quotationPdfUrl — per-item supplier quote
+    const quotItems = await prisma.quotationItem.findMany({
+      where: { quotationPdfUrl: { not: null } },
+      select: {
+        id: true, quotationPdfUrl: true, productName: true, supplierName: true,
+        quotation: { select: { quotationNumber: true, createdAt: true } },
+      },
+    });
+    quotItems.forEach((q) => uploads.push({
+      table: 'QuotationItem', recordId: q.id, field: 'quotationPdfUrl',
+      label: `Item Quotation PDF${q.supplierName ? ` (${q.supplierName})` : ''}`,
+      recordLabel: `${q.quotation?.quotationNumber || ''} · ${q.productName || ''}`.trim(),
+      url: q.quotationPdfUrl, uploadedAt: q.quotation?.createdAt || null, uploadedBy: null,
+    }));
+
+    // 20. SupplierVendorEvaluation.pdfUrl — per-record VE PDF (history rows)
+    const veRecords = await prisma.supplierVendorEvaluation.findMany({
+      where: { pdfUrl: { not: null } },
+      select: {
+        id: true, pdfUrl: true, documentDate: true, createdAt: true, uploadedByName: true,
+        supplier: { select: { name: true } },
+      },
+    });
+    veRecords.forEach((v) => uploads.push({
+      table: 'SupplierVendorEvaluation', recordId: v.id, field: 'pdfUrl',
+      label: 'Vendor Evaluation PDF (record)', recordLabel: v.supplier?.name || v.id,
+      url: v.pdfUrl, uploadedAt: v.documentDate || v.createdAt, uploadedBy: v.uploadedByName || null,
+    }));
+
+    // 21. CalibrationItem.calibrationCertificate
+    const calItems = await prisma.calibrationItem.findMany({
+      where: { calibrationCertificate: { not: null } },
+      select: { id: true, name: true, rapsplSerialNo: true, calibrationCertificate: true, updatedAt: true },
+    });
+    calItems.forEach((c) => uploads.push({
+      table: 'CalibrationItem', recordId: c.id, field: 'calibrationCertificate',
+      label: 'Calibration Certificate',
+      recordLabel: `${c.name || ''}${c.rapsplSerialNo ? ` · ${c.rapsplSerialNo}` : ''}`.trim(),
+      url: c.calibrationCertificate, uploadedAt: c.updatedAt, uploadedBy: null,
+    }));
+
+    // 22. CalibrationRecord.certificateAttachment (per fiscal-year row)
+    const calRecords = await prisma.calibrationRecord.findMany({
+      where: { certificateAttachment: { not: null } },
+      select: {
+        id: true, fiscalYear: true, certificateNo: true, certificateAttachment: true,
+        verifiedOn: true, item: { select: { name: true } },
+      },
+    });
+    calRecords.forEach((c) => uploads.push({
+      table: 'CalibrationRecord', recordId: c.id, field: 'certificateAttachment',
+      label: `Calibration Cert${c.fiscalYear ? ` (${c.fiscalYear})` : ''}`,
+      recordLabel: `${c.item?.name || ''}${c.certificateNo ? ` · ${c.certificateNo}` : ''}`.trim(),
+      url: c.certificateAttachment, uploadedAt: c.verifiedOn || null, uploadedBy: null,
+    }));
+
+    // 23. Machinery.amcAttachment
+    const machines = await prisma.machinery.findMany({
+      where: { amcAttachment: { not: null } },
+      select: { id: true, name: true, rapsId: true, amcAttachment: true, updatedAt: true },
+    });
+    machines.forEach((m) => uploads.push({
+      table: 'Machinery', recordId: m.id, field: 'amcAttachment',
+      label: 'AMC Document', recordLabel: `${m.rapsId || ''} · ${m.name || ''}`.trim(),
+      url: m.amcAttachment, uploadedAt: m.updatedAt, uploadedBy: null,
+    }));
+
+    // 24. FireExtinguisher.attachment
+    const extinguishers = await prisma.fireExtinguisher.findMany({
+      where: { attachment: { not: null } },
+      select: { id: true, rapsId: true, unit: true, attachment: true, updatedAt: true },
+    });
+    extinguishers.forEach((f) => uploads.push({
+      table: 'FireExtinguisher', recordId: f.id, field: 'attachment',
+      label: 'Fire Ext. Service Doc', recordLabel: `${f.rapsId || ''} · ${f.unit || ''}`.trim(),
+      url: f.attachment, uploadedAt: f.updatedAt, uploadedBy: null,
+    }));
+
+    // 25. QmsCertification.fileUrl
+    const qmsCerts = await prisma.qmsCertification.findMany({
+      where: { fileUrl: { not: null } },
+      select: {
+        id: true, title: true, fileName: true, fileUrl: true, createdAt: true,
+        uploadedBy: { select: { name: true } },
+      },
+    });
+    qmsCerts.forEach((c) => uploads.push({
+      table: 'QmsCertification', recordId: c.id, field: 'fileUrl',
+      label: `QMS Certification${c.fileName ? `: ${c.fileName}` : ''}`,
+      recordLabel: c.title || c.id,
+      url: c.fileUrl, uploadedAt: c.createdAt, uploadedBy: c.uploadedBy?.name || null,
+    }));
+
+    // 26. QmsDocument.fileUrl
+    const qmsDocs = await prisma.qmsDocument.findMany({
+      where: { fileUrl: { not: null } },
+      select: {
+        id: true, category: true, title: true, docNo: true, fileName: true, fileUrl: true,
+        createdAt: true, uploadedBy: { select: { name: true } },
+      },
+    });
+    qmsDocs.forEach((d) => uploads.push({
+      table: 'QmsDocument', recordId: d.id, field: 'fileUrl',
+      label: `${d.category || 'QMS Document'}${d.fileName ? `: ${d.fileName}` : ''}`,
+      recordLabel: `${d.docNo ? `${d.docNo} · ` : ''}${d.title || ''}`.trim(),
+      url: d.fileUrl, uploadedAt: d.createdAt, uploadedBy: d.uploadedBy?.name || null,
+    }));
+
+    // 27. MaterialInwardRegister.documents — JSON array of {label, name, url, uploadedAt, uploadedById}
+    const mirRows = await prisma.materialInwardRegister.findMany({
+      where: { documents: { not: null } },
+      select: { id: true, mirNo: true, documents: true, inwardDate: true, createdAt: true },
+    });
+    mirRows.forEach((m) => {
+      if (!Array.isArray(m.documents)) return;
+      m.documents.forEach((d, idx) => {
+        if (!d?.url) return;
+        uploads.push({
+          table: 'MaterialInwardRegister', recordId: m.id, field: `documents[${idx}]`,
+          label: `Inward Doc: ${d.label || d.name || 'file'}`, recordLabel: m.mirNo,
+          url: d.url, uploadedAt: d.uploadedAt || m.inwardDate || m.createdAt, uploadedBy: null,
+        });
+      });
+    });
+
+    // 28. QCInspection.uploadedDocs — JSON array of {filename, url, uploadedById, uploadedAt}
     const qcDocs = await prisma.qCInspection.findMany({
       where: { uploadedDocs: { not: null } },
       select: { id: true, inspectionNumber: true, uploadedDocs: true },
@@ -584,39 +771,52 @@ router.get('/uploads', async (req, res) => {
   }
 });
 
-// DELETE /api/superadmin/uploads — clear the DB reference for one upload.
-// Body: { table, recordId, field }. For QCInspection.uploadedDocs the field is
-// "uploadedDocs[N]" — we splice the N-th entry from the JSON array.
+// DELETE /api/superadmin/uploads — remove one upload.
+// Body: { table, recordId, field }. The DB reference is cleared AND the physical
+// file blob under /uploads is deleted (best-effort). For JSON-array columns the
+// field is "<column>[N]" (e.g. "uploadedDocs[2]", "documents[0]") — we splice the
+// N-th entry from the array.
 router.delete('/uploads', async (req, res) => {
   const { table, recordId, field } = req.body || {};
   if (!table || !recordId || !field) return res.status(400).json({ error: 'table, recordId, field required' });
 
   try {
-    // QC uploadedDocs array item
-    const arrMatch = /^uploadedDocs\[(\d+)\]$/.exec(field);
+    const key = modelKey(table);
+
+    // JSON-array file column item: "<column>[N]"
+    const arrMatch = /^(\w+)\[(\d+)\]$/.exec(field);
     if (arrMatch) {
-      if (table !== 'QCInspection') return res.status(400).json({ error: 'uploadedDocs only on QCInspection' });
-      const idx = parseInt(arrMatch[1], 10);
-      const row = await prisma.qCInspection.findUnique({ where: { id: recordId }, select: { uploadedDocs: true } });
-      if (!row) return res.status(404).json({ error: 'Inspection not found' });
-      const docs = Array.isArray(row.uploadedDocs) ? [...row.uploadedDocs] : [];
-      if (idx < 0 || idx >= docs.length) return res.status(400).json({ error: 'Index out of range' });
-      docs.splice(idx, 1);
-      await prisma.qCInspection.update({ where: { id: recordId }, data: { uploadedDocs: docs } });
+      const [, column, idxStr] = arrMatch;
+      if (JSON_ARRAY_FILE_FIELDS[table] !== column) {
+        return res.status(400).json({ error: 'Field not in deletable allowlist' });
+      }
+      const idx = parseInt(idxStr, 10);
+      const row = await prisma[key].findUnique({ where: { id: recordId }, select: { [column]: true } });
+      if (!row) return res.status(404).json({ error: 'Record not found' });
+      const arr = Array.isArray(row[column]) ? [...row[column]] : [];
+      if (idx < 0 || idx >= arr.length) return res.status(400).json({ error: 'Index out of range' });
+      const removed = arr.splice(idx, 1)[0];
+      await prisma[key].update({ where: { id: recordId }, data: { [column]: arr } });
+      unlinkLocalUpload(removed?.url);
       return res.json({ ok: true });
     }
 
     const allowed = FILE_FIELDS[table]?.some((f) => f.field === field);
     if (!allowed) return res.status(400).json({ error: 'Field not in deletable allowlist' });
 
-    const key = modelKey(table);
+    // Capture the current URL first so we can delete the blob after the DB write.
+    const current = await prisma[key].findUnique({ where: { id: recordId }, select: { [field]: true } });
+    if (!current) return res.status(404).json({ error: 'Record not found' });
+    const url = current[field];
+
     // WorkOrderClosureDoc.fileUrl/fileName are non-nullable in the schema, so
     // "clearing" the reference is meaningless — drop the whole row instead.
     if (table === 'WorkOrderClosureDoc' && field === 'fileUrl') {
       await prisma.workOrderClosureDoc.delete({ where: { id: recordId } });
-      return res.json({ ok: true });
+    } else {
+      await prisma[key].update({ where: { id: recordId }, data: { [field]: null } });
     }
-    await prisma[key].update({ where: { id: recordId }, data: { [field]: null } });
+    unlinkLocalUpload(url);
     res.json({ ok: true });
   } catch (e) {
     console.error('superadmin/uploads delete error:', e);

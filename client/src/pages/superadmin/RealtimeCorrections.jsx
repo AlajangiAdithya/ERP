@@ -4,7 +4,7 @@
 // invisible to other admins.
 
 import { useEffect, useState, useMemo } from 'react';
-import { Database, Edit2, Trash2, Plus, Save, X, RefreshCw, FileText, ExternalLink } from 'lucide-react';
+import { Database, Edit2, Trash2, Plus, Save, X, RefreshCw, FileText, ExternalLink, Search } from 'lucide-react';
 import api from '../../api/axios';
 import PageHero from '../../components/shared/PageHero';
 
@@ -16,7 +16,12 @@ export default function RealtimeCorrections() {
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [loadingRows, setLoadingRows] = useState(false);
+  // Server-side row search within the active table. rowQuery is the committed
+  // term that drives fetches; rowSearchInput is the live text box value.
+  const [rowQuery, setRowQuery] = useState('');
+  const [rowSearchInput, setRowSearchInput] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState('');
   const [creating, setCreating] = useState(false);
@@ -37,9 +42,9 @@ export default function RealtimeCorrections() {
   }, []);
 
   useEffect(() => {
-    if (active) fetchRows(active, page);
+    if (active) fetchRows(active, page, rowQuery);
     setSelectedRows(new Set());
-  }, [active, page]);
+  }, [active, page, rowQuery]);
 
   useEffect(() => {
     if (view === 'uploads') fetchUploads();
@@ -60,7 +65,7 @@ export default function RealtimeCorrections() {
   }
 
   async function deleteUpload(u) {
-    if (!window.confirm(`Delete this upload?\n\n${u.label} on ${u.table} / ${u.recordLabel}\n\nThe file reference will be cleared from the database (the file blob is not removed from disk).`)) return;
+    if (!window.confirm(`Delete this upload?\n\n${u.label} on ${u.table} / ${u.recordLabel}\n\nThe DB reference will be cleared AND the file will be permanently deleted from the server. This cannot be undone.`)) return;
     try {
       await api.delete('/superadmin/uploads', { data: { table: u.table, recordId: u.recordId, field: u.field } });
       fetchUploads();
@@ -81,19 +86,34 @@ export default function RealtimeCorrections() {
     }
   }
 
-  async function fetchRows(name, p) {
+  async function fetchRows(name, p, q = '') {
     setLoadingRows(true);
     setError('');
     try {
-      const { data } = await api.get(`/superadmin/table/${name}?page=${p}&limit=50`);
+      const qs = `page=${p}&limit=50${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+      const { data } = await api.get(`/superadmin/table/${name}?${qs}`);
       setRows(data.rows || []);
       setTotalPages(data.totalPages || 1);
+      setTotal(data.total || 0);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
       setRows([]);
+      setTotal(0);
     } finally {
       setLoadingRows(false);
     }
+  }
+
+  function runRowSearch(e) {
+    if (e) e.preventDefault();
+    setPage(1);
+    setRowQuery(rowSearchInput.trim());
+  }
+
+  function clearRowSearch() {
+    setRowSearchInput('');
+    setRowQuery('');
+    setPage(1);
   }
 
   const columns = useMemo(() => {
@@ -115,7 +135,7 @@ export default function RealtimeCorrections() {
       const parsed = JSON.parse(editDraft);
       await api.put(`/superadmin/table/${active}/row/${editingId}`, parsed);
       setEditingId(null);
-      fetchRows(active, page);
+      fetchRows(active, page, rowQuery);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     }
@@ -125,7 +145,7 @@ export default function RealtimeCorrections() {
     if (!window.confirm(`Delete ${active}/${id}? This is permanent.`)) return;
     try {
       await api.delete(`/superadmin/table/${active}/row/${id}`);
-      fetchRows(active, page);
+      fetchRows(active, page, rowQuery);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     }
@@ -137,8 +157,11 @@ export default function RealtimeCorrections() {
       await api.post(`/superadmin/table/${active}/row`, parsed);
       setCreating(false);
       setCreateDraft('{\n  \n}');
-      fetchRows(active, 1);
+      // Clear any active search so the newly-inserted row is visible.
+      setRowSearchInput('');
+      setRowQuery('');
       setPage(1);
+      fetchRows(active, 1, '');
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     }
@@ -237,7 +260,7 @@ export default function RealtimeCorrections() {
 
   async function bulkDeleteUploads() {
     if (selectedUploads.size === 0) return;
-    if (!window.confirm(`Clear ${selectedUploads.size} upload reference(s)? The file blobs are not removed from disk.`)) return;
+    if (!window.confirm(`Delete ${selectedUploads.size} upload(s)? The DB references are cleared AND the files are permanently deleted from the server. This cannot be undone.`)) return;
     setBulkDeleting(true);
     setError('');
     const targets = uploads.filter((u) => selectedUploads.has(uploadKey(u)));
@@ -423,7 +446,7 @@ export default function RealtimeCorrections() {
             {tables.map((t) => (
               <button
                 key={t.name}
-                onClick={() => { setActive(t.name); setPage(1); setEditingId(null); setCreating(false); }}
+                onClick={() => { setActive(t.name); setPage(1); setEditingId(null); setCreating(false); setRowSearchInput(''); setRowQuery(''); }}
                 className={`w-full px-3 py-2 text-left text-sm flex justify-between items-center border-b border-gray-100 hover:bg-purple-50 ${active === t.name ? 'bg-purple-100 font-semibold' : ''}`}
               >
                 <span className="truncate">{t.name}</span>
@@ -439,9 +462,30 @@ export default function RealtimeCorrections() {
             <div className="p-8 text-center text-gray-400">Select a table on the left.</div>
           ) : (
             <>
-              <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
-                <span className="font-semibold text-gray-900">{active}</span>
+              <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
+                  <span className="font-semibold text-gray-900">{active}</span>
+                  <span className="text-xs text-gray-500">
+                    {rowQuery ? `${total} match${total === 1 ? '' : 'es'} for “${rowQuery}”` : `${total} row${total === 1 ? '' : 's'}`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <form onSubmit={runRowSearch} className="flex items-center gap-1">
+                    <div className="relative">
+                      <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="text"
+                        value={rowSearchInput}
+                        onChange={(e) => setRowSearchInput(e.target.value)}
+                        placeholder="Search this table…"
+                        className="pl-7 pr-2 py-1 text-sm border rounded w-56"
+                      />
+                    </div>
+                    <button type="submit" className="px-2 py-1 text-sm border rounded hover:bg-gray-50">Search</button>
+                    {rowQuery && (
+                      <button type="button" onClick={clearRowSearch} className="px-2 py-1 text-sm border rounded hover:bg-gray-50">Clear</button>
+                    )}
+                  </form>
                   {selectedRows.size > 0 && (
                     <button
                       onClick={bulkDeleteRows}
@@ -457,7 +501,7 @@ export default function RealtimeCorrections() {
                   >
                     <Plus size={14} /> Insert row
                   </button>
-                  <button onClick={() => fetchRows(active, page)} className="text-gray-500 hover:text-gray-900" title="Reload">
+                  <button onClick={() => fetchRows(active, page, rowQuery)} className="text-gray-500 hover:text-gray-900" title="Reload">
                     <RefreshCw size={16} />
                   </button>
                 </div>
@@ -483,7 +527,7 @@ export default function RealtimeCorrections() {
               {loadingRows ? (
                 <div className="p-8 text-center text-gray-400">Loading rows…</div>
               ) : rows.length === 0 ? (
-                <div className="p-8 text-center text-gray-400">No rows.</div>
+                <div className="p-8 text-center text-gray-400">{rowQuery ? `No rows match “${rowQuery}”.` : 'No rows.'}</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-xs">
