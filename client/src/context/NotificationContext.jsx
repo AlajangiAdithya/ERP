@@ -1,7 +1,12 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import api from '../api/axios';
 import { useAuth } from './AuthContext';
-import { ensurePushSubscription } from '../utils/push';
+import { ensurePushSubscription, enablePush, pushSupported, pushPermission } from '../utils/push';
+import Toaster from '../components/shared/Toaster';
+
+// Where a toast click should land, by notification type.
+const toastUrlFor = (type) =>
+  (type === 'MESSAGE_RECEIVED' || type === 'MESSAGE_DONE') ? '/messaging' : '/notifications';
 
 const NotificationContext = createContext(null);
 
@@ -12,11 +17,26 @@ const PUSH_ICON = '/rapslogo6-app.png';
 export function NotificationProvider({ children }) {
   const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [toasts, setToasts] = useState([]);
+  // Show the "enable desktop alerts" prompt when push is supported but the user
+  // hasn't decided yet (and hasn't dismissed the prompt this session).
+  const [enableDismissed, setEnableDismissed] = useState(false);
+  const [pushPerm, setPushPerm] = useState(() => pushPermission());
 
   const knownIdsRef = useRef(new Set());
   const firstFetchRef = useRef(true);
   const audioRef = useRef(null);
   const audioUnlockedRef = useRef(false);
+
+  const dismissToast = useCallback((uid) => {
+    setToasts((prev) => prev.filter((t) => t.uid !== uid));
+  }, []);
+
+  const enableNow = useCallback(async () => {
+    const perm = await enablePush();
+    setPushPerm(perm);
+    if (perm !== 'default') setEnableDismissed(true);
+  }, []);
 
   useEffect(() => {
     const audio = new Audio(SOUND_URL);
@@ -135,8 +155,25 @@ export function NotificationProvider({ children }) {
         } else {
           const newOnes = notifications.filter(n => !knownIdsRef.current.has(n.id));
           if (newOnes.length > 0) {
-            playSound();
-            newOnes.slice(0, 3).forEach(showPush);
+            const visible = document.visibilityState === 'visible';
+            if (visible) {
+              // App in use → play our sound and show in-app bottom-right toasts
+              // (newest first, cap 4). No OS notification here to avoid doubling.
+              playSound();
+              const fresh = newOnes.slice(0, 3).map((n) => ({
+                uid: `${n.id}-${Date.now()}`,
+                id: n.id,
+                title: n.title,
+                message: n.message,
+                type: n.type,
+                url: toastUrlFor(n.type),
+              }));
+              setToasts((prev) => [...fresh, ...prev].slice(0, 4));
+            } else {
+              // Tab hidden/closed → fall back to an OS-tray notification (the
+              // server web-push usually covers this; this is the in-page backup).
+              newOnes.slice(0, 3).forEach(showPush);
+            }
           }
           knownIdsRef.current = currentIds;
         }
@@ -163,9 +200,18 @@ export function NotificationProvider({ children }) {
     };
   }, [user, playSound, showPush]);
 
+  const showEnable = Boolean(user) && pushSupported() && pushPerm === 'default' && !enableDismissed;
+
   return (
     <NotificationContext.Provider value={{ unreadCount }}>
       {children}
+      <Toaster
+        toasts={toasts}
+        onDismiss={dismissToast}
+        showEnable={showEnable}
+        onEnable={enableNow}
+        onDismissEnable={() => setEnableDismissed(true)}
+      />
     </NotificationContext.Provider>
   );
 }

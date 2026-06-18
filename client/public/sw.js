@@ -1,6 +1,6 @@
 // Bump this on every deploy that needs to invalidate clients.
 // Browsers detect any byte change in /sw.js and trigger reinstall.
-const SW_VERSION = '2026-06-12-web-push';
+const SW_VERSION = '2026-06-18-push-persist';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -25,13 +25,26 @@ self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (_) {}
   const title = data.title || 'RAPS ERP';
-  event.waitUntil(self.registration.showNotification(title, {
-    body: data.message || '',
-    icon: '/app-icon-192.png',
-    badge: '/app-icon-192.png',
-    tag: data.id ? `raps-${data.id}` : undefined,
-    data: { url: data.url || '/' },
-  }));
+  event.waitUntil((async () => {
+    // If the app is already open and focused, the in-page toast handles it —
+    // skip the OS notification so the user isn't alerted twice.
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const appFocused = windows.some((c) => c.focused || c.visibilityState === 'visible');
+    if (appFocused) return;
+
+    await self.registration.showNotification(title, {
+      body: data.message || '',
+      icon: '/app-icon-192.png',
+      badge: '/app-icon-192.png',
+      tag: data.id ? `raps-${data.id}` : undefined,
+      renotify: Boolean(data.id),
+      // Keep the notification in the OS tray until the user acts on it (like
+      // WhatsApp/Slack) instead of auto-dismissing after a few seconds.
+      requireInteraction: true,
+      silent: false, // let the OS play its notification sound
+      data: { url: data.url || '/' },
+    });
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {

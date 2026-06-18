@@ -7,6 +7,8 @@ import StatsCard from '../components/shared/StatsCard';
 import DashboardHero from '../components/shared/DashboardHero';
 import SectionHeader from '../components/shared/SectionHeader';
 import OpsRadarChat from '../components/shared/OpsRadarChat';
+import PdcStatusBoard from '../components/shared/PdcStatusBoard';
+import TeamChat from '../components/shared/TeamChat';
 import SlaTicker from '../components/shared/SlaTicker';
 import CalendarView from './Calendar';
 import Card from '../components/ui/Card';
@@ -235,6 +237,79 @@ function ProgressBar({ purchased, total, showPending = true }) {
   );
 }
 
+// Half-width "Active Purchase Orders" panel for the admin dashboard — a live
+// count plus the most recent active POs with their basic details. Reuses the
+// in-progress summary endpoint (same data the In-Progress modal shows).
+function ActivePOOverview() {
+  const navigate = useNavigate();
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/purchase-requests/in-progress-summary')
+      .then(({ data }) => { if (!cancelled) setSummary(data); })
+      .catch(() => { if (!cancelled) setSummary(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const samples = summary?.poSamples || [];
+
+  return (
+    <Card className="flex flex-col">
+      <SectionHeader
+        icon={ShoppingCart}
+        tone="green"
+        title="Active Purchase Orders"
+        count={summary?.poCount ?? undefined}
+        subtitle="Live POs currently in procurement"
+        actions={<Button variant="secondary" size="sm" onClick={() => navigate('/purchase-orders')}>View All</Button>}
+      />
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center py-12 text-sm text-gray-400">Loading…</div>
+      ) : samples.length === 0 ? (
+        <EmptyState icon={ShoppingCart} title="No active purchase orders" tone="green" />
+      ) : (
+        <div className="overflow-auto max-h-[22rem]">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50/60">
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">PO #</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Unit(s)</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Supplier</th>
+                <th className="px-3 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Amount</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {samples.map((po, i) => {
+                const directUnit = po.purchaseRequest?.unit;
+                const unionUnits = (po.sourceRequests || [])
+                  .map((s) => s.purchaseRequest?.unit?.code || s.purchaseRequest?.unit?.name)
+                  .filter(Boolean);
+                const unitLabel = directUnit?.code || directUnit?.name || (unionUnits.length ? unionUnits.join(', ') : '—');
+                return (
+                  <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/purchase-orders')}>
+                    <td className="px-3 py-2 font-medium text-navy-700">{po.orderNumber}</td>
+                    <td className="px-3 py-2"><Badge color="blue">{unitLabel}</Badge></td>
+                    <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{po.totalAmount != null ? `₹${Number(po.totalAmount).toLocaleString('en-IN')}` : '—'}</td>
+                    <td className="px-3 py-2"><Badge color={po.status === 'QC_PENDING' ? 'amber' : 'navy'}>{po.status}</Badge></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {summary.poCount > samples.length && (
+            <p className="text-xs text-gray-400 px-3 pt-2">+ {summary.poCount - samples.length} more on the Purchase Orders page</p>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function AdminDashboard() {
   const { user } = useAuth();
   const [data, setData] = useState(null);
@@ -321,43 +396,14 @@ function AdminDashboard() {
         <StatsCard title="Pending MIV Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" onClick={() => navigate('/all-requests')} />
       </div>
 
-      {/* PDC delivery radar + org Team Chat, side by side — both are daily priorities */}
-      <OpsRadarChat />
+      {/* PDC delivery radar — full width */}
+      <PdcStatusBoard showAllClear />
 
-      {/* Purchase Request Stats */}
-      {prStats && (
-        <Card>
-          <SectionHeader
-            icon={ShoppingCart}
-            tone="blue"
-            title="Purchase Requests Overview"
-            subtitle="Procurement pipeline across all units"
-            actions={<Button variant="secondary" size="sm" onClick={() => navigate('/purchase-requests')}>View All</Button>}
-          />
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {[
-              { label: 'Pending Approval', value: (prStats.pendingQc || 0) + (prStats.pendingAdmin || 0), icon: Clock, cls: 'bg-yellow-50 ring-yellow-100 text-yellow-700', num: 'text-yellow-600' },
-              { label: 'Approved', value: prStats.approved, icon: CheckCircle, cls: 'bg-blue-50 ring-blue-100 text-blue-700', num: 'text-blue-600' },
-              { label: 'In Progress', value: prStats.inProgress, icon: Activity, cls: 'bg-indigo-50 ring-indigo-100 text-indigo-700', num: 'text-indigo-600' },
-              { label: 'Completed', value: prStats.completed, icon: ClipboardCheck, cls: 'bg-green-50 ring-green-100 text-green-700', num: 'text-green-600' },
-              { label: 'Rejected', value: prStats.rejected, icon: AlertTriangle, cls: 'bg-red-50 ring-red-100 text-red-700', num: 'text-red-600' },
-            ].map((t) => {
-              const TileIcon = t.icon;
-              return (
-                <button
-                  key={t.label}
-                  onClick={() => navigate('/purchase-requests')}
-                  className={`text-center p-3 rounded-xl ring-1 transition-transform hover:-translate-y-0.5 ${t.cls}`}
-                >
-                  <TileIcon size={15} className="mx-auto mb-1.5 opacity-80" />
-                  <p className={`text-2xl font-bold tnum ${t.num}`}>{t.value}</p>
-                  <p className="text-[11px] text-gray-500 mt-1 font-medium">{t.label}</p>
-                </button>
-              );
-            })}
-          </div>
-        </Card>
-      )}
+      {/* Active Purchase Orders + org Team messaging, side by side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <ActivePOOverview />
+        <TeamChat heightClass="h-[26rem]" />
+      </div>
 
       {/* Unit Summary */}
       <Card>
