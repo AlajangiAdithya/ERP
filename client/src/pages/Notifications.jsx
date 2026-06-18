@@ -1,100 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, BellRing, X, Trash2, Send } from 'lucide-react';
+import { Bell, X, Trash2 } from 'lucide-react';
 import api from '../api/axios';
 import { useAutoRefresh, useNotificationCenter } from '../context/NotificationContext';
 import { notificationRoute } from '../utils/notificationRoutes';
-import { enablePush, pushPermission, pushSupported } from '../utils/push';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
 import Pagination from '../components/shared/Pagination';
 import { formatDateTime } from '../utils/formatters';
 import PageHero from '../components/shared/PageHero';
-
-function PushSettings() {
-  const [permission, setPermission] = useState(pushPermission());
-  const [status, setStatus] = useState(null); // { enabled, devices }
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null); // last test result message
-  const secure = typeof window !== 'undefined' && window.isSecureContext;
-  const supported = pushSupported();
-
-  const loadStatus = () => {
-    api.get('/push/status').then(({ data }) => setStatus(data)).catch(() => setStatus(null));
-  };
-  useEffect(() => { loadStatus(); }, []);
-
-  const handleEnable = async () => {
-    setBusy(true);
-    setResult(null);
-    const perm = await enablePush();
-    setPermission(perm);
-    loadStatus();
-    setBusy(false);
-  };
-
-  const handleTest = async () => {
-    setBusy(true);
-    setResult(null);
-    try {
-      const { data } = await api.post('/push/test');
-      if (data.sent > 0) setResult({ ok: true, text: `Test sent to ${data.sent} device(s). Check your tray.` });
-      else setResult({ ok: false, text: data.errors?.[0] || 'No devices reached. Click Enable on this device first.' });
-    } catch {
-      setResult({ ok: false, text: 'Could not send test (server error).' });
-    }
-    loadStatus();
-    setBusy(false);
-  };
-
-  let stateLabel, stateColor;
-  if (!secure) { stateLabel = 'Needs HTTPS — push is blocked on http:// connections'; stateColor = 'red'; }
-  else if (!supported) { stateLabel = 'Not supported on this browser'; stateColor = 'gray'; }
-  else if (status && !status.enabled) { stateLabel = 'Disabled on server (VAPID keys missing)'; stateColor = 'red'; }
-  else if (permission === 'denied') { stateLabel = 'Blocked — allow notifications in browser settings'; stateColor = 'red'; }
-  else if (permission === 'granted' && status?.devices > 0) { stateLabel = `On — ${status.devices} device(s) registered`; stateColor = 'green'; }
-  else if (permission === 'granted') { stateLabel = 'Allowed — click Enable to register this device'; stateColor = 'yellow'; }
-  else { stateLabel = 'Off — click Enable to turn on'; stateColor = 'yellow'; }
-
-  return (
-    <Card>
-      <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4">
-        <div className="flex items-start gap-3 flex-1 min-w-0">
-          <BellRing size={20} className="text-navy-700 mt-0.5 flex-shrink-0" />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-semibold text-gray-800">Push notifications</p>
-              <Badge color={stateColor}>{stateLabel}</Badge>
-            </div>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Get alerts in your phone/desktop tray even when the ERP tab is closed. Enable once per device.
-            </p>
-            {result && (
-              <p className={`text-xs mt-1.5 font-medium ${result.ok ? 'text-green-600' : 'text-red-500'}`}>{result.text}</p>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <Button
-            variant="primary"
-            onClick={handleEnable}
-            disabled={busy || !secure || !supported || permission === 'denied' || (status && !status.enabled)}
-          >
-            {permission === 'granted' && status?.devices > 0 ? 'Re-enable' : 'Enable'}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={handleTest}
-            disabled={busy || !secure || !supported || permission !== 'granted'}
-          >
-            <Send size={15} className="mr-1" /> Send test
-          </Button>
-        </div>
-      </div>
-    </Card>
-  );
-}
 
 const typeColors = {
   LOW_STOCK: 'red',
@@ -235,8 +150,6 @@ export default function Notifications() {
           </>
         }
       />
-
-      <PushSettings />
 
       <Card>
         {loading ? (

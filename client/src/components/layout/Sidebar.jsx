@@ -6,7 +6,6 @@ import {
   CheckSquare, ScrollText,
   Building2, ShieldCheck, Crown, Boxes, Ruler,
   ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation, Gauge,
-  MessagesSquare,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -42,9 +41,7 @@ const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC', 'PLANNING'] },
-    // Messaging — org-wide Team Chat (broadcast + direct). Open to everyone;
-    // Planning is the primary broadcaster pushing notices to the whole plant.
-    { to: '/messaging', icon: MessagesSquare, label: 'Messaging', roles: ALL_ROLES },
+    // Messaging stays reachable from the Dashboard card; no sidebar entry.
     { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: PROCUREMENT_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND', 'PLANNING'] },
     // Dispatch hub — Gate Pass + Logistics + Vehicle Movement. Vehicle
