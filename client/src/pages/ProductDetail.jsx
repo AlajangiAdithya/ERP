@@ -1070,6 +1070,38 @@ export default function ProductDetail() {
     }
   };
 
+  // Material Safety Data Sheet — single PDF per product. Stores uploads/replaces;
+  // everyone can view. Re-uploading replaces the existing link server-side.
+  const [msdsUploading, setMsdsUploading] = useState(false);
+  const [msdsError, setMsdsError] = useState('');
+
+  const uploadMsds = async (file) => {
+    if (!file) return;
+    if (file.type !== 'application/pdf') { setMsdsError('PDF only'); return; }
+    if (file.size > 10 * 1024 * 1024) { setMsdsError('Max 10 MB'); return; }
+    setMsdsUploading(true);
+    setMsdsError('');
+    try {
+      const fd = new FormData();
+      fd.append('msds', file);
+      await api.post(`/products/${id}/msds`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await loadProduct();
+    } catch (err) {
+      setMsdsError(err.response?.data?.error || 'Upload failed');
+    }
+    setMsdsUploading(false);
+  };
+
+  const removeMsds = async () => {
+    if (!confirm('Remove the MSDS from this product?')) return;
+    try {
+      await api.delete(`/products/${id}/msds`);
+      await loadProduct();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to remove MSDS');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1115,6 +1147,14 @@ export default function ProductDetail() {
               ) : (
                 <span className="text-gray-400">—</span>
               )}
+            </div>
+            <div>
+              <span className="text-gray-500">Shelf Life:</span>{' '}
+              <span className="font-medium">{product.shelfLife || '—'}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Room / Storage Temp:</span>{' '}
+              <span className="font-medium">{product.storageTemp || '—'}</span>
             </div>
             {product.description && (
               <div className="col-span-2"><span className="text-gray-500">Description:</span> <span>{product.description}</span></div>
@@ -1210,6 +1250,45 @@ export default function ProductDetail() {
               </li>
             ))}
           </ul>
+        )}
+      </Card>
+
+      {/* Material Safety Data Sheet — single PDF, uploaded by Stores, viewed by all */}
+      <Card>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+            <FileText size={15} className="text-navy-700" /> Material Safety Data Sheet (MSDS)
+          </h3>
+          {canManageSpecs && (
+            <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs text-navy-700 hover:underline">
+              <Upload size={13} /> {msdsUploading ? 'Uploading…' : product.msdsUrl ? 'Replace MSDS' : 'Upload MSDS PDF'}
+              <input
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                disabled={msdsUploading}
+                onChange={(e) => uploadMsds(e.target.files?.[0])}
+              />
+            </label>
+          )}
+        </div>
+        {msdsError && <div className="mb-2 text-[11px] text-red-600">{msdsError}</div>}
+        {product.msdsUrl ? (
+          <div className="flex items-center gap-2 text-sm border border-gray-100 rounded px-2.5 py-1.5 hover:bg-gray-50">
+            <Paperclip size={13} className="text-gray-400 flex-shrink-0" />
+            <a href={product.msdsUrl} target="_blank" rel="noreferrer" className="text-navy-700 hover:underline truncate flex-1">
+              {product.msdsName || 'MSDS.pdf'}
+            </a>
+            {canManageSpecs && (
+              <button onClick={removeMsds} className="text-gray-300 hover:text-red-600 flex-shrink-0" title="Remove MSDS">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 italic">
+            No MSDS uploaded yet.{canManageSpecs ? ' Stores can upload the safety data sheet here.' : ''}
+          </p>
         )}
       </Card>
 

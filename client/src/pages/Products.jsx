@@ -54,6 +54,37 @@ export default function Products() {
   const canEdit = user?.role === 'ADMIN' || user?.role === 'STORE_MANAGER';
   const [downloading, setDownloading] = useState(false);
 
+  // Storage-handling edit (Stores only): shelf life + room/storage temperature.
+  // Free text, editable straight from the list. MSDS lives on the detail page.
+  const [editTarget, setEditTarget] = useState(null); // the product row being edited
+  const [editForm, setEditForm] = useState({ shelfLife: '', storageTemp: '' });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  const openEditStorage = (row) => {
+    setEditTarget(row);
+    setEditForm({ shelfLife: row.shelfLife || '', storageTemp: row.storageTemp || '' });
+    setEditError('');
+  };
+
+  const saveEditStorage = async (e) => {
+    e.preventDefault();
+    setEditSaving(true);
+    setEditError('');
+    try {
+      await api.put(`/products/${editTarget.id}`, {
+        shelfLife: editForm.shelfLife.trim() || null,
+        storageTemp: editForm.storageTemp.trim() || null,
+      });
+      setEditTarget(null);
+      fetchProducts();
+    } catch (err) {
+      setEditError(err.response?.data?.error || 'Failed to save storage details');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   // Fetch every product (paginating internally) and emit a CSV stock statement.
   // CSV is opened natively by Excel — no extra dependency needed.
   const downloadStockStatement = async () => {
@@ -268,7 +299,36 @@ export default function Products() {
       key: 'earliestExpiry', label: 'Expiry Date', render: (v) => renderExpiry(v),
     },
     { key: 'minStockLevel', label: 'Min Level', render: (v, row) => v > 0 ? `${v} ${row.unit}` : '—' },
+    {
+      // Storage handling — shown to everyone, edited by Stores (pencil column).
+      key: 'shelfLife', label: 'Shelf Life',
+      render: (v) => v ? <span className="text-sm text-gray-700">{v}</span> : <span className="text-xs text-gray-400">—</span>,
+    },
+    {
+      key: 'storageTemp', label: 'Room Temp',
+      render: (v) => v ? <span className="text-sm text-gray-700">{v}</span> : <span className="text-xs text-gray-400">—</span>,
+    },
   ];
+
+  // Stores/Admin get an inline edit affordance for the storage-handling fields.
+  const tableColumns = canEdit
+    ? [
+        ...columns,
+        {
+          key: 'storageEdit', label: '', width: 70,
+          render: (_v, row) => (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); openEditStorage(row); }}
+              className="inline-flex items-center gap-1 text-xs font-medium text-navy-700 hover:text-navy-900"
+              title="Edit shelf life & room temperature"
+            >
+              <Pencil size={13} /> Edit
+            </button>
+          ),
+        },
+      ]
+    : columns;
 
   return (
     <div className="space-y-6">
@@ -339,7 +399,7 @@ export default function Products() {
             </div>
           ) : (
             <>
-              <Table columns={columns} data={products} onRowClick={(row) => navigate(`/products/${row.id}`)} />
+              <Table columns={tableColumns} data={products} onRowClick={(row) => navigate(`/products/${row.id}`)} />
               <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
             </>
           )}
@@ -403,6 +463,35 @@ export default function Products() {
               <Button type="submit" disabled={saving}>
                 {saving ? 'Saving...' : items.length > 1 ? `Create ${items.length} Products` : 'Create Product'}
               </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Edit storage handling (Stores only) — shelf life + room/storage temperature */}
+      {canEdit && editTarget && (
+        <Modal isOpen onClose={() => setEditTarget(null)} title={`Storage details — ${editTarget.name}`}>
+          <form onSubmit={saveEditStorage} className="space-y-4">
+            {editError && <p className="text-sm text-brand-red">{editError}</p>}
+            <p className="text-xs text-gray-500">
+              Free text — these are visible to everyone but only Stores can edit them.
+              The Material Safety Data Sheet (MSDS) is uploaded from the product's detail page.
+            </p>
+            <Input
+              label="Shelf Life"
+              value={editForm.shelfLife}
+              onChange={(e) => setEditForm((f) => ({ ...f, shelfLife: e.target.value }))}
+              placeholder="e.g. 12 months from manufacture"
+            />
+            <Input
+              label="Room / Storage Temperature"
+              value={editForm.storageTemp}
+              onChange={(e) => setEditForm((f) => ({ ...f, storageTemp: e.target.value }))}
+              placeholder="e.g. 2–8°C, store dry"
+            />
+            <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
+              <Button variant="secondary" type="button" onClick={() => setEditTarget(null)}>Cancel</Button>
+              <Button type="submit" disabled={editSaving}>{editSaving ? 'Saving…' : 'Save'}</Button>
             </div>
           </form>
         </Modal>

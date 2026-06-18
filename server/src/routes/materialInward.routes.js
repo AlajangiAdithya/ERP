@@ -477,6 +477,7 @@ router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
       prNumbers: b.prNumbers?.trim() || null,
       itemDescription: b.itemDescription?.trim() || null,
       uom: b.uom?.trim() || null,
+      materialType: b.materialType?.trim() || null,
       qtyReceived: b.qtyReceived != null && b.qtyReceived !== '' ? Number(b.qtyReceived) : null,
       productId: b.productId || null,
       issuedToUnitId: b.issuedToUnitId || null,
@@ -605,6 +606,92 @@ router.post('/bulk', authenticate, authorize(...WRITE_ROLES), async (req, res) =
   }
 });
 
+// ── POST /api/material-inward/cash-bulk ───────────────────────────────
+// A cash purchase often brings several items from the same supplier on one
+// invoice. Stores enters them together: one shared header (supplier / document /
+// assign-to) plus a list of items (each an existing product or a new item, with
+// its own qty / batch / dates / type). All items become their own register row —
+// each with its own QC track — but share a single MIR number (and a sub-lot index
+// when there's more than one).
+router.post('/cash-bulk', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+  try {
+    const b = req.body || {};
+    const rawItems = Array.isArray(b.items) ? b.items : [];
+    const items = rawItems.filter((it) => it && (it.productId || (it.itemDescription || '').trim()));
+    if (!items.length) return res.status(400).json({ error: 'Add at least one item' });
+
+    // Validate quantities up front so a bad batch never burns a MIR number.
+    for (const it of items) {
+      const qty = it.qtyReceived != null && it.qtyReceived !== '' ? Number(it.qtyReceived) : null;
+      if (!qty || qty <= 0) return res.status(400).json({ error: `Enter a received quantity for ${(it.itemDescription || '').trim() || 'each item'}` });
+    }
+
+    // Resolve linked products once → trusted name / UOM / category snapshots.
+    const productIds = [...new Set(items.map((it) => it.productId).filter(Boolean))];
+    const products = productIds.length
+      ? await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true, unit: true, category: true } })
+      : [];
+    const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
+
+    const docType = ['INVOICE', 'CASH_PURCHASE', 'DELIVERY_CHALLAN', 'GATE_PASS'].includes(b.docType) ? b.docType : 'CASH_PURCHASE';
+
+    // Shared assign-to for the whole cash batch (a unit, an owner department, or
+    // the general pool) — resolved + labelled server-side, mirroring the PO flow.
+    const issuedTo = {};
+    await resolveDirectIssuedTo(issuedTo, b);
+
+    const header = {
+      inwardDate: b.inwardDate ? new Date(b.inwardDate) : new Date(),
+      vehicleDetails: b.vehicleDetails?.trim() || null,
+      docType,
+      docNumber: b.docNumber?.trim() || null,
+      documentDate: b.documentDate ? new Date(b.documentDate) : null,
+      supplierName: b.supplierName?.trim() || null,
+      purpose: b.purpose?.trim() || null,
+      issuedToUnitId: issuedTo.issuedToUnitId,
+      issuedToDept: issuedTo.issuedToDept,
+      issuedToLabel: issuedTo.issuedToLabel,
+    };
+
+    // One MIR number shared across every item in this cash purchase. mirNo is not
+    // unique, so there's no constraint to race on — generate it once and reuse it.
+    const mirNo = await generateSequentialNumber(prisma, 'MIR');
+    const multi = items.length > 1;
+
+    const created = [];
+    let lot = 0;
+    for (const it of items) {
+      lot += 1;
+      const prod = it.productId ? productMap[it.productId] : null;
+      const itemDescription = (prod?.name || it.itemDescription || '').trim() || null;
+      if (!itemDescription) return res.status(400).json({ error: 'Item description is required' });
+      const row = await prisma.materialInwardRegister.create({
+        data: {
+          ...header,
+          mirNo,
+          // Sub-lot index so several items under one MIR stay distinguishable.
+          lotNo: multi ? lot : null,
+          itemDescription,
+          uom: (prod?.unit || it.uom || '').trim() || null,
+          materialType: (it.materialType || prod?.category || '').trim() || null,
+          qtyReceived: Number(it.qtyReceived),
+          productId: it.productId || null,
+          batchNo: (it.batchNo || '').trim() || null,
+          dateOfExpiry: it.dateOfExpiry ? new Date(it.dateOfExpiry) : null,
+          manufacturingDate: it.manufacturingDate ? new Date(it.manufacturingDate) : null,
+          createdById: req.user.id,
+        },
+      });
+      created.push(row);
+    }
+
+    res.status(201).json({ rows: created, count: created.length, mirNo });
+  } catch (err) {
+    console.error('material-inward cash-bulk error:', err);
+    res.status(500).json({ error: 'Failed to create inward entries' });
+  }
+});
+
 // ── PATCH /api/material-inward/:id ────────────────────────────────────
 // Edit row fields before QC has been requested (DRAFT only).
 router.patch('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
@@ -626,6 +713,7 @@ router.patch('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) =
     if (b.manufacturingDate !== undefined) patch.manufacturingDate = b.manufacturingDate ? new Date(b.manufacturingDate) : null;
     if (b.itemDescription !== undefined && !row.purchaseOrderId) patch.itemDescription = b.itemDescription?.trim() || row.itemDescription;
     if (b.uom !== undefined && !row.purchaseOrderId) patch.uom = b.uom?.trim() || null;
+    if (b.materialType !== undefined && !row.purchaseOrderId) patch.materialType = b.materialType?.trim() || null;
     if (b.productId !== undefined && !row.purchaseOrderId) patch.productId = b.productId || null;
     // Reassignment is only meaningful for direct/cash rows (PO rows derive it
     // from the PR). Re-resolve the unit/dept + label server-side.

@@ -3500,12 +3500,18 @@ export default function Dashboard() {
   else if (['QC', 'NDT', 'RND', 'DESIGNS'].includes(user?.role)) inner = <QCDashboard />;
   else inner = <AdminDashboard />;
 
+  // Messaging lives on every dashboard. These roles already embed Team Chat in
+  // their own layout (Admin inline; Manager / Supply Chain / Planning via the
+  // OpsRadarChat row), so we only append it for everyone else to avoid showing
+  // the chat twice.
+  const CHAT_BUILT_IN = ['ADMIN', 'MANAGER', 'SUPPLY_CHAIN', 'PLANNING'];
+
   return (
     <div className="space-y-4">
       <SlaTicker />
       {inner}
-      {/* HIDDEN FROM ERP (code retained, not removed) — messaging & calendar */}
-      {/* <TeamChat /> */}
+      {!CHAT_BUILT_IN.includes(user?.role) && <TeamChat heightClass="h-[26rem]" />}
+      {/* HIDDEN FROM ERP (code retained, not removed) — calendar */}
       {/* <CalendarView embedded /> */}
     </div>
   );

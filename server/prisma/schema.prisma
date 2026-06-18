@@ -2588,7 +2588,9 @@ model CalendarEvent {
 // ──────────────────────────────────────────────────────────────
 model MaterialInwardRegister {
   id             String   @id @default(uuid())
-  mirNo          String   @unique // RAPS/MIR/<FY>/<N> — auto
+  // RAPS/MIR/<FY>/<N> — auto. Not unique: a cash purchase can carry several
+  // items (one register row each) that share a single MIR number.
+  mirNo          String
   inwardDate     DateTime @default(now())
   vehicleDetails String?
 
@@ -2609,6 +2611,9 @@ model MaterialInwardRegister {
   prNumbers           String? // comma-joined PR numbers from the PO
   itemDescription     String?
   uom                 String?
+  // Product / material type (Raw Material / Consumable / Hand Tools & Fastners /
+  // Tools & Fixtures / Others) — captured at entry, same vocabulary as the PR.
+  materialType        String?
   qtyReceived         Float?
   productId           String? // resolved product (for stock + MIV match)
 
@@ -2694,6 +2699,7 @@ model MaterialInwardRegister {
   @@index([status])
   @@index([productId])
   @@index([batchNo])
+  @@index([mirNo])
 }
 
 enum InwardDocType {

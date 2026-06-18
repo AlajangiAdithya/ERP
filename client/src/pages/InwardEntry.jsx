@@ -109,6 +109,9 @@ const DOC_TYPES = [
 const ASSIGN_DEPTS = ['Designs', 'QC', 'Lab', 'Metrology', 'NDT', 'Safety', 'Planning'];
 const docLabel = (v) => DOC_TYPES.find((d) => d.value === v)?.label || v;
 
+// Product / material type — same vocabulary as the PR form (PurchaseRequests).
+const MATERIAL_TYPE_OPTIONS = ['Raw Material', 'Consumable', 'Hand Tools & Fastners', 'Tools & Fixtures', 'Others'];
+
 const STATUS_META = {
   DRAFT:        { label: 'Draft',        tone: 'gray' },
   QC_REQUESTED: { label: 'QC Requested', tone: 'amber' },
@@ -428,6 +431,7 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                   <Td nowrap={false} className="min-w-[160px] max-w-[220px]">
                     <div className="text-navy-800 line-clamp-2" title={r.itemDescription || ''}>{r.itemDescription || <Dash />}</div>
                     {r.product && <div className="text-[10px] text-gray-400 mt-0.5">{r.product.materialCode || r.product.sku}</div>}
+                    {r.materialType && <div className="text-[10px] text-gray-500 mt-0.5">{r.materialType}</div>}
                   </Td>
                   <Td className="font-semibold text-navy-800">{r.qtyReceived != null ? `${fmtQty(r.qtyReceived)} ${r.uom || ''}` : <Dash />}</Td>
                   <Td nowrap={false} className="max-w-[150px]">{r.supplierName || <Dash />}</Td>
@@ -554,6 +558,22 @@ function AssignToSelect({ units, value, onChange, className }) {
   );
 }
 
+// A blank cash-purchase item row. `key` is a stable client id for React lists.
+let cashItemSeq = 0;
+const newCashItem = () => ({
+  key: `ci-${++cashItemSeq}`,
+  itemMode: 'existing', // 'existing' | 'new'
+  productId: '',
+  productSearch: '',
+  itemDescription: '',
+  uom: '',
+  materialType: '',
+  qtyReceived: '',
+  batchNo: '',
+  manufacturingDate: '',
+  dateOfExpiry: '',
+});
+
 // ────────────────────────────────────────────────────────────────────
 // New / Edit inward entry
 // ────────────────────────────────────────────────────────────────────
@@ -572,11 +592,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   // Multi-line PO receipt: sel[poItemId] = { qty, batchNo, dateOfExpiry }. A key's
   // presence means the line is ticked for this delivery.
   const [sel, setSel] = useState({});
-  const [productId, setProductId] = useState('');
-  const [productSearch, setProductSearch] = useState('');
-  // Cash purchase: is the material an existing product (link it) or a brand-new
-  // item (free-text). Picked first, before any item fields.
-  const [itemMode, setItemMode] = useState('existing'); // 'existing' | 'new'
+  // Cash purchase: a list of items from the same supplier under one shared MIR
+  // number. Each item is an existing product (linked) or a brand-new item
+  // (free-text), with its own type / qty / batch / dates.
+  const [items, setItems] = useState([newCashItem()]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [f, setF] = useState({
@@ -586,6 +605,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     documentDate: editRow?.documentDate ? String(editRow.documentDate).slice(0, 10) : '',
     itemDescription: editRow?.itemDescription || '',
     uom: editRow?.uom || '',
+    materialType: editRow?.materialType || '',
     supplierName: editRow?.supplierName || '',
     qtyReceived: editRow?.qtyReceived ?? '',
     batchNo: editRow?.batchNo || '',
@@ -634,25 +654,20 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   const setLine = (id, k, v) => setSel((prev) => ({ ...prev, [id]: { ...prev[id], [k]: v } }));
   const selectedCount = Object.keys(sel).length;
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-    (p.materialCode || '').toLowerCase().includes(productSearch.toLowerCase()) ||
-    (p.sku || '').toLowerCase().includes(productSearch.toLowerCase()));
-  const product = products.find((p) => p.id === productId);
-
-  // Switch existing/new — reset the item fields so the two paths never bleed.
-  const pickItemMode = (m) => {
-    setItemMode(m);
-    setProductId('');
-    setProductSearch('');
-    setF((p) => ({ ...p, itemDescription: '', uom: '' }));
-  };
-  // Pick an existing product → fill the description / UOM from the master.
-  const pickProduct = (p) => {
-    setProductId(p.id);
-    setProductSearch('');
-    setF((prev) => ({ ...prev, itemDescription: p.name, uom: p.unit || prev.uom }));
-  };
+  // ── Cash-purchase item list (multi-item) ──
+  const addItem = () => setItems((p) => [...p, newCashItem()]);
+  const removeItem = (key) => setItems((p) => (p.length > 1 ? p.filter((it) => it.key !== key) : p));
+  const patchItem = (key, patch) => setItems((p) => p.map((it) => (it.key === key ? { ...it, ...patch } : it)));
+  // Switch existing/new for an item — reset its item fields so paths never bleed.
+  const pickItemModeFor = (key, m) => patchItem(key, { itemMode: m, productId: '', productSearch: '', itemDescription: '', uom: '', materialType: '' });
+  // Pick an existing product → fill description / UOM / type from the master.
+  const pickProductFor = (key, p) => patchItem(key, { productId: p.id, productSearch: '', itemDescription: p.name, uom: p.unit || '', materialType: p.category || '' });
+  const matchProducts = (q) => (q
+    ? products.filter((p) =>
+        p.name.toLowerCase().includes(q.toLowerCase()) ||
+        (p.materialCode || '').toLowerCase().includes(q.toLowerCase()) ||
+        (p.sku || '').toLowerCase().includes(q.toLowerCase()))
+    : []);
 
   const submit = async () => {
     setError('');
@@ -668,10 +683,16 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
         }
       }
     } else if (!isEdit && isCash) {
-      if (itemMode === 'existing' && !productId) return setError('Select an existing product.');
-      if (itemMode === 'new' && !f.itemDescription.trim()) return setError('Enter the new item description.');
+      // Multi-item cash — every item must be complete.
+      for (const it of items) {
+        if (it.itemMode === 'existing' && !it.productId) return setError('Pick a product for each existing item (or remove the empty row).');
+        if (it.itemMode === 'new' && !it.itemDescription.trim()) return setError('Enter a description for each new item (or remove the empty row).');
+        if (!it.qtyReceived || Number(it.qtyReceived) <= 0) return setError(`Enter the received quantity for ${it.itemDescription || 'each item'}.`);
+      }
     }
-    if (!perLine && (!f.qtyReceived || Number(f.qtyReceived) <= 0)) {
+    // Form-level qty only applies when editing a single row (new entries are
+    // per-line for POs and per-item for cash).
+    if (isEdit && (!f.qtyReceived || Number(f.qtyReceived) <= 0)) {
       return setError('Enter the received quantity.');
     }
     // Decode the assign-to picker into the unit / dept the server resolves.
@@ -686,7 +707,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           qtyReceived: f.qtyReceived, batchNo: f.batchNo, dateOfExpiry: f.dateOfExpiry || null,
           manufacturingDate: f.manufacturingDate || null,
           purpose: f.purpose,
-          ...(editRow.poNumber ? {} : { itemDescription: f.itemDescription, uom: f.uom, productId: productId || editRow.productId || null, issuedToUnitId, issuedToDept }),
+          ...(editRow.poNumber ? {} : { itemDescription: f.itemDescription, uom: f.uom, materialType: f.materialType, productId: editRow.productId || null, issuedToUnitId, issuedToDept }),
         });
       } else if (perLine) {
         // One delivery → many lines → one MIR row each (server assigns lots).
@@ -706,23 +727,30 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           })),
         });
       } else {
-        const payload = {
-          vehicleDetails: f.vehicleDetails, docNumber: f.docNumber,
+        // Cash purchase — one or several items from the same supplier, all under
+        // a single shared MIR number (one register row per item).
+        await api.post('/material-inward/cash-bulk', {
+          vehicleDetails: f.vehicleDetails,
+          // Cash entries default an invoice doc-type to Cash Purchase.
+          docType: f.docType === 'INVOICE' ? 'CASH_PURCHASE' : f.docType,
+          docNumber: f.docNumber,
           documentDate: f.documentDate || null,
-          qtyReceived: f.qtyReceived, batchNo: f.batchNo, dateOfExpiry: f.dateOfExpiry || null,
-          manufacturingDate: f.manufacturingDate || null,
           purpose: f.purpose,
-          itemDescription: f.itemDescription,
-          uom: f.uom,
           supplierName: f.supplierName,
-          productId: productId || null,
-          // Stores-chosen assignment (unit / owner dept / general pool).
+          // Stores-chosen assignment (unit / owner dept / general pool), shared.
           issuedToUnitId,
           issuedToDept,
-          // Direct/cash entries default an invoice doc-type to Cash Purchase.
-          docType: f.docType === 'INVOICE' ? 'CASH_PURCHASE' : f.docType,
-        };
-        await api.post('/material-inward', payload);
+          items: items.map((it) => ({
+            productId: it.productId || null,
+            itemDescription: it.itemDescription,
+            uom: it.uom,
+            materialType: it.materialType,
+            qtyReceived: it.qtyReceived,
+            batchNo: it.batchNo,
+            manufacturingDate: it.manufacturingDate || null,
+            dateOfExpiry: it.dateOfExpiry || null,
+          })),
+        });
       }
       onSaved();
     } catch (err) {
@@ -801,80 +829,121 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
               </>
             )}
 
-            {/* Cash Purchase — pick existing vs new item first, then the details. */}
+            {/* Cash Purchase — a shared supplier + one or more items, all under a
+                single MIR number. Each item is an existing product or a new item. */}
             {isCash && (
-              <div className="space-y-3 pt-1">
+              <div className="space-y-4 pt-1">
+                <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
+
                 <div>
-                  <label className="block text-[13px] font-semibold text-navy-700 mb-1.5">Existing or new item?</label>
-                  <div className="inline-flex bg-navy-50 rounded-lg p-0.5">
-                    {[['existing', 'Existing item'], ['new', 'New item']].map(([m, lbl]) => (
-                      <button key={m} type="button" onClick={() => pickItemMode(m)}
-                        className={`px-4 py-1.5 text-xs font-semibold rounded-md transition ${itemMode === m ? 'bg-white shadow text-navy-800' : 'text-navy-600'}`}>
-                        {lbl}
-                      </button>
-                    ))}
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-[13px] font-semibold text-navy-700">Items *</label>
+                    <span className="text-[11px] text-navy-500">{items.length} item{items.length > 1 ? 's' : ''} · one shared MIR no.</span>
                   </div>
+
+                  <div className="space-y-3">
+                    {items.map((it, idx) => {
+                      const prod = products.find((p) => p.id === it.productId);
+                      const matches = matchProducts(it.productSearch);
+                      return (
+                        <div key={it.key} className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="inline-flex bg-navy-50 rounded-lg p-0.5">
+                              {[['existing', 'Existing item'], ['new', 'New item']].map(([m, lbl]) => (
+                                <button key={m} type="button" onClick={() => pickItemModeFor(it.key, m)}
+                                  className={`px-3 py-1 text-xs font-semibold rounded-md transition ${it.itemMode === m ? 'bg-white shadow text-navy-800' : 'text-navy-600'}`}>
+                                  {lbl}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-[11px] font-semibold text-navy-400">Item {idx + 1}</span>
+                              {items.length > 1 && (
+                                <button type="button" onClick={() => removeItem(it.key)} className="text-gray-400 hover:text-rose-600" title="Remove item"><Trash2 size={14} /></button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Existing → pick from the product master (auto-fills desc / UOM / type). */}
+                          {it.itemMode === 'existing' && (
+                            prod ? (
+                              <div className="flex items-center justify-between gap-2 px-3 py-2 bg-navy-50 border border-navy-200 rounded-lg">
+                                <span className="text-sm text-navy-800">
+                                  <strong>{prod.name}</strong> <span className="text-xs text-gray-400">{prod.materialCode || prod.sku}</span>
+                                  <span className="text-xs text-gray-500"> · {prod.currentStock} {prod.unit} in stock</span>
+                                </span>
+                                <button type="button" onClick={() => patchItem(it.key, { productId: '', itemDescription: '', uom: '', materialType: '' })}
+                                  className="text-xs text-navy-600 hover:text-navy-800 font-semibold shrink-0">Change</button>
+                              </div>
+                            ) : (
+                              <div>
+                                <div className="relative">
+                                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                  <input value={it.productSearch} onChange={(e) => patchItem(it.key, { productSearch: e.target.value })} placeholder="Search product…"
+                                    className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500" />
+                                </div>
+                                {it.productSearch && (
+                                  <div className="mt-1 max-h-36 overflow-y-auto border rounded-md bg-white">
+                                    {matches.slice(0, 30).map((p) => (
+                                      <div key={p.id} onClick={() => pickProductFor(it.key, p)}
+                                        className="flex justify-between px-3 py-1.5 text-sm cursor-pointer hover:bg-navy-50 border-b border-gray-100 last:border-0">
+                                        <span>{p.name} <span className="text-xs text-gray-400">{p.materialCode || p.sku}</span></span>
+                                        <span className="text-xs text-gray-500">{p.currentStock} {p.unit}</span>
+                                      </div>
+                                    ))}
+                                    {!matches.length && <div className="px-3 py-2 text-xs text-gray-400">No matching products.</div>}
+                                  </div>
+                                )}
+                                <p className="mt-1 text-[11px] text-gray-400">Stock is added to this product on inward.</p>
+                              </div>
+                            )
+                          )}
+
+                          {/* New → free-text item not yet in the product master. */}
+                          {it.itemMode === 'new' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <Input label="Item description *" value={it.itemDescription} onChange={(e) => patchItem(it.key, { itemDescription: e.target.value })} placeholder="Name of the new item" />
+                              <Select label="UOM" value={it.uom || ''} onChange={(e) => patchItem(it.key, { uom: e.target.value })}>
+                                <option value="">Select UOM…</option>
+                                {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                              </Select>
+                            </div>
+                          )}
+
+                          {/* Product type + receipt details — per item. */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            <Select label="Product type" value={it.materialType || ''} onChange={(e) => patchItem(it.key, { materialType: e.target.value })}>
+                              <option value="">Select type…</option>
+                              {MATERIAL_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                            </Select>
+                            <Input label="Qty received *" type="number" min="0" step="any" value={it.qtyReceived} onChange={(e) => patchItem(it.key, { qtyReceived: e.target.value })} />
+                            <Input label="Batch no." value={it.batchNo} onChange={(e) => patchItem(it.key, { batchNo: e.target.value })} />
+                            <Input label="Mfg date" type="date" value={it.manufacturingDate} onChange={(e) => patchItem(it.key, { manufacturingDate: e.target.value })} />
+                            <Input label="Expiry" type="date" value={it.dateOfExpiry} onChange={(e) => patchItem(it.key, { dateOfExpiry: e.target.value })} />
+                          </div>
+                          {it.itemMode === 'new' && (
+                            <p className="-mt-1 text-[11px] text-gray-400">New item not in the product master → recorded in the register only (no stock movement).</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button type="button" onClick={addItem} className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-navy-600 hover:text-navy-800">
+                    <Plus size={14} /> Add another item
+                  </button>
                 </div>
 
-                {/* Existing → pick from the product master (desc / UOM auto-fill). */}
-                {itemMode === 'existing' && (
-                  <div>
-                    <label className="block text-[13px] font-semibold text-navy-700 mb-1">Select product *</label>
-                    {product ? (
-                      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-navy-50 border border-navy-200 rounded-lg">
-                        <span className="text-sm text-navy-800">
-                          <strong>{product.name}</strong> <span className="text-xs text-gray-400">{product.materialCode || product.sku}</span>
-                          <span className="text-xs text-gray-500"> · {product.currentStock} {product.unit} in stock</span>
-                        </span>
-                        <button type="button" onClick={() => { setProductId(''); setF((p) => ({ ...p, itemDescription: '', uom: '' })); }}
-                          className="text-xs text-navy-600 hover:text-navy-800 font-semibold shrink-0">Change</button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="relative">
-                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                          <input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Search product…"
-                            className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500" />
-                        </div>
-                        {productSearch && (
-                          <div className="mt-1 max-h-36 overflow-y-auto border rounded-md">
-                            {filteredProducts.slice(0, 30).map((p) => (
-                              <div key={p.id} onClick={() => pickProduct(p)}
-                                className="flex justify-between px-3 py-1.5 text-sm cursor-pointer hover:bg-navy-50 border-b border-gray-100 last:border-0">
-                                <span>{p.name} <span className="text-xs text-gray-400">{p.materialCode || p.sku}</span></span>
-                                <span className="text-xs text-gray-500">{p.currentStock} {p.unit}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <p className="mt-1 text-[11px] text-gray-400">Stock is added to this product on inward.</p>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* New → free-text item not yet in the product master. */}
-                {itemMode === 'new' && (
-                  <>
-                    <Input label="Item Description *" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="Name of the new item" />
-                    <Select label="UOM" value={f.uom || ''} onChange={(e) => set('uom', e.target.value)}>
-                      <option value="">Select UOM…</option>
-                      {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
-                    </Select>
-                    <p className="-mt-1 text-[11px] text-gray-400">New item not in the product master → recorded in the register only (no stock movement).</p>
-                  </>
-                )}
-
-                <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
                 <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
-                <p className="-mt-1 text-[11px] text-gray-400">Pick the unit or department this cash purchase is for — stock is reserved to it on inward. Leave as “General” to keep it in the shared pool.</p>
+                <p className="-mt-1 text-[11px] text-gray-400">Pick the unit or department this cash purchase is for — stock is reserved to it on inward. Leave as “General” to keep it in the shared pool. Every item above is recorded under one shared MIR number.</p>
               </div>
             )}
           </FormBlock>
         )}
 
-        {/* Receipt details — vehicle / document and (for direct & edit) the
-            qty / batch / expiry. Qty / batch / expiry are per-line in PO mode. */}
+        {/* Receipt details — the shared vehicle / document header. When editing a
+            single row, its qty / batch / dates show here too. New entries record
+            those per-line (PO) or per-item (cash) above. */}
         <FormBlock title="Receipt details">
           <div className="space-y-3">
             <Input label="Vehicle details" value={f.vehicleDetails} onChange={(e) => set('vehicleDetails', e.target.value)} placeholder="e.g. AP 31 CD 1234" />
@@ -883,12 +952,18 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
             </Select>
             <Input label="Document number" value={f.docNumber} onChange={(e) => set('docNumber', e.target.value)} placeholder="Invoice / DC / GP no." />
             <Input label="Document date" type="date" value={f.documentDate} onChange={(e) => set('documentDate', e.target.value)} />
-            {!perLine && <Input label="Qty received *" type="number" min="0" step="any" value={f.qtyReceived} onChange={(e) => set('qtyReceived', e.target.value)} />}
-            {!perLine && <Input label="Batch number" value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />}
-            {!perLine && <Input label="Manufacturing date" type="date" value={f.manufacturingDate} onChange={(e) => set('manufacturingDate', e.target.value)} />}
-            {!perLine && <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />}
+            {isEdit && <Input label="Qty received *" type="number" min="0" step="any" value={f.qtyReceived} onChange={(e) => set('qtyReceived', e.target.value)} />}
+            {isEdit && <Input label="Batch number" value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />}
+            {isEdit && <Input label="Manufacturing date" type="date" value={f.manufacturingDate} onChange={(e) => set('manufacturingDate', e.target.value)} />}
+            {isEdit && <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />}
             {isEdit && isDirect && (
-              <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
+              <>
+                <Select label="Product type" value={f.materialType || ''} onChange={(e) => set('materialType', e.target.value)}>
+                  <option value="">Select type…</option>
+                  {MATERIAL_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                </Select>
+                <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
+              </>
             )}
             <Textarea label="Purpose" rows={2} value={f.purpose} onChange={(e) => set('purpose', e.target.value)} placeholder="What it is for (optional)" />
           </div>
@@ -897,7 +972,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>
-            {saving ? 'Saving…' : isEdit ? 'Update' : perLine ? `Create ${selectedCount || ''} ${selectedCount === 1 ? 'Entry' : 'Entries'}`.trim() : 'Create Entry'}
+            {saving ? 'Saving…'
+              : isEdit ? 'Update'
+              : perLine ? `Create ${selectedCount || ''} ${selectedCount === 1 ? 'Entry' : 'Entries'}`.trim()
+              : `Create ${items.length} ${items.length === 1 ? 'Entry' : 'Entries'}`}
           </Button>
         </div>
       </div>
