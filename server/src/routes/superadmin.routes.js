@@ -433,13 +433,13 @@ router.get('/uploads', async (req, res) => {
       select: {
         id: true, bgNo: true, fileUrl: true, fileName: true, addedAt: true,
         addedBy: { select: { name: true } },
-        workOrder: { select: { orderNumber: true } },
+        workOrder: { select: { workOrderNumber: true } },
       },
     });
     bgEntries.forEach((b) => uploads.push({
       table: 'WorkOrderBgEntry', recordId: b.id, field: 'fileUrl',
       label: `Bank Guarantee${b.fileName ? `: ${b.fileName}` : ''}`,
-      recordLabel: `${b.workOrder?.orderNumber || ''} · BG ${b.bgNo}`.trim(),
+      recordLabel: `${b.workOrder?.workOrderNumber || ''} · BG ${b.bgNo}`.trim(),
       url: b.fileUrl, uploadedAt: b.addedAt,
       uploadedBy: b.addedBy?.name || null,
     }));
@@ -450,13 +450,13 @@ router.get('/uploads', async (req, res) => {
       select: {
         id: true, insuranceNo: true, fileUrl: true, fileName: true, addedAt: true,
         addedBy: { select: { name: true } },
-        workOrder: { select: { orderNumber: true } },
+        workOrder: { select: { workOrderNumber: true } },
       },
     });
     insEntries.forEach((b) => uploads.push({
       table: 'WorkOrderInsuranceEntry', recordId: b.id, field: 'fileUrl',
       label: `Insurance${b.fileName ? `: ${b.fileName}` : ''}`,
-      recordLabel: `${b.workOrder?.orderNumber || ''} · Ins ${b.insuranceNo}`.trim(),
+      recordLabel: `${b.workOrder?.workOrderNumber || ''} · Ins ${b.insuranceNo}`.trim(),
       url: b.fileUrl, uploadedAt: b.addedAt,
       uploadedBy: b.addedBy?.name || null,
     }));
@@ -478,11 +478,11 @@ router.get('/uploads', async (req, res) => {
         invoiceSentBy: { select: { name: true } },
         deliveryAckSignedUrl: true, deliveryAckAt: true,
         deliveryAckBy: { select: { name: true } },
-        workOrder: { select: { orderNumber: true } },
+        workOrder: { select: { workOrderNumber: true } },
       },
     });
     closures.forEach((c) => {
-      const recordLabel = `${c.workOrder?.orderNumber || ''} · Cycle ${c.cycleNumber}`.trim();
+      const recordLabel = `${c.workOrder?.workOrderNumber || ''} · Cycle ${c.cycleNumber}`.trim();
       if (c.qcCertificateUrl) uploads.push({
         table: 'WorkOrderClosure', recordId: c.id, field: 'qcCertificateUrl',
         label: 'QC Certificate', recordLabel,
@@ -508,13 +508,13 @@ router.get('/uploads', async (req, res) => {
       select: {
         id: true, docType: true, fileUrl: true, fileName: true, uploadedAt: true,
         uploadedBy: { select: { name: true } },
-        closure: { select: { cycleNumber: true, workOrder: { select: { orderNumber: true } } } },
+        closure: { select: { cycleNumber: true, workOrder: { select: { workOrderNumber: true } } } },
       },
     });
     closureDocs.forEach((d) => uploads.push({
       table: 'WorkOrderClosureDoc', recordId: d.id, field: 'fileUrl',
       label: `${d.docType}${d.fileName ? `: ${d.fileName}` : ''}`,
-      recordLabel: `${d.closure?.workOrder?.orderNumber || ''} · Cycle ${d.closure?.cycleNumber || ''}`.trim(),
+      recordLabel: `${d.closure?.workOrder?.workOrderNumber || ''} · Cycle ${d.closure?.cycleNumber || ''}`.trim(),
       url: d.fileUrl, uploadedAt: d.uploadedAt,
       uploadedBy: d.uploadedBy?.name || null,
     }));
