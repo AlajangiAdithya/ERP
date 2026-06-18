@@ -6,6 +6,7 @@
 // prisma.notification.create / createMany anywhere in the codebase
 // automatically triggers a push. No call site needs to know about this module.
 const webpush = require('web-push');
+const { notificationRoute } = require('../utils/notificationRoutes');
 
 const PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
@@ -66,7 +67,7 @@ function buildPayload(notif) {
     title: notif.title || 'RAPS ERP',
     message: notif.message || '',
     type: notif.type || 'GENERAL',
-    url: '/',
+    url: notificationRoute(notif.type),
   });
 }
 

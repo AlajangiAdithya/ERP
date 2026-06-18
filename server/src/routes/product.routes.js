@@ -758,6 +758,51 @@ router.post('/', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('CREA
   }
 });
 
+// POST /api/products/bulk — create several products in one go. Stores often
+// enters a batch of new items together, so the form lets them add rows and
+// submit them at once. All-or-nothing: any invalid / duplicate row rolls back
+// the whole batch and names the offender.
+router.post('/bulk', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('CREATE', 'Product'), async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ error: 'Add at least one product' });
+
+    const parsed = items.map((it, i) => {
+      try {
+        const data = productSchema.parse(it);
+        return { ...data, sku: data.materialCode, category: normalizeMaterialType(data.category) };
+      } catch (e) {
+        if (e instanceof z.ZodError) {
+          throw new z.ZodError(e.errors.map((err) => ({ ...err, path: [`Item ${i + 1}`, ...err.path] })));
+        }
+        throw e;
+      }
+    });
+
+    // Duplicate ID numbers — catch within the batch and against existing stock
+    // up front so the message can name them (the DB unique error can't).
+    const codes = parsed.map((p) => p.materialCode);
+    const dupInBatch = codes.find((c, i) => codes.indexOf(c) !== i);
+    if (dupInBatch) return res.status(409).json({ error: `ID No. "${dupInBatch}" is repeated in the list` });
+    const existing = await prisma.product.findMany({ where: { sku: { in: codes } }, select: { sku: true } });
+    if (existing.length) {
+      return res.status(409).json({ error: `ID No. already in use: ${existing.map((e) => e.sku).join(', ')}` });
+    }
+
+    const created = await prisma.$transaction(parsed.map((data) => prisma.product.create({ data })));
+    res.status(201).json({ count: created.length, products: created });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid input', details: error.errors });
+    }
+    if (error.code === 'P2002') {
+      return res.status(409).json({ error: 'Identification number already in use' });
+    }
+    console.error('Bulk create product error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 // PUT /api/products/:id
 router.put('/:id', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('UPDATE', 'Product'), async (req, res) => {

@@ -1136,7 +1136,9 @@ enum QCResult {
 // Approved passes can later be marked RETURNED (returnable items) or CLOSED.
 model GatePass {
   id                   String             @id @default(uuid())
-  passNumber           String             @unique // Doc/Request No
+  // Doc/Request No. Entered manually by the stores person at creation (no
+  // auto-count) — intentionally NOT unique so duplicates are allowed.
+  passNumber           String
   // FIM/Customer Property Register number (INWARD STORES only).
   // Format: RAPS/FIM/<FY>/<N>. Distinct from passNumber (RAPS/GP/...) so the
   // FIM register can list entries by their own running count.
@@ -2593,6 +2595,8 @@ model MaterialInwardRegister {
   // Invoice / Cash purchase / Delivery challan / Gate pass + its number
   docType   InwardDocType @default(INVOICE)
   docNumber String?
+  // Date printed on that document (invoice / DC / gate pass), as supplied.
+  documentDate DateTime?
   // Stores-uploaded supporting documents (invoice / DC / test report / COA …).
   // Array of { label, name, url, uploadedAt, uploadedById }.
   documents Json?
@@ -2634,6 +2638,8 @@ model MaterialInwardRegister {
   purpose      String?
   batchNo      String?
   dateOfExpiry DateTime?
+  // Manufacturing date of the received lot, as supplied on the material.
+  manufacturingDate DateTime?
 
   status InwardStatus @default(DRAFT)
 

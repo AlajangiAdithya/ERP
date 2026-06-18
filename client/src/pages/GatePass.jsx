@@ -629,6 +629,7 @@ function ActionModal({ gatePass, type, onClose, onDone }) {
 
 function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', onClose, onCreated }) {
   const [kind, setKind] = useState(defaultKind === 'OUTSIDE' ? 'OUTSIDE' : 'LOCAL_JOB');
+  const [passNumber, setPassNumber] = useState('');
   const [siteName, setSiteName] = useState('');
   const [jobWorkNo, setJobWorkNo] = useState('');
   const [jobWorkDate, setJobWorkDate] = useState('');
@@ -647,6 +648,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', onClose, onCreated }) 
 
   const submit = async () => {
     setError('');
+    if (!passNumber.trim()) return setError('Gate pass number is required');
     if (items.some(i => !i.description.trim())) return setError('Each item needs a name/description');
     if (items.some(i => !i.quantity || Number(i.quantity) <= 0)) return setError('Each item needs a positive quantity');
     if (items.some(i => i.itemPassType === 'RETURNABLE' && !i.probableReturnDate)) {
@@ -657,6 +659,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', onClose, onCreated }) 
     try {
       await api.post('/gatepasses', {
         direction: 'OUTWARD',
+        passNumber: passNumber.trim(),
         kind,
         siteName: siteName.trim() || undefined,
         jobWorkNo: kind === 'LOCAL_JOB' ? (jobWorkNo.trim() || undefined) : undefined,
@@ -712,6 +715,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', onClose, onCreated }) 
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <Input label="Gate Pass No. *" value={passNumber} onChange={e => setPassNumber(e.target.value)} placeholder="Enter the gate pass number" />
           <Input label="Site / Unit" value={siteName} onChange={e => setSiteName(e.target.value)} placeholder="Site or unit" />
           {kind === 'LOCAL_JOB' && (
             <>
@@ -732,7 +736,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', onClose, onCreated }) 
         </div>
 
         <p className="text-xs text-gray-500">
-          Pass No. and Date are auto-generated. Pass details and Transport are filled by Logistics on dispatch / acknowledgement. The Store Incharge will approve first, then Logistics assigns the vehicle.
+          Enter the Gate Pass No. above; the Date is set automatically. Pass details and Transport are filled by Logistics on dispatch / acknowledgement. The Store Incharge will approve first, then Logistics assigns the vehicle.
         </p>
 
         <div>

@@ -1,6 +1,6 @@
 // Bump this on every deploy that needs to invalidate clients.
 // Browsers detect any byte change in /sw.js and trigger reinstall.
-const SW_VERSION = '2026-06-18-push-persist';
+const SW_VERSION = '2026-06-18-notif-routing';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -49,15 +49,32 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || '/';
+  const target = (event.notification.data && event.notification.data.url) || '/';
+  const targetHref = new URL(target, self.location.origin).href;
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of windows) {
-      if ('focus' in client) {
-        try { await client.focus(); return; } catch (_) {}
+      try {
+        // Already on the right page → just focus it.
+        if (client.url === targetHref) {
+          if ('focus' in client) { await client.focus(); return; }
+        }
+        // Otherwise reuse this tab: send it to the notification's page, then
+        // focus — so the click always lands on the respective page, not on
+        // whatever the tab happened to be showing.
+        if ('navigate' in client) {
+          const navigated = await client.navigate(target).catch(() => null);
+          const c = navigated || client;
+          if ('focus' in c) { await c.focus(); return; }
+        } else if ('focus' in client) {
+          await client.focus();
+          return;
+        }
+      } catch (_) {
+        // try the next client, else fall through to opening a fresh window
       }
     }
-    await self.clients.openWindow(url);
+    await self.clients.openWindow(target);
   })());
 });
 

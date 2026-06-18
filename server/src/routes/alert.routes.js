@@ -143,6 +143,29 @@ router.get('/notifications/unread-count', authenticate, async (req, res) => {
   }
 });
 
+// PATCH /api/alerts/notifications/mark-all-read — mark all of the user's
+// notifications as read (clears the red unread badge without deleting them, so
+// they're still listed/clickable in the inbox).
+router.patch('/notifications/mark-all-read', authenticate, async (req, res) => {
+  try {
+    await prisma.notification.updateMany({
+      where: {
+        isRead: false,
+        OR: [
+          { targetRole: req.user.role },
+          { targetUserId: req.user.id },
+          { targetRole: null, targetUserId: null },
+        ],
+      },
+      data: { isRead: true },
+    });
+    res.json({ message: 'All notifications marked as read' });
+  } catch (error) {
+    console.error('Mark all read error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // DELETE /api/alerts/notifications/clear-all — dismiss all notifications for user
 router.delete('/notifications/clear-all', authenticate, async (req, res) => {
   try {

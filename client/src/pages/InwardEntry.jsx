@@ -412,6 +412,7 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                   <Td nowrap={false} className="max-w-[150px]">
                     <div className="font-medium text-navy-700">{docLabel(r.docType)}</div>
                     <div className="text-[10px] text-gray-500">{r.docNumber || <Dash />}</div>
+                    {r.documentDate && <div className="text-[10px] text-gray-400" title="Document date">{formatDate(r.documentDate)}</div>}
                     {r.documents?.length ? (
                       <button onClick={() => onDocs(r)} className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-navy-600 hover:text-navy-800">
                         <Paperclip size={10} /> {r.documents.length} file{r.documents.length > 1 ? 's' : ''}
@@ -432,7 +433,10 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                   <Td nowrap={false} className="max-w-[150px]">{r.supplierName || <Dash />}</Td>
                   <Td nowrap={false} className="max-w-[150px]"><span className="text-gray-600 line-clamp-2" title={r.purpose || ''}>{r.purpose || <Dash />}</span></Td>
                   <Td className="font-mono text-[10px] text-amber-800">{r.batchNo || <Dash />}</Td>
-                  <Td>{r.dateOfExpiry ? formatDate(r.dateOfExpiry) : <Dash />}</Td>
+                  <Td>
+                    {r.dateOfExpiry ? formatDate(r.dateOfExpiry) : <Dash />}
+                    {r.manufacturingDate && <div className="text-[10px] text-gray-400" title="Manufacturing date">Mfg {formatDate(r.manufacturingDate)}</div>}
+                  </Td>
                   <Td groupEnd nowrap={false} className="max-w-[180px]">
                     {r.issuedToLabel ? (
                       <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-navy-100 text-navy-700">
@@ -579,12 +583,14 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     vehicleDetails: editRow?.vehicleDetails || '',
     docType: editRow?.docType || 'INVOICE',
     docNumber: editRow?.docNumber || '',
+    documentDate: editRow?.documentDate ? String(editRow.documentDate).slice(0, 10) : '',
     itemDescription: editRow?.itemDescription || '',
     uom: editRow?.uom || '',
     supplierName: editRow?.supplierName || '',
     qtyReceived: editRow?.qtyReceived ?? '',
     batchNo: editRow?.batchNo || '',
     dateOfExpiry: editRow?.dateOfExpiry ? String(editRow.dateOfExpiry).slice(0, 10) : '',
+    manufacturingDate: editRow?.manufacturingDate ? String(editRow.manufacturingDate).slice(0, 10) : '',
     purpose: editRow?.purpose || '',
   });
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
@@ -622,7 +628,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     const next = { ...prev };
     if (next[it.id]) { delete next[it.id]; return next; }
     const rem = remainingOf(it);
-    next[it.id] = { qty: rem > 0 ? String(rem) : '', batchNo: '', dateOfExpiry: '' };
+    next[it.id] = { qty: rem > 0 ? String(rem) : '', batchNo: '', dateOfExpiry: '', manufacturingDate: '' };
     return next;
   });
   const setLine = (id, k, v) => setSel((prev) => ({ ...prev, [id]: { ...prev[id], [k]: v } }));
@@ -676,7 +682,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
       if (isEdit) {
         await api.patch(`/material-inward/${editRow.id}`, {
           vehicleDetails: f.vehicleDetails, docType: f.docType, docNumber: f.docNumber,
+          documentDate: f.documentDate || null,
           qtyReceived: f.qtyReceived, batchNo: f.batchNo, dateOfExpiry: f.dateOfExpiry || null,
+          manufacturingDate: f.manufacturingDate || null,
           purpose: f.purpose,
           ...(editRow.poNumber ? {} : { itemDescription: f.itemDescription, uom: f.uom, productId: productId || editRow.productId || null, issuedToUnitId, issuedToDept }),
         });
@@ -687,18 +695,22 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           vehicleDetails: f.vehicleDetails,
           docType: f.docType,
           docNumber: f.docNumber,
+          documentDate: f.documentDate || null,
           purpose: f.purpose,
           lines: Object.entries(sel).map(([poItemId, v]) => ({
             purchaseOrderItemId: poItemId,
             qtyReceived: v.qty,
             batchNo: v.batchNo,
             dateOfExpiry: v.dateOfExpiry || null,
+            manufacturingDate: v.manufacturingDate || null,
           })),
         });
       } else {
         const payload = {
           vehicleDetails: f.vehicleDetails, docNumber: f.docNumber,
+          documentDate: f.documentDate || null,
           qtyReceived: f.qtyReceived, batchNo: f.batchNo, dateOfExpiry: f.dateOfExpiry || null,
+          manufacturingDate: f.manufacturingDate || null,
           purpose: f.purpose,
           itemDescription: f.itemDescription,
           uom: f.uom,
@@ -773,9 +785,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                             </div>
                           </label>
                           {checked && (
-                            <div className="mt-2 ml-6 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div className="mt-2 ml-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                               <Input label="Qty received *" type="number" min="0" step="any" value={v.qty} onChange={(e) => setLine(it.id, 'qty', e.target.value)} />
                               <Input label="Batch no." value={v.batchNo} onChange={(e) => setLine(it.id, 'batchNo', e.target.value)} />
+                              <Input label="Mfg date" type="date" value={v.manufacturingDate} onChange={(e) => setLine(it.id, 'manufacturingDate', e.target.value)} />
                               <Input label="Expiry" type="date" value={v.dateOfExpiry} onChange={(e) => setLine(it.id, 'dateOfExpiry', e.target.value)} />
                             </div>
                           )}
@@ -869,8 +882,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
               {DOC_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
             </Select>
             <Input label="Document number" value={f.docNumber} onChange={(e) => set('docNumber', e.target.value)} placeholder="Invoice / DC / GP no." />
+            <Input label="Document date" type="date" value={f.documentDate} onChange={(e) => set('documentDate', e.target.value)} />
             {!perLine && <Input label="Qty received *" type="number" min="0" step="any" value={f.qtyReceived} onChange={(e) => set('qtyReceived', e.target.value)} />}
             {!perLine && <Input label="Batch number" value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />}
+            {!perLine && <Input label="Manufacturing date" type="date" value={f.manufacturingDate} onChange={(e) => set('manufacturingDate', e.target.value)} />}
             {!perLine && <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />}
             {isEdit && isDirect && (
               <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
@@ -1713,6 +1728,7 @@ const blankInwardItem = () => ({
 });
 
 function RecordInwardModal({ onClose, onCreated }) {
+  const [passNumber, setPassNumber] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerGatePassNo, setCustomerGatePassNo] = useState('');
   const [customerGatePassDate, setCustomerGatePassDate] = useState('');
@@ -1736,6 +1752,7 @@ function RecordInwardModal({ onClose, onCreated }) {
 
   const submit = async () => {
     setError('');
+    if (!passNumber.trim()) return setError('Gate pass number is required');
     if (!customerName.trim()) return setError('Customer name is required');
     if (!customerGatePassNo.trim()) return setError("Customer's gate pass number is required");
     if (items.some(i => !i.description.trim())) return setError('Each item needs a name/description');
@@ -1765,6 +1782,7 @@ function RecordInwardModal({ onClose, onCreated }) {
         const fd = new FormData();
         fd.append('direction', 'INWARD');
         fd.append('inwardKind', 'STORES');
+        fd.append('passNumber', passNumber.trim());
         if (remarks.trim()) fd.append('remarks', remarks.trim());
         fd.append('customerName', customerName.trim());
         fd.append('customerGatePassNo', customerGatePassNo.trim());
@@ -1780,6 +1798,7 @@ function RecordInwardModal({ onClose, onCreated }) {
         await api.post('/gatepasses', {
           direction: 'INWARD',
           inwardKind: 'STORES',
+          passNumber: passNumber.trim(),
           remarks: remarks.trim() || undefined,
           customerName: customerName.trim(),
           customerGatePassNo: customerGatePassNo.trim(),
@@ -1806,12 +1825,13 @@ function RecordInwardModal({ onClose, onCreated }) {
         {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
         <p className="text-xs text-gray-500">
-          FIM No. (RAPS/FIM/&lt;FY&gt;/&lt;count&gt;) and Date are auto-generated on submit. Returned Date and Return-by Vehicle/Driver are filled later when the material is sent back.
+          Enter the Gate Pass No. below; the FIM No. (RAPS/FIM/&lt;FY&gt;/&lt;count&gt;) and Date are auto-generated on submit. Returned Date and Return-by Vehicle/Driver are filled later when the material is sent back.
         </p>
 
         {/* Register header — applies to every row in this entry */}
         <div className="p-3 bg-blue-50 border border-blue-200 rounded space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Input label="Gate Pass No. *" value={passNumber} onChange={e => setPassNumber(e.target.value)} placeholder="Enter the gate pass number" />
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">FIM No.</label>
               <div className="px-3 py-2 border border-dashed border-gray-300 rounded-md text-sm text-gray-500 bg-white">
@@ -1825,6 +1845,8 @@ function RecordInwardModal({ onClose, onCreated }) {
               </div>
             </div>
             <Input label="Customer *" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. ABC Pvt. Ltd." />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Input label="Gate Pass Requisition No." value={gpRequisitionNo} onChange={e => setGpRequisitionNo(e.target.value)} placeholder="Internal reference (if any)" />
           </div>
 

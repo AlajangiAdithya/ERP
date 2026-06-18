@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Plus, Package, Download, FileText, CheckCircle2,
   Pencil, Send, Building2, Calendar, Truck, User as UserIcon,
-  ArrowRightLeft, AlertTriangle, Hash, PackageCheck, RotateCcw,
+  ArrowRightLeft, AlertTriangle, Hash, PackageCheck, RotateCcw, Trash2,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -127,11 +127,19 @@ export default function Products() {
     }
   };
 
-  const [form, setForm] = useState({
+  // New products are entered as a list — Stores usually adds several items at
+  // once, so the modal starts with one blank row and grows via "Add More Items".
+  const blankItem = () => ({
     materialCode: '', name: '', description: '', category: 'Raw Material', unit: 'pcs',
     minStockLevel: 0,
   });
+  const [items, setItems] = useState([blankItem()]);
   const [materialTypes, setMaterialTypes] = useState([]);
+
+  const updateItem = (idx, patch) => setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+  const addItem = () => setItems((prev) => [...prev, blankItem()]);
+  const removeItem = (idx) => setItems((prev) => prev.filter((_, i) => i !== idx));
+  const openAddModal = () => { setItems([blankItem()]); setFormError(''); setShowModal(true); };
 
   const fetchProducts = () => {
     setLoading(true);
@@ -154,19 +162,29 @@ export default function Products() {
   const handleCreate = async (e) => {
     e.preventDefault();
     setFormError('');
+    // Ignore fully-blank trailing rows; validate the rest.
+    const filled = items.filter((it) => it.materialCode.trim() || it.name.trim());
+    if (!filled.length) { setFormError('Add at least one product'); return; }
+    for (let i = 0; i < filled.length; i += 1) {
+      if (!filled[i].materialCode.trim()) { setFormError(`Item ${i + 1}: ID No. is required`); return; }
+      if (!filled[i].name.trim()) { setFormError(`Item ${i + 1}: Name is required`); return; }
+    }
     setSaving(true);
     try {
-      const data = {
-        ...form,
-        materialCode: form.materialCode.trim() || undefined,
-        minStockLevel: parseFloat(form.minStockLevel) || 0,
+      const payload = {
+        items: filled.map((it) => ({
+          ...it,
+          materialCode: it.materialCode.trim(),
+          name: it.name.trim(),
+          minStockLevel: parseFloat(it.minStockLevel) || 0,
+        })),
       };
-      await api.post('/products', data);
+      await api.post('/products/bulk', payload);
       setShowModal(false);
-      setForm({ materialCode: '', name: '', description: '', category: 'Raw Material', unit: 'pcs', minStockLevel: 0 });
+      setItems([blankItem()]);
       fetchProducts();
     } catch (err) {
-      setFormError(err.response?.data?.error || 'Failed to create product');
+      setFormError(err.response?.data?.error || 'Failed to create products');
     } finally {
       setSaving(false);
     }
@@ -267,7 +285,7 @@ export default function Products() {
               </Button>
             )}
             {canEdit && tab === 'raps' && (
-              <Button onClick={() => setShowModal(true)}>
+              <Button onClick={openAddModal}>
                 <Plus size={16} /> Add Product
               </Button>
             )}
@@ -330,32 +348,61 @@ export default function Products() {
         <FimStatusView user={user} onOpenProduct={(id) => navigate(`/products/${id}`)} />
       )}
 
-      {/* Add Product Modal — only relevant on RAPS tab */}
+      {/* Add Product(s) Modal — enter one or many items in one go */}
       {canEdit && (
-        <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Product" size="lg">
+        <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Products" size="lg">
           <form onSubmit={handleCreate} className="space-y-4">
             {formError && <p className="text-sm text-brand-red">{formError}</p>}
-            <Input
-              label="ID No. *"
-              value={form.materialCode}
-              onChange={(e) => setForm({ ...form, materialCode: e.target.value })}
-              placeholder="e.g. 1000"
-              required
-            />
-            <Input label="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            <Input label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-            <div className="grid grid-cols-3 gap-4">
-              <Select label="Material Type *" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} required>
-                {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools & Fastners', 'Tools & Fixtures', 'Stationery', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
-              </Select>
-              <Select label="Unit" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
-                {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
-              </Select>
-              <Input label="Min Stock Level" type="number" value={form.minStockLevel} onChange={(e) => setForm({ ...form, minStockLevel: e.target.value })} />
+
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+              {items.map((item, idx) => (
+                <div key={idx} className="rounded-lg border border-gray-200 p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-navy-600">Item {idx + 1}</span>
+                    {items.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeItem(idx)}
+                        className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-brand-red"
+                      >
+                        <Trash2 size={14} /> Remove
+                      </button>
+                    )}
+                  </div>
+                  <Input
+                    label="ID No. *"
+                    value={item.materialCode}
+                    onChange={(e) => updateItem(idx, { materialCode: e.target.value })}
+                    placeholder="e.g. 1000"
+                  />
+                  <Input label="Name *" value={item.name} onChange={(e) => updateItem(idx, { name: e.target.value })} />
+                  <Input label="Description" value={item.description} onChange={(e) => updateItem(idx, { description: e.target.value })} />
+                  <div className="grid grid-cols-3 gap-4">
+                    <Select label="Material Type *" value={item.category} onChange={(e) => updateItem(idx, { category: e.target.value })}>
+                      {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools & Fastners', 'Tools & Fixtures', 'Stationery', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
+                    </Select>
+                    <Select label="Unit" value={item.unit} onChange={(e) => updateItem(idx, { unit: e.target.value })}>
+                      {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
+                    </Select>
+                    <Input label="Min Stock Level" type="number" value={item.minStockLevel} onChange={(e) => updateItem(idx, { minStockLevel: e.target.value })} />
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="flex justify-end gap-3 pt-2">
+
+            <button
+              type="button"
+              onClick={addItem}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-navy-700 hover:text-navy-900"
+            >
+              <Plus size={16} /> Add More Items
+            </button>
+
+            <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
               <Button variant="secondary" type="button" onClick={() => setShowModal(false)}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Create Product'}</Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? 'Saving...' : items.length > 1 ? `Create ${items.length} Products` : 'Create Product'}
+              </Button>
             </div>
           </form>
         </Modal>

@@ -100,14 +100,34 @@ const getFinancialYear = (date = new Date()) => {
   return `${String(startYear).slice(-2)}-${String(endYear).slice(-2)}`;
 };
 
+// ──── Live-cutover count starts ────
+// This system went live partway through a financial year, after PR/PO/MIV/MIR
+// numbers had already been issued on the previous (manual) system. Each value is
+// the FIRST number to issue this FY — the next document of that kind starts here
+// and counts up (unless a live record has already passed it, in which case that
+// record wins). Keyed by financial year, so any year NOT listed simply starts
+// from 1 again — e.g. FY 27-28 restarts the count from scratch.
+const DOC_NUMBER_START = {
+  '26-27': { PR: 83, PO: 101, MIV: 1, MIR: 1 },
+};
+
+// The cutover floor for (kind, FY): the next number is max(existing)+1 but never
+// below the configured start. We express the start S as a floor of (S - 1) so the
+// shared max+1 logic keeps working — first issue lands exactly on S.
+const baselineFor = (kind, date = new Date()) => {
+  const start = DOC_NUMBER_START[getFinancialYear(date)]?.[kind];
+  return start ? start - 1 : 0;
+};
+
 // Compute the next plain count for (kind, FY). Reads existing numbers matching the
-// `RAPS/<KIND>/<FY>/` prefix and returns max+1. Caller must catch P2002 and retry.
-const nextFyCount = async (prisma, modelName, field, prefix) => {
+// `RAPS/<KIND>/<FY>/` prefix and returns max+1, never below the cutover `floor`
+// (= start - 1, see baselineFor). Caller must catch P2002 and retry.
+const nextFyCount = async (prisma, modelName, field, prefix, floor = 0) => {
   const rows = await prisma[modelName].findMany({
     where: { [field]: { startsWith: prefix } },
     select: { [field]: true },
   });
-  let max = 0;
+  let max = floor;
   for (const row of rows) {
     const val = row[field];
     if (!val) continue;
@@ -122,14 +142,14 @@ const generateSequentialNumber = async (prisma, kind, date = new Date()) => {
   const meta = DOC_NUMBER_MAP[kind];
   if (!meta) throw new Error(`Unknown document kind: ${kind}`);
   const prefix = `RAPS/${kind}/${getFinancialYear(date)}/`;
-  const next = await nextFyCount(prisma, meta.model, meta.field, prefix);
+  const next = await nextFyCount(prisma, meta.model, meta.field, prefix, baselineFor(kind, date));
   return `${prefix}${next}`;
 };
 
 // MIR uses the same FY-scoped scheme but lives on PurchaseOrder.mirNo.
 const generateMirNumber = async (prisma, date = new Date()) => {
   const prefix = `RAPS/MIR/${getFinancialYear(date)}/`;
-  const next = await nextFyCount(prisma, 'purchaseOrder', 'mirNo', prefix);
+  const next = await nextFyCount(prisma, 'purchaseOrder', 'mirNo', prefix, baselineFor('MIR', date));
   return `${prefix}${next}`;
 };
 

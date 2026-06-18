@@ -2,11 +2,8 @@ import { createContext, useContext, useState, useEffect, useRef, useCallback } f
 import api from '../api/axios';
 import { useAuth } from './AuthContext';
 import { ensurePushSubscription, enablePush, pushSupported, pushPermission } from '../utils/push';
+import { notificationRoute } from '../utils/notificationRoutes';
 import Toaster from '../components/shared/Toaster';
-
-// Where a toast click should land, by notification type.
-const toastUrlFor = (type) =>
-  (type === 'MESSAGE_RECEIVED' || type === 'MESSAGE_DONE') ? '/messaging' : '/notifications';
 
 const NotificationContext = createContext(null);
 
@@ -36,6 +33,17 @@ export function NotificationProvider({ children }) {
     const perm = await enablePush();
     setPushPerm(perm);
     if (perm !== 'default') setEnableDismissed(true);
+  }, []);
+
+  // Viewing the Notifications tab marks everything read on the server and clears
+  // the red unread badge right away (the 5s poll keeps it at 0 afterwards).
+  const markAllRead = useCallback(async () => {
+    try {
+      await api.patch('/alerts/notifications/mark-all-read');
+      setUnreadCount(0);
+    } catch {
+      // network blip — the next poll will reconcile the count
+    }
   }, []);
 
   useEffect(() => {
@@ -166,7 +174,7 @@ export function NotificationProvider({ children }) {
                 title: n.title,
                 message: n.message,
                 type: n.type,
-                url: toastUrlFor(n.type),
+                url: notificationRoute(n.type),
               }));
               setToasts((prev) => [...fresh, ...prev].slice(0, 4));
             } else {
@@ -203,7 +211,7 @@ export function NotificationProvider({ children }) {
   const showEnable = Boolean(user) && pushSupported() && pushPerm === 'default' && !enableDismissed;
 
   return (
-    <NotificationContext.Provider value={{ unreadCount }}>
+    <NotificationContext.Provider value={{ unreadCount, markAllRead }}>
       {children}
       <Toaster
         toasts={toasts}
@@ -217,7 +225,7 @@ export function NotificationProvider({ children }) {
 }
 
 export function useNotificationCenter() {
-  return useContext(NotificationContext) || { unreadCount: 0 };
+  return useContext(NotificationContext) || { unreadCount: 0, markAllRead: async () => {} };
 }
 
 // Auto-refresh hook is kept as a no-op for backward compatibility with

@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, BellRing, X, Trash2, Send } from 'lucide-react';
 import api from '../api/axios';
-import { useAutoRefresh } from '../context/NotificationContext';
+import { useAutoRefresh, useNotificationCenter } from '../context/NotificationContext';
+import { notificationRoute } from '../utils/notificationRoutes';
 import { enablePush, pushPermission, pushSupported } from '../utils/push';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
@@ -95,70 +96,6 @@ function PushSettings() {
   );
 }
 
-const typeRoutes = {
-  LOW_STOCK: '/products',
-  NEW_REQUEST: '/request-clearance',
-  REQUEST_APPROVED: '/my-requests',
-  REQUEST_REJECTED: '/my-requests',
-  TRANSFER_REQUEST: '/inventory-transfers',
-  TRANSFER_APPROVED: '/inventory-transfers',
-  TRANSFER_REJECTED: '/inventory-transfers',
-  PAYMENT_REQUEST: '/payment-requests',
-  PAYMENT_APPROVED: '/payment-requests',
-  PAYMENT_PROCESSED: '/payment-requests',
-  PAYMENT_REJECTED: '/payment-requests',
-  GOODS_ARRIVED: '/purchase-orders',
-  INWARD_COMPLETE: '/purchase-orders',
-  PARTIAL_DELIVERY: '/purchase-orders',
-  ITEM_STATUS_UPDATE: '/purchase-orders',
-  ORDER_PLACED: '/purchase-orders',
-  ORDER_PLACED_ON_CREDIT: '/purchase-orders',
-  PO_FORCE_CLOSED: '/purchase-orders',
-  INSPECTION_REQUEST: '/inward-entry',
-  QC_PASSED: '/inward-entry',
-  QC_FAILED: '/inward-entry',
-  QC_ON_HOLD: '/inward-entry',
-  QC_RE_REVIEW: '/inward-entry',
-  INWARD_QC_REQUEST: '/inward-entry',
-  INWARD_QC_DONE: '/inward-entry',
-  INSPECTION_PASSED: '/purchase-requests',
-  INSPECTION_FAILED: '/purchase-requests',
-  INSPECTION_PARTIAL: '/purchase-requests',
-  ION_RECEIVED: '/ion',
-  ION_STATUS_UPDATE: '/ion',
-  NEW_PURCHASE_REQUEST: '/purchase-requests',
-  PURCHASE_REQUEST_APPROVED: '/purchase-requests',
-  PURCHASE_REQUEST_REJECTED: '/purchase-requests',
-  NEW_PURCHASE_ASSIGNMENT: '/purchase-requests',
-  PURCHASE_COMPLETED: '/purchase-requests',
-  PR_CLOSED: '/purchase-requests',
-  QUOTATION_REVIEW: '/quotations',
-  QUOTATION_APPROVED: '/quotations',
-  QUOTATION_HOLD: '/quotations',
-  QUOTATION_RESUBMITTED: '/quotations',
-  WORK_ORDER_PENDING_ADMIN: '/work-orders',
-  WORK_ORDER_ASSIGNED_TO_UNIT: '/work-orders',
-  WORK_ORDER_UNIT_ACCEPTED: '/work-orders',
-  WORK_ORDER_UNIT_REJECTED: '/work-orders',
-  WORK_ORDER_ADMIN_ACCEPTED: '/work-orders',
-  WORK_ORDER_REJECTED: '/work-orders',
-  WO_CLOSURE_UPDATE: '/work-orders',
-  WO_CLOSURE_QC_PENDING: '/work-orders',
-  WO_CLOSURE_MGMT_PENDING: '/work-orders',
-  WO_CLOSURE_FINANCE_PENDING: '/work-orders',
-  WO_CLOSURE_ON_HOLD: '/work-orders',
-  WO_CLOSURE_HOLD_RESOLVED: '/work-orders',
-  WO_CLOSURE_SLA_REMINDER: '/work-orders',
-  WO_CLOSURE_SLA_BREACH: '/work-orders',
-  GATE_PASS_REQUEST: '/gate-pass',
-  GATE_PASS_STAGE: '/gate-pass',
-  GATE_PASS_APPROVED: '/gate-pass',
-  GATE_PASS_REJECTED: '/gate-pass',
-  GATE_PASS_INWARD: '/gate-pass',
-  GATE_PASS_COLLECTED: '/gate-pass',
-  MESSAGE_RECEIVED: '/',
-};
-
 const typeColors = {
   LOW_STOCK: 'red',
   NEW_REQUEST: 'yellow',
@@ -218,7 +155,17 @@ const typeColors = {
   GATE_PASS_REJECTED: 'red',
   GATE_PASS_INWARD: 'yellow',
   GATE_PASS_COLLECTED: 'green',
+  WO_CLOSURE_PAYMENT_DELAYED: 'red',
+  WO_CLOSURE_WEEKLY_FOLLOWUP: 'yellow',
+  WO_PDC_3MONTH_ALERT: 'orange',
+  PO_CLOSED: 'gray',
+  INWARD_QC_REQUEST: 'yellow',
+  INWARD_QC_DONE: 'green',
+  INWARD_QC_HOLD: 'orange',
   MESSAGE_RECEIVED: 'blue',
+  MESSAGE_DONE: 'green',
+  BROADCAST: 'blue',
+  INFO: 'gray',
 };
 
 export default function Notifications() {
@@ -229,6 +176,7 @@ export default function Notifications() {
   const [totalCount, setTotalCount] = useState(0);
   const navigate = useNavigate();
   const refreshKey = useAutoRefresh();
+  const { markAllRead } = useNotificationCenter();
 
   const fetchNotifications = () => {
     setLoading(true);
@@ -242,6 +190,10 @@ export default function Notifications() {
   };
 
   useEffect(() => { fetchNotifications(); }, [page, refreshKey]);
+
+  // Opening the inbox = "viewed" → clear the red unread badge. Notifications
+  // stay listed so they can still be clicked through to their source page.
+  useEffect(() => { markAllRead(); }, [markAllRead]);
 
   const dismiss = async (id, e) => {
     e.stopPropagation();
@@ -258,8 +210,7 @@ export default function Notifications() {
     try {
       await api.delete(`/alerts/notifications/${n.id}`);
     } catch {}
-    const route = typeRoutes[n.type] || '/';
-    navigate(route);
+    navigate(notificationRoute(n.type));
   };
 
   return (

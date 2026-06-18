@@ -171,6 +171,7 @@ router.get('/:id', authenticate, async (req, res) => {
 router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'PLANNING'), acceptFimGpPdf, async (req, res) => {
   try {
     const {
+      passNumber: rawPassNumber,
       siteName, remarks, items, direction: rawDirection,
       customerName, customerGatePassNo, customerGatePassDate,
       inwardKind: rawInwardKind, destinationUnitId,
@@ -202,6 +203,13 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'At least one item is required' });
+    }
+
+    // Pass number is entered manually by the stores person (no auto-count).
+    // Required; duplicates are allowed (passNumber is no longer unique).
+    const passNumber = (rawPassNumber || '').trim();
+    if (!passNumber) {
+      return res.status(400).json({ error: 'Gate pass number is required' });
     }
 
     const inwardKind = isInward ? (INWARD_KINDS.includes(rawInwardKind) ? rawInwardKind : 'STORES') : null;
@@ -280,10 +288,9 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
       ? (inwardKind === 'STORES' ? 'ACCEPTED' : 'PENDING_ACCEPTANCE')
       : 'PENDING_STORE';
 
-    let passNumber;
     let fimNumber = null;
     const gatePass = await withDocRetry(async () => {
-      passNumber = await generateSequentialNumber(prisma, 'GP');
+      // passNumber is supplied manually (validated above) — not auto-generated.
       // FIM/Customer Property Register number — only for INWARD STORES intake.
       if (isInward && inwardKind === 'STORES') {
         fimNumber = await generateSequentialNumber(prisma, 'FIM');

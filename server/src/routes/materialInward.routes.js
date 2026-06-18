@@ -469,6 +469,8 @@ router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
       vehicleDetails: b.vehicleDetails?.trim() || null,
       docType,
       docNumber: b.docNumber?.trim() || null,
+      documentDate: b.documentDate ? new Date(b.documentDate) : null,
+      manufacturingDate: b.manufacturingDate ? new Date(b.manufacturingDate) : null,
       purchaseOrderId: b.purchaseOrderId || null,
       purchaseOrderItemId: b.purchaseOrderItemId || null,
       supplierName: b.supplierName?.trim() || null,
@@ -554,6 +556,7 @@ router.post('/bulk', authenticate, authorize(...WRITE_ROLES), async (req, res) =
       vehicleDetails: b.vehicleDetails?.trim() || null,
       docType,
       docNumber: b.docNumber?.trim() || null,
+      documentDate: b.documentDate ? new Date(b.documentDate) : null,
       purpose: b.purpose?.trim() || null,
     };
 
@@ -584,6 +587,7 @@ router.post('/bulk', authenticate, authorize(...WRITE_ROLES), async (req, res) =
             issuedToUnitId, issuedToDept, issuedToLabel, indenterId, indenterName, unitAllocations,
             batchNo: ln.batchNo?.trim() || null,
             dateOfExpiry: ln.dateOfExpiry ? new Date(ln.dateOfExpiry) : null,
+            manufacturingDate: ln.manufacturingDate ? new Date(ln.manufacturingDate) : null,
             lotNo: lot,
             createdById: req.user.id,
             mirNo,
@@ -614,10 +618,12 @@ router.patch('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) =
     if (b.vehicleDetails !== undefined) patch.vehicleDetails = b.vehicleDetails?.trim() || null;
     if (b.docType && ['INVOICE', 'CASH_PURCHASE', 'DELIVERY_CHALLAN', 'GATE_PASS'].includes(b.docType)) patch.docType = b.docType;
     if (b.docNumber !== undefined) patch.docNumber = b.docNumber?.trim() || null;
+    if (b.documentDate !== undefined) patch.documentDate = b.documentDate ? new Date(b.documentDate) : null;
     if (b.qtyReceived !== undefined) patch.qtyReceived = b.qtyReceived === '' || b.qtyReceived == null ? null : Number(b.qtyReceived);
     if (b.purpose !== undefined) patch.purpose = b.purpose?.trim() || null;
     if (b.batchNo !== undefined) patch.batchNo = b.batchNo?.trim() || null;
     if (b.dateOfExpiry !== undefined) patch.dateOfExpiry = b.dateOfExpiry ? new Date(b.dateOfExpiry) : null;
+    if (b.manufacturingDate !== undefined) patch.manufacturingDate = b.manufacturingDate ? new Date(b.manufacturingDate) : null;
     if (b.itemDescription !== undefined && !row.purchaseOrderId) patch.itemDescription = b.itemDescription?.trim() || row.itemDescription;
     if (b.uom !== undefined && !row.purchaseOrderId) patch.uom = b.uom?.trim() || null;
     if (b.productId !== undefined && !row.purchaseOrderId) patch.productId = b.productId || null;
