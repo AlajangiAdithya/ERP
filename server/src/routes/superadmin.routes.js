@@ -619,9 +619,9 @@ router.get('/uploads', async (req, res) => {
       url: q.quotationPdfUrl, uploadedAt: q.quotation?.createdAt || null, uploadedBy: null,
     }));
 
-    // 20. SupplierVendorEvaluation.pdfUrl — per-record VE PDF (history rows)
+    // 20. SupplierVendorEvaluation.pdfUrl — per-record VE PDF (history rows).
+    // pdfUrl is a required column (every row has one), so no not-null filter.
     const veRecords = await prisma.supplierVendorEvaluation.findMany({
-      where: { pdfUrl: { not: null } },
       select: {
         id: true, pdfUrl: true, documentDate: true, createdAt: true, uploadedByName: true,
         supplier: { select: { name: true } },
