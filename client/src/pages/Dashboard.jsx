@@ -6,9 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import StatsCard from '../components/shared/StatsCard';
 import DashboardHero from '../components/shared/DashboardHero';
 import SectionHeader from '../components/shared/SectionHeader';
-import PdcStatusBoard from '../components/shared/PdcStatusBoard';
+import OpsRadarChat from '../components/shared/OpsRadarChat';
 import SlaTicker from '../components/shared/SlaTicker';
-import TeamChat from '../components/shared/TeamChat';
 import CalendarView from './Calendar';
 import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
@@ -322,8 +321,8 @@ function AdminDashboard() {
         <StatsCard title="Pending MIV Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" onClick={() => navigate('/all-requests')} />
       </div>
 
-      {/* PDC delivery-commitment warnings — overdue / ≤90d work orders */}
-      <PdcStatusBoard />
+      {/* PDC delivery radar + org Team Chat, side by side — both are daily priorities */}
+      <OpsRadarChat />
 
       {/* Purchase Request Stats */}
       {prStats && (
@@ -617,9 +616,9 @@ function ManagerDashboard() {
         />
       </div>
 
-      {/* PDC warnings for this unit's work orders — managers must file the
-          3-month remark, so surface the countdown right on their dashboard. */}
-      {user?.role === 'MANAGER' && <PdcStatusBoard showAllClear={false} />}
+      {/* PDC radar + Team Chat for this unit's managers — they must file the
+          3-month remark, so surface the countdown (and the chat) on their dashboard. */}
+      {user?.role === 'MANAGER' && <OpsRadarChat />}
 
       {/* Purchase Request Progress */}
       {purchaseRequests.filter(r => ['APPROVED', 'IN_PROGRESS'].includes(r.status)).length > 0 && (
@@ -2667,8 +2666,8 @@ function SupplyChainDashboard() {
         <StatsCard title="Overdue" value={overdue} icon={AlertTriangle} color={overdue > 0 ? 'red' : 'green'} onClick={() => navigate('/work-orders')} />
       </div>
 
-      {/* PDC delivery-commitment warnings — supply chain owns PDC and extensions */}
-      <PdcStatusBoard />
+      {/* PDC radar + Team Chat — supply chain owns PDC and extensions */}
+      <OpsRadarChat />
 
       <Card>
         <SectionHeader
@@ -3297,8 +3296,8 @@ function PlanningDashboard() {
         <StatsCard title="Live WO Alarms" value={totalActiveAlarms} icon={BellRing} color="red" onClick={() => navigate('/work-orders')} />
       </div>
 
-      {/* Delivery-commitment oversight */}
-      <PdcStatusBoard />
+      {/* Delivery-commitment oversight + Team Chat */}
+      <OpsRadarChat />
 
       {/* Purchase pipeline (read-only) */}
       {prStats && (

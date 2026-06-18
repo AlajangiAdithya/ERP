@@ -127,4 +127,35 @@ async function previewBackup(key) {
   }
 }
 
-module.exports = { listBackupTree, signBackupUrl, previewBackup };
+// Count "delete: …" lines in `aws s3 rm` output to report how many objects went.
+const countDeletions = (out) => (out.match(/^delete:/gm) || []).length;
+
+// Delete a single backup object by its full key.
+async function deleteBackup(key) {
+  if (!BUCKET) throw new Error('S3_BACKUP_BUCKET env not set');
+  if (!key || typeof key !== 'string') throw new Error('key required');
+  await aws(['s3', 'rm', `s3://${BUCKET}/${key}`, '--region', REGION]);
+  return { ok: true, deleted: 1 };
+}
+
+// Delete every object under a prefix (one tier, or a whole FY folder). Requires a
+// non-empty prefix on purpose — a full-bucket wipe must go through deleteAllBackups
+// so it can never happen by accidentally passing an empty prefix.
+async function deleteBackupPrefix(prefix) {
+  if (!BUCKET) throw new Error('S3_BACKUP_BUCKET env not set');
+  if (!prefix || typeof prefix !== 'string') throw new Error('prefix required');
+  const out = await aws(['s3', 'rm', `s3://${BUCKET}/${prefix}`, '--recursive', '--region', REGION]);
+  return { ok: true, deleted: countDeletions(out) };
+}
+
+// Delete the ENTIRE backup archive (every object in the bucket).
+async function deleteAllBackups() {
+  if (!BUCKET) throw new Error('S3_BACKUP_BUCKET env not set');
+  const out = await aws(['s3', 'rm', `s3://${BUCKET}/`, '--recursive', '--region', REGION]);
+  return { ok: true, deleted: countDeletions(out) };
+}
+
+module.exports = {
+  listBackupTree, signBackupUrl, previewBackup,
+  deleteBackup, deleteBackupPrefix, deleteAllBackups,
+};

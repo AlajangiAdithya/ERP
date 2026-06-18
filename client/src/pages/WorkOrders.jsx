@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, Plus, CheckCircle2, Clock, XCircle, Building2,
   CalendarClock, TrendingUp, ShieldCheck, PauseCircle,
@@ -6,7 +7,7 @@ import {
   FileText, Receipt, ShieldAlert, Upload, AlertTriangle, Timer, Trash2, Check,
   GitBranch, ArrowRight, ArrowDown, Download, Paperclip, BellRing,
   Banknote, Wallet, FilePlus2, FileCheck2, UserCheck, Truck, RefreshCw,
-  Filter, X, Hash,
+  Filter, X, Hash, ArrowUpDown, SlidersHorizontal,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -120,6 +121,22 @@ export default function WorkOrders() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [view, setView] = useState('table'); // 'table' (detailed cards) | 'sheet' (full Excel grid)
   const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep link — the PDC radar (and any other page) can open a specific WO with
+  // ?wo=<id>; we pop the detail modal straight away and clear the param on close.
+  useEffect(() => {
+    const woId = searchParams.get('wo');
+    if (woId) setDetail({ id: woId });
+  }, [searchParams]);
+
+  const closeDetail = () => {
+    setDetail(null);
+    if (searchParams.get('wo')) {
+      searchParams.delete('wo');
+      setSearchParams(searchParams, { replace: true });
+    }
+  };
 
   // ── Filters (all client-side so every option is auto-derived from the data
   // and filtering is instant — no refetch needed). ──
@@ -130,6 +147,8 @@ export default function WorkOrders() {
   const [type, setType] = useState('ALL');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [sortBy, setSortBy] = useState('urgency'); // how the visible list is ordered
+  const [showFilters, setShowFilters] = useState(false); // collapse advanced filters by default
 
   // Load the full set once (and on refresh). The server still scopes MANAGERs
   // to their own unit; everything else is filtered in the browser.
@@ -271,6 +290,61 @@ export default function WorkOrders() {
     };
   }, [filtered]);
 
+  // ── Ordering of the visible list. Default "urgency" floats overdue + nearest
+  // PDC to the top so the most pressing orders are seen first. ──
+  const SORT_OPTIONS = [
+    { value: 'urgency', label: 'Most urgent (PDC)' },
+    { value: 'newest', label: 'Newest order date' },
+    { value: 'oldest', label: 'Oldest order date' },
+    { value: 'customer', label: 'Customer A → Z' },
+    { value: 'progress', label: 'Least delivered' },
+  ];
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    const pdc = (w) => (w.effectivePdcDate ? new Date(w.effectivePdcDate).getTime() : Infinity);
+    const ordered = (w) => (w.supplyOrderDate ? new Date(w.supplyOrderDate).getTime() : 0);
+    const prog = (w) => (w.orderQuantity > 0 ? (w.deliveredQty || 0) / w.orderQuantity : 0);
+    switch (sortBy) {
+      case 'newest': arr.sort((a, b) => ordered(b) - ordered(a)); break;
+      case 'oldest': arr.sort((a, b) => ordered(a) - ordered(b)); break;
+      case 'customer': arr.sort((a, b) => (a.customerName || '').localeCompare(b.customerName || '')); break;
+      case 'progress': arr.sort((a, b) => prog(a) - prog(b)); break;
+      case 'urgency':
+      default:
+        arr.sort((a, b) => (Number(!!b.overdue) - Number(!!a.overdue)) || (pdc(a) - pdc(b)));
+        break;
+    }
+    return arr;
+  }, [filtered, sortBy]);
+
+  // ── Export the currently visible (filtered + sorted) work orders to CSV so
+  // they can be opened in Excel / shared. ──
+  const exportCsv = () => {
+    const cell = (v) => {
+      const s = v == null ? '' : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const headers = [
+      'WO #', 'Supply Order No', 'Customer', 'Nomenclature', 'Unit', 'Status',
+      'Order Qty', 'Delivered Qty', 'PDC', 'Overdue', 'Order Date',
+    ];
+    const rows = sorted.map((w) => [
+      w.workOrderNumber, w.supplyOrderNo, w.customerName, w.nomenclature,
+      w.assignedUnit?.name || w.assignedUnit?.code || w.assignedUnitName || '',
+      STATUS_META[w.status]?.label || w.status,
+      w.orderQuantity, w.deliveredQty, formatDate(w.effectivePdcDate),
+      w.overdue ? 'YES' : '', formatDate(w.supplyOrderDate),
+    ]);
+    const csv = [headers, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
+    const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `work-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
       <PageHero
@@ -347,8 +421,9 @@ export default function WorkOrders() {
       </div>
 
       <Card className="p-4 space-y-4">
-        {/* Search + view toggle */}
-        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+        {/* Search + sort + filters toggle + export + view toggle. Advanced
+            filters live behind the "Filters" toggle to keep this bar calm. */}
+        <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
           <div className="flex-1 min-w-0">
             <SearchBar
               value={search}
@@ -356,21 +431,64 @@ export default function WorkOrders() {
               placeholder="Search by customer, supply order no., WO number, or material…"
             />
           </div>
-          <div className="inline-flex bg-navy-50 rounded-lg p-0.5 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex items-center gap-1.5 rounded-lg border border-navy-200 bg-white px-2.5 py-1.5 text-xs font-medium shadow-sm">
+              <ArrowUpDown size={14} className="text-navy-400 flex-shrink-0" />
+              <span className="hidden sm:inline text-navy-500">Sort</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="bg-transparent font-semibold text-navy-800 focus:outline-none cursor-pointer"
+                aria-label="Sort work orders"
+              >
+                {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </label>
+
             <button
-              onClick={() => setView('table')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'table' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
-              title="Detailed rows"
+              type="button"
+              onClick={() => setShowFilters((s) => !s)}
+              aria-expanded={showFilters}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
+                showFilters || activeFilterCount > 0
+                  ? 'border-navy-700 bg-navy-700 text-white'
+                  : 'border-navy-200 bg-white text-navy-700 hover:bg-navy-50'
+              }`}
             >
-              <TableIcon size={13} className="inline mr-1" /> Detailed
+              <SlidersHorizontal size={14} /> Filters
+              {activeFilterCount > 0 && (
+                <span className="tnum rounded-full bg-white/25 px-1.5 py-0.5 text-[10px] leading-none">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
+
             <button
-              onClick={() => setView('sheet')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'sheet' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
-              title="Full Excel-style sheet — who updated what & when, approvals, PDC extensions"
+              type="button"
+              onClick={exportCsv}
+              disabled={!filtered.length}
+              title="Download the visible work orders as a CSV"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-navy-200 bg-white px-3 py-1.5 text-xs font-semibold text-navy-700 shadow-sm transition hover:bg-navy-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Sheet size={13} className="inline mr-1" /> Full View
+              <Download size={14} /> Export
             </button>
+
+            <div className="inline-flex bg-navy-50 rounded-lg p-0.5">
+              <button
+                onClick={() => setView('table')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'table' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
+                title="Detailed rows"
+              >
+                <TableIcon size={13} className="inline mr-1" /> Detailed
+              </button>
+              <button
+                onClick={() => setView('sheet')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'sheet' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
+                title="Full Excel-style sheet — who updated what & when, approvals, PDC extensions"
+              >
+                <Sheet size={13} className="inline mr-1" /> Full View
+              </button>
+            </div>
           </div>
         </div>
 
@@ -396,55 +514,61 @@ export default function WorkOrders() {
           })}
         </div>
 
-        {/* Dropdown filters + date range + clear + result count */}
-        <div className="flex flex-wrap items-end gap-3 pt-1 border-t border-gray-100">
-          <Select
-            label="Customer"
-            value={customer}
-            onChange={(e) => setCustomer(e.target.value)}
-            className="min-w-[180px]"
-          >
-            <option value="ALL">All customers ({customerOptions.length})</option>
-            {customerOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-          </Select>
-          <Select
-            label="Unit"
-            value={unitId}
-            onChange={(e) => setUnitId(e.target.value)}
-            className="min-w-[150px]"
-          >
-            <option value="ALL">All units</option>
-            {unitOptions.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            {unitNameOptions.map((n) => <option key={`NAME:${n}`} value={`NAME:${n}`}>{n} (sheet)</option>)}
-            <option value="NONE">Not assigned</option>
-          </Select>
-          {typeOptions.length > 0 && (
-            <Select
-              label="Order Type"
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="min-w-[140px]"
-            >
-              <option value="ALL">All types</option>
-              {typeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-            </Select>
-          )}
-          <div>
-            <span className="block text-[13px] font-semibold text-navy-700 mb-1.5">Order date</span>
-            <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
-          </div>
+        {/* Always-visible meta line — clear filters + live result count. */}
+        <div className="flex flex-wrap items-center gap-3">
           {activeFilterCount > 0 && (
             <Button variant="ghost" onClick={clearFilters} className="text-xs">
               <X size={14} className="mr-1" /> Clear {activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'}
             </Button>
           )}
-          <div className="ml-auto self-center flex items-center gap-1.5 text-xs font-medium text-navy-500">
+          <div className="ml-auto flex items-center gap-1.5 text-xs font-medium text-navy-500">
             <Filter size={13} />
             Showing <span className="font-bold text-navy-800 tnum">{filtered.length}</span>
             {filtered.length !== workOrders.length && <span>of {workOrders.length}</span>}
             work order{filtered.length === 1 ? '' : 's'}
           </div>
         </div>
+
+        {/* Advanced filters — collapsed by default (progressive disclosure). */}
+        {showFilters && (
+          <div className="flex flex-wrap items-end gap-3 pt-3 border-t border-gray-100">
+            <Select
+              label="Customer"
+              value={customer}
+              onChange={(e) => setCustomer(e.target.value)}
+              className="min-w-[180px]"
+            >
+              <option value="ALL">All customers ({customerOptions.length})</option>
+              {customerOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+            </Select>
+            <Select
+              label="Unit"
+              value={unitId}
+              onChange={(e) => setUnitId(e.target.value)}
+              className="min-w-[150px]"
+            >
+              <option value="ALL">All units</option>
+              {unitOptions.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              {unitNameOptions.map((n) => <option key={`NAME:${n}`} value={`NAME:${n}`}>{n} (sheet)</option>)}
+              <option value="NONE">Not assigned</option>
+            </Select>
+            {typeOptions.length > 0 && (
+              <Select
+                label="Order Type"
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="min-w-[140px]"
+              >
+                <option value="ALL">All types</option>
+                {typeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+              </Select>
+            )}
+            <div>
+              <span className="block text-[13px] font-semibold text-navy-700 mb-1.5">Order date</span>
+              <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
+            </div>
+          </div>
+        )}
       </Card>
 
       {loading ? (
@@ -469,9 +593,9 @@ export default function WorkOrders() {
           </div>
         </Card>
       ) : view === 'table' ? (
-        <DashboardTable workOrders={filtered} onOpen={setDetail} />
+        <DashboardTable workOrders={sorted} onOpen={setDetail} />
       ) : (
-        <WorkOrderSheet workOrders={filtered} onOpen={setDetail} />
+        <WorkOrderSheet workOrders={sorted} onOpen={setDetail} />
       )}
 
       {showCreate && (
@@ -487,7 +611,7 @@ export default function WorkOrders() {
           workOrderId={detail.id}
           currentUser={user}
           units={units}
-          onClose={() => setDetail(null)}
+          onClose={closeDetail}
           onUpdated={() => { setRefreshKey((k) => k + 1); }}
         />
       )}

@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, UserCog,
   BarChart3, Settings, Menu, X,
-  CheckSquare, ScrollText, Bell,
+  CheckSquare, ScrollText,
   Building2, ShieldCheck, Crown, Boxes, Ruler,
   ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation, Gauge,
   MessagesSquare,
@@ -74,8 +74,8 @@ const buildAllItems = () => {
     // Document uploads gated to Unit-5 server-side.
     // HIDDEN FROM ERP (code retained, not removed):
     // { to: '/qms', icon: Gauge, label: 'QMS', roles: ALL_ROLES },
-    // Utility — available to everyone.
-    { to: '/notifications', icon: Bell, label: 'Notifications', roles: ALL_ROLES },
+    // Utility — available to everyone. Notifications intentionally omitted from
+    // the side menu: it's reachable from the header bell on every page.
     { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
     // Admin-only.
     { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },

@@ -10,7 +10,10 @@ const { authenticate } = require('../middleware/auth');
 const { superadminOnly } = require('../middleware/superadminOnly');
 const { generateAccessToken } = require('../utils/jwt');
 const prisma = require('../config/db');
-const { listBackupTree, signBackupUrl, previewBackup } = require('../services/s3Browse');
+const {
+  listBackupTree, signBackupUrl, previewBackup,
+  deleteBackup, deleteBackupPrefix, deleteAllBackups,
+} = require('../services/s3Browse');
 
 const execAsync = promisify(exec);
 
@@ -836,6 +839,27 @@ router.get('/backups', async (req, res) => {
   } catch (e) {
     console.error('superadmin/backups error:', e);
     res.status(500).json({ error: e.message || 'Failed to list backups' });
+  }
+});
+
+// DELETE /api/superadmin/backups — remove backups from the S3 archive.
+// Body (one of):
+//   { key }       delete a single backup object
+//   { prefix }    delete every object under a tier/FY folder (e.g. "FY26-27/weekly/")
+//   { all: true } delete the ENTIRE backup bucket
+// Needs s3:DeleteObject on the bucket for the EC2 instance role.
+router.delete('/backups', async (req, res) => {
+  const { key, prefix, all } = req.body || {};
+  try {
+    let result;
+    if (all === true) result = await deleteAllBackups();
+    else if (prefix) result = await deleteBackupPrefix(prefix);
+    else if (key) result = await deleteBackup(key);
+    else return res.status(400).json({ error: 'Provide key, prefix, or all:true' });
+    res.json(result);
+  } catch (e) {
+    console.error('superadmin/backups delete error:', e);
+    res.status(500).json({ error: e.message || 'Failed to delete backup(s)' });
   }
 });
 

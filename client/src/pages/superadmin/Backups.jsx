@@ -3,7 +3,7 @@
 // metadata.json (or master snapshot) and grab a 5-minute presigned download URL.
 
 import { useEffect, useState } from 'react';
-import { HardDrive, Download, Eye, ChevronRight, ChevronDown, RefreshCw, X, Database, FolderArchive } from 'lucide-react';
+import { HardDrive, Download, Eye, ChevronRight, ChevronDown, RefreshCw, X, Database, FolderArchive, Trash2 } from 'lucide-react';
 import api from '../../api/axios';
 import PageHero from '../../components/shared/PageHero';
 
@@ -84,6 +84,48 @@ export default function Backups() {
     }
   }
 
+  // ── Deletes (S3 objects are gone for good once removed) ──
+  async function runDelete(body, confirmMsg) {
+    if (!window.confirm(confirmMsg)) return;
+    setError('');
+    try {
+      await api.delete('/superadmin/backups', { data: body });
+      fetchTree();
+      fetchSysInfo();
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+    }
+  }
+
+  const deleteFile = (file) =>
+    runDelete({ key: file.key }, `Permanently delete this backup from S3?\n\n${file.key}\n\nThis cannot be undone.`);
+
+  const deleteTier = (fy, tier) =>
+    runDelete(
+      { prefix: `${fy}/${tier}/` },
+      `Delete ALL ${tree[fy]?.[tier]?.length || 0} ${TIER_LABELS[tier]} backup(s) under ${fy}?\n\nThis cannot be undone.`,
+    );
+
+  const deleteFY = (fy) =>
+    runDelete(
+      { prefix: `${fy}/` },
+      `Delete EVERY backup under ${fy} (all tiers)?\n\nThis cannot be undone.`,
+    );
+
+  async function deleteAll() {
+    const ans = window.prompt('This PERMANENTLY deletes EVERY backup in the bucket.\n\nType  DELETE ALL  to confirm:');
+    if (ans !== 'DELETE ALL') return;
+    setError('');
+    try {
+      const { data } = await api.delete('/superadmin/backups', { data: { all: true } });
+      window.alert(`Deleted ${data.deleted ?? 0} backup object(s).`);
+      fetchTree();
+      fetchSysInfo();
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+    }
+  }
+
   const fys = Object.keys(tree).sort().reverse();
 
   return (
@@ -94,9 +136,16 @@ export default function Backups() {
         eyebrow="SuperAdmin"
         icon={HardDrive}
         actions={
-          <button onClick={() => { fetchTree(); fetchSysInfo(); }} className="px-3 py-2 text-sm bg-white/10 hover:bg-white/15 backdrop-blur-sm border border-white/20 rounded-lg text-white flex items-center gap-1.5 transition-colors">
-            <RefreshCw size={14} /> Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => { fetchTree(); fetchSysInfo(); }} className="px-3 py-2 text-sm bg-white/10 hover:bg-white/15 backdrop-blur-sm border border-white/20 rounded-lg text-white flex items-center gap-1.5 transition-colors">
+              <RefreshCw size={14} /> Refresh
+            </button>
+            {fys.length > 0 && (
+              <button onClick={deleteAll} className="px-3 py-2 text-sm bg-red-600/90 hover:bg-red-600 border border-red-400/40 rounded-lg text-white flex items-center gap-1.5 transition-colors">
+                <Trash2 size={14} /> Delete all
+              </button>
+            )}
+          </div>
         }
       />
 
@@ -160,13 +209,22 @@ export default function Backups() {
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           {fys.map((fy) => (
             <div key={fy} className="border-b last:border-b-0">
-              <button
-                onClick={() => setOpenFY((o) => ({ ...o, [fy]: !o[fy] }))}
-                className="w-full px-4 py-3 flex items-center gap-2 bg-gray-50 hover:bg-gray-100"
-              >
-                {openFY[fy] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                <span className="font-semibold text-gray-900">{fy}</span>
-              </button>
+              <div className="w-full px-4 py-3 flex items-center gap-2 bg-gray-50 hover:bg-gray-100">
+                <button
+                  onClick={() => setOpenFY((o) => ({ ...o, [fy]: !o[fy] }))}
+                  className="flex items-center gap-2 flex-1 text-left"
+                >
+                  {openFY[fy] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  <span className="font-semibold text-gray-900">{fy}</span>
+                </button>
+                <button
+                  onClick={() => deleteFY(fy)}
+                  className="text-red-600 hover:text-red-800 p-1"
+                  title={`Delete all backups under ${fy}`}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
               {openFY[fy] && (
                 <div>
                   {TIER_ORDER.filter((t) => tree[fy][t]).map((tier) => {
@@ -174,14 +232,23 @@ export default function Backups() {
                     const files = tree[fy][tier];
                     return (
                       <div key={tierKey} className="border-t">
-                        <button
-                          onClick={() => setOpenTier((o) => ({ ...o, [tierKey]: !o[tierKey] }))}
-                          className="w-full px-8 py-2 flex items-center gap-2 text-sm hover:bg-gray-50"
-                        >
-                          {openTier[tierKey] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          <span className="font-medium text-gray-700">{TIER_LABELS[tier]}</span>
-                          <span className="text-xs text-gray-400">({files.length})</span>
-                        </button>
+                        <div className="w-full px-8 py-2 flex items-center gap-2 text-sm hover:bg-gray-50">
+                          <button
+                            onClick={() => setOpenTier((o) => ({ ...o, [tierKey]: !o[tierKey] }))}
+                            className="flex items-center gap-2 flex-1 text-left"
+                          >
+                            {openTier[tierKey] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            <span className="font-medium text-gray-700">{TIER_LABELS[tier]}</span>
+                            <span className="text-xs text-gray-400">({files.length})</span>
+                          </button>
+                          <button
+                            onClick={() => deleteTier(fy, tier)}
+                            className="text-red-600 hover:text-red-800 p-1"
+                            title={`Delete all ${TIER_LABELS[tier]} backups under ${fy}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                         {openTier[tierKey] && (
                           <div className="bg-gray-50 px-12 py-1">
                             {files.map((f) => (
@@ -204,6 +271,12 @@ export default function Backups() {
                                     className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"
                                   >
                                     <Download size={12} /> Download
+                                  </button>
+                                  <button
+                                    onClick={() => deleteFile(f)}
+                                    className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 flex items-center gap-1"
+                                  >
+                                    <Trash2 size={12} /> Delete
                                   </button>
                                 </div>
                               </div>

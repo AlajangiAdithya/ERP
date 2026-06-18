@@ -159,9 +159,12 @@ export default function PdcStatusBoard({ showAllClear = true }) {
                   <tr
                     key={w.id}
                     className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`}
-                    onClick={() => navigate('/work-orders')}
+                    onClick={() => navigate(`/work-orders?wo=${w.id}`)}
+                    title="Open this work order"
                   >
-                    <td className="px-3 py-2.5 font-mono text-xs font-semibold text-navy-700">{w.workOrderNumber}</td>
+                    <td className="px-3 py-2.5 font-mono text-xs font-semibold text-navy-700 group-hover:underline">
+                      <span className="underline decoration-navy-200 underline-offset-2 hover:decoration-navy-500">{w.workOrderNumber}</span>
+                    </td>
                     <td className="px-3 py-2.5 text-gray-600 max-w-[180px] truncate">{w.customerName || '—'}</td>
                     <td className="px-3 py-2.5">
                       {w.assignedUnit
