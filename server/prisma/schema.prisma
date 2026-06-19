@@ -394,6 +394,10 @@ model ProductRequest {
   // the unassigned pool rather than a unit's bucket.
   unitId         String?
   unit           Unit?         @relation(fields: [unitId], references: [id])
+  // Optional header-level link to the Work Order this MIV is issued against.
+  // Null = "No work order". SetNull so removing a WO never deletes its MIVs.
+  workOrderId    String?
+  workOrder      WorkOrder?    @relation("ProductRequestWorkOrder", fields: [workOrderId], references: [id], onDelete: SetNull)
   status         RequestStatus @default(PENDING)
   notes          String?
   remarks        String? // Remarks field from MIV form
@@ -404,6 +408,8 @@ model ProductRequest {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   items          RequestItem[]
+
+  @@index([workOrderId])
 }
 
 model RequestItem {
@@ -440,6 +446,10 @@ model PurchaseRequest {
   // LAB, METROLOGY, NDT, SAFETY) — they raise PRs in their own name.
   unitId               String?
   unit                 Unit?                 @relation(fields: [unitId], references: [id])
+  // Optional header-level link to the Work Order this PR is raised for. Null =
+  // "No work order". SetNull so removing a WO never deletes its PRs.
+  workOrderId          String?
+  workOrder            WorkOrder?            @relation("PurchaseRequestWorkOrder", fields: [workOrderId], references: [id], onDelete: SetNull)
   status               PurchaseRequestStatus @default(PENDING_ADMIN)
   notes                String?
   materialSpecsPdfUrl  String? // Optional material specs PDF attached at PR creation
@@ -461,6 +471,8 @@ model PurchaseRequest {
   purchaseOrders       PurchaseOrder[]
   quotationSources     QuotationSource[]
   purchaseOrderSources PurchaseOrderSource[]
+
+  @@index([workOrderId])
 }
 
 // Form No: RAPS/PRF Rev no. 02 Date: 31/08/2024
@@ -1562,7 +1574,10 @@ model WorkOrder {
   // ── Order details ──
   orderQuantity  Float
   orderUnit      String   @default("Nos")
-  pdcDate        DateTime // Primary delivery commitment date
+  // Primary delivery commitment date. Nullable: some imported orders carry only
+  // a relative term (e.g. "FIM+3 Months") instead of a real date — that term is
+  // kept in deliveryClause and PLANNING/SC fill the real PDC in later.
+  pdcDate        DateTime?
   deliveryClause String?
   // Supply Chain declares up-front how many delivery lots this WO will be split
   // into (1 = single shot, N = batch deliveries). Drives "Lot X of N sent"
@@ -1655,6 +1670,10 @@ model WorkOrder {
   // tracked lot-wise through delivery. orderQuantity/orderUnit above are kept as
   // aggregates (sum of item qty / first item UOM) for back-compat.
   items            WorkOrderItem[]
+  // PRs and MIVs raised against this work order (header-level link; see
+  // PurchaseRequest.workOrderId / ProductRequest.workOrderId).
+  purchaseRequests PurchaseRequest[] @relation("PurchaseRequestWorkOrder")
+  productRequests  ProductRequest[]  @relation("ProductRequestWorkOrder")
 
   @@index([assignedUnitId])
   @@index([status])

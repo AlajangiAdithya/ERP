@@ -21,6 +21,28 @@ const VIEW_ROLES = [
   'SAFETY', 'MANAGER', 'SUPPLY_CHAIN', 'ACCOUNTING', 'FINANCE',
 ];
 
+// The Unit-5 manager is granted the same inward-entry rights as Stores (create
+// rows, edit drafts, request/resend QC, inward into stock). Unit 5 may appear as
+// code '5', name 'Unit 5', or username 'unit 5' depending on which path created
+// the account — match any of them (mirrors the metrology / machinery registers).
+const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
+const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
+const isUnit5 = (user) => {
+  if (!user) return false;
+  const code = (user.unit?.code || '').toString().toUpperCase();
+  const name = (user.unit?.name || '').toString().trim().toLowerCase();
+  const username = (user.username || '').toString().trim().toLowerCase();
+  return EDIT_UNIT_CODES.includes(code)
+    || EDIT_UNIT_NAMES.includes(name)
+    || EDIT_UNIT_NAMES.includes(username);
+};
+// Inward-write = Stores roles OR the Unit-5 manager.
+const canInwardWrite = (user) => !!user && (WRITE_ROLES.includes(user.role) || isUnit5(user));
+const requireInwardWrite = (req, res, next) => {
+  if (req.user?.role === 'SUPERADMIN' || canInwardWrite(req.user)) return next();
+  return res.status(403).json({ error: 'Insufficient permissions' });
+};
+
 const USER_SELECT = { select: { id: true, name: true, role: true } };
 
 // POs that can still receive material (anything that isn't fully closed).
@@ -292,7 +314,7 @@ async function buildIirAuto(row) {
 // ── GET /api/material-inward/active-pos ───────────────────────────────
 // Active POs the stores person can attach an inward row to. Each entry carries
 // just enough to auto-fill the register: supplier, PR no(s), items, issued-to.
-router.get('/active-pos', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+router.get('/active-pos', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const orders = await prisma.purchaseOrder.findMany({
       where: { status: { in: ACTIVE_PO_STATUSES } },
@@ -348,8 +370,9 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const where = {};
     applyDateFilter(where, { fromDate, toDate }, 'inwardDate');
     if (status) where.status = status;
-    // Managers only see rows bound for their own unit.
-    if (req.user.role === 'MANAGER') where.issuedToUnitId = req.user.unitId;
+    // Managers only see rows bound for their own unit — except the Unit-5
+    // manager, who runs inward entry and needs the full register like Stores.
+    if (req.user.role === 'MANAGER' && !isUnit5(req.user)) where.issuedToUnitId = req.user.unitId;
 
     const [rows, total] = await Promise.all([
       prisma.materialInwardRegister.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
@@ -459,7 +482,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
 // ── POST /api/material-inward ─────────────────────────────────────────
 // Create a register row. With a PO it snapshots PR / supplier / item /
 // issued-to; without one it's a direct / cash entry.
-router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+router.post('/', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const b = req.body || {};
     const docType = ['INVOICE', 'CASH_PURCHASE', 'DELIVERY_CHALLAN', 'GATE_PASS'].includes(b.docType) ? b.docType : 'INVOICE';
@@ -541,7 +564,7 @@ router.post('/', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
 // One delivery against a PO usually carries several lines (and a line may arrive
 // in batches over time). Stores ticks the received lines + per-line qty/batch and
 // this creates one register row per line — each its own MIR, lot, and QC track.
-router.post('/bulk', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+router.post('/bulk', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const b = req.body || {};
     if (!b.purchaseOrderId) return res.status(400).json({ error: 'A purchase order is required' });
@@ -613,7 +636,7 @@ router.post('/bulk', authenticate, authorize(...WRITE_ROLES), async (req, res) =
 // its own qty / batch / dates / type). All items become their own register row —
 // each with its own QC track — but share a single MIR number (and a sub-lot index
 // when there's more than one).
-router.post('/cash-bulk', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const b = req.body || {};
     const rawItems = Array.isArray(b.items) ? b.items : [];
@@ -694,7 +717,7 @@ router.post('/cash-bulk', authenticate, authorize(...WRITE_ROLES), async (req, r
 
 // ── PATCH /api/material-inward/:id ────────────────────────────────────
 // Edit row fields before QC has been requested (DRAFT only).
-router.patch('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+router.patch('/:id', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
@@ -732,7 +755,7 @@ router.patch('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) =
 // ── POST /api/material-inward/:id/documents ───────────────────────────
 // Stores uploads supporting documents (invoice / DC / test report / COA …) —
 // the same papers that used to be attached at "goods arrived". PDF or image.
-router.post('/:id/documents', authenticate, authorize(...WRITE_ROLES), qcDocsUpload.array('documents', 10), async (req, res) => {
+router.post('/:id/documents', authenticate, requireInwardWrite, qcDocsUpload.array('documents', 10), async (req, res) => {
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
@@ -765,7 +788,7 @@ router.post('/:id/documents', authenticate, authorize(...WRITE_ROLES), qcDocsUpl
 });
 
 // ── DELETE /api/material-inward/:id/documents/:index ──────────────────
-router.delete('/:id/documents/:index', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+router.delete('/:id/documents/:index', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
@@ -787,7 +810,7 @@ const DOC_REQUIREMENTS = ['Test Report', 'COC', 'COA', '3rd Party / Customer Cle
 // ── GET /api/material-inward/:id/iir-auto ─────────────────────────────
 // The auto / locked Inward-Inspection-Request fields (rows 1–11) for the form.
 // Stores opens the request form → these come pre-filled and read-only.
-router.get('/:id/iir-auto', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+router.get('/:id/iir-auto', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
@@ -803,7 +826,7 @@ router.get('/:id/iir-auto', authenticate, authorize(...WRITE_ROLES), async (req,
 // Stores hands the lot to QC. The ION No. is auto-generated and rows 1–11 are
 // re-derived server-side (locked); Stores only supplies rows 12–16, the remark,
 // and which documents QC must verify.
-router.post('/:id/request-qc', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+router.post('/:id/request-qc', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
@@ -970,7 +993,7 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
 // Re-inspection. A held lot (or a finished review that failed / was partial) can
 // be sent back to QC once the issue is addressed. The completed round is archived
 // into qcHistory, then the row resets to QC_REQUESTED for a fresh round.
-router.post('/:id/resend-qc', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+router.post('/:id/resend-qc', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
@@ -1041,7 +1064,7 @@ router.post('/:id/resend-qc', authenticate, authorize(...WRITE_ROLES), async (re
 // ── POST /api/material-inward/:id/inward ──────────────────────────────
 // Final step: Stores accepts the QC-cleared lot into stock. Creates the
 // ProductBatch + StockMovement and bumps product / unit / dept stock.
-router.post('/:id/inward', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
@@ -1167,7 +1190,7 @@ router.post('/:id/inward', authenticate, authorize(...WRITE_ROLES), async (req, 
 });
 
 // ── DELETE /api/material-inward/:id ───────────────────────────────────
-router.delete('/:id', authenticate, authorize(...WRITE_ROLES), async (req, res) => {
+router.delete('/:id', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });

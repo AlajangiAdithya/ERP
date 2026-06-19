@@ -6,12 +6,14 @@
 //      Add  DRY_RUN=1  to preview without writing:  DRY_RUN=1 node prisma/import-work-orders.js
 //
 // Each JSON entry is one Work Order (rows sharing an Order No were grouped into
-// line items by the extractor). Orders without a real PDC date were already
-// dropped. The sheet's Unit text is resolved against the Unit records in the
-// DB (matched by code or normalised name, so "Unit-4", "UNIT-1", "CPDC" all
-// map once such a unit exists). Anything that doesn't resolve is stored as
-// free text in assignedUnitName so the name still shows in the UI. Orders are
-// created IN_PROGRESS with their billed quantity seeded.
+// line items by the extractor). Orders whose PDC is a relative term ("FIM+3
+// Months" …) import with pdcDate = null and the term kept in deliveryClause.
+// ensureUnits() first creates any unit named in the sheet that doesn't exist
+// yet (SHAR, IBRPTM, Nasik, CPDC, Adibatla, ANSP, Design); the sheet's Unit
+// text then resolves against the Unit records (matched by code or normalised
+// name, so "Unit-4", "UNIT-1", "CPDC" all map). Anything still unresolved is
+// kept as free text in assignedUnitName. Orders are created IN_PROGRESS with
+// their billed quantity seeded.
 //
 // Idempotent: an order already imported (matched by supplyOrderNo + the import
 // marker in remarks) is not re-created — instead its unit assignment is
@@ -20,6 +22,9 @@
 
 const path = require('path');
 const fs = require('fs');
+// Load DATABASE_URL from server/.env so this script works when run directly
+// (Prisma Client doesn't auto-load .env the way the prisma CLI does).
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { PrismaClient } = require('@prisma/client');
 const { generateSequentialNumber } = require('../src/utils/helpers');
 
@@ -47,6 +52,43 @@ function buildUnitResolver(units) {
   };
 }
 
+// Units that must exist for the assignments to land on a real Unit record.
+// Anything else named in the sheet is added on top of this baseline.
+const NEW_UNIT_BASELINE = ['SHAR', 'IBRPTM', 'Nasik', 'CPDC', 'Adibatla', 'ANSP', 'Design'];
+
+// Create any unit named in the sheet (or the baseline) that doesn't already
+// resolve to an existing Unit. Idempotent — re-runs only create what's missing.
+async function ensureUnits(orders) {
+  const units = await prisma.unit.findMany({ select: { id: true, name: true, code: true } });
+  const resolve = buildUnitResolver(units);
+  const norm = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const wanted = new Set(NEW_UNIT_BASELINE);
+  for (const o of orders) if (o.assignedUnitName) wanted.add(o.assignedUnitName);
+
+  const usedCodes = new Set(units.map((u) => String(u.code || '').toUpperCase()));
+  const createdNorm = new Set();
+  let createdCount = 0;
+
+  for (const name of wanted) {
+    if (resolve(name) || createdNorm.has(norm(name))) continue; // already exists
+    let base = name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 16) || 'UNIT';
+    let code = base;
+    let n = 1;
+    while (usedCodes.has(code)) code = `${base}${n++}`;
+    if (DRY_RUN) {
+      console.log(`  [unit] would create "${name}" (code ${code})`);
+    } else {
+      await prisma.unit.create({ data: { name, code, isActive: true } });
+    }
+    usedCodes.add(code);
+    createdNorm.add(norm(name));
+    createdCount += 1;
+  }
+  if (createdCount) console.log(`Units ensured: ${createdCount} created${DRY_RUN ? ' (dry run)' : ''}`);
+  return createdCount;
+}
+
 async function pickImporter() {
   // Prefer the role that owns Work Orders, fall back sensibly.
   for (const role of ['SUPPLY_CHAIN', 'ADMIN', 'SUPERADMIN']) {
@@ -65,11 +107,15 @@ async function main() {
   }
   const orders = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
 
-  const [units, importer] = await Promise.all([
-    prisma.unit.findMany({ select: { id: true, name: true, code: true } }),
-    pickImporter(),
-  ]);
+  const importer = await pickImporter();
   if (!importer) throw new Error('No active user found to attribute the import to.');
+
+  // Create any unit named in the sheet that doesn't exist yet (SHAR, IBRPTM,
+  // Nasik, CPDC, Adibatla, ANSP, Design …) so every order resolves to a real
+  // unit. SHAR is special downstream (auto-accepted) — handled in the API.
+  await ensureUnits(orders);
+
+  const units = await prisma.unit.findMany({ select: { id: true, name: true, code: true } });
   const resolveUnit = buildUnitResolver(units);
 
   // Already-imported orders (by supplyOrderNo + marker). Re-runs don't
@@ -141,12 +187,15 @@ async function main() {
       data: {
         workOrderNumber,
         supplyOrderNo: o.supplyOrderNo,
-        supplyOrderDate: new Date(o.supplyOrderDate),
+        supplyOrderDate: new Date(o.supplyOrderDate || o.pdcDate || Date.now()),
         nomenclature: o.nomenclature || null,
         customerName: o.customerName,
         orderQuantity: o.orderQuantity,
         orderUnit: 'Nos',
-        pdcDate: new Date(o.pdcDate),
+        // Relative-term orders import with no real PDC; the term lives in
+        // deliveryClause and Planning fills the date in later.
+        pdcDate: o.pdcDate ? new Date(o.pdcDate) : null,
+        deliveryClause: o.deliveryClause || null,
         remarks: o.remarks || null,
         items: { create: o.items },
 

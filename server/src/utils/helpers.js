@@ -153,21 +153,21 @@ const generateMirNumber = async (prisma, date = new Date()) => {
   return `${prefix}${next}`;
 };
 
-// Product SKU: <PREFIX>-<NNNN> where PREFIX is RAW/CONS/TOOL/OTH.
-// Counter is global per prefix (not day-scoped) since a SKU is permanent.
-const generateProductSku = async (prisma, materialType) => {
-  const prefix = `${materialTypeToSkuPrefix(materialType)}-`;
-  const rows = await prisma.product.findMany({
-    where: { sku: { startsWith: prefix } },
-    select: { sku: true },
-  });
+// Product ID: a single running serial shared by every product (no category
+// prefix) — 001, 002, 003 … One global counter so the IDs form one continuous
+// series; zero-padded to 3 digits and grows naturally past 999. The legacy
+// CONS-/RAW-/TOOL- prefixed codes are ignored when finding the next number.
+// `materialType` is accepted but unused, so existing call sites need no change.
+const generateProductSku = async (prisma, _materialType) => {
+  const rows = await prisma.product.findMany({ select: { sku: true } });
   let max = 0;
   for (const { sku } of rows) {
-    const n = parseInt(sku.slice(prefix.length), 10);
-    if (!isNaN(n) && n > max) max = n;
+    const s = (sku || '').trim();
+    if (!/^\d+$/.test(s)) continue; // skip legacy prefixed codes (e.g. CONS-0001)
+    const n = parseInt(s, 10);
+    if (n > max) max = n;
   }
-  const next = String(max + 1).padStart(4, '0');
-  return `${prefix}${next}`;
+  return String(max + 1).padStart(3, '0');
 };
 
 // ──── DEPARTMENT OWNERSHIP ────
@@ -195,6 +195,41 @@ const OWNER_DEPTS = Object.values(DEPT_BY_ROLE);
 
 // Department label a given role owns stock under, or null for unit-bound / non-owner roles.
 const deptForRole = (role) => DEPT_BY_ROLE[role] || null;
+
+// ──── Work Order auto-accept units ────
+// Units whose assigned work orders skip the unit-manager accept/reject step —
+// they are accepted automatically on assignment. SHAR is a site location with
+// no unit manager, so its WOs go straight to UNIT_ACCEPTED. Match on unit code
+// OR name, case-insensitive.
+const AUTO_ACCEPT_UNIT_NAMES = ['SHAR'];
+
+const isAutoAcceptUnit = (unit) => {
+  if (!unit) return false;
+  const code = String(unit.code || '').trim().toUpperCase();
+  const name = String(unit.name || '').trim().toUpperCase();
+  return AUTO_ACCEPT_UNIT_NAMES.some((u) => u === code || u === name);
+};
+
+// Validate an optional Work Order link supplied when raising a PR / MIV.
+// Returns { ok: true, workOrderId } (workOrderId is null when none was chosen)
+// or { ok: false, error } so the caller can respond with 400. A unit-bound
+// requester may only link a WO assigned to their own unit; cancelled/rejected
+// WOs are never linkable.
+const validateWorkOrderLink = async (prisma, rawWorkOrderId, requesterUnitId) => {
+  const workOrderId = rawWorkOrderId || null;
+  if (!workOrderId) return { ok: true, workOrderId: null };
+  const wo = await prisma.workOrder.findUnique({
+    where: { id: workOrderId },
+    select: { id: true, assignedUnitId: true, status: true },
+  });
+  if (!wo || ['CANCELLED', 'REJECTED'].includes(wo.status)) {
+    return { ok: false, error: 'Selected work order is not valid' };
+  }
+  if (requesterUnitId && wo.assignedUnitId !== requesterUnitId) {
+    return { ok: false, error: 'Selected work order is not assigned to your unit' };
+  }
+  return { ok: true, workOrderId: wo.id };
+};
 
 const isUniqueViolation = (err) => err && err.code === 'P2002';
 
@@ -228,4 +263,7 @@ module.exports = {
   DEPT_BY_ROLE,
   OWNER_DEPTS,
   deptForRole,
+  AUTO_ACCEPT_UNIT_NAMES,
+  isAutoAcceptUnit,
+  validateWorkOrderLink,
 };

@@ -41,7 +41,7 @@ const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { closureDocUpload, publicUrlFor } = require('../middleware/upload');
 const {
-  generateSequentialNumber, paginate, applyDateFilter, withDocRetry,
+  generateSequentialNumber, paginate, applyDateFilter, withDocRetry, isAutoAcceptUnit,
 } = require('../utils/helpers');
 const { syncAlarmsForWO } = require('../services/workOrderAlarms');
 
@@ -126,6 +126,9 @@ const CLOSURE_INCLUDE = {
 const WO_INCLUDE = {
   items:                    { orderBy: { lineNo: 'asc' } },
   assignedUnit:             { select: { id: true, name: true, code: true } },
+  // Lightweight rollup of PRs / MIVs raised against this WO — cheap enough to
+  // ship on every list row (drives the "PR n · MIV n" card badge).
+  _count:                   { select: { purchaseRequests: true, productRequests: true } },
   createdBy:                USER_SELECT,
   adminAcceptedBy:          USER_SELECT,
   unitAcceptedBy:           USER_SELECT,
@@ -152,6 +155,23 @@ const WO_INCLUDE = {
       },
     },
   },
+};
+
+// Detail view (GET /:id) additionally pulls the actual PRs + MIVs raised against
+// the WO so the "PR / MIV" tab can list them with history. Kept OUT of
+// WO_INCLUDE so the list endpoint stays lean (it only needs _count above).
+const PR_MIV_SELECT = {
+  select: {
+    id: true, requestNumber: true, status: true, createdAt: true,
+    manager: { select: { id: true, name: true } },
+    _count: { select: { items: true } },
+  },
+  orderBy: { createdAt: 'desc' },
+};
+const WO_DETAIL_INCLUDE = {
+  ...WO_INCLUDE,
+  purchaseRequests: PR_MIV_SELECT,
+  productRequests:  PR_MIV_SELECT,
 };
 
 // Strip closure financial fields for MANAGER/QC (only L5/FINANCE/ACCOUNTING see them).
@@ -456,12 +476,42 @@ router.get(
   },
 );
 
+// ── GET /api/work-orders/assignable — WOs a requester can attach a PR/MIV to ──
+// Lean list of the work orders assigned to the caller's unit (any stage except
+// cancelled/rejected) so the PR / MIV forms can offer a "which work order is
+// this for?" dropdown. Roles without a unit get an empty list. MUST stay above
+// the `/:id` route so "assignable" is not parsed as an id.
+const ASSIGNABLE_WO_ROLES = [
+  'MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER',
+  'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING', 'ADMIN',
+];
+router.get('/assignable', authenticate, authorize(...ASSIGNABLE_WO_ROLES), async (req, res) => {
+  try {
+    if (!req.user.unitId) return res.json({ workOrders: [] });
+    const workOrders = await prisma.workOrder.findMany({
+      where: {
+        assignedUnitId: req.user.unitId,
+        status: { notIn: ['CANCELLED', 'REJECTED'] },
+      },
+      select: {
+        id: true, workOrderNumber: true, supplyOrderNo: true,
+        customerName: true, nomenclature: true, status: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ workOrders });
+  } catch (error) {
+    console.error('List assignable work orders error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── GET /api/work-orders/:id ──────────────────────────────────
 router.get('/:id', authenticate, authorize(...WO_OVERSIGHT_ROLES), async (req, res) => {
   try {
     const wo = await prisma.workOrder.findUnique({
       where: { id: req.params.id },
-      include: WO_INCLUDE,
+      include: WO_DETAIL_INCLUDE,
     });
     if (!wo) return res.status(404).json({ error: 'Work order not found' });
 
@@ -608,7 +658,7 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
 // ── PATCH /api/work-orders/:id — edit core fields ──
 // BG / Insurance are no longer edited here — they go through the history
 // endpoints below (POST /:id/bg-entries and POST /:id/insurance-entries).
-router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
+router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'), async (req, res) => {
   try {
     const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
@@ -616,8 +666,10 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (re
     const body = req.body || {};
     const data = {};
 
-    // SUPPLY_CHAIN can edit core fields while still PENDING_ADMIN. ADMIN may edit anytime.
-    const canEditCore = req.user.role === 'ADMIN'
+    // SUPPLY_CHAIN can edit core fields while still PENDING_ADMIN. ADMIN edits
+    // anytime. PLANNING edits anytime too — it owns filling in the real PDC for
+    // imported orders that came in with only a relative delivery term.
+    const canEditCore = req.user.role === 'ADMIN' || req.user.role === 'PLANNING'
       || (req.user.role === 'SUPPLY_CHAIN' && existing.status === 'PENDING_ADMIN');
 
     if (!canEditCore) {
@@ -770,27 +822,42 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
     }
 
     let unitId = assignedUnitId || existing.assignedUnitId;
+    let unit = null;
     if (accept) {
       if (!unitId) {
         return res.status(400).json({ error: 'Assign a unit before accepting' });
       }
-      const u = await prisma.unit.findUnique({ where: { id: unitId } });
-      if (!u) return res.status(400).json({ error: 'Assigned unit not found' });
+      unit = await prisma.unit.findUnique({ where: { id: unitId } });
+      if (!unit) return res.status(400).json({ error: 'Assigned unit not found' });
     }
+
+    // SHAR (and any auto-accept unit) has no unit manager to accept/reject — its
+    // work orders are accepted automatically the moment admin assigns them, so
+    // they skip ADMIN_ACCEPTED and land straight in UNIT_ACCEPTED.
+    const autoAccept = accept && isAutoAcceptUnit(unit);
+    const now = new Date();
 
     const updated = await prisma.workOrder.update({
       where: { id: req.params.id },
       data: {
-        status: accept ? 'ADMIN_ACCEPTED' : 'REJECTED',
-        adminAcceptedAt: accept ? new Date() : null,
+        status: accept ? (autoAccept ? 'UNIT_ACCEPTED' : 'ADMIN_ACCEPTED') : 'REJECTED',
+        adminAcceptedAt: accept ? now : null,
         adminAcceptedById: accept ? req.user.id : null,
         adminAcceptanceNote: note || null,
         assignedUnitId: accept ? unitId : existing.assignedUnitId,
+        ...(autoAccept
+          ? {
+              unitAcceptedAt: now,
+              unitAcceptedById: req.user.id,
+              unitAcceptanceNote: `Auto-accepted (${unit.code || unit.name})`,
+            }
+          : {}),
       },
       include: WO_INCLUDE,
     });
 
-    if (accept && unitId) {
+    // Only ask a unit manager to accept when it is NOT an auto-accept unit.
+    if (accept && unitId && !autoAccept) {
       await prisma.notification.create({
         data: {
           type: 'WORK_ORDER_ASSIGNED_TO_UNIT',
@@ -805,7 +872,7 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
       data: {
         type: accept ? 'WORK_ORDER_ADMIN_ACCEPTED' : 'WORK_ORDER_REJECTED',
         title: `WO ${updated.workOrderNumber} ${accept ? 'accepted' : 'rejected'}`,
-        message: `Admin ${req.user.name} ${accept ? 'accepted' : 'rejected'} Work Order ${updated.workOrderNumber}.`,
+        message: `Admin ${req.user.name} ${accept ? 'accepted' : 'rejected'} Work Order ${updated.workOrderNumber}${autoAccept ? ` (auto-accepted for ${unit.code || unit.name} — no unit acceptance needed)` : ''}.`,
         targetUserId: existing.createdById,
         sentById: req.user.id,
       },
@@ -902,14 +969,18 @@ router.post('/:id/reassign', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), a
     const unit = await prisma.unit.findUnique({ where: { id: assignedUnitId } });
     if (!unit) return res.status(400).json({ error: 'Assigned unit not found' });
 
+    // Reassigning to SHAR (auto-accept unit) skips the manager acceptance step.
+    const autoAccept = isAutoAcceptUnit(unit);
+    const now = new Date();
+
     const updated = await prisma.workOrder.update({
       where: { id: req.params.id },
       data: {
         assignedUnitId,
-        status: 'ADMIN_ACCEPTED',
-        unitAcceptedAt: null,
-        unitAcceptedById: null,
-        unitAcceptanceNote: null,
+        status: autoAccept ? 'UNIT_ACCEPTED' : 'ADMIN_ACCEPTED',
+        unitAcceptedAt: autoAccept ? now : null,
+        unitAcceptedById: autoAccept ? req.user.id : null,
+        unitAcceptanceNote: autoAccept ? `Auto-accepted (${unit.code || unit.name})` : null,
         adminAcceptanceNote: note
           ? `${existing.adminAcceptanceNote ? existing.adminAcceptanceNote + '\n' : ''}Reassigned to ${unit.name}: ${note}`
           : existing.adminAcceptanceNote,
@@ -917,15 +988,18 @@ router.post('/:id/reassign', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), a
       include: WO_INCLUDE,
     });
 
-    await prisma.notification.create({
-      data: {
-        type: 'WORK_ORDER_ASSIGNED_TO_UNIT',
-        title: `Work Order ${updated.workOrderNumber} reassigned to your unit`,
-        message: `${req.user.name} reassigned WO ${updated.workOrderNumber} (Customer: ${updated.customerName}). Please review and accept.`,
-        targetRole: 'MANAGER',
-        sentById: req.user.id,
-      },
-    });
+    // Auto-accept units have no manager to notify for acceptance.
+    if (!autoAccept) {
+      await prisma.notification.create({
+        data: {
+          type: 'WORK_ORDER_ASSIGNED_TO_UNIT',
+          title: `Work Order ${updated.workOrderNumber} reassigned to your unit`,
+          message: `${req.user.name} reassigned WO ${updated.workOrderNumber} (Customer: ${updated.customerName}). Please review and accept.`,
+          targetRole: 'MANAGER',
+          sentById: req.user.id,
+        },
+      });
+    }
 
     res.json(decorate(updated, req.user));
   } catch (error) {

@@ -1,31 +1,35 @@
 #!/usr/bin/env python3
 """
-Extract Work Order data from the Cash Flow workbook into a clean JSON file
-that import-work-orders.js loads into the ERP database.
+Extract Work Order data from the "FINAL LIST TO UPLOAD IN ERP" workbook into a
+clean JSON file that import-work-orders.js loads into the ERP database.
 
-Source : "Cash FLow - V1 01-06-26.xlsx", sheet "orders 26-27 "
+Source : work-orders-final.xlsx  (override with WORKORDERS_XLSX), sheet
+         "FINAL LIST TO UPLOAD IN ERP"
 Output : work-orders-import.json (next to this script)
 
-Sheet columns:
+Sheet columns (row 2 is the header, data starts row 3):
   A Party Name   -> customerName
   B Order No     -> supplyOrderNo (rows sharing one Order No = one Work Order)
   C Date         -> supplyOrderDate
   D Description  -> WorkOrderItem.description (one item per row)
   E QTY          -> WorkOrderItem.quantity
-  H Qty Billed   -> seeds deliveredQty / invoicedQty (in-progress)
-  J PDC          -> pdcDate  (rows without a real date are SKIPPED)
-  K Type         -> recorded in remarks
-  M Unit         -> assignedUnitName (raw text, e.g. "Unit-4", "SHAR", "CPDC")
+  F Qty Billed   -> seeds deliveredQty / invoicedQty (in-progress)
+  G Balance Qty  -> (informational; not stored)
+  H PDC          -> pdcDate when it's a real date; otherwise the relative term
+                    (e.g. "FIM+3 Months", "TO+45 Days") is kept in deliveryClause
+                    and pdcDate is left null for Planning to fill in later.
+  I Unit         -> assignedUnitName (raw text; importer resolves/creates it)
+  J REMARKS      -> appended to remarks
 
 Rules (agreed with the user):
   - Group rows by Order No -> one Work Order with multiple line items.
-  - Skip any order whose PDC column has no real date (relative clauses like
-    "FIM+3 Months" / blanks). 38 such line items are dropped.
-  - The raw Unit cell text is kept as-is. The importer resolves it against the
-    Unit records in the DB (the user keeps adding units there); whatever does
-    not resolve is stored as free text so the name still shows in the UI.
-    Groups spanning several different units keep all names joined with " / ".
+  - Keep EVERY order (none are dropped). Orders whose PDC is a relative term or
+    blank import with pdcDate = null and the term saved in deliveryClause.
+  - The raw Unit cell text is kept; the importer resolves it against the Unit
+    records (creating the ones that don't exist yet). An order whose rows span
+    several units is assigned to the FIRST unit, with the others noted in remarks.
   - Import as IN_PROGRESS, seeding billed qty so existing progress is kept.
+  - The junk "Total"/blank-Order-No row is skipped.
 """
 import openpyxl
 import re
@@ -35,11 +39,13 @@ import os
 from collections import OrderedDict
 
 WORKBOOK = os.environ.get(
-    "CASHFLOW_XLSX",
-    r"C:\Users\alaja\Downloads\Cash FLow - V1 01-06-26.xlsx",
+    "WORKORDERS_XLSX",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "work-orders-final.xlsx"),
 )
-SHEET = "orders 26-27 "
+SHEET = "FINAL LIST TO UPLOAD IN ERP"
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "work-orders-import.json")
+
+IMPORT_MARKER = "Imported from Cash Flow sheet (FINAL LIST)."
 
 
 def s(v):
@@ -59,8 +65,12 @@ def num(v):
         return float(m.group()) if m else 0.0
 
 
+def is_date(v):
+    return isinstance(v, (datetime.datetime, datetime.date))
+
+
 def unit_name(v):
-    """Clean an Excel 'Unit' cell; the importer resolves it against DB units."""
+    """Clean an Excel 'Unit' cell; the importer resolves/creates it."""
     t = s(v)
     if not t or t.upper() in ("NA", "N/A", "-"):
         return None
@@ -74,38 +84,40 @@ def main():
     def cell(r, c):
         return ws.cell(row=r, column=c).value
 
+    # Group rows by Order No (col B). Rows without an Order No are skipped
+    # (the trailing "Total" summary row).
     groups = OrderedDict()
-    for r in range(3, ws.max_row + 1):  # row 2 is the header
-        a, b = cell(r, 1), cell(r, 2)
-        if a is None and b is None:
+    for r in range(3, ws.max_row + 1):
+        order_no = s(cell(r, 2))
+        if not order_no:
             continue
-        key = s(b) or ("__noB_%d" % r)
-        groups.setdefault(key, []).append(r)
+        groups.setdefault(order_no, []).append(r)
 
-    orders, skipped = [], []
-    for key, rows in groups.items():
-        pdc = next((cell(r, 10) for r in rows
-                    if isinstance(cell(r, 10), (datetime.datetime, datetime.date))), None)
+    orders = []
+    no_pdc = 0
+    for order_no, rows in groups.items():
+        # PDC: first real date wins; else keep the relative term as a clause.
+        pdc = next((cell(r, 8) for r in rows if is_date(cell(r, 8))), None)
+        delivery_clause = None
         if pdc is None:
-            skipped.append((key, len(rows)))
-            continue
-        odate = next((cell(r, 3) for r in rows
-                      if isinstance(cell(r, 3), (datetime.datetime, datetime.date))), None) or pdc
+            term = next((s(cell(r, 8)) for r in rows if s(cell(r, 8))), None)
+            if term:
+                delivery_clause = f"PDC: {term}"
+            no_pdc += 1
+
+        # Order date: first real date in col C, else fall back to the PDC date.
+        odate = next((cell(r, 3) for r in rows if is_date(cell(r, 3))), None) or pdc
         party = next((s(cell(r, 1)) for r in rows if s(cell(r, 1))), None)
 
-        names = []
+        # Distinct units in sheet order. First = primary assignment; the rest are
+        # recorded in remarks so a multi-unit order still shows where else it ran.
+        unit_names = []
         for r in rows:
-            n = unit_name(cell(r, 13))
-            if n and n not in names:
-                names.append(n)
-        # One name -> resolve/show it; several -> keep them all visible as text.
-        assigned = " / ".join(names) if names else None
-
-        types = []
-        for r in rows:
-            t = s(cell(r, 11))
-            if t and t != "NA" and t not in types:
-                types.append(t)
+            n = unit_name(cell(r, 9))
+            if n and n not in unit_names:
+                unit_names.append(n)
+        assigned = unit_names[0] if unit_names else None
+        other_units = unit_names[1:]
 
         items, qty_total, billed_total = [], 0.0, 0.0
         for i, r in enumerate(rows, 1):
@@ -117,18 +129,26 @@ def main():
                 "uom": "Nos",
             })
             qty_total += q
-            billed_total += num(cell(r, 8))
+            billed_total += num(cell(r, 6))
         billed_total = min(billed_total, qty_total)
 
-        remark = []
-        if types:
-            remark.append("Type of Order: " + "/".join(types))
-        remark.append("Imported from Cash Flow sheet (01-06-26).")
+        remark_parts = []
+        sheet_remarks = [s(cell(r, 10)) for r in rows if s(cell(r, 10))]
+        # De-dup while preserving order.
+        seen = set()
+        for rm in sheet_remarks:
+            if rm not in seen:
+                seen.add(rm)
+                remark_parts.append(rm)
+        if other_units:
+            remark_parts.append("Also assigned: " + " / ".join(other_units))
+        remark_parts.append(IMPORT_MARKER)
 
         orders.append({
-            "supplyOrderNo": key,
-            "supplyOrderDate": odate.date().isoformat(),
-            "pdcDate": pdc.date().isoformat(),
+            "supplyOrderNo": order_no,
+            "supplyOrderDate": odate.date().isoformat() if is_date(odate) else None,
+            "pdcDate": pdc.date().isoformat() if is_date(pdc) else None,
+            "deliveryClause": delivery_clause,
             "customerName": party or "Not Provided",
             "nomenclature": (items[0]["description"][:120] if items else None),
             "assignedUnitName": assigned,
@@ -136,7 +156,7 @@ def main():
             "billedQty": round(billed_total, 4),
             "deliveryStatus": "PARTIAL" if billed_total > 0 else "IN_PROGRESS",
             "status": "IN_PROGRESS",
-            "remarks": " | ".join(remark),
+            "remarks": " | ".join(remark_parts),
             "items": items,
         })
 
@@ -148,10 +168,9 @@ def main():
     print("Line items            :", sum(len(o["items"]) for o in orders))
     print("Unit name present     :", named_n)
     print("Unit name blank       :", len(orders) - named_n)
+    print("PDC empty (relative)  :", no_pdc)
     print("Distinct unit names   :",
           sorted({o["assignedUnitName"] for o in orders if o["assignedUnitName"]}))
-    print("Skipped (no real PDC) :", len(skipped), "orders /",
-          sum(n for _, n in skipped), "line items")
     print("Written               :", OUT)
 
 

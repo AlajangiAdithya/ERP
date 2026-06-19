@@ -6,7 +6,7 @@ const { authorize } = require('../middleware/rbac');
 const { prSpecsUpload, publicUrlFor } = require('../middleware/upload');
 const {
   generateSequentialNumber, generateProductSku, normalizeMaterialType,
-  paginate, applyDateFilter, isUniqueViolation,
+  paginate, applyDateFilter, isUniqueViolation, validateWorkOrderLink,
 } = require('../utils/helpers');
 const { buildCoverageSummary, cancelLeftoverPRItems } = require('../utils/prClosure');
 
@@ -67,6 +67,9 @@ const createSchema = z.object({
   // Optional — global-role requesters (STORE_MANAGER, DESIGNS, PLANNING) must
   // specify which unit they are filing the PR for; unit-bound roles ignore this.
   unitId: z.string().uuid().optional().nullable(),
+  // Optional header-level link to the Work Order this PR is raised for.
+  // null / omitted = "No work order".
+  workOrderId: z.string().uuid().optional().nullable(),
   items: z.array(z.object({
     productName: z.string().min(1),
     productUnit: z.string().min(1).default('pcs'),
@@ -148,6 +151,7 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
         include: {
           manager: { select: { id: true, name: true, username: true, role: true } },
           unit: { select: { id: true, name: true, code: true } },
+          workOrder: { select: { id: true, workOrderNumber: true, supplyOrderNo: true } },
           qcApprovedBy: { select: { id: true, name: true } },
           adminApprovedBy: { select: { id: true, name: true } },
           items: {
@@ -540,6 +544,7 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
       include: {
         manager: { select: { id: true, name: true, username: true, role: true, unit: { select: { name: true, code: true } } } },
         unit: { select: { id: true, name: true, code: true } },
+        workOrder: { select: { id: true, workOrderNumber: true, supplyOrderNo: true } },
         qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
         items: {
@@ -706,6 +711,12 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
       }
     }
 
+    // Optional Work Order link. Must be a live WO; for unit-bound requesters it
+    // must belong to their own unit. null = "No work order".
+    const woLink = await validateWorkOrderLink(prisma, data.workOrderId, unitId);
+    if (!woLink.ok) return res.status(400).json({ error: woLink.error });
+    const workOrderId = woLink.workOrderId;
+
     // Resolve productId for each item BEFORE the transactional create:
     //   - if productId given, use it
     //   - else look up an existing product by case-insensitive name
@@ -765,6 +776,7 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
             requestNumber,
             managerId: req.user.id,
             unitId,
+            workOrderId,
             status: initialStatus,
             notes: data.notes || null,
             items: {
@@ -873,6 +885,10 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
       return res.status(400).json({ error: 'Only pending requests can be edited' });
     }
 
+    // Re-validate the optional Work Order link against the PR's own unit.
+    const woLink = await validateWorkOrderLink(prisma, data.workOrderId, request.unitId);
+    if (!woLink.ok) return res.status(400).json({ error: woLink.error });
+
     // Re-resolve each item's productId — same rules as create so new rows are
     // linked to a Product (existing match by name, else NRE product created).
     const itemsResolved = [];
@@ -921,6 +937,7 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
         where: { id: request.id },
         data: {
           notes: data.notes || null,
+          workOrderId: woLink.workOrderId,
           items: {
             create: itemsResolved.map(item => ({
               productName: item.productName,

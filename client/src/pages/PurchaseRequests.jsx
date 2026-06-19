@@ -117,6 +117,10 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const [items, setItems] = useState([{ ...emptyItem }]);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  // Work orders assigned to this requester's unit — header-level dropdown so the
+  // PR can be tied to the WO it's raised for ("" = No work order).
+  const [workOrders, setWorkOrders] = useState([]);
+  const [workOrderId, setWorkOrderId] = useState('');
   // Material/spec picker — { idx, mode } identifies which row + which tab opens.
   const [picker, setPicker] = useState(null);
   // Per-item upload state — keyed by row index; tracks {uploading, error} so the
@@ -131,6 +135,9 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
 
   useEffect(() => {
     if (isOpen) {
+      api.get('/work-orders/assignable')
+        .then(({ data }) => setWorkOrders(data.workOrders || []))
+        .catch(() => setWorkOrders([]));
       if (isEdit && requestToEdit.items?.length > 0) {
         setItems(requestToEdit.items.map(itemFromExisting));
         setNotes(requestToEdit.notes || '');
@@ -141,6 +148,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
         setItems([{ ...emptyItem }]);
         setNotes(prefillNotes || '');
       }
+      setWorkOrderId(isEdit ? (requestToEdit.workOrderId || '') : '');
       setSpecUpload({});
     }
   }, [isOpen, prefillItems, prefillNotes, requestToEdit]);
@@ -235,6 +243,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
       const payload = {
         notes: notes || undefined,
         unitId: undefined,
+        workOrderId: workOrderId || null,
         items: validItems.map(i => ({
           productName: i.productName.trim(),
           productUnit: i.productUnit || 'pcs',
@@ -336,6 +345,23 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                 <span className="px-2 py-1 text-xs text-gray-700">
                   {isEdit ? (requestToEdit.manager?.name || '—') : (user?.name || '—')}
                 </span>
+              </td>
+            </tr>
+            <tr>
+              <td className={labelCell}>Work Order</td>
+              <td className={dataCell} colSpan={3}>
+                <select
+                  value={workOrderId}
+                  onChange={(e) => setWorkOrderId(e.target.value)}
+                  className={cellSelect}
+                >
+                  <option value="">— No work order —</option>
+                  {workOrders.map(wo => (
+                    <option key={wo.id} value={wo.id}>
+                      {wo.workOrderNumber} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''}
+                    </option>
+                  ))}
+                </select>
               </td>
             </tr>
           </tbody>
@@ -1288,6 +1314,9 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(request.status)}>{statusLabel(request.status)}</Badge></div>
           <div><span className="text-gray-500">Requester:</span> <span className="font-medium">{request.manager?.name}</span></div>
           <div><span className="text-gray-500">Unit:</span> <Badge color="blue">{request.unit?.name}</Badge></div>
+          {request.workOrder && (
+            <div><span className="text-gray-500">Work Order:</span> <span className="font-medium">{request.workOrder.workOrderNumber}</span></div>
+          )}
           <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(request.createdAt)}</span></div>
           {request.qcApprovedBy && (
             <>

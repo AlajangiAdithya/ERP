@@ -2,15 +2,16 @@
   {
     "supplyOrderNo": "DRDL/PGLRSAM/1701/31P/23/210/0230",
     "supplyOrderDate": "2024-06-20",
-    "pdcDate": "2026-06-18",
-    "customerName": "Programme LRSAM (IN) & (IAF)",
+    "pdcDate": "2027-12-27",
+    "deliveryClause": null,
+    "customerName": "LRSAM",
     "nomenclature": "Lining of M2B Motor",
     "assignedUnitName": "Adibatla",
     "orderQuantity": 24.0,
     "billedQty": 1.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -53,19 +54,72 @@
   {
     "supplyOrderNo": "RCI/26SO0081/RM2/RUDRAM-2/CMS-III",
     "supplyOrderDate": "2025-07-07",
-    "pdcDate": "2026-01-12",
-    "customerName": "RCI, DRDO",
-    "nomenclature": "Stage Processing Bonding and Machining of Nozzle Liners and Assembly",
+    "pdcDate": "2026-07-12",
+    "deliveryClause": null,
+    "customerName": "RCI",
+    "nomenclature": "Stage Processing Bonding and Machining of Nozzle Liners & Assy.",
     "assignedUnitName": "Adibatla",
     "orderQuantity": 3.0,
     "billedQty": 2.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "Stage Processing Bonding and Machining of Nozzle Liners and Assembly",
+        "description": "Stage Processing Bonding and Machining of Nozzle Liners & Assy.",
+        "quantity": 3.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "2025260100",
+    "supplyOrderDate": "2025-12-08",
+    "pdcDate": "2026-06-06",
+    "deliveryClause": null,
+    "customerName": "AADYAH",
+    "nomenclature": "Flex Seal Transfer Moulding Tool",
+    "assignedUnitName": "Adibatla",
+    "orderQuantity": 10.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Also assigned: Design / Unit-2 | Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "Flex Seal Transfer Moulding Tool",
+        "quantity": 1.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 2,
+        "description": "Thermal Boot Transfer Moulding Tool",
+        "quantity": 1.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 3,
+        "description": "Flex Seal Pull test Fixture",
+        "quantity": 1.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 4,
+        "description": "Flex seal proof pressure test fixture",
+        "quantity": 1.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 5,
+        "description": "flex seal including proof pressure testing",
+        "quantity": 3.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 6,
+        "description": "Flex seal with thermal boot assembly",
         "quantity": 3.0,
         "uom": "Nos"
       }
@@ -75,14 +129,15 @@
     "supplyOrderNo": "DRDL/9369/21/15K/2023/2062/2070P",
     "supplyOrderDate": "2023-08-28",
     "pdcDate": "2026-12-27",
-    "customerName": "ANSP, DRDO",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "Processing of B2 CRMC",
     "assignedUnitName": "ANSP",
     "orderQuantity": 10.0,
-    "billedQty": 4.0,
+    "billedQty": 5.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -96,14 +151,15 @@
     "supplyOrderNo": "DRDL/9369/21/15K/2023/2061/2071P",
     "supplyOrderDate": "2023-08-28",
     "pdcDate": "2028-08-27",
-    "customerName": "ANSP, DRDO",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "Processing of B1 CRMC",
     "assignedUnitName": "ANSP",
     "orderQuantity": 10.0,
     "billedQty": 7.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -116,15 +172,16 @@
   {
     "supplyOrderNo": "DRDL/9380/21/15K/2023/2065/2102P",
     "supplyOrderDate": "2023-12-05",
-    "pdcDate": "2026-06-05",
-    "customerName": "ANSP, DRDO",
+    "pdcDate": "2026-12-31",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "Processing of B3L CRMC",
     "assignedUnitName": "ANSP",
     "orderQuantity": 12.0,
-    "billedQty": 4.0,
+    "billedQty": 9.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -137,15 +194,16 @@
   {
     "supplyOrderNo": "DRDL/9484/21/15K/2023/2101/2134P",
     "supplyOrderDate": "2024-06-11",
-    "pdcDate": "2025-12-11",
-    "customerName": "ANSP, DRDO",
+    "pdcDate": "2026-06-30",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "Composite Sleeves of CGG",
     "assignedUnitName": "ANSP",
     "orderQuantity": 20.0,
     "billedQty": 13.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -158,15 +216,16 @@
   {
     "supplyOrderNo": "DRDL/9485/21/15K/2023/2102/2135P",
     "supplyOrderDate": "2024-06-11",
-    "pdcDate": "2025-12-11",
-    "customerName": "ANSP, DRDO",
+    "pdcDate": "2026-06-30",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "Casing with liner (CGG) (MK-II)",
     "assignedUnitName": "ANSP",
     "orderQuantity": 20.0,
     "billedQty": 10.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -183,77 +242,18 @@
     ]
   },
   {
-    "supplyOrderNo": "drdl/972/21/15k/2024/2176/2218P",
-    "supplyOrderDate": "2025-08-13",
-    "pdcDate": "2028-02-13",
-    "customerName": "ANSP, DRDO",
-    "nomenclature": "Section -1 Assembly",
-    "assignedUnitName": "Ibrihimpatnam Unit",
-    "orderQuantity": 460.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Section -1 Assembly",
-        "quantity": 9.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 2,
-        "description": "Section -1 Tooling",
-        "quantity": 1.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 3,
-        "description": "Section -1A Pocket Cover",
-        "quantity": 198.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 4,
-        "description": "Section -1B Pocket Cover",
-        "quantity": 252.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "DRDL/9983/21/15F/2025/1120/1050F",
-    "supplyOrderDate": "2026-02-17",
-    "pdcDate": "2026-06-17",
-    "customerName": "ANSP, DRDO",
-    "nomenclature": "Refurbishment of Underwater Propulsion system",
-    "assignedUnitName": "Office",
-    "orderQuantity": 3.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Refurbishment of Underwater Propulsion system",
-        "quantity": 3.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
     "supplyOrderNo": "ASL/31/20/4061/17/0100/0226",
     "supplyOrderDate": "2021-03-09",
     "pdcDate": "2027-03-31",
-    "customerName": "ASL, DRDO",
+    "deliveryClause": null,
+    "customerName": "ASL",
     "nomenclature": "Processing of V1C Nozzle Liners Including  Machinging",
     "assignedUnitName": "CPDC",
     "orderQuantity": 8.0,
     "billedQty": 4.4,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -264,17 +264,40 @@
     ]
   },
   {
+    "supplyOrderNo": "ASL/31/20/4061/17/0183/0091",
+    "supplyOrderDate": "2021-08-04",
+    "pdcDate": null,
+    "deliveryClause": "PDC: Send Letter 31-03-2026",
+    "customerName": "ASL",
+    "nomenclature": "Insulation Rubber Lining for V1C Intermediate Dome & M/c",
+    "assignedUnitName": "CPDC",
+    "orderQuantity": 8.0,
+    "billedQty": 2.0,
+    "deliveryStatus": "PARTIAL",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "Insulation Rubber Lining for V1C Intermediate Dome & M/c",
+        "quantity": 8.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
     "supplyOrderNo": "ASL/DD2/R/DD23/0147/20/2579/2539",
     "supplyOrderDate": "2021-09-20",
     "pdcDate": "2026-11-30",
-    "customerName": "ASL, DRDO",
+    "deliveryClause": null,
+    "customerName": "ASL",
     "nomenclature": "Processing ,Machining & Realization of HPS2C Divergent Sub Assembly Nozzle Liners including coomposite profile Machining",
     "assignedUnitName": "CPDC",
     "orderQuantity": 40.0,
     "billedQty": 31.25,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -305,15 +328,16 @@
   {
     "supplyOrderNo": "ASL/31/21/4067/17/0022/0011",
     "supplyOrderDate": "2022-05-06",
-    "pdcDate": "2026-05-16",
-    "customerName": "ASL, DRDO",
+    "pdcDate": "2026-08-26",
+    "deliveryClause": null,
+    "customerName": "ASL",
     "nomenclature": "Procssing Of D1 Nozzle Liners Includes Composite Profile machining & Nozzle Integration",
     "assignedUnitName": "CPDC",
     "orderQuantity": 6.0,
     "billedQty": 4.55,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -332,15 +356,16 @@
   {
     "supplyOrderNo": "ASL/DA1P/R/DA1P/0133/22/1063/1034",
     "supplyOrderDate": "2023-09-15",
-    "pdcDate": "2025-12-31",
-    "customerName": "ASL, DRDO",
+    "pdcDate": "2026-12-31",
+    "deliveryClause": null,
+    "customerName": "ASL",
     "nomenclature": "Bonding and SBU Layup of P1C Nozzle Liners",
     "assignedUnitName": "CPDC",
     "orderQuantity": 5.0,
     "billedQty": 3.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -353,15 +378,16 @@
   {
     "supplyOrderNo": "ASL/DA1P/R/DA1P/0133/22/1056/1039",
     "supplyOrderDate": "2023-12-13",
-    "pdcDate": "2025-12-24",
-    "customerName": "ASL, DRDO",
+    "pdcDate": "2027-12-31",
+    "deliveryClause": null,
+    "customerName": "ASL",
     "nomenclature": "Processing of P1C Nozzle Liners including composite profile machining and nozzle integration",
     "assignedUnitName": "CPDC",
     "orderQuantity": 20.0,
     "billedQty": 12.8,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -378,76 +404,109 @@
     ]
   },
   {
-    "supplyOrderNo": "LIN/20-21/20050619",
-    "supplyOrderDate": "2021-03-18",
-    "pdcDate": "2022-03-01",
-    "customerName": "Thejo Engineering Ltd",
-    "nomenclature": "Labour Charges(EPDM Milling for V1C Applications Charges",
-    "assignedUnitName": "CPDC-Rubber Lining",
-    "orderQuantity": 16.0,
-    "billedQty": 11.0,
-    "deliveryStatus": "PARTIAL",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Labour Charges(EPDM Milling for V1C Applications Charges",
-        "quantity": 8.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 2,
-        "description": "Labour Charges(EPDM Milling for V2C Applications Charges",
-        "quantity": 8.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "DRDL/8553/21/15k/2020/1826/1836P",
-    "supplyOrderDate": "2021-02-01",
-    "pdcDate": "2024-08-31",
-    "customerName": "ANSP, DRDO",
-    "nomenclature": "Tooling for Conical FSA(B2-MK-II)",
-    "assignedUnitName": "Design / Unit-4",
+    "supplyOrderNo": "PGAD/TD-RCI/AH/24-25/0009/50124",
+    "supplyOrderDate": "2024-10-16",
+    "pdcDate": "2026-12-31",
+    "deliveryClause": null,
+    "customerName": "PGAD",
+    "nomenclature": "KV TVC ASSEMBLY",
+    "assignedUnitName": "Design",
     "orderQuantity": 4.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "Tooling for Conical FSA(B2-MK-II)",
-        "quantity": 1.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 2,
-        "description": "Conical Flex Seal Assembly(B2-MK-II)",
-        "quantity": 3.0,
+        "description": "KV TVC ASSEMBLY",
+        "quantity": 4.0,
         "uom": "Nos"
       }
     ]
   },
   {
-    "supplyOrderNo": "UD246-00001",
-    "supplyOrderDate": "2024-06-21",
-    "pdcDate": "2024-07-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
-    "nomenclature": "Retro Motor Nozzle Convergent Liner Moulding Tool",
+    "supplyOrderNo": "2025260129 R1",
+    "supplyOrderDate": "2026-03-23",
+    "pdcDate": "2026-06-30",
+    "deliveryClause": null,
+    "customerName": "AADYAH",
+    "nomenclature": "Metallic Hardware",
     "assignedUnitName": "Design",
-    "orderQuantity": 1.0,
+    "orderQuantity": 8.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Also assigned: Unit-2 | Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "Retro Motor Nozzle Convergent Liner Moulding Tool",
+        "description": "Metallic Hardware",
+        "quantity": 2.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 2,
+        "description": "Fasteners Brackets & Turnbuckles",
+        "quantity": 2.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 3,
+        "description": "Metallic Container with Vibration Pads",
+        "quantity": 2.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 4,
+        "description": "One Time cost for tooling and Fixtures",
         "quantity": 1.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 5,
+        "description": "manufacturing and supply of Flex Nozzle assembly including integration",
+        "quantity": 1.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "drdl/972/21/15k/2024/2176/2218P",
+    "supplyOrderDate": "2025-08-13",
+    "pdcDate": "2028-02-13",
+    "deliveryClause": null,
+    "customerName": "ANSP",
+    "nomenclature": "Section -1 Assembly",
+    "assignedUnitName": "IBRPTM",
+    "orderQuantity": 460.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "Section -1 Assembly",
+        "quantity": 9.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 2,
+        "description": "Section -1 Tooling",
+        "quantity": 1.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 3,
+        "description": "Section -1A Pocket Cover",
+        "quantity": 198.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 4,
+        "description": "Section -1B Pocket Cover",
+        "quantity": 252.0,
         "uom": "Nos"
       }
     ]
@@ -456,14 +515,15 @@
     "supplyOrderNo": "DRDL/9749/21/15LV/2024/0320/0336",
     "supplyOrderDate": "2025-06-10",
     "pdcDate": "2026-12-10",
-    "customerName": "ANSP, DRDO",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "Rocasin Lining for AIR Booster",
     "assignedUnitName": "Nasik",
     "orderQuantity": 19.0,
-    "billedQty": 10.0,
+    "billedQty": 12.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -480,38 +540,18 @@
     ]
   },
   {
-    "supplyOrderNo": "PEL/O&M/SHAR/SMPC U2/WO/RAPS/2024-25/D(O)/20",
-    "supplyOrderDate": "2024-09-27",
-    "pdcDate": "2026-07-31",
-    "customerName": "Premier Explosives Ltd",
-    "nomenclature": "Manpower Services",
-    "assignedUnitName": "SHAR",
-    "orderQuantity": 24.0,
-    "billedQty": 20.0,
-    "deliveryStatus": "PARTIAL",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Manpower Services",
-        "quantity": 24.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
     "supplyOrderNo": "LIN/24-25/24050736-2",
     "supplyOrderDate": "2025-03-12",
     "pdcDate": "2029-11-18",
-    "customerName": "Thejo Engineering Ltd",
+    "deliveryClause": null,
+    "customerName": "THEJO",
     "nomenclature": "Lining of 2 mm Rocasin Base Layer",
     "assignedUnitName": "SHAR",
     "orderQuantity": 74587.5,
     "billedQty": 3821.96,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -573,18 +613,19 @@
     "supplyOrderNo": "SDSC SHAR/SMP&ETF PURCHASE/SH2025P000920101",
     "supplyOrderDate": "2025-07-28",
     "pdcDate": "2029-11-18",
-    "customerName": "Shar Sriharikota",
-    "nomenclature": "Rubber: Contract for Rocasin Lining of Agni Motor Head end Domes",
+    "deliveryClause": null,
+    "customerName": "SHAR",
+    "nomenclature": "Contract for Rocasin Lining of Agni Motor HE Domes",
     "assignedUnitName": "SHAR",
     "orderQuantity": 300.0,
     "billedQty": 74.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "Rubber: Contract for Rocasin Lining of Agni Motor Head end Domes",
+        "description": "Contract for Rocasin Lining of Agni Motor HE Domes",
         "quantity": 300.0,
         "uom": "Nos"
       }
@@ -594,14 +635,15 @@
     "supplyOrderNo": "DRDL/8801/21/15K/2021/1902/1903P",
     "supplyOrderDate": "2021-12-03",
     "pdcDate": "2026-01-31",
-    "customerName": "ANSP, DRDO",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "supply of EPDM Rubber for B1,B2 and B3",
     "assignedUnitName": "UNIT-1",
     "orderQuantity": 3000.0,
     "billedQty": 1000.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -612,28 +654,93 @@
     ]
   },
   {
-    "supplyOrderNo": "WA237-00002",
-    "supplyOrderDate": "2023-07-07",
-    "pdcDate": "2023-08-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
-    "nomenclature": "testing charges",
+    "supplyOrderNo": "3220009159",
+    "supplyOrderDate": "2021-12-13",
+    "pdcDate": null,
+    "deliveryClause": "PDC: TO+45 Days",
+    "customerName": "BDL",
+    "nomenclature": "Insulation for Rocekt Motor Casing Assy",
     "assignedUnitName": "UNIT-1",
-    "orderQuantity": 2.0,
+    "orderQuantity": 30.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "testing charges",
-        "quantity": 1.0,
+        "description": "Insulation for Rocekt Motor Casing Assy",
+        "quantity": 6.0,
         "uom": "Nos"
       },
       {
         "lineNo": 2,
-        "description": "testing charges",
-        "quantity": 1.0,
+        "description": "Lining of Head Endcover Assy",
+        "quantity": 6.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 3,
+        "description": "Linging of Igniter Canister Assy",
+        "quantity": 6.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 4,
+        "description": "Lining of Nozzle Divergent Assy",
+        "quantity": 6.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 5,
+        "description": "Linging of Intigrated Blast Tube",
+        "quantity": 6.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "3220010770",
+    "supplyOrderDate": "2022-11-21",
+    "pdcDate": null,
+    "deliveryClause": "PDC: FIM+3 Months",
+    "customerName": "BDL",
+    "nomenclature": "Insulation for Rocekt Motor Casing Assy",
+    "assignedUnitName": "UNIT-1",
+    "orderQuantity": 1110.0,
+    "billedQty": 406.0,
+    "deliveryStatus": "PARTIAL",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "Insulation for Rocekt Motor Casing Assy",
+        "quantity": 222.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 2,
+        "description": "Lining of Head Endcover Assy",
+        "quantity": 222.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 3,
+        "description": "Lining of Igniter Canister Assy",
+        "quantity": 222.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 4,
+        "description": "Lining of Nozzle Divergent Assy",
+        "quantity": 222.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 5,
+        "description": "Lining of Intigrated Blast Tube",
+        "quantity": 222.0,
         "uom": "Nos"
       }
     ]
@@ -641,15 +748,16 @@
   {
     "supplyOrderNo": "SDSC SHAR/SMPC-U2 PURCHASE/SH/2023P003700101",
     "supplyOrderDate": "2024-01-31",
-    "pdcDate": "2026-01-30",
-    "customerName": "Shar Sriharikota",
+    "pdcDate": "2027-01-31",
+    "deliveryClause": null,
+    "customerName": "SHAR-SPP",
     "nomenclature": "SUPPLY OF EXTRUDED ROCASIN RUBBER SLEEVES",
     "assignedUnitName": "UNIT-1",
     "orderQuantity": 1764.0,
-    "billedQty": 175.0,
+    "billedQty": 200.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -660,63 +768,22 @@
     ]
   },
   {
-    "supplyOrderNo": "PGAD/TD-RCI/AH/24-25/0009/50124",
-    "supplyOrderDate": "2024-10-16",
-    "pdcDate": "2026-05-29",
-    "customerName": "Programme AD",
-    "nomenclature": "KV TVC ASSEMBLY",
-    "assignedUnitName": "Design",
-    "orderQuantity": 4.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "KV TVC ASSEMBLY",
-        "quantity": 4.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "3220013481",
-    "supplyOrderDate": "2024-06-24",
-    "pdcDate": "2025-04-10",
-    "customerName": "Bharat Dynamics Ltd",
-    "nomenclature": "Silicon putty",
-    "assignedUnitName": "UNIT-1",
-    "orderQuantity": 20.0,
-    "billedQty": 14.0,
-    "deliveryStatus": "PARTIAL",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Silicon putty",
-        "quantity": 20.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
     "supplyOrderNo": "SDSC SHAR/SMPC-U1 PURCHASE/SH2023P009510101",
     "supplyOrderDate": "2024-11-19",
     "pdcDate": "2029-11-18",
-    "customerName": "Shar Sriharikota",
-    "nomenclature": "supply of 2 mm thick uncured rocasin extruded sheet-2MM BASE LAYER",
+    "deliveryClause": null,
+    "customerName": "SHAR",
+    "nomenclature": "supply of 2 mm thk uncured rocasin extruded sheet-2MM B/L",
     "assignedUnitName": "UNIT-1",
-    "orderQuantity": 92768.0,
-    "billedQty": 7289.305,
+    "orderQuantity": 91163.0,
+    "billedQty": 7134.305,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material/Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "supply of 2 mm thick uncured rocasin extruded sheet-2MM BASE LAYER",
+        "description": "supply of 2 mm thk uncured rocasin extruded sheet-2MM B/L",
         "quantity": 5115.0,
         "uom": "Nos"
       },
@@ -752,7 +819,7 @@
       },
       {
         "lineNo": 7,
-        "description": "Rubber Lining abrasion of vulcanised insulation surface for hardware",
+        "description": "Rubber Lining abrasion of vulcanised insulation surface for H/W",
         "quantity": 10725.0,
         "uom": "Nos"
       },
@@ -767,11 +834,51 @@
         "description": "Rubber Lining of rubber sheet with carbon cloth",
         "quantity": 5115.0,
         "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "3220014253",
+    "supplyOrderDate": "2024-11-25",
+    "pdcDate": null,
+    "deliveryClause": "PDC: T0+4months",
+    "customerName": "BDL",
+    "nomenclature": "Motor Casing Assembly with liner-VLSRSAM",
+    "assignedUnitName": "UNIT-1",
+    "orderQuantity": 50.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "Motor Casing Assembly with liner-VLSRSAM",
+        "quantity": 10.0,
+        "uom": "Nos"
       },
       {
-        "lineNo": 10,
-        "description": "supply of 1mm thick extruded Rocasin Rubber Sheet -SPP",
-        "quantity": 1605.0,
+        "lineNo": 2,
+        "description": "Head End Cover-VLSRSAM",
+        "quantity": 10.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 3,
+        "description": "Igniter Canister Lining  Assembly-VLSRSAM",
+        "quantity": 10.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 4,
+        "description": "Nozzle Convergent  Blast Tube Assembly-VLSRSAM",
+        "quantity": 10.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 5,
+        "description": "Nozzle Divergent  Assembly-VLSRSAM",
+        "quantity": 10.0,
         "uom": "Nos"
       }
     ]
@@ -780,14 +887,15 @@
     "supplyOrderNo": "UA241-00002",
     "supplyOrderDate": "2025-01-02",
     "pdcDate": "2025-03-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Skyroot",
     "nomenclature": "Rocasin rubber sheet 2mm thk uncured",
     "assignedUnitName": "UNIT-1",
     "orderQuantity": 200.0,
     "billedQty": 150.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -801,19 +909,26 @@
     "supplyOrderNo": "SDSC SHAR/SMPC-U2 PURCHASE/SH2024P000360103",
     "supplyOrderDate": "2025-04-17",
     "pdcDate": "2029-04-16",
-    "customerName": "SDSC SHAR/SMPC-U1 PURCHASE/SH2023P009510101",
+    "deliveryClause": null,
+    "customerName": "SHAR-SPP",
     "nomenclature": "supply of 2mm thick extruded Rocasin Rubber Sheet -SPP",
     "assignedUnitName": "UNIT-1",
-    "orderQuantity": 36600.0,
-    "billedQty": 5400.0,
+    "orderQuantity": 38205.0,
+    "billedQty": 5555.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
         "description": "supply of 2mm thick extruded Rocasin Rubber Sheet -SPP",
         "quantity": 36600.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 2,
+        "description": "supply of 1mm thick extruded Rocasin Rubber Sheet -SPP",
+        "quantity": 1605.0,
         "uom": "Nos"
       }
     ]
@@ -821,15 +936,16 @@
   {
     "supplyOrderNo": "GEMC-511687721732349",
     "supplyOrderDate": "2025-06-03",
-    "pdcDate": "2026-06-03",
-    "customerName": "ASL, DRDO",
+    "pdcDate": "2027-06-03",
+    "deliveryClause": null,
+    "customerName": "ASL",
     "nomenclature": "Un Vulcanized rocasin Rubber sheet",
     "assignedUnitName": "UNIT-1",
     "orderQuantity": 1500.0,
     "billedQty": 250.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -840,38 +956,18 @@
     ]
   },
   {
-    "supplyOrderNo": "PO/2526/0709",
-    "supplyOrderDate": "2026-02-16",
-    "pdcDate": "2026-02-28",
-    "customerName": "Comprotech Engineering Pvt Ltd",
-    "nomenclature": "Un Vulcanized EPDM SX Rubber sheet 1 Mmthick",
-    "assignedUnitName": "UNIT-1",
-    "orderQuantity": 50.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Un Vulcanized EPDM SX Rubber sheet 1 Mmthick",
-        "quantity": 50.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
     "supplyOrderNo": "AJ253-0032",
     "supplyOrderDate": "2026-03-24",
     "pdcDate": "2026-07-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "SKYROOT",
     "nomenclature": "Raman-I thrust chamber Assy",
     "assignedUnitName": "UNIT-1",
     "orderQuantity": 10.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -882,22 +978,79 @@
     ]
   },
   {
-    "supplyOrderNo": "DRDL/26AT0045/VL-SRSAM/ 78/ DOMR / 78469",
-    "supplyOrderDate": "2026-01-22",
-    "pdcDate": "2026-07-03",
-    "customerName": "DRDL, DRDO",
-    "nomenclature": "EPDM Lining of Rocket Motor Casing & Nozzle)-ADP",
-    "assignedUnitName": "Unit-4",
-    "orderQuantity": 4.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
+    "supplyOrderNo": "AJ247-00004",
+    "supplyOrderDate": "2024-07-05",
+    "pdcDate": "2024-08-04",
+    "deliveryClause": null,
+    "customerName": "Skyroot",
+    "nomenclature": "VK1 Retro Motor Nozzle assembly",
+    "assignedUnitName": "UNIT-1",
+    "orderQuantity": 10.0,
+    "billedQty": 9.0,
+    "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "EPDM Lining of Rocket Motor Casing & Nozzle)-ADP",
-        "quantity": 4.0,
+        "description": "VK1 Retro Motor Nozzle assembly",
+        "quantity": 10.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "HEMRL/26GM0681/SRP-III/GN/GEM",
+    "supplyOrderDate": "2026-01-09",
+    "pdcDate": "2027-01-09",
+    "deliveryClause": null,
+    "customerName": "Hemrl",
+    "nomenclature": "Sleeve for Control Mould as per spec",
+    "assignedUnitName": "Unit-1",
+    "orderQuantity": 200.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "Sleeve for Control Mould as per spec",
+        "quantity": 200.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "5562 2024P044700101 | LO",
+    "supplyOrderDate": "2024-10-30",
+    "pdcDate": null,
+    "deliveryClause": "PDC: Intimation+60 Days",
+    "customerName": "VSSC",
+    "nomenclature": "Filment wound product decelopment and fabrication of composite by random fiber compression moulding process",
+    "assignedUnitName": "Unit-1A",
+    "orderQuantity": 7.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "Filment wound product decelopment and fabrication of composite by random fiber compression moulding process",
+        "quantity": 3.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 2,
+        "description": "Filment wound product decelopment and fabrication of composite by zero degree tape winding autoclave process",
+        "quantity": 3.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 3,
+        "description": "Filment wound product moulding /winding tool assembly",
+        "quantity": 1.0,
         "uom": "Nos"
       }
     ]
@@ -906,14 +1059,15 @@
     "supplyOrderNo": "PO/25-26/1862",
     "supplyOrderDate": "2026-03-12",
     "pdcDate": "2026-08-09",
-    "customerName": "Aditya Precitech Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Aditya",
     "nomenclature": "Prop Travel Holder",
     "assignedUnitName": "Unit-1A",
     "orderQuantity": 1350.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -956,15 +1110,16 @@
   {
     "supplyOrderNo": "DRDL/9180/21/15K/2022/1989/2037P",
     "supplyOrderDate": "2023-05-16",
-    "pdcDate": "2026-05-15",
-    "customerName": "ANSP, DRDO",
+    "pdcDate": "2027-05-14",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "manfacturing and supply of Thermal Ptotection Dome( TP Dome",
     "assignedUnitName": "Unit-2",
     "orderQuantity": 20.0,
-    "billedQty": 6.0,
+    "billedQty": 9.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -975,44 +1130,18 @@
     ]
   },
   {
-    "supplyOrderNo": "AJ238-00018",
-    "supplyOrderDate": "2024-02-28",
-    "pdcDate": "2023-11-20",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
-    "nomenclature": "S1 FLEX NOZZLE ASSEMBLY",
-    "assignedUnitName": "Unit-2",
-    "orderQuantity": 5.0,
-    "billedQty": 3.0,
-    "deliveryStatus": "PARTIAL",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "S1 FLEX NOZZLE ASSEMBLY",
-        "quantity": 3.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 2,
-        "description": "S1 NOZZLE FLEXSEAL SUB ASSEMBLY",
-        "quantity": 2.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
     "supplyOrderNo": "PGAD/TD-RCI/AM/23-24/K-15(B1)/50075",
     "supplyOrderDate": "2024-04-26",
-    "pdcDate": "2026-04-30",
-    "customerName": "Programme AD",
+    "pdcDate": "2027-01-31",
+    "deliveryClause": null,
+    "customerName": "PGAD",
     "nomenclature": "Manfacturing and supply of B1 Flex Nozzle Assembly",
     "assignedUnitName": "Unit-2",
     "orderQuantity": 5.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1025,15 +1154,16 @@
   {
     "supplyOrderNo": "PGAD/TD-RCI/AM/23-24/K-15(B2)/50074",
     "supplyOrderDate": "2024-04-26",
-    "pdcDate": "2026-04-30",
-    "customerName": "Programme AD",
+    "pdcDate": "2027-01-31",
+    "deliveryClause": null,
+    "customerName": "PGAD",
     "nomenclature": "Manfacturing and supply of B2 Flex Nozzle Assembly",
     "assignedUnitName": "Unit-2",
     "orderQuantity": 5.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1047,14 +1177,15 @@
     "supplyOrderNo": "DRDL/9673/21/HSABV/2024/0010/0005",
     "supplyOrderDate": "2024-12-06",
     "pdcDate": "2026-12-06",
-    "customerName": "ANSP, DRDO",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "B1 FNS METALLIC CONTAINER WITH VIBRATION PADS",
     "assignedUnitName": "Unit-2",
     "orderQuantity": 6.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1073,15 +1204,16 @@
   {
     "supplyOrderNo": "RCI/25AT0117/RM2/RUDRAM-2/CMS-II",
     "supplyOrderDate": "2025-01-27",
-    "pdcDate": "2026-02-03",
-    "customerName": "RCI, DRDO",
+    "pdcDate": "2027-02-03",
+    "deliveryClause": null,
+    "customerName": "RCI",
     "nomenclature": "R167 Nozzle Casing with Thermal insulation",
     "assignedUnitName": "Unit-2",
     "orderQuantity": 24.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1092,49 +1224,67 @@
     ]
   },
   {
-    "supplyOrderNo": "2025260045",
-    "supplyOrderDate": "2025-07-04",
-    "pdcDate": "2025-09-05",
-    "customerName": "aadyah Aerospace Pvt Ltd",
-    "nomenclature": "Thermal Bot Insert",
+    "supplyOrderNo": "1900/1DR043479/JS9000195",
+    "supplyOrderDate": "2025-09-19",
+    "pdcDate": null,
+    "deliveryClause": "PDC: FIM+30Days",
+    "customerName": "Godrej",
+    "nomenclature": "M2B Nozzle wid Divergent Liner",
     "assignedUnitName": "Unit-2",
-    "orderQuantity": 3.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
+    "orderQuantity": 4.0,
+    "billedQty": 1.0,
+    "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "Thermal Bot Insert",
-        "quantity": 2.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 2,
-        "description": "One Time Tooling Cost",
-        "quantity": 1.0,
+        "description": "M2B Nozzle wid Divergent Liner",
+        "quantity": 4.0,
         "uom": "Nos"
       }
     ]
   },
   {
-    "supplyOrderNo": "ASL/DA1P/RCI/R/DA1P/0149/24/4035/4011",
-    "supplyOrderDate": "2025-09-27",
-    "pdcDate": "2026-06-15",
-    "customerName": "ASL, DRDO",
-    "nomenclature": "Fabrication and supply of CP Bush",
+    "supplyOrderNo": "1900/1DR043479/JS9000196",
+    "supplyOrderDate": "2025-09-19",
+    "pdcDate": null,
+    "deliveryClause": "PDC: FIM+30Days",
+    "customerName": "Godrej",
+    "nomenclature": "LS KV NOZZLE WITH Divergent",
     "assignedUnitName": "Unit-2",
-    "orderQuantity": 160.0,
+    "orderQuantity": 3.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "Fabrication and supply of CP Bush",
-        "quantity": 160.0,
+        "description": "LS KV NOZZLE WITH Divergent",
+        "quantity": 3.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "1900/1DR043479/JS9000190",
+    "supplyOrderDate": "2025-08-19",
+    "pdcDate": null,
+    "deliveryClause": "PDC: FIM+30Days",
+    "customerName": "Godrej",
+    "nomenclature": "LS KV NOZZLE WITH Divergent",
+    "assignedUnitName": "Unit-2",
+    "orderQuantity": 1.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "LS KV NOZZLE WITH Divergent",
+        "quantity": 1.0,
         "uom": "Nos"
       }
     ]
@@ -1143,14 +1293,15 @@
     "supplyOrderNo": "SPD_4768",
     "supplyOrderDate": "2025-10-17",
     "pdcDate": "2025-12-16",
-    "customerName": "Premier Explosives Ltd",
+    "deliveryClause": null,
+    "customerName": "PEL",
     "nomenclature": "Nozzle End Assy -306",
     "assignedUnitName": "Unit-2",
     "orderQuantity": 31.0,
     "billedQty": 2.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1164,14 +1315,15 @@
     "supplyOrderNo": "SPD_4767",
     "supplyOrderDate": "2025-10-17",
     "pdcDate": "2025-12-16",
-    "customerName": "Premier Explosives Ltd",
+    "deliveryClause": null,
+    "customerName": "PEL",
     "nomenclature": "Nozzle Assembly 240",
     "assignedUnitName": "Unit-2",
     "orderQuantity": 9.0,
     "billedQty": 2.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1182,72 +1334,22 @@
     ]
   },
   {
-    "supplyOrderNo": "2025260100",
-    "supplyOrderDate": "2025-12-08",
-    "pdcDate": "2026-06-06",
-    "customerName": "aadyah Aerospace Pvt Ltd",
-    "nomenclature": "Flex Seal Transfer Moulding Tool",
-    "assignedUnitName": "Adibatla / Design / Unit-2",
-    "orderQuantity": 10.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Flex Seal Transfer Moulding Tool",
-        "quantity": 1.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 2,
-        "description": "Thermal Boot Transfer Moulding Tool",
-        "quantity": 1.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 3,
-        "description": "Flex Seal Pull test Fixture",
-        "quantity": 1.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 4,
-        "description": "Flex seal proof pressure test fixture",
-        "quantity": 1.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 5,
-        "description": "flex seal including proof pressure testing",
-        "quantity": 3.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 6,
-        "description": "Flex seal with thermal boot assembly",
-        "quantity": 3.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
     "supplyOrderNo": "SPD_4979",
     "supplyOrderDate": "2026-01-29",
     "pdcDate": "2026-07-30",
-    "customerName": "Premier Explosives Ltd",
-    "nomenclature": "RMNEA 2400 Nozzle Assembly Y-240",
+    "deliveryClause": null,
+    "customerName": "PEL",
+    "nomenclature": "RMNEA 240 Nozzle Assembly Y-240",
     "assignedUnitName": "Unit-2",
     "orderQuantity": 35.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "RMNEA 2400 Nozzle Assembly Y-240",
+        "description": "RMNEA 240 Nozzle Assembly Y-240",
         "quantity": 35.0,
         "uom": "Nos"
       }
@@ -1257,18 +1359,19 @@
     "supplyOrderNo": "5600002832",
     "supplyOrderDate": "2026-02-10",
     "pdcDate": "2026-03-03",
+    "deliveryClause": null,
     "customerName": "TATA",
-    "nomenclature": "Jet Deflector with coating assembly",
+    "nomenclature": "MRSAM-Jet Deflector with coating assembly",
     "assignedUnitName": "Unit-2",
     "orderQuantity": 1.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "Jet Deflector with coating assembly",
+        "description": "MRSAM-Jet Deflector with coating assembly",
         "quantity": 1.0,
         "uom": "Nos"
       }
@@ -1278,14 +1381,15 @@
     "supplyOrderNo": "WACPL/RAPS/PREPREG/017/2025-26",
     "supplyOrderDate": "2026-02-23",
     "pdcDate": "2026-03-23",
-    "customerName": "Walchand advanced composites Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Walchand",
     "nomenclature": "Impregnation Rayon Based Carbon fabric with Phenolic resin",
     "assignedUnitName": "Unit-2",
     "orderQuantity": 565.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1302,51 +1406,88 @@
     ]
   },
   {
-    "supplyOrderNo": "2025260129 R1",
-    "supplyOrderDate": "2026-03-23",
-    "pdcDate": "2026-06-30",
-    "customerName": "aadyah Aerospace Pvt Ltd",
-    "nomenclature": "manufacturing and supply of Flex Nozzle assembly including integration",
-    "assignedUnitName": "Unit-2 / Design",
-    "orderQuantity": 9.0,
+    "supplyOrderNo": "4500601363",
+    "supplyOrderDate": "2026-03-30",
+    "pdcDate": null,
+    "deliveryClause": null,
+    "customerName": "SOLAR",
+    "nomenclature": "E - GLASS & D 356 X 1730 MM",
+    "assignedUnitName": "Unit-2",
+    "orderQuantity": 4.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "manufacturing and supply of Flex Nozzle assembly including integration",
+        "description": "E - GLASS & D 356 X 1730 MM",
+        "quantity": 4.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "OMBT/RAPS-03/26-27",
+    "supplyOrderDate": "2026-04-15",
+    "pdcDate": "2026-06-14",
+    "deliveryClause": null,
+    "customerName": "Oka Basu",
+    "nomenclature": "Carbon  components",
+    "assignedUnitName": "Unit-2",
+    "orderQuantity": 1.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "Carbon  components",
         "quantity": 1.0,
         "uom": "Nos"
-      },
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "DRDL/PGLRSAM/1701/31P/26/432/0488",
+    "supplyOrderDate": "2026-05-21",
+    "pdcDate": "2026-08-20",
+    "deliveryClause": null,
+    "customerName": "DRDL",
+    "nomenclature": "M1 POTABLE JET DEFLECTOR 60T WITH COMPRESSION MOULED ROSETTE GPH",
+    "assignedUnitName": "Unit-2",
+    "orderQuantity": 2.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
       {
-        "lineNo": 2,
-        "description": "manufacturing and supply of Flex Nozzle assembly including integration",
-        "quantity": 1.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 3,
-        "description": "Metallic Hardware",
+        "lineNo": 1,
+        "description": "M1 POTABLE JET DEFLECTOR 60T WITH COMPRESSION MOULED ROSETTE GPH",
         "quantity": 2.0,
         "uom": "Nos"
-      },
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "5600003150",
+    "supplyOrderDate": "2026-05-20",
+    "pdcDate": null,
+    "deliveryClause": "PDC: FIM+1 month",
+    "customerName": "TATA",
+    "nomenclature": "Glass Phenolic for Jet Deflector (M1)",
+    "assignedUnitName": "Unit-2",
+    "orderQuantity": 1.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
       {
-        "lineNo": 4,
-        "description": "Fasteners Brackets & Turnbackles",
-        "quantity": 2.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 5,
-        "description": "Metallic Container with Vibration Pads",
-        "quantity": 2.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 6,
-        "description": "One Time cost for tooling and Fixtures",
+        "lineNo": 1,
+        "description": "Glass Phenolic for Jet Deflector (M1)",
         "quantity": 1.0,
         "uom": "Nos"
       }
@@ -1356,14 +1497,15 @@
     "supplyOrderNo": "AJ23N-00001",
     "supplyOrderDate": "2023-11-01",
     "pdcDate": "2024-01-15",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Skyroot",
     "nomenclature": "S2 Nozzle Assembly ( Flight)",
     "assignedUnitName": "Unit-3",
     "orderQuantity": 2.0,
     "billedQty": 1.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1377,14 +1519,15 @@
     "supplyOrderNo": "DRDL/9348/21/15K/2022/2051/2117P",
     "supplyOrderDate": "2024-01-18",
     "pdcDate": "2027-01-18",
-    "customerName": "ANSP, DRDO",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "Manufacturing & Supply of B1 FNS Assembly Including Flex Seal",
     "assignedUnitName": "Unit-3",
     "orderQuantity": 12.0,
-    "billedQty": 7.0,
+    "billedQty": 8.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1401,17 +1544,46 @@
     ]
   },
   {
+    "supplyOrderNo": "PO/24-25/0291",
+    "supplyOrderDate": "2024-07-10",
+    "pdcDate": null,
+    "deliveryClause": "PDC: 30+FIM",
+    "customerName": "Aditya",
+    "nomenclature": "Lining of Motor Casing-P197",
+    "assignedUnitName": "Unit-3",
+    "orderQuantity": 20.0,
+    "billedQty": 10.0,
+    "deliveryStatus": "PARTIAL",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "Lining of Motor Casing-P197",
+        "quantity": 9.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 2,
+        "description": "Lining of Nozzele--P197",
+        "quantity": 11.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
     "supplyOrderNo": "6930008257",
     "supplyOrderDate": "2024-08-09",
-    "pdcDate": "2025-03-29",
-    "customerName": "BEML Ltd",
+    "pdcDate": "2025-09-29",
+    "deliveryClause": null,
+    "customerName": "BEML",
     "nomenclature": "P1 MOTOR WITH LINER",
     "assignedUnitName": "Unit-3",
     "orderQuantity": 270.0,
     "billedQty": 9.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1473,14 +1645,15 @@
     "supplyOrderNo": "AJ241-00003",
     "supplyOrderDate": "2025-01-27",
     "pdcDate": "2025-03-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Skyroot",
     "nomenclature": "VK-1 S3 FLEX NOZZLE ASSEMBLY",
     "assignedUnitName": "Unit-3",
     "orderQuantity": 2.0,
     "billedQty": 1.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1491,43 +1664,23 @@
     ]
   },
   {
-    "supplyOrderNo": "WA25N-00033",
-    "supplyOrderDate": "2025-11-19",
-    "pdcDate": "2025-12-20",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
-    "nomenclature": "s1 FSA REWORK",
-    "assignedUnitName": "Unit-3",
-    "orderQuantity": 1.0,
+    "supplyOrderNo": "DRDL/26AT0045/VL-SRSAM/ 78/ DOMR / 78469",
+    "supplyOrderDate": "2026-01-22",
+    "pdcDate": "2026-07-03",
+    "deliveryClause": null,
+    "customerName": "DRDL",
+    "nomenclature": "EPDM Lining of Rocket Motor Casing & Nozzle)-ADP",
+    "assignedUnitName": "Unit-4",
+    "orderQuantity": 4.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "s1 FSA REWORK",
-        "quantity": 1.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "WA251-00022",
-    "supplyOrderDate": "2026-01-12",
-    "pdcDate": "2026-03-10",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
-    "nomenclature": "Manfacturring & Supply f VK 1 Nozzle closure sleeve assembly",
-    "assignedUnitName": "Unit-3",
-    "orderQuantity": 1.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Manfacturring & Supply f VK 1 Nozzle closure sleeve assembly",
-        "quantity": 1.0,
+        "description": "EPDM Lining of Rocket Motor Casing & Nozzle)-ADP",
+        "quantity": 4.0,
         "uom": "Nos"
       }
     ]
@@ -1536,14 +1689,15 @@
     "supplyOrderNo": "ASL/DD2/R/DD23/0133/20/2505/2573",
     "supplyOrderDate": "2021-01-19",
     "pdcDate": "2026-12-30",
-    "customerName": "ASL, DRDO",
+    "deliveryClause": null,
+    "customerName": "ASL",
     "nomenclature": "Rocasin Rubber Lining on S1C Intermediate Dome And Machining",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 10.0,
     "billedQty": 7.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1554,59 +1708,18 @@
     ]
   },
   {
-    "supplyOrderNo": "POD-SAPL_TS_DTA/22-23/597",
-    "supplyOrderDate": "2022-11-12",
-    "pdcDate": "2022-12-27",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
-    "nomenclature": "S1 CRMC Shear Ply -02A-01-BA2-004-R0",
-    "assignedUnitName": "Unit-4",
-    "orderQuantity": 8.0,
-    "billedQty": 4.0,
-    "deliveryStatus": "PARTIAL",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "S1 CRMC Shear Ply -02A-01-BA2-004-R0",
-        "quantity": 8.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "PO/2425/010",
-    "supplyOrderDate": "2024-04-10",
-    "pdcDate": "2024-05-30",
-    "customerName": "Comprotech Engineering Pvt Ltd",
-    "nomenclature": "S1 Nozzle Metallic With EPDM Liner",
-    "assignedUnitName": "Unit-4",
-    "orderQuantity": 10.0,
-    "billedQty": 2.0,
-    "deliveryStatus": "PARTIAL",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "S1 Nozzle Metallic With EPDM Liner",
-        "quantity": 10.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
     "supplyOrderNo": "B213 2023P063270101I LO",
     "supplyOrderDate": "2024-05-16",
-    "pdcDate": "2024-09-15",
-    "customerName": "Vikram Sarabhai Space Centre",
+    "pdcDate": "2024-09-14",
+    "deliveryClause": null,
+    "customerName": "VSSC",
     "nomenclature": "EPDM-Non Metallic Bellow",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 1.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1617,22 +1730,29 @@
     ]
   },
   {
-    "supplyOrderNo": "AJ24O-00005",
-    "supplyOrderDate": "2024-10-21",
-    "pdcDate": "2024-12-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
-    "nomenclature": "VK-1 _ S3-CRMC WITH TPSLINER AND LOOSE FLAP",
+    "supplyOrderNo": "1710 2023P04820101 I LO",
+    "supplyOrderDate": "2024-06-03",
+    "pdcDate": null,
+    "deliveryClause": "PDC: Clearance + 180 Days",
+    "customerName": "VSSC",
+    "nomenclature": "Development /Trail Batch S200 Thermal Boot",
     "assignedUnitName": "Unit-4",
-    "orderQuantity": 2.0,
+    "orderQuantity": 7.0,
     "billedQty": 1.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "VK-1 _ S3-CRMC WITH TPSLINER AND LOOSE FLAP",
+        "description": "Development /Trail Batch S200 Thermal Boot",
         "quantity": 2.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 2,
+        "description": "Production Batch of S200 Thermal Boots",
+        "quantity": 5.0,
         "uom": "Nos"
       }
     ]
@@ -1641,14 +1761,15 @@
     "supplyOrderNo": "UC24D-00002",
     "supplyOrderDate": "2024-12-03",
     "pdcDate": "2024-12-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Skyroot",
     "nomenclature": "S3 Igniter Insulation Boot",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 8.0,
     "billedQty": 7.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1662,14 +1783,15 @@
     "supplyOrderNo": "DRDL/9615/21/15K/2024/2146/2184P",
     "supplyOrderDate": "2024-12-30",
     "pdcDate": "2026-06-30",
-    "customerName": "ANSP, DRDO",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "Base Dome-1& Base Dome-2 for Thermal Lining",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 15.0,
     "billedQty": 10.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1683,14 +1805,15 @@
     "supplyOrderNo": "AJ24N-00003",
     "supplyOrderDate": "2024-11-07",
     "pdcDate": "2025-01-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Skyroot",
     "nomenclature": "02A-03-AB1-000- S3 NOZZLE SUBMERGED SUB ASSEMBLY-",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 2.0,
     "billedQty": 1.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1704,14 +1827,15 @@
     "supplyOrderNo": "SODEL/0008/2425",
     "supplyOrderDate": "2025-01-16",
     "pdcDate": "2026-07-31",
-    "customerName": "Brahmos Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Brahmos",
     "nomenclature": "PJ10_321-01-01-00-00, B2 Shel Assy With liner",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 180.0,
-    "billedQty": 70.0,
+    "billedQty": 73.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1755,14 +1879,15 @@
     "supplyOrderNo": "PODEL/00316/24-25",
     "supplyOrderDate": "2025-01-16",
     "pdcDate": "2026-07-31",
-    "customerName": "Brahmos Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Brahmos",
     "nomenclature": "PJ10_321-02-02-00-00, HTM Igniter Assembly",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 30.0,
     "billedQty": 20.0,
     "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1776,40 +1901,20 @@
     "supplyOrderNo": "521B 2024po50570101! LO",
     "supplyOrderDate": "2025-03-26",
     "pdcDate": "2025-09-20",
-    "customerName": "Vikram Sarabhai Space Centre",
-    "nomenclature": "Filment wound Product Fabrication of Cyotank",
+    "deliveryClause": null,
+    "customerName": "VSSC",
+    "nomenclature": "Filment wound Product Fabrication of Cryotank",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 3.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "Filment wound Product Fabrication of Cyotank",
+        "description": "Filment wound Product Fabrication of Cryotank",
         "quantity": 3.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "AJ247-00004",
-    "supplyOrderDate": "2024-07-05",
-    "pdcDate": "2024-08-04",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
-    "nomenclature": "VK1 Retro Motor Nozzle assembly",
-    "assignedUnitName": "UNIT-1",
-    "orderQuantity": 10.0,
-    "billedQty": 7.0,
-    "deliveryStatus": "PARTIAL",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "VK1 Retro Motor Nozzle assembly",
-        "quantity": 10.0,
         "uom": "Nos"
       }
     ]
@@ -1818,14 +1923,15 @@
     "supplyOrderNo": "UC259-00022",
     "supplyOrderDate": "2025-09-11",
     "pdcDate": "2025-10-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Skyroot",
     "nomenclature": "S1 Igniter Insulation Boot",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 3.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1839,14 +1945,15 @@
     "supplyOrderNo": "UC259-00023",
     "supplyOrderDate": "2025-09-11",
     "pdcDate": "2025-10-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Skyroot",
     "nomenclature": "vk1 s2 igniter insulation boot",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 4.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1860,14 +1967,15 @@
     "supplyOrderNo": "UC259-00024",
     "supplyOrderDate": "2025-09-11",
     "pdcDate": "2025-10-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Skyroot",
     "nomenclature": "S3 Igniter Insulation Boot",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 3.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1878,59 +1986,18 @@
     ]
   },
   {
-    "supplyOrderNo": "PGAD/7741/01/FX/25-26/0050/41989",
-    "supplyOrderDate": "2025-09-24",
-    "pdcDate": "2026-06-30",
-    "customerName": "Programme AD",
-    "nomenclature": "S1 CASING WITH EPDM INSULATION",
-    "assignedUnitName": "Unit-4",
-    "orderQuantity": 2.0,
-    "billedQty": 1.0,
-    "deliveryStatus": "PARTIAL",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "S1 CASING WITH EPDM INSULATION",
-        "quantity": 2.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "WA25N-00032",
-    "supplyOrderDate": "2025-11-19",
-    "pdcDate": "2025-12-20",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
-    "nomenclature": "s1 Nozzle SSA re work",
-    "assignedUnitName": "Unit-4",
-    "orderQuantity": 1.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "s1 Nozzle SSA re work",
-        "quantity": 1.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
     "supplyOrderNo": "drdl/24/08P/25/0197/43875/dosrp",
     "supplyOrderDate": "2025-11-04",
-    "pdcDate": "2026-03-31",
-    "customerName": "DRDL, DRDO",
+    "pdcDate": "2026-08-31",
+    "deliveryClause": null,
+    "customerName": "DRDL",
     "nomenclature": "Lining of CC 180rocket motor casing and nozzle assembly",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 2.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "PDC EXT. REQUEST SENT TILL 31-08-26 | Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -1941,22 +2008,35 @@
     ]
   },
   {
-    "supplyOrderNo": "WA252-00027",
-    "supplyOrderDate": "2026-02-12",
-    "pdcDate": "2026-06-30",
-    "customerName": "Skyroot Aerospace Pvt Ltd",
-    "nomenclature": "S1 crmc RUBBER LINING",
+    "supplyOrderNo": "3220016545",
+    "supplyOrderDate": "2026-01-22",
+    "pdcDate": null,
+    "deliveryClause": "PDC: FMI+4 months",
+    "customerName": "BDL",
+    "nomenclature": "Motor with Liner-QRSAM",
     "assignedUnitName": "Unit-4",
-    "orderQuantity": 1.0,
+    "orderQuantity": 9.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "S1 crmc RUBBER LINING",
-        "quantity": 1.0,
+        "description": "Motor with Liner-QRSAM",
+        "quantity": 3.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 2,
+        "description": "Motor Casing Assembly-QRSAM",
+        "quantity": 3.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 3,
+        "description": "Nozzle with Divergent-QRSAM",
+        "quantity": 3.0,
         "uom": "Nos"
       }
     ]
@@ -1965,14 +2045,15 @@
     "supplyOrderNo": "DEF/D/PO/25-26/0946",
     "supplyOrderDate": "2026-02-26",
     "pdcDate": "2026-12-31",
-    "customerName": "ICOMM TELE LTD",
+    "deliveryClause": null,
+    "customerName": "ICOMM",
     "nomenclature": "Booster motor casing with liner",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 50.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -2028,14 +2109,15 @@
     "supplyOrderNo": "4500401496",
     "supplyOrderDate": "2026-04-02",
     "pdcDate": "2026-07-30",
-    "customerName": "Adani Defence systema and technologies Ltd",
+    "deliveryClause": null,
+    "customerName": "Adani",
     "nomenclature": "Removal of Old Liner and refurbishment of Sustainer motor casing and EPDM lining of sustainer motors",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 8.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -2045,29 +2127,8 @@
       },
       {
         "lineNo": 2,
-        "description": "Removal of Old Liner and refurbishment of Booster motor and EPDM Lining",
+        "description": "Removal of Old Liner & refurbishment of Booster motor & EPDM Lining",
         "quantity": 4.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "3220016937",
-    "supplyOrderDate": "2026-03-23",
-    "pdcDate": "2026-07-21",
-    "customerName": "Bharat Dynamics Ltd",
-    "nomenclature": "EPDM rubber Liner-Pralay",
-    "assignedUnitName": "Unit-4",
-    "orderQuantity": 2.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "EPDM rubber Liner-Pralay",
-        "quantity": 2.0,
         "uom": "Nos"
       }
     ]
@@ -2076,14 +2137,15 @@
     "supplyOrderNo": "RCI/27AT0004/SF VSH/GN/CMS-II",
     "supplyOrderDate": "2026-04-02",
     "pdcDate": "2026-10-06",
-    "customerName": "RCI, DRDO",
+    "deliveryClause": null,
+    "customerName": "RCI",
     "nomenclature": "Lining of SFVSH rocket motor  assembly",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 10.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -2094,149 +2156,18 @@
     ]
   },
   {
-    "supplyOrderNo": "DRDL/25AT0034/ET-LDHCM/75/DOMR",
-    "supplyOrderDate": "2024-06-19",
-    "pdcDate": "2026-07-31",
-    "customerName": "DRDL, DRDO",
-    "nomenclature": "Manufacturring and supply of H1 FNS Assembly including Flex Seal and nozzle Integration",
-    "assignedUnitName": "Unit-5",
-    "orderQuantity": 5.0,
-    "billedQty": 2.0,
-    "deliveryStatus": "PARTIAL",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Manufacturring and supply of H1 FNS Assembly including Flex Seal and nozzle Integration",
-        "quantity": 5.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "DRDL/8816/21/15F/2021/0714/0889F",
-    "supplyOrderDate": "2024-07-16",
-    "pdcDate": "2026-03-16",
-    "customerName": "ANSP, DRDO",
-    "nomenclature": "Manfacturing of S1 CRMC",
-    "assignedUnitName": "Unit-5",
-    "orderQuantity": 4.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Manfacturing of S1 CRMC",
-        "quantity": 4.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "SCOHYD/24-25/0008",
-    "supplyOrderDate": "2024-07-15",
-    "pdcDate": "2026-08-30",
-    "customerName": "Brahmos Aerospace Pvt Ltd",
-    "nomenclature": "SK 341 CANSISTER MARK-IV",
-    "assignedUnitName": "Unit-5",
-    "orderQuantity": 5.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "SK 341 CANSISTER MARK-IV",
-        "quantity": 2.0,
-        "uom": "Nos"
-      },
-      {
-        "lineNo": 2,
-        "description": "SK 341 CANSISTER MARK-IV",
-        "quantity": 3.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "PGAD/7741/01/FE/24-25/0105/41958",
-    "supplyOrderDate": "2025-07-04",
-    "pdcDate": "2026-04-15",
-    "customerName": "Programme AD",
-    "nomenclature": "Composite Rocket Motor Casing with EPDM Liner for P191",
-    "assignedUnitName": "Unit-5",
-    "orderQuantity": 2.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Composite Rocket Motor Casing with EPDM Liner for P191",
-        "quantity": 2.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "NSTL/26AT0047/GN/CMS-III/LP-I/25-26/LP-1/4059",
-    "supplyOrderDate": "2026-02-20",
-    "pdcDate": "2027-02-01",
-    "customerName": "Naval Science & Technological Laboratory",
-    "nomenclature": "manufacture and supply of Dia 380*2700mm long composite shell assembly with containers for air droppable containers",
-    "assignedUnitName": "Unit-5",
-    "orderQuantity": 10.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "manufacture and supply of Dia 380*2700mm long composite shell assembly with containers for air droppable containers",
-        "quantity": 10.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "3220017037",
-    "supplyOrderDate": "2026-04-17",
-    "pdcDate": "2026-07-09",
-    "customerName": "Bharat Dynamics Ltd",
-    "nomenclature": "launchtube assembly forMPATGM",
-    "assignedUnitName": "Unit-5",
-    "orderQuantity": 10.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "launchtube assembly forMPATGM",
-        "quantity": 10.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
     "supplyOrderNo": "PGAD/77410/01/LPC/26-27/0440",
     "supplyOrderDate": "2026-04-23",
     "pdcDate": "2026-06-25",
-    "customerName": "Programme AD",
+    "deliveryClause": null,
+    "customerName": "PGAD",
     "nomenclature": "Old Rocasin Rubber Removal from Motor Case",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 2.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Service | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -2247,42 +2178,22 @@
     ]
   },
   {
-    "supplyOrderNo": "OMBT/RAPS-03/26-27",
-    "supplyOrderDate": "2026-04-15",
-    "pdcDate": "2026-06-14",
-    "customerName": "Oka Basu",
-    "nomenclature": "Carbon  components",
-    "assignedUnitName": "Unit-2",
-    "orderQuantity": 1.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "Carbon  components",
-        "quantity": 1.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "SALVO/PO/PRO/PM/26-27/61",
-    "supplyOrderDate": "2026-05-08",
-    "pdcDate": "2026-07-07",
-    "customerName": "Salvo Industries Pvt Ltd",
-    "nomenclature": "Astra MK1 Nozzle Componets",
-    "assignedUnitName": "Unit-1",
+    "supplyOrderNo": "4300036355",
+    "supplyOrderDate": "2026-04-16",
+    "pdcDate": null,
+    "deliveryClause": "PDC: FIM+2 months",
+    "customerName": "BEL",
+    "nomenclature": "EPDM Rubber Lining of Pralay Motors",
+    "assignedUnitName": "Unit-4",
     "orderQuantity": 2.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "Astra MK1 Nozzle Componets",
+        "description": "EPDM Rubber Lining of Pralay Motors",
         "quantity": 2.0,
         "uom": "Nos"
       }
@@ -2292,14 +2203,15 @@
     "supplyOrderNo": "4500007207",
     "supplyOrderDate": "2026-04-15",
     "pdcDate": "2026-08-13",
-    "customerName": "Solar Defence and Aerospace Ltd",
+    "deliveryClause": null,
+    "customerName": "SOLAR",
     "nomenclature": "Removal & Application of LRSAM Liner-P1 & P2 Motor",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 1.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -2310,59 +2222,18 @@
     ]
   },
   {
-    "supplyOrderNo": "DRDL/10003/21/15F/2025/1135/1063F",
-    "supplyOrderDate": "2026-04-20",
-    "pdcDate": "2028-04-20",
-    "customerName": "ANSP, DRDO",
-    "nomenclature": "MANFACTURING AND SUPPLY OF S2  CRMC",
-    "assignedUnitName": "Unit-5",
-    "orderQuantity": 4.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "MANFACTURING AND SUPPLY OF S2  CRMC",
-        "quantity": 4.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
-    "supplyOrderNo": "DRDL/PGLRSAM/1701/31P/26/432/0488",
-    "supplyOrderDate": "2026-05-21",
-    "pdcDate": "2026-08-20",
-    "customerName": "DRDL, DRDO",
-    "nomenclature": "M1 POTABLE JET DEFLECTOR 60T WITH COMPRESSION MOULED ROSETTE GPH",
-    "assignedUnitName": "Unit-2",
-    "orderQuantity": 2.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
-    "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
-    "items": [
-      {
-        "lineNo": 1,
-        "description": "M1 POTABLE JET DEFLECTOR 60T WITH COMPRESSION MOULED ROSETTE GPH",
-        "quantity": 2.0,
-        "uom": "Nos"
-      }
-    ]
-  },
-  {
     "supplyOrderNo": "SCOHYD/26-27/4027",
     "supplyOrderDate": "2026-04-28",
     "pdcDate": "2028-03-31",
-    "customerName": "Brahmos Aerospace Pvt Ltd",
+    "deliveryClause": null,
+    "customerName": "Brahmos",
     "nomenclature": "PJ10_321-01-01-00-00, B2 Shel Assy With liner",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 180.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -2406,14 +2277,15 @@
     "supplyOrderNo": "DRDL/9927/21/15K/2025/2216/2259P",
     "supplyOrderDate": "2026-05-13",
     "pdcDate": "2027-11-13",
-    "customerName": "ANSP, DRDO",
+    "deliveryClause": null,
+    "customerName": "ANSP",
     "nomenclature": "LTB CASING ASSY WITH LINER & NE GRID",
     "assignedUnitName": "Unit-4",
     "orderQuantity": 96.0,
     "billedQty": 0.0,
     "deliveryStatus": "IN_PROGRESS",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
@@ -2430,22 +2302,161 @@
     ]
   },
   {
-    "supplyOrderNo": "HEMRL/26GM0681/SRP-III/GN/GEM",
-    "supplyOrderDate": "2026-01-09",
-    "pdcDate": "2027-01-09",
-    "customerName": "Hemrl",
-    "nomenclature": "Sleeve for Control Mould as per spec",
-    "assignedUnitName": "Unit-1",
-    "orderQuantity": 200.0,
-    "billedQty": 0.0,
-    "deliveryStatus": "IN_PROGRESS",
+    "supplyOrderNo": "DRDL/25AT0034/ET-LDHCM/75/DOMR",
+    "supplyOrderDate": "2024-06-19",
+    "pdcDate": "2026-07-31",
+    "deliveryClause": null,
+    "customerName": "DRDL",
+    "nomenclature": "Manufacturring and supply of H1 FNS Assembly including Flex Seal and nozzle Integration",
+    "assignedUnitName": "Unit-5",
+    "orderQuantity": 5.0,
+    "billedQty": 2.0,
+    "deliveryStatus": "PARTIAL",
     "status": "IN_PROGRESS",
-    "remarks": "Type of Order: Material | Imported from Cash Flow sheet (01-06-26).",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
     "items": [
       {
         "lineNo": 1,
-        "description": "Sleeve for Control Mould as per spec",
-        "quantity": 200.0,
+        "description": "Manufacturring and supply of H1 FNS Assembly including Flex Seal and nozzle Integration",
+        "quantity": 5.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "DRDL/8816/21/15F/2021/0714/0889F",
+    "supplyOrderDate": "2024-07-19",
+    "pdcDate": "2027-11-30",
+    "deliveryClause": null,
+    "customerName": "ANSP",
+    "nomenclature": "Manfacturing of S1 CRMC",
+    "assignedUnitName": "Unit-5",
+    "orderQuantity": 4.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "Manfacturing of S1 CRMC",
+        "quantity": 4.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "SCOHYD/24-25/0008",
+    "supplyOrderDate": "2024-07-15",
+    "pdcDate": "2026-08-30",
+    "deliveryClause": null,
+    "customerName": "Brahmos",
+    "nomenclature": "SK 341 CANSISTER MARK-IV",
+    "assignedUnitName": "Unit-5",
+    "orderQuantity": 5.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "SK 341 CANSISTER MARK-IV",
+        "quantity": 2.0,
+        "uom": "Nos"
+      },
+      {
+        "lineNo": 2,
+        "description": "SK 341 CANSISTER MARK-IV",
+        "quantity": 3.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "PGAD/7741/01/FE/24-25/0105/41958",
+    "supplyOrderDate": "2025-07-04",
+    "pdcDate": "2026-12-31",
+    "deliveryClause": null,
+    "customerName": "PGAD",
+    "nomenclature": "Composite Rocket Motor Casing with EPDM Liner for P191",
+    "assignedUnitName": "Unit-5",
+    "orderQuantity": 2.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "Composite Rocket Motor Casing with EPDM Liner for P191",
+        "quantity": 2.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "NSTL/26AT0047/GN/CMS-III/LP-I/25-26/LP-1/4059",
+    "supplyOrderDate": "2026-02-20",
+    "pdcDate": "2027-02-01",
+    "deliveryClause": null,
+    "customerName": "NSTL",
+    "nomenclature": "manufacture and supply of Dia 380*2700mm long composite shell assembly with containers for air droppable containers",
+    "assignedUnitName": "Unit-5",
+    "orderQuantity": 10.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "manufacture and supply of Dia 380*2700mm long composite shell assembly with containers for air droppable containers",
+        "quantity": 10.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "3220017037",
+    "supplyOrderDate": "2026-04-17",
+    "pdcDate": "2026-07-09",
+    "deliveryClause": null,
+    "customerName": "BDL",
+    "nomenclature": "launchtube assembly forMPATGM",
+    "assignedUnitName": "Unit-5",
+    "orderQuantity": 10.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "launchtube assembly forMPATGM",
+        "quantity": 10.0,
+        "uom": "Nos"
+      }
+    ]
+  },
+  {
+    "supplyOrderNo": "DRDL/10003/21/15F/2025/1135/1063F",
+    "supplyOrderDate": "2026-04-20",
+    "pdcDate": "2028-04-20",
+    "deliveryClause": null,
+    "customerName": "ANSP",
+    "nomenclature": "MANFACTURING AND SUPPLY OF S2  CRMC",
+    "assignedUnitName": "Unit-5",
+    "orderQuantity": 4.0,
+    "billedQty": 0.0,
+    "deliveryStatus": "IN_PROGRESS",
+    "status": "IN_PROGRESS",
+    "remarks": "Imported from Cash Flow sheet (FINAL LIST).",
+    "items": [
+      {
+        "lineNo": 1,
+        "description": "MANFACTURING AND SUPPLY OF S2  CRMC",
+        "quantity": 4.0,
         "uom": "Nos"
       }
     ]

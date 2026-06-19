@@ -706,6 +706,11 @@ function DashboardTable({ workOrders, onOpen }) {
                       <BellRing size={11} /> {activeAlarms.length} alarm{activeAlarms.length === 1 ? '' : 's'}
                     </span>
                   )}
+                  {((w._count?.purchaseRequests || 0) + (w._count?.productRequests || 0)) > 0 && (
+                    <span className="text-[11px] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-navy-100 text-navy-700" title="Purchase Requests / MIVs raised against this work order">
+                      PR {w._count.purchaseRequests || 0} · MIV {w._count.productRequests || 0}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -1483,7 +1488,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
         </div>
 
         <div className="border-b flex gap-2 flex-wrap">
-          {['overview', 'bg-insurance', 'extensions', 'closures', 'delivery', 'remarks', 'alarms'].map((s) => {
+          {['overview', 'bg-insurance', 'extensions', 'closures', 'delivery', 'remarks', 'requests', 'alarms'].map((s) => {
             const activeAlarmCount = (wo.alarms || []).filter((a) => a.status === 'ACTIVE').length;
             const isAlarms = s === 'alarms';
             return (
@@ -1496,6 +1501,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
                   : s === 'closures' ? `Lots (${(wo.closures || []).length})`
                   : s === 'bg-insurance' ? 'BG / Insurance'
                   : s === 'remarks' ? 'Remarks & History'
+                  : s === 'requests' ? `PR / MIV (${(wo.purchaseRequests?.length || 0) + (wo.productRequests?.length || 0)})`
                   : s === 'alarms' ? (
                     <>Alarms {activeAlarmCount > 0 && (
                       <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-red-600 text-white text-[10px] animate-pulse">{activeAlarmCount}</span>
@@ -1549,6 +1555,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
             onSave={(remarks) => handleAction(() => api.patch(`/work-orders/${wo.id}/remarks`, { remarks }))}
           />
         )}
+        {section === 'requests' && <RequestsTab wo={wo} />}
         {section === 'alarms' && (
           <AlarmsTab
             wo={wo}
@@ -2187,6 +2194,70 @@ function RemarksTab({ wo, canEdit, busy, onSave }) {
             })}
           </ol>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// PR / MIV tab — every Purchase Request and Material Issue Voucher (MIV)
+// raised against this work order. Read-only history visible to anyone with
+// WO access, so the team can see how much was requested / issued per order.
+// ────────────────────────────────────────────────────────────────────
+function WoRequestList({ title, rows, emptyLabel }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">{title} ({rows.length})</p>
+      {rows.length === 0 ? (
+        <p className="text-sm text-navy-400 italic">{emptyLabel}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="text-left text-navy-400 border-b">
+                <th className="px-2 py-1 font-semibold">Number</th>
+                <th className="px-2 py-1 font-semibold">Status</th>
+                <th className="px-2 py-1 font-semibold">Raised by</th>
+                <th className="px-2 py-1 font-semibold text-center">Items</th>
+                <th className="px-2 py-1 font-semibold">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-b border-navy-50">
+                  <td className="px-2 py-1 font-mono text-navy-700">{r.requestNumber}</td>
+                  <td className="px-2 py-1"><Badge color="gray">{r.status}</Badge></td>
+                  <td className="px-2 py-1 text-navy-600">{r.manager?.name || '—'}</td>
+                  <td className="px-2 py-1 text-center text-navy-600">{r._count?.items ?? '—'}</td>
+                  <td className="px-2 py-1 text-navy-500">{formatDate(r.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RequestsTab({ wo }) {
+  const prs = wo.purchaseRequests || [];
+  const mivs = wo.productRequests || [];
+  return (
+    <div className="space-y-5">
+      <div className="flex gap-3 flex-wrap">
+        <div className="rounded-lg border border-navy-100 bg-navy-50 px-4 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-navy-500">Purchase Requests</div>
+          <div className="text-xl font-bold text-navy-800">{prs.length}</div>
+        </div>
+        <div className="rounded-lg border border-navy-100 bg-navy-50 px-4 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-navy-500">MIVs (Material Issues)</div>
+          <div className="text-xl font-bold text-navy-800">{mivs.length}</div>
+        </div>
+      </div>
+      <WoRequestList title="Purchase Requests" rows={prs} emptyLabel="No purchase requests raised against this work order yet." />
+      <div className="border-t pt-4">
+        <WoRequestList title="Material Issue Vouchers (MIV)" rows={mivs} emptyLabel="No MIVs issued against this work order yet." />
       </div>
     </div>
   );

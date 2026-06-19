@@ -22,6 +22,7 @@ export default function MyRequests() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [showDetail, setShowDetail] = useState(null);
   const [products, setProducts] = useState([]);
   const [productSearch, setProductSearch] = useState('');
@@ -29,6 +30,10 @@ export default function MyRequests() {
   const [notes, setNotes] = useState('');
   const [remarks, setRemarks] = useState('');
   const [saving, setSaving] = useState(false);
+  // Work orders assigned to this user's unit — offered as a dropdown so an MIV
+  // can be tied to the WO it's issued against ("" = No work order).
+  const [workOrders, setWorkOrders] = useState([]);
+  const [workOrderId, setWorkOrderId] = useState('');
   const refreshKey = useAutoRefresh();
 
   const fetchRequests = () => {
@@ -40,11 +45,37 @@ export default function MyRequests() {
 
   useEffect(() => { fetchRequests(); }, [fromDate, toDate, refreshKey]);
 
+  const loadWorkOrders = () => {
+    api.get('/work-orders/assignable')
+      .then(({ data }) => setWorkOrders(data.workOrders || []))
+      .catch(() => setWorkOrders([]));
+  };
+
   const openCreate = () => {
     api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products));
+    loadWorkOrders();
+    setEditingId(null);
     setCartItems([]);
     setNotes('');
     setRemarks('');
+    setWorkOrderId('');
+    setShowCreate(true);
+  };
+
+  const openEdit = (request) => {
+    api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products));
+    loadWorkOrders();
+    setEditingId(request.id);
+    setCartItems((request.items || []).map(item => ({
+      productId: item.productId,
+      product: item.product,
+      quantity: item.quantity,
+      purpose: item.purpose || '',
+    })));
+    setNotes(request.notes || '');
+    setRemarks(request.remarks || '');
+    setWorkOrderId(request.workOrderId || '');
+    setShowDetail(null);
     setShowCreate(true);
   };
 
@@ -69,19 +100,26 @@ export default function MyRequests() {
     if (cartItems.length === 0) return alert('Add at least one product');
     setSaving(true);
     try {
-      await api.post('/requests', {
+      const payload = {
         notes: notes || undefined,
         remarks: remarks || undefined,
+        workOrderId: workOrderId || null,
         items: cartItems.map(i => ({
           productId: i.productId,
           quantity: i.quantity,
           purpose: i.purpose || undefined,
         })),
-      });
+      };
+      if (editingId) {
+        await api.put(`/requests/${editingId}/edit`, payload);
+      } else {
+        await api.post('/requests', payload);
+      }
       setShowCreate(false);
+      setEditingId(null);
       fetchRequests();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create request');
+      alert(err.response?.data?.error || `Failed to ${editingId ? 'update' : 'create'} request`);
     }
     setSaving(false);
   };
@@ -157,7 +195,10 @@ export default function MyRequests() {
                           label="MIV PDF"
                         />
                         {r.status === 'PENDING' && r.managerId === user?.id && (
-                          <Button size="sm" variant="danger" onClick={() => cancelRequest(r.id)}>Cancel</Button>
+                          <>
+                            <Button size="sm" variant="secondary" onClick={() => openEdit(r)}>Edit</Button>
+                            <Button size="sm" variant="danger" onClick={() => cancelRequest(r.id)}>Cancel</Button>
+                          </>
                         )}
                       </div>
                     </td>
@@ -170,8 +211,24 @@ export default function MyRequests() {
       </Card>
 
       {/* Create Request Modal */}
-      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="New Product Request" size="lg">
+      <Modal isOpen={showCreate} onClose={() => { setShowCreate(false); setEditingId(null); }} title={editingId ? 'Edit Product Request' : 'New Product Request'} size="lg">
         <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Work Order</label>
+            <select
+              value={workOrderId}
+              onChange={(e) => setWorkOrderId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
+            >
+              <option value="">— No work order —</option>
+              {workOrders.map(wo => (
+                <option key={wo.id} value={wo.id}>
+                  {wo.workOrderNumber} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Search Products</label>
             <SearchBar value={productSearch} onChange={setProductSearch} placeholder="Search by name or SKU..." />
@@ -250,9 +307,11 @@ export default function MyRequests() {
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <Button variant="secondary" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button variant="secondary" onClick={() => { setShowCreate(false); setEditingId(null); }}>Cancel</Button>
             <Button onClick={submitRequest} disabled={saving || cartItems.length === 0}>
-              {saving ? 'Submitting...' : `Submit Request (${cartItems.length} items)`}
+              {saving
+                ? (editingId ? 'Saving...' : 'Submitting...')
+                : `${editingId ? 'Save Changes' : 'Submit Request'} (${cartItems.length} items)`}
             </Button>
           </div>
         </div>
@@ -265,6 +324,7 @@ export default function MyRequests() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(showDetail.status)}>{showDetail.status}</Badge></div>
               <div><span className="text-gray-500">Unit:</span> <span className="font-medium">{showDetail.unit?.name}</span></div>
+              {showDetail.workOrder && <div><span className="text-gray-500">Work Order:</span> <span className="font-medium">{showDetail.workOrder.workOrderNumber}</span></div>}
               <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(showDetail.createdAt)}</span></div>
               {showDetail.referenceNo && <div><span className="text-gray-500">Reference No:</span> <span className="font-medium">{showDetail.referenceNo}</span></div>}
               {showDetail.mirNo && <div><span className="text-gray-500">MIR No:</span> <span className="font-medium">{showDetail.mirNo}</span></div>}
@@ -325,7 +385,10 @@ export default function MyRequests() {
                 label="Download MIV PDF"
               />
               {showDetail.status === 'PENDING' && showDetail.managerId === user?.id && (
-                <Button variant="danger" onClick={() => cancelRequest(showDetail.id)}>Cancel Request</Button>
+                <>
+                  <Button variant="secondary" onClick={() => openEdit(showDetail)}>Edit Request</Button>
+                  <Button variant="danger" onClick={() => cancelRequest(showDetail.id)}>Cancel Request</Button>
+                </>
               )}
             </div>
           </div>

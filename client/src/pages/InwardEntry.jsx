@@ -96,6 +96,23 @@ const iirRequestDefaults = (row) => {
 const WRITE_ROLES = ['ADMIN', 'STORE_MANAGER'];
 const QC_ROLES = ['ADMIN', 'QC'];
 
+// The Unit-5 manager also runs inward entry. Mirror of the server's detection
+// (materialInward.routes.js) — Unit 5 may surface as a code, unit name, or
+// username depending on how the account was created.
+const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
+const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
+const isUnit5 = (user) => {
+  if (!user) return false;
+  const code = (user.unit?.code || '').toString().toUpperCase();
+  const name = (user.unit?.name || '').toString().trim().toLowerCase();
+  const username = (user.username || '').toString().trim().toLowerCase();
+  return EDIT_UNIT_CODES.includes(code)
+    || EDIT_UNIT_NAMES.includes(name)
+    || EDIT_UNIT_NAMES.includes(username);
+};
+// Inward-write = Stores roles OR the Unit-5 manager.
+const canInwardWrite = (user) => WRITE_ROLES.includes(user?.role) || isUnit5(user);
+
 const DOC_TYPES = [
   { value: 'INVOICE', label: 'Invoice' },
   { value: 'CASH_PURCHASE', label: 'Cash Purchase' },
@@ -154,8 +171,9 @@ const MAIN_TABS = [
 
 export default function InwardEntry() {
   const { user } = useAuth();
-  const role = user?.role;
-  const canWrite = WRITE_ROLES.includes(role);
+  // FIM / customer-property intake stays Stores-only (the server rejects unit
+  // managers). The Unit-5 grant applies only to the Material Inward register.
+  const canEditFim = WRITE_ROLES.includes(user?.role);
   const [mainTab, setMainTab] = useState('register');
 
   return (
@@ -182,7 +200,7 @@ export default function InwardEntry() {
 
       {mainTab === 'register'
         ? <MaterialInwardRegister />
-        : <FromGatePassMode canEdit={canWrite} />}
+        : <FromGatePassMode canEdit={canEditFim} />}
     </div>
   );
 }
@@ -194,7 +212,7 @@ export default function InwardEntry() {
 function MaterialInwardRegister() {
   const { user } = useAuth();
   const role = user?.role;
-  const canWrite = WRITE_ROLES.includes(role);
+  const canWrite = canInwardWrite(user);
   const isQC = QC_ROLES.includes(role);
 
   const [rows, setRows] = useState([]);
