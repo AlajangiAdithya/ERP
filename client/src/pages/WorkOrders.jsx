@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, Plus, CheckCircle2, Clock, XCircle, Building2,
-  CalendarClock, TrendingUp, ShieldCheck, PauseCircle,
+  CalendarClock, ShieldCheck, PauseCircle,
   Table as TableIcon, Sheet,
   FileText, Receipt, ShieldAlert, Upload, AlertTriangle, Timer, Trash2, Check,
   GitBranch, ArrowRight, ArrowDown, Download, Paperclip, BellRing,
@@ -119,11 +119,11 @@ const isOpenWo = (w) => OPEN_STATUSES.includes(w.status);
 const pdcOf = (w) => (w.effectivePdcDate ? new Date(w.effectivePdcDate) : null);
 
 const QUICK_FILTERS = {
-  overdue:    { label: 'Overdue',             match: (w) => !!w.overdue },
-  due7:       { label: 'Due in 7 days',       match: (w, c) => { const p = pdcOf(w); return !w.overdue && isOpenWo(w) && p && p >= c.now && p <= c.in7; } },
-  due30:      { label: 'Due in 30 days',      match: (w, c) => { const p = pdcOf(w); return !w.overdue && isOpenWo(w) && p && p >= c.now && p <= c.in30; } },
-  incomplete: { label: 'Not fully delivered', match: (w) => isOpenWo(w) && (w.deliveredQty || 0) < (w.orderQuantity || 0) },
-  needsUnit:  { label: 'Needs unit',          match: (w) => isOpenWo(w) && !w.assignedUnit },
+  overdue:   { label: 'Overdue',          match: (w) => !!w.overdue },
+  due7:      { label: 'Due in 7 days',    match: (w, c) => { const p = pdcOf(w); return !w.overdue && isOpenWo(w) && p && p >= c.now && p <= c.in7; } },
+  due30:     { label: 'Due in 30 days',   match: (w, c) => { const p = pdcOf(w); return !w.overdue && isOpenWo(w) && p && p >= c.now && p <= c.in30; } },
+  pdc3m:     { label: 'PDC ≤ 3 months',   match: (w, c) => { const p = pdcOf(w); return !w.overdue && isOpenWo(w) && p && p >= c.now && p <= c.in90; } },
+  needsUnit: { label: 'Needs unit',       match: (w) => isOpenWo(w) && !w.assignedUnit },
 };
 
 export default function WorkOrders() {
@@ -167,7 +167,7 @@ export default function WorkOrders() {
   const [toDate, setToDate] = useState('');
   const [sortBy, setSortBy] = useState('urgency'); // how the visible list is ordered
   const [showFilters, setShowFilters] = useState(false); // collapse advanced filters by default
-  const [quickFilter, setQuickFilter] = useState(null); // card drill-down: overdue | due7 | due30 | incomplete | needsUnit
+  const [quickFilter, setQuickFilter] = useState(null); // card drill-down: overdue | due7 | due30 | pdc3m | needsUnit
 
   // Load the full set once (and on refresh). The server still scopes MANAGERs
   // to their own unit; everything else is filtered in the browser.
@@ -265,11 +265,12 @@ export default function WorkOrders() {
     const now = new Date();
     const in7 = new Date(now.getTime() + 7 * DAY);
     const in30 = new Date(now.getTime() + 30 * DAY);
+    const in90 = new Date(now.getTime() + 90 * DAY); // server treats 90 days as the "3-month" PDC window
 
     let ordered = 0; let delivered = 0;
     let fullyDelivered = 0; let partial = 0;
     let overdueCount = 0; let oldestLateDays = 0; let overdueQty = 0;
-    let due7 = 0; let due30 = 0;
+    let due7 = 0; let due30 = 0; let pdc3m = 0;
     let unassigned = 0; let sheetNamed = 0;
 
     filtered.forEach((w) => {
@@ -289,6 +290,7 @@ export default function WorkOrders() {
       } else if (open && pdc && pdc >= now) {
         if (pdc <= in7) due7 += 1;
         if (pdc <= in30) due30 += 1;
+        if (pdc <= in90) pdc3m += 1;
       }
       if (open && !w.assignedUnit) {
         unassigned += 1;
@@ -306,6 +308,7 @@ export default function WorkOrders() {
       overdueQty: Math.round(overdueQty * 100) / 100,
       due7,
       due30,
+      pdc3m,
       unassigned,
       sheetNamed,
     };
@@ -318,7 +321,12 @@ export default function WorkOrders() {
     const qf = QUICK_FILTERS[quickFilter];
     if (!qf) return filtered;
     const now = new Date();
-    const ctx = { now, in7: new Date(now.getTime() + 7 * DAY_MS), in30: new Date(now.getTime() + 30 * DAY_MS) };
+    const ctx = {
+      now,
+      in7: new Date(now.getTime() + 7 * DAY_MS),
+      in30: new Date(now.getTime() + 30 * DAY_MS),
+      in90: new Date(now.getTime() + 90 * DAY_MS),
+    };
     return filtered.filter((w) => qf.match(w, ctx));
   }, [filtered, quickFilter]);
 
@@ -442,13 +450,13 @@ export default function WorkOrders() {
           active={quickFilter === 'due30'}
         />
         <StatsCard
-          title="Delivery Progress"
-          value={`${summary.deliveredPct}%`}
-          subtitle={`${summary.fullyDelivered} done · ${summary.partial} partial · ${summary.notStarted} not started`}
-          icon={TrendingUp}
-          color={summary.deliveredPct >= 70 ? 'green' : summary.deliveredPct >= 30 ? 'yellow' : 'navy'}
-          onClick={() => toggleQuick('incomplete')}
-          active={quickFilter === 'incomplete'}
+          title="PDC ≤ 3 Months"
+          value={fmtQty(summary.pdc3m)}
+          subtitle="PDC within the next 3 months"
+          icon={ShieldAlert}
+          color={summary.pdc3m > 0 ? 'purple' : 'green'}
+          onClick={() => toggleQuick('pdc3m')}
+          active={quickFilter === 'pdc3m'}
         />
         <StatsCard
           title="Needs Unit"
