@@ -108,6 +108,24 @@ const deliveredByItem = (wo) => {
   return m;
 };
 
+// ── Card drill-downs ────────────────────────────────────────────────
+// Each summary card maps to one predicate so clicking the card narrows the
+// list to exactly the orders that make up that number. The conditions mirror
+// the summary counts below (and reuse OPEN_STATUSES there) so the figure on the
+// card and the drilled-down list can never disagree.
+const DAY_MS = 86400000;
+const OPEN_STATUSES = ['PENDING_ADMIN', 'ADMIN_ACCEPTED', 'UNIT_ACCEPTED', 'IN_PROGRESS', 'ON_HOLD'];
+const isOpenWo = (w) => OPEN_STATUSES.includes(w.status);
+const pdcOf = (w) => (w.effectivePdcDate ? new Date(w.effectivePdcDate) : null);
+
+const QUICK_FILTERS = {
+  overdue:    { label: 'Overdue',             match: (w) => !!w.overdue },
+  due7:       { label: 'Due in 7 days',       match: (w, c) => { const p = pdcOf(w); return !w.overdue && isOpenWo(w) && p && p >= c.now && p <= c.in7; } },
+  due30:      { label: 'Due in 30 days',      match: (w, c) => { const p = pdcOf(w); return !w.overdue && isOpenWo(w) && p && p >= c.now && p <= c.in30; } },
+  incomplete: { label: 'Not fully delivered', match: (w) => isOpenWo(w) && (w.deliveredQty || 0) < (w.orderQuantity || 0) },
+  needsUnit:  { label: 'Needs unit',          match: (w) => isOpenWo(w) && !w.assignedUnit },
+};
+
 export default function WorkOrders() {
   const { user } = useAuth();
   const role = user?.role;
@@ -149,6 +167,7 @@ export default function WorkOrders() {
   const [toDate, setToDate] = useState('');
   const [sortBy, setSortBy] = useState('urgency'); // how the visible list is ordered
   const [showFilters, setShowFilters] = useState(false); // collapse advanced filters by default
+  const [quickFilter, setQuickFilter] = useState(null); // card drill-down: overdue | due7 | due30 | incomplete | needsUnit
 
   // Load the full set once (and on refresh). The server still scopes MANAGERs
   // to their own unit; everything else is filtered in the browser.
@@ -228,11 +247,14 @@ export default function WorkOrders() {
 
   const activeFilterCount =
     (activeTab !== 'ALL' ? 1 : 0) + (customer !== 'ALL' ? 1 : 0) + (unitId !== 'ALL' ? 1 : 0)
-    + (type !== 'ALL' ? 1 : 0) + (search.trim() ? 1 : 0) + (fromDate || toDate ? 1 : 0);
+    + (type !== 'ALL' ? 1 : 0) + (search.trim() ? 1 : 0) + (fromDate || toDate ? 1 : 0)
+    + (quickFilter ? 1 : 0);
   const clearFilters = () => {
     setActiveTab('ALL'); setSearch(''); setCustomer('ALL'); setUnitId('ALL');
-    setType('ALL'); setFromDate(''); setToDate('');
+    setType('ALL'); setFromDate(''); setToDate(''); setQuickFilter(null);
   };
+  // Card click → toggle that drill-down (click the active card again to clear).
+  const toggleQuick = (key) => setQuickFilter((cur) => (cur === key ? null : key));
 
   // ── Summary stats over the *filtered* set so the numbers always match what
   // is on screen. Deadline pressure (overdue / due soon), per-order completion
@@ -243,7 +265,6 @@ export default function WorkOrders() {
     const now = new Date();
     const in7 = new Date(now.getTime() + 7 * DAY);
     const in30 = new Date(now.getTime() + 30 * DAY);
-    const OPEN = ['PENDING_ADMIN', 'ADMIN_ACCEPTED', 'UNIT_ACCEPTED', 'IN_PROGRESS', 'ON_HOLD'];
 
     let ordered = 0; let delivered = 0;
     let fullyDelivered = 0; let partial = 0;
@@ -259,7 +280,7 @@ export default function WorkOrders() {
       if (qty > 0 && done >= qty) fullyDelivered += 1;
       else if (done > 0) partial += 1;
 
-      const open = OPEN.includes(w.status);
+      const open = isOpenWo(w);
       const pdc = w.effectivePdcDate ? new Date(w.effectivePdcDate) : null;
       if (w.overdue) {
         overdueCount += 1;
@@ -290,6 +311,17 @@ export default function WorkOrders() {
     };
   }, [filtered]);
 
+  // ── Card drill-down. The summary cards above stay computed from `filtered`
+  // (so their totals don't move), while clicking a card sets `quickFilter`,
+  // which narrows only the list below to the orders behind that number. ──
+  const visible = useMemo(() => {
+    const qf = QUICK_FILTERS[quickFilter];
+    if (!qf) return filtered;
+    const now = new Date();
+    const ctx = { now, in7: new Date(now.getTime() + 7 * DAY_MS), in30: new Date(now.getTime() + 30 * DAY_MS) };
+    return filtered.filter((w) => qf.match(w, ctx));
+  }, [filtered, quickFilter]);
+
   // ── Ordering of the visible list. Default "urgency" floats overdue + nearest
   // PDC to the top so the most pressing orders are seen first. ──
   const SORT_OPTIONS = [
@@ -300,7 +332,7 @@ export default function WorkOrders() {
     { value: 'progress', label: 'Least delivered' },
   ];
   const sorted = useMemo(() => {
-    const arr = [...filtered];
+    const arr = [...visible];
     const pdc = (w) => (w.effectivePdcDate ? new Date(w.effectivePdcDate).getTime() : Infinity);
     const ordered = (w) => (w.supplyOrderDate ? new Date(w.supplyOrderDate).getTime() : 0);
     const prog = (w) => (w.orderQuantity > 0 ? (w.deliveredQty || 0) / w.orderQuantity : 0);
@@ -315,7 +347,7 @@ export default function WorkOrders() {
         break;
     }
     return arr;
-  }, [filtered, sortBy]);
+  }, [visible, sortBy]);
 
   // ── Export the currently visible (filtered + sorted) work orders to CSV so
   // they can be opened in Excel / shared. ──
@@ -378,6 +410,7 @@ export default function WorkOrders() {
           subtitle={`${new Set(filtered.map((w) => w.customerName)).size} customer${new Set(filtered.map((w) => w.customerName)).size === 1 ? '' : 's'}`}
           icon={ClipboardList}
           color="navy"
+          onClick={() => setQuickFilter(null)}
         />
         <StatsCard
           title="Overdue"
@@ -387,6 +420,8 @@ export default function WorkOrders() {
             : 'Nothing past PDC'}
           icon={AlertTriangle}
           color={summary.overdueCount > 0 ? 'red' : 'green'}
+          onClick={() => toggleQuick('overdue')}
+          active={quickFilter === 'overdue'}
         />
         <StatsCard
           title="Due in 7 Days"
@@ -394,6 +429,8 @@ export default function WorkOrders() {
           subtitle="PDC this week — act now"
           icon={Timer}
           color={summary.due7 > 0 ? 'yellow' : 'green'}
+          onClick={() => toggleQuick('due7')}
+          active={quickFilter === 'due7'}
         />
         <StatsCard
           title="Due in 30 Days"
@@ -401,6 +438,8 @@ export default function WorkOrders() {
           subtitle="PDC within a month"
           icon={CalendarClock}
           color="blue"
+          onClick={() => toggleQuick('due30')}
+          active={quickFilter === 'due30'}
         />
         <StatsCard
           title="Delivery Progress"
@@ -408,6 +447,8 @@ export default function WorkOrders() {
           subtitle={`${summary.fullyDelivered} done · ${summary.partial} partial · ${summary.notStarted} not started`}
           icon={TrendingUp}
           color={summary.deliveredPct >= 70 ? 'green' : summary.deliveredPct >= 30 ? 'yellow' : 'navy'}
+          onClick={() => toggleQuick('incomplete')}
+          active={quickFilter === 'incomplete'}
         />
         <StatsCard
           title="Needs Unit"
@@ -417,6 +458,8 @@ export default function WorkOrders() {
             : 'All assigned to units'}
           icon={Building2}
           color={summary.unassigned > 0 ? 'yellow' : 'green'}
+          onClick={() => toggleQuick('needsUnit')}
+          active={quickFilter === 'needsUnit'}
         />
       </div>
 
@@ -466,7 +509,7 @@ export default function WorkOrders() {
             <button
               type="button"
               onClick={exportCsv}
-              disabled={!filtered.length}
+              disabled={!visible.length}
               title="Download the visible work orders as a CSV"
               className="inline-flex items-center gap-1.5 rounded-lg border border-navy-200 bg-white px-3 py-1.5 text-xs font-semibold text-navy-700 shadow-sm transition hover:bg-navy-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -514,18 +557,29 @@ export default function WorkOrders() {
           })}
         </div>
 
-        {/* Always-visible meta line — clear filters + live result count. */}
+        {/* Always-visible meta line — clear filters + active card drill-down + live result count. */}
         <div className="flex flex-wrap items-center gap-3">
           {activeFilterCount > 0 && (
             <Button variant="ghost" onClick={clearFilters} className="text-xs">
               <X size={14} className="mr-1" /> Clear {activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'}
             </Button>
           )}
+          {quickFilter && QUICK_FILTERS[quickFilter] && (
+            <button
+              type="button"
+              onClick={() => setQuickFilter(null)}
+              title="Clear this card drill-down"
+              className="inline-flex items-center gap-1.5 rounded-full border border-navy-700 bg-navy-700 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-navy-800"
+            >
+              {QUICK_FILTERS[quickFilter].label}
+              <X size={13} />
+            </button>
+          )}
           <div className="ml-auto flex items-center gap-1.5 text-xs font-medium text-navy-500">
             <Filter size={13} />
-            Showing <span className="font-bold text-navy-800 tnum">{filtered.length}</span>
-            {filtered.length !== workOrders.length && <span>of {workOrders.length}</span>}
-            work order{filtered.length === 1 ? '' : 's'}
+            Showing <span className="font-bold text-navy-800 tnum">{visible.length}</span>
+            {visible.length !== workOrders.length && <span>of {workOrders.length}</span>}
+            work order{visible.length === 1 ? '' : 's'}
           </div>
         </div>
 
@@ -581,7 +635,7 @@ export default function WorkOrders() {
             <p className="text-navy-500 text-sm mt-1">Logged supply orders will appear here.</p>
           </div>
         </Card>
-      ) : filtered.length === 0 ? (
+      ) : visible.length === 0 ? (
         <Card>
           <div className="text-center py-12">
             <Filter size={32} className="mx-auto text-navy-300 mb-3" />

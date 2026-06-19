@@ -1,4 +1,4 @@
-export default function StatsCard({ title, value, subtitle, icon: Icon, trend, color = 'navy', onClick }) {
+export default function StatsCard({ title, value, subtitle, icon: Icon, trend, color = 'navy', onClick, active = false }) {
   const iconWrap = {
     navy: 'bg-gradient-to-br from-navy-100 to-navy-50 text-navy-700 ring-1 ring-navy-200/60',
     red: 'bg-gradient-to-br from-red-100 to-red-50 text-brand-red ring-1 ring-red-200/60',
@@ -31,7 +31,8 @@ export default function StatsCard({ title, value, subtitle, icon: Icon, trend, c
       className={`relative overflow-hidden bg-white rounded-2xl shadow-card border border-navy-100/70 p-5 pl-6 transition-all duration-200
         before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${accentBar[color] || accentBar.navy}
         after:absolute after:-right-10 after:-top-10 after:w-32 after:h-32 after:rounded-full after:blur-2xl ${glow[color] || glow.navy}
-        ${onClick ? 'group cursor-pointer hover:shadow-cardHover hover:-translate-y-0.5 hover:border-navy-200 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-500 focus-visible:ring-offset-2' : 'hover:shadow-cardHover'}`}
+        ${onClick ? 'group cursor-pointer hover:shadow-cardHover hover:-translate-y-0.5 hover:border-navy-200 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-500 focus-visible:ring-offset-2' : 'hover:shadow-cardHover'}
+        ${active ? 'ring-2 ring-navy-500 ring-offset-2 shadow-cardHover -translate-y-0.5' : ''}`}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
@@ -50,7 +51,9 @@ export default function StatsCard({ title, value, subtitle, icon: Icon, trend, c
             </p>
           )}
           {onClick && (
-            <p className="text-[11px] text-navy-600 mt-2 font-medium opacity-0 group-hover:opacity-100 transition-opacity">View details →</p>
+            <p className={`text-[11px] mt-2 font-medium transition-opacity ${active ? 'text-navy-700 opacity-100' : 'text-navy-600 opacity-0 group-hover:opacity-100'}`}>
+              {active ? 'Filtering list ✓' : 'View details →'}
+            </p>
           )}
         </div>
         {Icon && (
