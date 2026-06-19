@@ -7,9 +7,10 @@ import { Eye } from 'lucide-react';
 // can read it in their built-in PDF viewer (or download from there if they
 // really want to). No forced file download — viewing is enough.
 //
-// `appendPdfs` (optional) — list of public PDF URLs to merge AFTER the main
-// document (used by the PR view to append per-item confidential spec PDFs
-// without exposing them as a column inside the PR table itself).
+// `appendPdfs` (optional) — list of public file URLs to merge AFTER the main
+// document (used by the PR view to append per-item confidential spec files
+// without exposing them as a column inside the PR table itself). PDFs are
+// concatenated page-for-page; JPG/PNG specs are embedded each on their own page.
 export default function DownloadPdfButton({ document, fileName, label = 'View PDF', className = '', appendPdfs = null }) {
   const [busy, setBusy] = useState(false);
 
@@ -33,9 +34,20 @@ export default function DownloadPdfButton({ document, fileName, label = 'View PD
               const resp = await fetch(url);
               if (!resp.ok) continue;
               const bytes = await resp.arrayBuffer();
-              const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
-              const pages = await merged.copyPages(src, src.getPageIndices());
-              pages.forEach((p) => merged.addPage(p));
+              const ct = (resp.headers.get('content-type') || '').toLowerCase();
+              const isJpg = ct.includes('jpeg') || ct.includes('jpg') || /\.jpe?g(\?|$)/i.test(url);
+              const isPng = ct.includes('png') || /\.png(\?|$)/i.test(url);
+              if (isJpg || isPng) {
+                // Image spec (scan/photo) — embed it on its own full page sized
+                // to the image so nothing is cropped.
+                const img = isJpg ? await merged.embedJpg(bytes) : await merged.embedPng(bytes);
+                const page = merged.addPage([img.width, img.height]);
+                page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+              } else {
+                const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+                const pages = await merged.copyPages(src, src.getPageIndices());
+                pages.forEach((p) => merged.addPage(p));
+              }
             } catch (mergeErr) {
               console.warn('Skipped attachment', url, mergeErr);
             }

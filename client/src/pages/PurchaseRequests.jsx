@@ -173,10 +173,11 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   // Upload a confidential spec PDF for a single material row. The server stores
   // it under /uploads/pr-specs/ and returns the public URL — we stash both URL
   // and original filename on that item so it travels with the PR payload.
+  const SPEC_OK_TYPES = ['application/pdf', 'image/jpeg', 'image/jpg'];
   const uploadSpec = async (idx, file) => {
     if (!file) return;
-    if (file.type !== 'application/pdf') {
-      setSpecUpload((s) => ({ ...s, [idx]: { uploading: false, error: 'PDF only' } }));
+    if (!SPEC_OK_TYPES.includes(file.type)) {
+      setSpecUpload((s) => ({ ...s, [idx]: { uploading: false, error: 'PDF or JPG only' } }));
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
@@ -469,7 +470,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
               <tr>
                 <td className={labelCell}>
                   <div className="flex flex-col">
-                    <span>Spec Attachment (PDF)</span>
+                    <span>Spec Attachment (PDF/JPG)</span>
                     <span className="text-[10px] font-normal text-gray-500 italic mt-0.5 flex items-center gap-1">
                       <Lock size={9} /> Confidential — share via mail
                     </span>
@@ -504,10 +505,10 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                         ) : (
                           <label className="inline-flex items-center gap-1 cursor-pointer text-[11px] text-gray-600 hover:text-navy-700">
                             <Upload size={11} />
-                            {st.uploading ? 'Uploading…' : 'Upload PDF'}
+                            {st.uploading ? 'Uploading…' : 'Upload PDF/JPG'}
                             <input
                               type="file"
-                              accept="application/pdf"
+                              accept=".pdf,.jpg,.jpeg,application/pdf,image/jpeg"
                               className="hidden"
                               disabled={st.uploading}
                               onChange={(e) => uploadSpec(idx, e.target.files?.[0])}

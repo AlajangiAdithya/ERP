@@ -53,9 +53,11 @@ const closureMimeAllowList = (_req, file, cb) => {
   cb(new Error('Unsupported file type. Allowed: PDF, PNG, JPG, DWG, DOC, DOCX'), false);
 };
 
+// Material spec attachments — accept PDF and image scans (JPG/PNG) so users can
+// snap a photo of a paper spec. Shared by the PR form and the product spec library.
 const prSpecsUpload = multer({
   storage: makeStorage('pr-specs'),
-  fileFilter: pdfOnly,
+  fileFilter: pdfOrImage,
   limits: { fileSize: SIZE_PDF },
 });
 

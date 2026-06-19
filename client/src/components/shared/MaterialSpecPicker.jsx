@@ -95,7 +95,8 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
 
   const uploadSpec = async (file) => {
     if (!file) return;
-    if (file.type !== 'application/pdf') { setUploadError('PDF only'); return; }
+    const okTypes = ['application/pdf', 'image/jpeg', 'image/jpg'];
+    if (!okTypes.includes(file.type)) { setUploadError('PDF or JPG only'); return; }
     if (file.size > 10 * 1024 * 1024) { setUploadError('Max 10 MB'); return; }
     setUploading(true);
     setUploadError('');
@@ -146,10 +147,10 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
 
   const SpecUploadBtn = () => (
     <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs text-navy-700 hover:underline">
-      <Upload size={13} /> {uploading ? 'Uploading…' : 'Upload new spec PDF'}
+      <Upload size={13} /> {uploading ? 'Uploading…' : 'Upload new spec (PDF/JPG)'}
       <input
         type="file"
-        accept="application/pdf"
+        accept=".pdf,.jpg,.jpeg,application/pdf,image/jpeg"
         className="hidden"
         disabled={uploading}
         onChange={(e) => uploadSpec(e.target.files?.[0])}
@@ -287,7 +288,7 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
               />
             </div>
             <div className="border border-gray-200 rounded-md p-3 space-y-2">
-              <div className="text-xs font-semibold text-gray-600">Spec PDF (optional)</div>
+              <div className="text-xs font-semibold text-gray-600">Spec PDF/JPG (optional)</div>
               {specUrl ? (
                 <div className="flex items-center gap-2 text-sm">
                   <Paperclip size={12} className="text-gray-400" />
