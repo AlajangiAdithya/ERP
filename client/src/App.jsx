@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import InwardEntry from './pages/InwardEntry';
 import Products from './pages/Products';
 import ProductDetail from './pages/ProductDetail';
+import ProductMasterDataDetail from './pages/ProductMasterDataDetail';
 import StockMovements from './pages/StockMovements';
 import Settings from './pages/Settings';
 import Management from './pages/Management';
@@ -367,6 +368,9 @@ export default function App() {
 
               {/* All roles */}
               <Route path="/products" element={<Products />} />
+              <Route path="/products/:id/master-data" element={
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'QC', 'SUPERADMIN']}><ProductMasterDataDetail /></PrivateRoute>
+              } />
               <Route path="/products/:id" element={<ProductDetail />} />
               <Route path="/notifications" element={<Notifications />} />
               <Route path="/settings" element={<Settings />} />

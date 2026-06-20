@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Plus, Package, Download, FileText, CheckCircle2,
   Pencil, Send, Building2, Calendar, Truck, User as UserIcon,
@@ -39,10 +39,14 @@ function returnCountdown(returnDate) {
 export default function Products() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [tab, setTab] = useState('raps'); // 'raps' | 'fim' | 'master'
   // Master Data lives here as a tab beside FIM. Same viewers as the old
   // standalone screen; editing is restricted to Unit 1–5 managers (+ Admin).
   const canSeeMasterData = ['ADMIN', 'MANAGER', 'QC', 'SUPERADMIN'].includes(user?.role);
+  // Honor ?tab=master so the dedicated master-data page's "Back to Master Data"
+  // link (and any deep link) lands on the right tab.
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') === 'master' && canSeeMasterData ? 'master' : 'raps';
+  const [tab, setTab] = useState(initialTab); // 'raps' | 'fim' | 'master'
   const [products, setProducts] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);

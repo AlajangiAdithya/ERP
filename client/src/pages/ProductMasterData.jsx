@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Plus, Package, Pencil, FileText, Trash2, Upload, AlertTriangle, CheckCircle2,
+  Plus, Package, AlertTriangle, CheckCircle2,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -42,11 +42,9 @@ export default function ProductMasterData({ embedded = false }) {
   const [categories, setCategories] = useState([]);
   const [materialTypes, setMaterialTypes] = useState([]);
 
-  // Create / edit modal
+  // Create modal (editing now lives on the dedicated /products/:id/master-data page)
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(blankForm());
-  const [editTarget, setEditTarget] = useState(null); // existing product being edited
-  const [editSpecs, setEditSpecs] = useState([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -79,29 +77,10 @@ export default function ProductMasterData({ embedded = false }) {
 
   const openCreate = () => { setForm(blankForm()); setFormError(''); setShowCreate(true); };
 
-  const refreshEditTarget = async (id) => {
-    const { data } = await api.get(`/products/${id}`);
-    setEditTarget(data);
-    setEditSpecs(Array.isArray(data.specs) ? data.specs : []);
-  };
+  const closeModals = () => { setShowCreate(false); setForm(blankForm()); };
 
-  const openEdit = async (row) => {
-    setFormError('');
-    setForm({
-      materialCode: row.materialCode || row.sku || '',
-      name: row.name || '',
-      description: row.description || '',
-      category: row.category || 'Raw Material',
-      unit: row.unit || 'pcs',
-      shelfLife: row.shelfLife || '',
-      storageTemp: row.storageTemp || '',
-    });
-    setEditTarget(row);
-    setEditSpecs([]);
-    try { await refreshEditTarget(row.id); } catch { /* show what we have */ }
-  };
-
-  const closeModals = () => { setShowCreate(false); setEditTarget(null); setEditSpecs([]); setForm(blankForm()); };
+  // Open the dedicated master-data page for a product (view or edit lives there).
+  const openProduct = (row) => navigate(`/products/${row.id}/master-data`);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -110,7 +89,7 @@ export default function ProductMasterData({ embedded = false }) {
     if (!form.name.trim()) { setFormError('Name is required'); return; }
     setSaving(true);
     try {
-      const payload = {
+      await api.post('/products', {
         materialCode: form.materialCode.trim(),
         name: form.name.trim(),
         description: form.description.trim() || undefined,
@@ -118,74 +97,13 @@ export default function ProductMasterData({ embedded = false }) {
         unit: form.unit,
         shelfLife: form.shelfLife.trim() || null,
         storageTemp: form.storageTemp.trim() || null,
-      };
-      if (editTarget) {
-        await api.put(`/products/${editTarget.id}`, payload);
-      } else {
-        await api.post('/products', payload);
-      }
+      });
       closeModals();
       fetchProducts();
     } catch (err) {
       setFormError(err.response?.data?.error || 'Failed to save product');
     } finally {
       setSaving(false);
-    }
-  };
-
-  // ── Spec PDF library + MSDS (edit modal only) ──
-  const [specUploading, setSpecUploading] = useState(false);
-  const [docError, setDocError] = useState('');
-
-  const uploadSpec = async (file) => {
-    if (!file || !editTarget) return;
-    if (file.type !== 'application/pdf') { setDocError('Spec must be a PDF'); return; }
-    if (file.size > 10 * 1024 * 1024) { setDocError('Max 10 MB'); return; }
-    setSpecUploading(true); setDocError('');
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      await api.post(`/products/${editTarget.id}/specs`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      await refreshEditTarget(editTarget.id);
-    } catch (err) {
-      setDocError(err.response?.data?.error || 'Spec upload failed');
-    } finally {
-      setSpecUploading(false);
-    }
-  };
-
-  const removeSpec = async (specId) => {
-    if (!editTarget || !confirm('Remove this spec?')) return;
-    try {
-      await api.delete(`/products/${editTarget.id}/specs/${specId}`);
-      await refreshEditTarget(editTarget.id);
-    } catch (err) {
-      setDocError(err.response?.data?.error || 'Failed to remove spec');
-    }
-  };
-
-  const uploadMsds = async (file) => {
-    if (!file || !editTarget) return;
-    if (file.type !== 'application/pdf') { setDocError('MSDS must be a PDF'); return; }
-    if (file.size > 10 * 1024 * 1024) { setDocError('Max 10 MB'); return; }
-    setDocError('');
-    try {
-      const fd = new FormData();
-      fd.append('msds', file);
-      await api.post(`/products/${editTarget.id}/msds`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      await refreshEditTarget(editTarget.id);
-    } catch (err) {
-      setDocError(err.response?.data?.error || 'MSDS upload failed');
-    }
-  };
-
-  const removeMsds = async () => {
-    if (!editTarget || !confirm('Remove the MSDS?')) return;
-    try {
-      await api.delete(`/products/${editTarget.id}/msds`);
-      await refreshEditTarget(editTarget.id);
-    } catch (err) {
-      setDocError(err.response?.data?.error || 'Failed to remove MSDS');
     }
   };
 
@@ -220,24 +138,7 @@ export default function ProductMasterData({ embedded = false }) {
     },
   ];
 
-  const tableColumns = canEdit
-    ? [
-        ...columns,
-        {
-          key: '_edit', label: '', width: 70,
-          render: (_v, row) => (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); openEdit(row); }}
-              className="inline-flex items-center gap-1 text-xs font-medium text-navy-700 hover:text-navy-900"
-              title="Edit master data"
-            >
-              <Pencil size={13} /> Edit
-            </button>
-          ),
-        },
-      ]
-    : columns;
+  const tableColumns = columns;
 
   const formFields = (
     <>
@@ -342,7 +243,7 @@ export default function ProductMasterData({ embedded = false }) {
             <Table
               columns={tableColumns}
               data={products}
-              onRowClick={(row) => (canEdit ? openEdit(row) : navigate(`/products/${row.id}`))}
+              onRowClick={openProduct}
             />
             <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
             <p className="mt-2 text-xs text-gray-400">{total} product{total === 1 ? '' : 's'}</p>
@@ -357,78 +258,11 @@ export default function ProductMasterData({ embedded = false }) {
             {formError && <p className="text-sm text-brand-red">{formError}</p>}
             {formFields}
             <p className="text-xs text-gray-500">
-              You can add the spec PDF and MSDS after creating the product (open it again to Edit).
+              After creating, open the product to add its specification PDF, MSDS and other details.
             </p>
             <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
               <Button variant="secondary" type="button" onClick={closeModals}>Cancel</Button>
               <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Create Product'}</Button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {/* Edit modal */}
-      {canEdit && editTarget && (
-        <Modal isOpen onClose={closeModals} title={`Master data — ${editTarget.name}`} size="lg">
-          <form onSubmit={handleSave} className="space-y-4">
-            {formError && <p className="text-sm text-brand-red">{formError}</p>}
-            {formFields}
-
-            {/* Spec PDF library */}
-            <div className="rounded-lg border border-gray-200 p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-navy-600">Specification PDFs</span>
-                <label className="inline-flex items-center gap-1.5 text-xs font-medium text-navy-700 hover:text-navy-900 cursor-pointer">
-                  <Upload size={13} /> {specUploading ? 'Uploading…' : 'Upload PDF'}
-                  <input type="file" accept="application/pdf" className="hidden" disabled={specUploading}
-                    onChange={(e) => { uploadSpec(e.target.files?.[0]); e.target.value = ''; }} />
-                </label>
-              </div>
-              {editSpecs.length === 0 ? (
-                <p className="text-xs text-gray-400">No spec files yet.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {editSpecs.map((s) => (
-                    <li key={s.id} className="flex items-center justify-between gap-2 text-sm">
-                      <a href={s.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-navy-700 hover:underline truncate">
-                        <FileText size={14} className="shrink-0" /> <span className="truncate">{s.name}</span>
-                      </a>
-                      <button type="button" onClick={() => removeSpec(s.id)} className="text-gray-400 hover:text-brand-red shrink-0" title="Remove">
-                        <Trash2 size={14} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* MSDS */}
-            <div className="rounded-lg border border-gray-200 p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-navy-600">MSDS (Safety Data Sheet)</span>
-                <label className="inline-flex items-center gap-1.5 text-xs font-medium text-navy-700 hover:text-navy-900 cursor-pointer">
-                  <Upload size={13} /> {editTarget.msdsUrl ? 'Replace' : 'Upload PDF'}
-                  <input type="file" accept="application/pdf" className="hidden"
-                    onChange={(e) => { uploadMsds(e.target.files?.[0]); e.target.value = ''; }} />
-                </label>
-              </div>
-              {editTarget.msdsUrl ? (
-                <div className="flex items-center justify-between gap-2 text-sm">
-                  <a href={editTarget.msdsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-navy-700 hover:underline truncate">
-                    <FileText size={14} className="shrink-0" /> <span className="truncate">{editTarget.msdsName || 'MSDS.pdf'}</span>
-                  </a>
-                  <button type="button" onClick={removeMsds} className="text-gray-400 hover:text-brand-red shrink-0" title="Remove"><Trash2 size={14} /></button>
-                </div>
-              ) : (
-                <p className="text-xs text-gray-400">No MSDS uploaded.</p>
-              )}
-            </div>
-
-            {docError && <p className="text-sm text-brand-red">{docError}</p>}
-
-            <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
-              <Button variant="secondary" type="button" onClick={closeModals}>Close</Button>
-              <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save master data'}</Button>
             </div>
           </form>
         </Modal>
