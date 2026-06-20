@@ -14,7 +14,7 @@ const isFixedAdmin = (user) => FIXED_ADMINS.includes(user.username);
 
 const GLOBAL_ONLY_ROLES = [
   'STORE_MANAGER', 'PURCHASE_OFFICER', 'SUPPLY_CHAIN', 'SAFETY',
-  'FINANCE', 'LOGISTICS', 'DESIGNS', 'PLANNING', 'SITE_OFFICE', 'HR',
+  'FINANCE', 'LOGISTICS', 'DESIGNS', 'PLANNING', 'SITE_OFFICE', 'HR', 'INWARD_QC',
 ];
 
 const roleLabel = (role) => ({
@@ -24,6 +24,7 @@ const roleLabel = (role) => ({
   PURCHASE_OFFICER: 'Purchase Officer',
   ACCOUNTING: 'Accounting',
   QC: 'Quality Control',
+  INWARD_QC: 'Inward QC',
   LAB: 'Lab',
   METROLOGY: 'Metrology',
   NDT: 'NDT',
@@ -45,6 +46,7 @@ const roleBadgeColor = (role) => ({
   PURCHASE_OFFICER: 'yellow',
   ACCOUNTING: 'green',
   QC: 'purple',
+  INWARD_QC: 'purple',
   LAB: 'purple',
   METROLOGY: 'blue',
   NDT: 'blue',
@@ -250,6 +252,7 @@ function UsersSection() {
             <option value="ACCOUNTING">Accounting</option>
             <option value="FINANCE">Finance</option>
             <option value="QC">Quality Control</option>
+            <option value="INWARD_QC">Inward QC</option>
             <option value="LAB">Lab</option>
             <option value="METROLOGY">Metrology</option>
             <option value="NDT">NDT</option>

@@ -2,7 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
-const { authorizeMinRole } = require('../middleware/rbac');
+const { authorizeProductMaster, authorizeProductEdit, isProductMasterRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
 const { msdsUpload, prSpecsUpload, publicUrlFor } = require('../middleware/upload');
 const {
@@ -86,7 +86,7 @@ const productSchema = z.object({
   name: z.string().min(1),
   // Identification number from the Material Details register — also stored as SKU.
   materialCode: z.string().trim().min(1),
-  description: z.string().optional(),
+  description: z.string().optional().nullable(),
   category: z.string().optional(),
   unit: z.string().optional(),
   minStockLevel: z.number().min(0).optional(),
@@ -95,16 +95,33 @@ const productSchema = z.object({
   storageTemp: z.string().trim().optional().nullable(),
 });
 
+// Human labels for the product-detail fields tracked in ProductEditHistory.
+// Only these fields are diffed on save; stock figures (currentStock) and
+// non-detail columns are never recorded here.
+const PRODUCT_FIELD_LABELS = {
+  materialCode: 'ID No.',
+  name: 'Name',
+  description: 'Specification / Description',
+  category: 'Material Type',
+  unit: 'UOM',
+  shelfLife: 'Shelf Life',
+  storageTemp: 'Storage Temperature',
+  minStockLevel: 'Min Stock Level',
+};
+
 // GET /api/products
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { search, category, page, limit, includeUnitStock, includeMir, sort } = req.query;
+    const { search, category, page, limit, includeUnitStock, includeMir, includeStockSummary, sort, masterData } = req.query;
 
     // Sort presets — default to alphabetical by name, which is what Stores asked for.
+    // `recent` (newest first) drives the Master Data "needs master data" view so
+    // freshly auto-created (PR-time) products surface at the top for enrichment.
     const sortPresets = {
       name: [{ name: 'asc' }],
       category: [{ category: 'asc' }, { name: 'asc' }],
       id: [{ materialCode: 'asc' }, { sku: 'asc' }],
+      recent: [{ createdAt: 'desc' }],
     };
     const orderBy = sortPresets[sort] || sortPresets.name;
 
@@ -132,9 +149,14 @@ router.get('/', authenticate, async (req, res) => {
       });
     }
     if (category) where.category = category;
+    // Master Data screen filter: only products whose master data hasn't been
+    // added/completed yet (the ones that block Stores inward until enriched).
+    if (masterData === 'pending') where.masterDataComplete = false;
 
     const wantUnitStock = includeUnitStock === 'true' || includeUnitStock === '1';
     const wantMir = includeMir === 'true' || includeMir === '1';
+    // Stock health counts (out-of-stock over the same filtered set) for dashboards.
+    const wantStockSummary = includeStockSummary === 'true' || includeStockSummary === '1';
 
     // Listing the MIRs each product has come in under requires walking the
     // ProductBatch → QCInspection → PurchaseOrder.mirNo chain. We surface
@@ -178,7 +200,7 @@ router.get('/', authenticate, async (req, res) => {
 
     const { skip, take } = paginate(page, limit);
 
-    const [products, total] = await Promise.all([
+    const [products, total, outOfStock] = await Promise.all([
       prisma.product.findMany({
         where,
         orderBy,
@@ -187,12 +209,19 @@ router.get('/', authenticate, async (req, res) => {
         include: Object.keys(include).length ? include : undefined,
       }),
       prisma.product.count({ where }),
+      wantStockSummary
+        ? prisma.product.count({ where: { ...where, currentStock: { lte: 0 } } })
+        : Promise.resolve(null),
     ]);
 
     if (wantMir) await annotateMirAndExpiry(products);
     if (wantUnitStock) await annotateDeptStocks(products);
 
-    res.json({ products, total, page: Math.ceil(skip / take) + 1, totalPages: Math.ceil(total / take) });
+    const response = { products, total, page: Math.ceil(skip / take) + 1, totalPages: Math.ceil(total / take) };
+    if (wantStockSummary) {
+      response.stockSummary = { total, outOfStock, available: total - outOfStock };
+    }
+    res.json(response);
   } catch (error) {
     console.error('Get products error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -477,7 +506,7 @@ router.get('/:id/specs', authenticate, async (req, res) => {
 
 // POST /api/products/:id/specs — Stores/Admin upload a spec PDF to the library.
 // Reuses the pr-specs uploader so PR-time and product-page uploads share storage.
-router.post('/:id/specs', authenticate, authorizeMinRole('STORE_MANAGER'), prSpecsUpload.single('file'), async (req, res) => {
+router.post('/:id/specs', authenticate, authorizeProductMaster, prSpecsUpload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const product = await prisma.product.findUnique({ where: { id: req.params.id }, select: { id: true } });
@@ -499,7 +528,7 @@ router.post('/:id/specs', authenticate, authorizeMinRole('STORE_MANAGER'), prSpe
 });
 
 // DELETE /api/products/:id/specs/:specId — Stores/Admin remove a spec link.
-router.delete('/:id/specs/:specId', authenticate, authorizeMinRole('STORE_MANAGER'), async (req, res) => {
+router.delete('/:id/specs/:specId', authenticate, authorizeProductMaster, async (req, res) => {
   try {
     await prisma.productSpec.delete({ where: { id: req.params.specId } });
     res.json({ message: 'Spec removed' });
@@ -519,6 +548,9 @@ router.get('/:id', authenticate, async (req, res) => {
         stockMovements: { orderBy: { createdAt: 'desc' }, take: 50 },
         unitStocks: { include: { unit: { select: { id: true, name: true, code: true } } } },
         specs: { orderBy: { createdAt: 'desc' } },
+        // Full field-level edit trail (who changed what, when). Surfaced on the
+        // Product Detail page's "Edit History" tab.
+        editHistory: { orderBy: { createdAt: 'desc' }, take: 200 },
       },
     });
 
@@ -661,8 +693,16 @@ router.get('/:id', authenticate, async (req, res) => {
           invoiceDate: isInvoice ? r.inwardDate : null,
           invoiceFileUrl: docUrl(r.documents, /invoice/i),
           lotReportFileUrl: docUrl(r.documents, /report/i),
+          // Full set of supporting papers Stores attached at inward (invoice, DC,
+          // test report, COA, COC, 3rd-party clearance …). The two regex picks
+          // above only catch the invoice + report; surface everything here so the
+          // procurement-chain tab is the single place to find every document.
+          documents: Array.isArray(r.documents) ? r.documents : [],
           materialReceiptDate: r.inwardDate,
           result: r.qcResult || null,
+          // Tools & Fixtures fast-path: inwarded to a unit before QC. QC pending
+          // until a result is filed; surfaced as a badge on the procurement chain.
+          qcDeferred: !!(r.inwardedAt && !r.qcResult),
           dcNo: rq.dcNo || null,
           gatePassNo: rq.gatePassNo || null,
           gatePassType: rq.gatePassType || null,
@@ -738,12 +778,13 @@ router.get('/:id', authenticate, async (req, res) => {
 // MUST be declared before any `/:id`-style route — declared at top of file for safety.
 
 // POST /api/products — sku is just the materialCode (identification number)
-router.post('/', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('CREATE', 'Product'), async (req, res) => {
+router.post('/', authenticate, authorizeProductMaster, auditLog('CREATE', 'Product'), async (req, res) => {
   try {
     const data = productSchema.parse(req.body);
     const category = normalizeMaterialType(data.category);
     const product = await prisma.product.create({
-      data: { ...data, sku: data.materialCode, category },
+      // Created from the Master Data screen → master data is being added now.
+      data: { ...data, sku: data.materialCode, category, masterDataComplete: true },
     });
     res.status(201).json(product);
   } catch (error) {
@@ -762,7 +803,7 @@ router.post('/', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('CREA
 // enters a batch of new items together, so the form lets them add rows and
 // submit them at once. All-or-nothing: any invalid / duplicate row rolls back
 // the whole batch and names the offender.
-router.post('/bulk', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('CREATE', 'Product'), async (req, res) => {
+router.post('/bulk', authenticate, authorizeProductMaster, auditLog('CREATE', 'Product'), async (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) return res.status(400).json({ error: 'Add at least one product' });
@@ -770,7 +811,7 @@ router.post('/bulk', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('
     const parsed = items.map((it, i) => {
       try {
         const data = productSchema.parse(it);
-        return { ...data, sku: data.materialCode, category: normalizeMaterialType(data.category) };
+        return { ...data, sku: data.materialCode, category: normalizeMaterialType(data.category), masterDataComplete: true };
       } catch (e) {
         if (e instanceof z.ZodError) {
           throw new z.ZodError(e.errors.map((err) => ({ ...err, path: [`Item ${i + 1}`, ...err.path] })));
@@ -805,15 +846,80 @@ router.post('/bulk', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('
 
 
 // PUT /api/products/:id
-router.put('/:id', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('UPDATE', 'Product'), async (req, res) => {
+// Master owners can edit any product detail. The Stores team also gets temporary
+// edit access during the new-system rollout (authorizeProductEdit) — but only to
+// the descriptive details, never to stock numbers, and their edit does NOT flip
+// the master-data gate. Every change (by anyone) is recorded in ProductEditHistory.
+router.put('/:id', authenticate, authorizeProductEdit, auditLog('UPDATE', 'Product'), async (req, res) => {
   try {
     const data = productSchema.partial().parse(req.body);
+    const isMaster = isProductMasterRole(req.user);
+    // Stores (temporary access) may only touch descriptive fields — never the
+    // stock threshold. currentStock is not in the schema, so it can't be set here.
+    if (!isMaster) delete data.minStockLevel;
     // Keep sku mirrored to materialCode when the identification number changes.
     if (data.materialCode) data.sku = data.materialCode;
+    // Saving on the Master Data screen counts as the master data being added —
+    // releases the inward hold. A Stores detail-edit must NOT change that gate.
+    if (isMaster) data.masterDataComplete = true;
+
+    const prev = await prisma.product.findUnique({
+      where: { id: req.params.id },
+      select: {
+        masterDataComplete: true,
+        materialCode: true, name: true, description: true, category: true,
+        unit: true, shelfLife: true, storageTemp: true, minStockLevel: true,
+      },
+    });
+    if (!prev) return res.status(404).json({ error: 'Product not found' });
+
     const product = await prisma.product.update({
       where: { id: req.params.id },
       data,
     });
+
+    // Record a field-level edit-history entry for every detail that actually
+    // changed (compared after normalisation/save). Null-safe string compare so
+    // "" ↔ null doesn't register as a change. Best-effort — never blocks the save.
+    const changes = [];
+    for (const [field, label] of Object.entries(PRODUCT_FIELD_LABELS)) {
+      if (!(field in data)) continue;
+      const before = prev[field] ?? null;
+      const after = product[field] ?? null;
+      if (String(before ?? '') !== String(after ?? '')) {
+        changes.push({ field, label, from: before, to: after });
+      }
+    }
+    if (changes.length) {
+      await prisma.productEditHistory.create({
+        data: {
+          productId: product.id,
+          changedById: req.user.id,
+          changedByName: req.user.name || null,
+          changedByRole: req.user.role || null,
+          changes,
+        },
+      }).catch((err) => console.error('[PRODUCT EDIT HISTORY FAIL]', err?.code, err?.message));
+    }
+    // Master data just went from missing → added: tell Stores any inward entries
+    // that were held for this product can now be inwarded into stock. Only a
+    // master-owner save flips the gate, so a Stores detail-edit never fires this.
+    if (isMaster && prev.masterDataComplete === false) {
+      const heldCount = await prisma.materialInwardRegister.count({
+        where: { productId: product.id, inwardedAt: null, status: { not: 'INWARDED' } },
+      });
+      if (heldCount > 0) {
+        await prisma.notification.create({
+          data: {
+            type: 'INWARD_MASTER_DATA_READY',
+            title: `Master data added: ${product.name}`,
+            message: `${req.user.name} added master data for "${product.name}". ${heldCount} inward ${heldCount === 1 ? 'entry is' : 'entries are'} waiting — you can inward ${heldCount === 1 ? 'it' : 'them'} now.`,
+            targetRole: 'STORE_MANAGER',
+            sentById: req.user.id,
+          },
+        }).catch(() => {});
+      }
+    }
     res.json(product);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -829,7 +935,7 @@ router.put('/:id', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('UP
 });
 
 // POST /api/products/:id/msds — upload / replace the Material Safety Data Sheet.
-router.post('/:id/msds', authenticate, authorizeMinRole('STORE_MANAGER'), msdsUpload.single('msds'), async (req, res) => {
+router.post('/:id/msds', authenticate, authorizeProductMaster, msdsUpload.single('msds'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const product = await prisma.product.update({
@@ -845,7 +951,7 @@ router.post('/:id/msds', authenticate, authorizeMinRole('STORE_MANAGER'), msdsUp
 });
 
 // DELETE /api/products/:id/msds — remove the MSDS link.
-router.delete('/:id/msds', authenticate, authorizeMinRole('STORE_MANAGER'), async (req, res) => {
+router.delete('/:id/msds', authenticate, authorizeProductMaster, async (req, res) => {
   try {
     const product = await prisma.product.update({
       where: { id: req.params.id },
@@ -860,7 +966,7 @@ router.delete('/:id/msds', authenticate, authorizeMinRole('STORE_MANAGER'), asyn
 });
 
 // DELETE /api/products/:id (soft delete)
-router.delete('/:id', authenticate, authorizeMinRole('STORE_MANAGER'), auditLog('DELETE', 'Product'), async (req, res) => {
+router.delete('/:id', authenticate, authorizeProductMaster, auditLog('DELETE', 'Product'), async (req, res) => {
   try {
     await prisma.product.update({
       where: { id: req.params.id },

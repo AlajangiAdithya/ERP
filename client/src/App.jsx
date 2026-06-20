@@ -22,6 +22,8 @@ import Suppliers from './pages/Suppliers';
 import PurchaseOrders from './pages/PurchaseOrders';
 import PaymentRequests from './pages/PaymentRequests';
 import Procurement from './pages/Procurement';
+import MasterData from './pages/MasterData';
+import ProductMasterData from './pages/ProductMasterData';
 import Monitoring from './pages/Monitoring';
 import GatePass from './pages/GatePass';
 import Vehicles from './pages/Vehicles';
@@ -145,7 +147,9 @@ export default function App() {
         <PrivateRoute>
           <MainLayout>
             <Routes>
-              <Route path="/" element={<Dashboard />} />
+              {/* INWARD_QC is a single-purpose login: no dashboard, straight to
+                  the Material Inward register where it does its one job (QC review). */}
+              <Route path="/" element={user?.role === 'INWARD_QC' ? <Navigate to="/inward-entry" replace /> : <Dashboard />} />
 
               {/* Admin only */}
               <Route path="/management" element={
@@ -193,6 +197,16 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER']}><QuotationManagement /></PrivateRoute>
               } />
 
+              {/* Master Data hub — Product Master Data (Unit 1–5 managers + QC own
+                  it) + Approved Supplier List. Stores/Purchase only consume product
+                  names elsewhere; they don't manage master data here. */}
+              <Route path="/master-data" element={
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'QC', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS', 'SUPERADMIN']}><MasterData /></PrivateRoute>
+              } />
+              <Route path="/master-data/products" element={
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'QC', 'SUPERADMIN']}><ProductMasterData /></PrivateRoute>
+              } />
+
               {/* Approved Supplier List register — client-spec viewers only:
                   admin, managers, purchase, stores, designs. */}
               <Route path="/suppliers" element={
@@ -208,9 +222,10 @@ export default function App() {
               } />
 
               {/* Inward Entry — Stores does the work; Manager/QC/Designs/R&D/Safety
-                  get read-only access for traceability. */}
+                  get read-only access for traceability. INWARD_QC lands here as its
+                only page and performs the QC review. */}
               <Route path="/inward-entry" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'SAFETY']}><InwardEntry /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'SAFETY']}><InwardEntry /></PrivateRoute>
               } />
               <Route path="/stock-movements" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY']}><StockMovements /></PrivateRoute>

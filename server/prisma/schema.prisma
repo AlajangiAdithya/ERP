@@ -58,6 +58,7 @@ model User {
   workOrdersUnitAccepted     WorkOrder[]                      @relation("WorkOrderUnitAcceptor")
   workOrdersDeliveryUpdated  WorkOrder[]                      @relation("WorkOrderDeliveryUpdater")
   workOrderExtensionsGranted WorkOrderExtension[]             @relation("WorkOrderExtensionGranter")
+  workOrderPdcChanges        WorkOrderPdcChange[]             @relation("WOPdcChanger")
   workOrderInvoicesLogged    WorkOrderInvoice[]               @relation("WorkOrderInvoiceCreator")
   // ── Work Order Closure flow (per delivery batch) ──
   woClosuresOpened           WorkOrderClosure[]               @relation("WOClosureOpener")
@@ -137,6 +138,11 @@ enum Role {
   PURCHASE_OFFICER
   ACCOUNTING
   QC
+  // Inward-only QC operator. Can ONLY perform the inward-material QC review
+  // (take review + finish review) on the Material Inward register — no dashboard,
+  // no other modules. Full QC keeps its existing wider access; this is a stripped
+  // single-purpose login. Mirrored in middleware/rbac.js + materialInward.routes.js.
+  INWARD_QC
   LAB
   METROLOGY
   NDT
@@ -214,6 +220,12 @@ model Product {
   storageTemp          String?
   msdsUrl              String?
   msdsName             String?
+  // Master-data gate. false = the product exists but its master data hasn't been
+  // added/completed by a unit head / QC yet (e.g. auto-created when a PR was
+  // raised). Stores cannot inward a non-Tools&Fixtures material into stock until
+  // this is true. Existing rows are backfilled to true by the migration; products
+  // created afterward start false until enriched on the Master Data screen.
+  masterDataComplete   Boolean                    @default(false)
   isActive             Boolean                    @default(true)
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
@@ -228,6 +240,28 @@ model Product {
   deptStocks           ProductDeptStock[]
   materialPools        MaterialPool[]
   specs                ProductSpec[]
+  editHistory          ProductEditHistory[]
+}
+
+// ──── PRODUCT EDIT HISTORY (field-level audit of detail edits) ────
+// One row per save that changed a product's *details* (ID No., name, material
+// type, specification, shelf life, storage temp, min level …). Captures who,
+// when, their role and a JSON array of { field, label, from, to } changes.
+// Surfaced on the Product Detail page only. Added so the Stores team's temporary
+// product-detail edit access (new-system rollout) is fully traceable — every
+// change anyone makes to a product is recorded here. changedById/Name/Role are
+// snapshots (no User back-relation) so the User model stays untouched.
+model ProductEditHistory {
+  id            String   @id @default(uuid())
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  changedById   String?
+  changedByName String?
+  changedByRole String?
+  changes       Json // [{ field, label, from, to }]
+  createdAt     DateTime @default(now())
+
+  @@index([productId, createdAt])
 }
 
 // ──── PRODUCT MATERIAL SPECS (reusable spec-PDF library per product) ────
@@ -1661,6 +1695,8 @@ model WorkOrder {
   pdc3MonthAlertNotifiedAt DateTime? // stamped by the daily cron once the alert fires, to keep it one-shot
 
   extensions       WorkOrderExtension[]
+  pdcChanges       WorkOrderPdcChange[]
+  editHistory      WorkOrderEditHistory[]
   invoices         WorkOrderInvoice[]
   closures         WorkOrderClosure[]
   bgEntries        WorkOrderBgEntry[]
@@ -1717,6 +1753,47 @@ model WorkOrderExtension {
 
   @@unique([workOrderId, extensionNo])
   @@index([workOrderId])
+}
+
+// PDC change history — append-only audit of every change to the ORIGINAL (base)
+// pdcDate after a WO is created. PDC *extensions* live in WorkOrderExtension
+// (each row is already a who/when record); this table captures DIRECT edits of
+// the base pdcDate (corrections, Planning filling in an imported relative term,
+// etc.) so the "PDC History" timeline can show who changed the date, when, from
+// what, to what, and why — nothing about the PDC changes silently.
+model WorkOrderPdcChange {
+  id          String    @id @default(uuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  oldPdcDate  DateTime?
+  newPdcDate  DateTime?
+  reason      String?
+  changedAt   DateTime  @default(now())
+  changedById String?
+  changedBy   User?     @relation("WOPdcChanger", fields: [changedById], references: [id])
+
+  @@index([workOrderId])
+}
+
+// ──── WORK ORDER EDIT HISTORY (field-level audit of detail edits) ────
+// One row per save that changed a Work Order's core/scope details (customer,
+// FIM, inspection agency, QAP, drawings, tooling, packing, transportation,
+// lots, dates …). Added so Supply Chain / Planning / Admin / the assigned
+// unit's manager can fill in scope information AFTER the WO is released (it is
+// rarely fully known at release time) while every change stays fully traceable.
+// Captures who/when/role + a JSON array of { field, label, from, to } changes.
+// changedById/Name/Role are snapshots (no User back-relation) so User is untouched.
+model WorkOrderEditHistory {
+  id            String    @id @default(uuid())
+  workOrderId   String
+  workOrder     WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  changedById   String?
+  changedByName String?
+  changedByRole String?
+  changes       Json // [{ field, label, from, to }]
+  createdAt     DateTime  @default(now())
+
+  @@index([workOrderId, createdAt])
 }
 
 // Per-invoice qty log (qty-wise invoice tracking — no monetary amount).

@@ -22,10 +22,22 @@
 //   When the final lot's payment lands and full qty is covered → WO auto-CLOSED.
 //
 // Field-level permissions:
+//   - Core / scope details (customer, FIM, inspection agency, QAP, drawings,
+//     tooling, packing, transportation, dates, lots, scope …): SUPPLY_CHAIN /
+//     ADMIN / PLANNING and the assigned unit's MANAGER (the "unit head") may all
+//     fill in / correct these AFTER release at any live status (much of the form
+//     isn't known when the order is logged). Every change is recorded in
+//     WorkOrderEditHistory (who / when / role / from → to). The unit head edits
+//     scope only — not the order's materials or the unit assignment.
 //   - Bank Guarantee + Insurance       : append-only history (BgEntry / InsuranceEntry)
 //     editable by SUPPLY_CHAIN / ADMIN only (Accounts may view, not modify)
 //   - Delivery Details                 : SUPPLY_CHAIN / ADMIN / ACCOUNTING
-//   - PDC date and PDC extensions      : SUPPLY_CHAIN / ADMIN only
+//   - PDC date and PDC extensions      : SUPPLY_CHAIN / ADMIN / PLANNING, plus
+//     the assigned unit's MANAGER (the "unit head") — all four may change PDC at
+//     any time. Every change is recorded with who/when:
+//       · base pdcDate edits  → append a WorkOrderPdcChange row (old → new, by)
+//       · PDC extensions      → WorkOrderExtension row (grantedBy / grantedAt)
+//     Both feed the visible "PDC History" timeline on the WO.
 //     • Every PDC extension MUST also extend the BG (bankGuaranteeExtendedUpto)
 //     • BG date auto-defaults to PDC + 2 months (editable)
 //   - 3-month PDC alert                : BOTH admin AND unit manager must each
@@ -97,6 +109,17 @@ const DELIVERY_STATUSES = ['NOT_STARTED', 'IN_PROGRESS', 'PARTIAL', 'DELIVERED',
 
 const USER_SELECT = { select: { id: true, name: true, role: true } };
 
+// Who may change the PDC date / log+edit PDC extensions: Supply Chain, Admin,
+// Planning, and the assigned unit's MANAGER (the "unit head"). All may change
+// PDC at any time; a MANAGER is restricted to the WO's own assigned unit.
+const PDC_EDITOR_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'PLANNING', 'MANAGER'];
+
+// True when `user` is allowed to change PDC on this `wo`. The three central
+// roles are global PDC owners; a MANAGER must belong to the assigned unit.
+const canChangePdc = (user, wo) =>
+  ['SUPPLY_CHAIN', 'ADMIN', 'PLANNING'].includes(user.role)
+  || (user.role === 'MANAGER' && !!wo.assignedUnitId && wo.assignedUnitId === user.unitId);
+
 const CLOSURE_INCLUDE = {
   openedBy:            USER_SELECT,
   unitDocsSubmittedBy: USER_SELECT,
@@ -136,6 +159,7 @@ const WO_INCLUDE = {
   pdc3MonthAckBy:           USER_SELECT,
   pdc3MonthMgrAckBy:        USER_SELECT,
   extensions:               { orderBy: { extensionNo: 'asc' }, include: { grantedBy: USER_SELECT } },
+  pdcChanges:               { orderBy: { changedAt: 'asc' }, include: { changedBy: USER_SELECT } },
   invoices:                 { orderBy: { invoiceDate: 'asc' }, include: { createdBy: USER_SELECT } },
   closures: {
     orderBy: { cycleNumber: 'asc' },
@@ -172,6 +196,55 @@ const WO_DETAIL_INCLUDE = {
   ...WO_INCLUDE,
   purchaseRequests: PR_MIV_SELECT,
   productRequests:  PR_MIV_SELECT,
+  // Field-level audit of every core/scope edit (who/when/role + from→to). Kept
+  // OUT of the lean list include — only loaded on the detail modal.
+  editHistory:      { orderBy: { createdAt: 'desc' }, take: 200 },
+};
+
+// Human labels for the WO core/scope fields tracked in WorkOrderEditHistory.
+// Only these are diffed on a PATCH save; per-field history (PDC, BG, insurance,
+// delivery, remarks) keeps its own dedicated trails elsewhere. Order here is the
+// order changes are listed in.
+const WO_FIELD_LABELS = {
+  supplyOrderNo:          'Supply Order No',
+  supplyOrderDate:        'Supply Order Date',
+  ionNumber:              'ION No',
+  supplyOrderDescription: 'Supply Order Description',
+  nomenclature:           'Nomenclature',
+  customerName:           'Customer Name',
+  customerContact:        'Customer Contact',
+  orderQuantity:          'Order Quantity',
+  orderUnit:              'Order Unit',
+  pdcDate:                'PDC Date',
+  bankGuaranteeDate:      'BG Date',
+  lotsExpected:           'No. of Lots',
+  deliveryClause:         'Delivery Clause',
+  fimDetails:             'FIM Details',
+  inspectionAgency:       'Inspection Agency',
+  qapNo:                  'QAP No',
+  drawingsDetails:        'Drawings Details',
+  processDrawingsDetails: 'Process Drawings Details',
+  toolingScope:           'Tooling Scope',
+  packingDetails:         'Packing Details',
+  transportationDetails:  'Transportation Details',
+  majorWorksAtSite:       'Major Works at Site',
+  projectCoordinator:     'Project Co-Ordinator',
+  otherInformation:       'Other Information',
+  orderTermsAndScope:     'Order Terms & Scope',
+  assignedUnitId:         'Assigned Unit',
+};
+
+// Date fields whose history value should read as yyyy-mm-dd, not a raw ISO stamp.
+const WO_HISTORY_DATE_FIELDS = new Set(['pdcDate', 'supplyOrderDate', 'bankGuaranteeDate']);
+
+// Normalise a value for the edit-history "from"/"to" snapshot. Dates → yyyy-mm-dd.
+const woHistoryValue = (field, val) => {
+  if (val === null || val === undefined || val === '') return null;
+  if (WO_HISTORY_DATE_FIELDS.has(field)) {
+    const d = new Date(val);
+    return Number.isNaN(d.getTime()) ? String(val) : d.toISOString().slice(0, 10);
+  }
+  return String(val);
 };
 
 // Strip closure financial fields for MANAGER/QC (only L5/FINANCE/ACCOUNTING see them).
@@ -656,9 +729,15 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
 });
 
 // ── PATCH /api/work-orders/:id — edit core fields ──
+// Much of the WORK ORDER form (FIM, inspection agency, QAP, drawings, tooling,
+// packing, transportation, scope …) is rarely known when Supply Chain releases
+// the order, so it stays editable AFTERWARDS. Supply Chain / Admin / Planning
+// and the assigned unit's MANAGER (the "unit head") may all fill in / correct
+// these details at any time. Every change is recorded in WorkOrderEditHistory
+// (who / when / role / from → to) so nothing is changed silently.
 // BG / Insurance are no longer edited here — they go through the history
 // endpoints below (POST /:id/bg-entries and POST /:id/insurance-entries).
-router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'), async (req, res) => {
+router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING', 'MANAGER'), async (req, res) => {
   try {
     const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
@@ -666,14 +745,18 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'
     const body = req.body || {};
     const data = {};
 
-    // SUPPLY_CHAIN can edit core fields while still PENDING_ADMIN. ADMIN edits
-    // anytime. PLANNING edits anytime too — it owns filling in the real PDC for
-    // imported orders that came in with only a relative delivery term.
-    const canEditCore = req.user.role === 'ADMIN' || req.user.role === 'PLANNING'
-      || (req.user.role === 'SUPPLY_CHAIN' && existing.status === 'PENDING_ADMIN');
-
+    // The assigned unit's manager (unit head) may edit only their own unit's WO.
+    const isAssignedMgr = req.user.role === 'MANAGER'
+      && !!existing.assignedUnitId && existing.assignedUnitId === req.user.unitId;
+    // Supply Chain / Admin / Planning own the WO body at any status; the unit
+    // head may fill in details after receiving information not known at release.
+    const canEditCore = ['SUPPLY_CHAIN', 'ADMIN', 'PLANNING'].includes(req.user.role) || isAssignedMgr;
     if (!canEditCore) {
-      return res.status(403).json({ error: 'Not allowed to edit this work order at its current status' });
+      return res.status(403).json({ error: 'Not allowed to edit this work order' });
+    }
+    // Nothing to fill in once the order is dead.
+    if (['CANCELLED', 'REJECTED'].includes(existing.status)) {
+      return res.status(400).json({ error: 'Cannot edit a cancelled/rejected work order' });
     }
 
     const passthrough = [
@@ -688,8 +771,10 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'
     if (body.orderQuantity !== undefined) data.orderQuantity = Number(body.orderQuantity);
 
     // Replace material line items. Only while no lots have been sent — once a lot
-    // exists its per-item rows reference these items, so editing is locked.
-    if (body.items !== undefined) {
+    // exists its per-item rows reference these items, so editing is locked. The
+    // unit head fills in scope/spec details, not the order's materials, so item
+    // replacement is reserved for Supply Chain / Admin / Planning.
+    if (body.items !== undefined && req.user.role !== 'MANAGER') {
       const rows = normalizeItems(body.items);
       if (!rows) return res.status(400).json({ error: 'At least one material line item (description + quantity) is required' });
       const lotCount = await prisma.workOrderClosure.count({ where: { workOrderId: req.params.id } });
@@ -703,7 +788,17 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'
     }
 
     if (body.supplyOrderDate) data.supplyOrderDate = new Date(body.supplyOrderDate);
-    if (body.pdcDate) data.pdcDate = new Date(body.pdcDate);
+    // Base (original) PDC edit. Recorded in WorkOrderPdcChange when it actually
+    // moves, so a direct correction of the commitment date is never silent.
+    let pdcChange = null;
+    if (body.pdcDate) {
+      const newPdc = new Date(body.pdcDate);
+      const oldPdc = existing.pdcDate ? new Date(existing.pdcDate) : null;
+      if (!oldPdc || oldPdc.getTime() !== newPdc.getTime()) {
+        data.pdcDate = newPdc;
+        pdcChange = { oldPdcDate: oldPdc, newPdcDate: newPdc };
+      }
+    }
     // BG date is auto-derived (PDC + 2 months) but stays editable here.
     if (body.bankGuaranteeDate !== undefined) {
       data.bankGuaranteeDate = body.bankGuaranteeDate ? new Date(body.bankGuaranteeDate) : null;
@@ -711,7 +806,9 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'
     if (body.lotsExpected !== undefined) {
       data.lotsExpected = body.lotsExpected ? Math.max(1, Number(body.lotsExpected)) : null;
     }
-    if (body.assignedUnitId !== undefined) {
+    // Reassigning the unit is an Admin/SC/Planning action — a unit head must not
+    // move the WO away from their own unit (it would lock them out).
+    if (body.assignedUnitId !== undefined && req.user.role !== 'MANAGER') {
       if (body.assignedUnitId) {
         const u = await prisma.unit.findUnique({ where: { id: body.assignedUnitId } });
         if (!u) return res.status(400).json({ error: 'Assigned unit not found' });
@@ -723,10 +820,66 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'
       return res.status(400).json({ error: 'No editable fields supplied' });
     }
 
-    const updated = await prisma.workOrder.update({
-      where: { id: req.params.id },
-      data,
-      include: WO_INCLUDE,
+    // Build the field-level change list (old → new) for the audit trail —
+    // every tracked field that is present in `data` and actually moved.
+    const changes = [];
+    for (const [field, label] of Object.entries(WO_FIELD_LABELS)) {
+      if (!(field in data)) continue;
+      if (field === 'assignedUnitId') {
+        const oldId = existing.assignedUnitId || null;
+        const newId = data.assignedUnitId || null;
+        if (String(oldId ?? '') === String(newId ?? '')) continue;
+        const ids = [oldId, newId].filter(Boolean);
+        const names = {};
+        if (ids.length) {
+          const us = await prisma.unit.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, name: true, code: true },
+          });
+          us.forEach((x) => { names[x.id] = `${x.name} (${x.code})`; });
+        }
+        changes.push({
+          field, label,
+          from: oldId ? (names[oldId] || oldId) : null,
+          to: newId ? (names[newId] || newId) : null,
+        });
+        continue;
+      }
+      const before = woHistoryValue(field, existing[field]);
+      const after = woHistoryValue(field, data[field]);
+      if (String(before ?? '') !== String(after ?? '')) {
+        changes.push({ field, label, from: before, to: after });
+      }
+    }
+    if ('items' in data) {
+      changes.push({ field: 'items', label: 'Materials', from: null, to: 'Material line items updated' });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (pdcChange) {
+        await tx.workOrderPdcChange.create({
+          data: {
+            workOrderId: req.params.id,
+            oldPdcDate: pdcChange.oldPdcDate,
+            newPdcDate: pdcChange.newPdcDate,
+            reason: body.pdcChangeReason ? String(body.pdcChangeReason).trim() : null,
+            changedById: req.user.id,
+          },
+        });
+      }
+      await tx.workOrder.update({ where: { id: req.params.id }, data });
+      if (changes.length) {
+        await tx.workOrderEditHistory.create({
+          data: {
+            workOrderId: req.params.id,
+            changedById: req.user.id,
+            changedByName: req.user.name || null,
+            changedByRole: req.user.role || null,
+            changes,
+          },
+        });
+      }
+      return tx.workOrder.findUnique({ where: { id: req.params.id }, include: WO_INCLUDE });
     });
     res.json(decorate(updated, req.user));
     refreshAlarms(req.params.id);
@@ -1009,11 +1162,13 @@ router.post('/:id/reassign', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), a
 });
 
 // ── POST /api/work-orders/:id/extensions — log a PDC extension ────────
-// Open ONLY to SUPPLY_CHAIN (and ADMIN as override). Per workflow rules,
-// the unit manager can no longer change PDC — only Supply Chain owns the date.
+// Open to SUPPLY_CHAIN / ADMIN / PLANNING and the assigned unit's MANAGER (the
+// "unit head"). All may change PDC at any time; a MANAGER is restricted to its
+// own unit (checked below). Each extension row records grantedBy/grantedAt, so
+// the change history is always visible.
 // PDC extension MUST carry a bankGuaranteeExtendedUpto date — the BG always
 // extends with the PDC.
-router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
+router.post('/:id/extensions', authenticate, authorize(...PDC_EDITOR_ROLES), async (req, res) => {
   try {
     const {
       newPdcDate, reason, bankGuaranteeExtendedUpto,
@@ -1031,6 +1186,9 @@ router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'),
       include: { extensions: { orderBy: { extensionNo: 'desc' }, take: 1 } },
     });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
+    if (!canChangePdc(req.user, existing)) {
+      return res.status(403).json({ error: 'Only the assigned unit\'s manager can change this work order\'s PDC' });
+    }
     if (['CANCELLED', 'REJECTED'].includes(existing.status)) {
       return res.status(400).json({ error: 'Cannot extend a cancelled/rejected work order' });
     }
@@ -1058,10 +1216,15 @@ router.post('/:id/extensions', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'),
 });
 
 // ── PATCH /api/work-orders/:id/extensions/:extId — update extension fields ─
-router.patch('/:id/extensions/:extId', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
+// Same editors as logging an extension: SC / ADMIN / PLANNING + the assigned
+// unit's MANAGER.
+router.patch('/:id/extensions/:extId', authenticate, authorize(...PDC_EDITOR_ROLES), async (req, res) => {
   try {
     const wo = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
     if (!wo) return res.status(404).json({ error: 'Work order not found' });
+    if (!canChangePdc(req.user, wo)) {
+      return res.status(403).json({ error: 'Only the assigned unit\'s manager can change this work order\'s PDC' });
+    }
     const body = req.body || {};
     const data = {};
     if (body.requestLetterStatus !== undefined) data.requestLetterStatus = body.requestLetterStatus || null;

@@ -13,7 +13,7 @@ import { useAuth } from '../../context/AuthContext';
 
 const ROLES = [
   'ADMIN', 'SUPERADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER',
-  'ACCOUNTING', 'FINANCE', 'QC', 'LAB', 'METROLOGY', 'NDT', 'RND',
+  'ACCOUNTING', 'FINANCE', 'QC', 'INWARD_QC', 'LAB', 'METROLOGY', 'NDT', 'RND',
   'SAFETY', 'SUPPLY_CHAIN', 'DESIGNS', 'PLANNING', 'LOGISTICS', 'HR', 'SITE_OFFICE',
 ];
 

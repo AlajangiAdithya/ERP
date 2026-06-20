@@ -9,7 +9,7 @@ const { auditLog } = require('../middleware/audit');
 const router = express.Router();
 
 const VALID_ROLES = [
-  'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
+  'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'INWARD_QC', 'LAB',
   'METROLOGY', 'NDT', 'RND', 'SAFETY', 'SUPPLY_CHAIN',
   'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS', 'SITE_OFFICE', 'HR',
 ];

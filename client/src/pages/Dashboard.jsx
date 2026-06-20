@@ -563,6 +563,7 @@ function ManagerDashboard() {
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [totalProducts, setTotalProducts] = useState(0);
+  const [outOfStock, setOutOfStock] = useState(0);
   const [requests, setRequests] = useState([]);
   const [purchaseRequests, setPurchaseRequests] = useState([]);
   const [unitStats, setUnitStats] = useState({
@@ -579,7 +580,7 @@ function ManagerDashboard() {
     let cancelled = false;
     const load = async () => {
       const tasks = [
-        api.get('/products', { params: { limit: 50 } }),
+        api.get('/products', { params: { limit: 50, includeStockSummary: true } }),
         api.get('/requests', { params: { limit: 10 } }),
         api.get('/purchase-requests', { params: { limit: 20 } }),
         api.get('/purchase-requests/unit-dashboard'),
@@ -594,6 +595,7 @@ function ManagerDashboard() {
       if (prodRes.status === 'fulfilled') {
         setProducts(prodRes.value.data.products || []);
         setTotalProducts(prodRes.value.data.total || 0);
+        setOutOfStock(prodRes.value.data.stockSummary?.outOfStock || 0);
       }
       if (reqRes.status === 'fulfilled') setRequests(reqRes.value.data.requests || []);
       if (prRes.status === 'fulfilled') {
@@ -629,9 +631,15 @@ function ManagerDashboard() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard
-          title="Available Products"
-          value={totalProducts}
-          subtitle="In catalog"
+          title="Available / Out of Stock"
+          value={
+            <span>
+              {Math.max(0, totalProducts - outOfStock)}
+              <span className="text-gray-300 font-normal"> / </span>
+              <span className="text-brand-red">{outOfStock}</span>
+            </span>
+          }
+          subtitle="In stock / Out of stock products"
           icon={Package}
           color="navy"
           onClick={() => navigate('/products')}

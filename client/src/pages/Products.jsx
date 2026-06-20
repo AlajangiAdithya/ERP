@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { canEditProductDetails, STORE_PRODUCT_EDIT_UNTIL } from '../utils/roles';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Table from '../components/ui/Table';
@@ -51,35 +52,58 @@ export default function Products() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const canEdit = user?.role === 'ADMIN' || user?.role === 'STORE_MANAGER';
+  // Adding products + specs/MSDS stays on the Master Data screen (owned by Unit
+  // 1–5 managers + QC). The Add Product button here remains master-only.
+  const canEdit = false;
+  // TEMPORARY (new-system rollout): Stores can edit a product's *details* — ID No.,
+  // name, material type, specification, shelf life, storage temp — straight from
+  // this list. Never stock numbers. Auto-expires (STORE_PRODUCT_EDIT_UNTIL); every
+  // change is logged to the product's Edit History (visible on its detail page).
+  const canEditDetails = canEditProductDetails(user);
+  const isStoreTempEditor = canEditDetails && user?.role === 'STORE_MANAGER';
   const [downloading, setDownloading] = useState(false);
 
-  // Storage-handling edit (Stores only): shelf life + room/storage temperature.
-  // Free text, editable straight from the list. MSDS lives on the detail page.
+  // Inline product-detail edit (master owners + Stores during the rollout window).
+  const blankEditForm = { materialCode: '', name: '', category: '', unit: 'pcs', description: '', shelfLife: '', storageTemp: '' };
   const [editTarget, setEditTarget] = useState(null); // the product row being edited
-  const [editForm, setEditForm] = useState({ shelfLife: '', storageTemp: '' });
+  const [editForm, setEditForm] = useState(blankEditForm);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
 
-  const openEditStorage = (row) => {
+  const openEditDetails = (row) => {
     setEditTarget(row);
-    setEditForm({ shelfLife: row.shelfLife || '', storageTemp: row.storageTemp || '' });
+    setEditForm({
+      materialCode: row.materialCode || row.sku || '',
+      name: row.name || '',
+      category: row.category || '',
+      unit: row.unit || 'pcs',
+      description: row.description || '',
+      shelfLife: row.shelfLife || '',
+      storageTemp: row.storageTemp || '',
+    });
     setEditError('');
   };
 
-  const saveEditStorage = async (e) => {
+  const saveEditDetails = async (e) => {
     e.preventDefault();
+    if (!editForm.materialCode.trim()) { setEditError('ID No. is required'); return; }
+    if (!editForm.name.trim()) { setEditError('Name is required'); return; }
     setEditSaving(true);
     setEditError('');
     try {
       await api.put(`/products/${editTarget.id}`, {
+        materialCode: editForm.materialCode.trim(),
+        name: editForm.name.trim(),
+        category: editForm.category || undefined,
+        unit: editForm.unit || undefined,
+        description: editForm.description.trim() || null,
         shelfLife: editForm.shelfLife.trim() || null,
         storageTemp: editForm.storageTemp.trim() || null,
       });
       setEditTarget(null);
       fetchProducts();
     } catch (err) {
-      setEditError(err.response?.data?.error || 'Failed to save storage details');
+      setEditError(err.response?.data?.error || 'Failed to save product details');
     } finally {
       setEditSaving(false);
     }
@@ -310,18 +334,19 @@ export default function Products() {
     },
   ];
 
-  // Stores/Admin get an inline edit affordance for the storage-handling fields.
-  const tableColumns = canEdit
+  // Master owners + Stores (temporary rollout access) get an inline edit
+  // affordance for the product's details. Edits are logged to Edit History.
+  const tableColumns = canEditDetails
     ? [
         ...columns,
         {
-          key: 'storageEdit', label: '', width: 70,
+          key: 'detailEdit', label: '', width: 70,
           render: (_v, row) => (
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); openEditStorage(row); }}
+              onClick={(e) => { e.stopPropagation(); openEditDetails(row); }}
               className="inline-flex items-center gap-1 text-xs font-medium text-navy-700 hover:text-navy-900"
-              title="Edit shelf life & room temperature"
+              title="Edit product details"
             >
               <Pencil size={13} /> Edit
             </button>
@@ -333,9 +358,9 @@ export default function Products() {
   return (
     <div className="space-y-6">
       <PageHero
-        title="Products"
-        subtitle="Browse the product catalogue, stock levels, and FIM lifecycle across all units."
-        eyebrow="Product Catalogue"
+        title="Stock Details"
+        subtitle="Current stock, batches, per-unit balances and FIM lifecycle. Specifications & shelf life live under Master Data."
+        eyebrow="Stock Details"
         icon={Package}
         actions={
           <>
@@ -378,6 +403,18 @@ export default function Products() {
 
       {tab === 'raps' ? (
         <Card>
+          {isStoreTempEditor && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span>
+                <strong>Temporary edit access.</strong> You can correct a product's details
+                (ID No., name, material type, specification, shelf life, storage temp) using the
+                <span className="inline-flex items-center gap-0.5 font-medium"> <Pencil size={11} /> Edit</span> button — stock numbers can't be changed here.
+                Every change is recorded in that product's <strong>Edit History</strong> (open the product to see it).
+                This access ends on {STORE_PRODUCT_EDIT_UNTIL.toLocaleDateString()}.
+              </span>
+            </div>
+          )}
           <div className="flex flex-col sm:flex-row gap-3 mb-4">
             <div className="flex-1">
               <SearchBar value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search products..." />
@@ -468,30 +505,73 @@ export default function Products() {
         </Modal>
       )}
 
-      {/* Edit storage handling (Stores only) — shelf life + room/storage temperature */}
-      {canEdit && editTarget && (
-        <Modal isOpen onClose={() => setEditTarget(null)} title={`Storage details — ${editTarget.name}`}>
-          <form onSubmit={saveEditStorage} className="space-y-4">
+      {/* Edit product details (master owners + Stores temporary access).
+          Stock numbers are intentionally absent — only descriptive details. */}
+      {canEditDetails && editTarget && (
+        <Modal isOpen onClose={() => setEditTarget(null)} title={`Edit details — ${editTarget.name}`} size="lg">
+          <form onSubmit={saveEditDetails} className="space-y-4">
             {editError && <p className="text-sm text-brand-red">{editError}</p>}
             <p className="text-xs text-gray-500">
-              Free text — these are visible to everyone but only Stores can edit them.
-              The Material Safety Data Sheet (MSDS) is uploaded from the product's detail page.
+              Editing the product's details only. Stock quantities aren't changed here, and every
+              change is saved to this product's <strong>Edit History</strong>.
             </p>
-            <Input
-              label="Shelf Life"
-              value={editForm.shelfLife}
-              onChange={(e) => setEditForm((f) => ({ ...f, shelfLife: e.target.value }))}
-              placeholder="e.g. 12 months from manufacture"
-            />
-            <Input
-              label="Room / Storage Temperature"
-              value={editForm.storageTemp}
-              onChange={(e) => setEditForm((f) => ({ ...f, storageTemp: e.target.value }))}
-              placeholder="e.g. 2–8°C, store dry"
-            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="ID No. *"
+                value={editForm.materialCode}
+                onChange={(e) => setEditForm((f) => ({ ...f, materialCode: e.target.value }))}
+                placeholder="e.g. 1000"
+              />
+              <Input
+                label="Name *"
+                value={editForm.name}
+                onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Select
+                label="Material Type"
+                value={editForm.category}
+                onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
+              >
+                <option value="">—</option>
+                {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools & Fastners', 'Tools & Fixtures', 'Stationery', 'Others']).map((mt) => <option key={mt} value={mt}>{mt}</option>)}
+              </Select>
+              <Select
+                label="Unit (UOM)"
+                value={editForm.unit}
+                onChange={(e) => setEditForm((f) => ({ ...f, unit: e.target.value }))}
+              >
+                {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+              </Select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Specification / Description</label>
+              <textarea
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
+                rows={3}
+                value={editForm.description}
+                onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Material specification details (grade, dimensions, standard…)"
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Shelf Life"
+                value={editForm.shelfLife}
+                onChange={(e) => setEditForm((f) => ({ ...f, shelfLife: e.target.value }))}
+                placeholder="e.g. 12 months from manufacture"
+              />
+              <Input
+                label="Room / Storage Temperature"
+                value={editForm.storageTemp}
+                onChange={(e) => setEditForm((f) => ({ ...f, storageTemp: e.target.value }))}
+                placeholder="e.g. 2–8°C, store dry"
+              />
+            </div>
             <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
               <Button variant="secondary" type="button" onClick={() => setEditTarget(null)}>Cancel</Button>
-              <Button type="submit" disabled={editSaving}>{editSaving ? 'Saving…' : 'Save'}</Button>
+              <Button type="submit" disabled={editSaving}>{editSaving ? 'Saving…' : 'Save details'}</Button>
             </div>
           </form>
         </Modal>

@@ -853,6 +853,26 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
       return res.status(400).json({ error: 'Inward entry can only be done after QC approval' });
     }
 
+    // Master-data hold (mirrors the Material Inward Register gate): a non-Tools &
+    // Fixtures material must have its master data added by a unit head / QC before
+    // its stock can be created on this path too. Tools & Fixtures are exempt.
+    const inwardItemIds = items.map((i) => i.id);
+    const involvedProductIds = [...new Set(
+      order.items.filter((i) => inwardItemIds.includes(i.id)).map((i) => i.productId).filter(Boolean),
+    )];
+    if (involvedProductIds.length) {
+      const prods = await prisma.product.findMany({
+        where: { id: { in: involvedProductIds } },
+        select: { id: true, name: true, category: true, masterDataComplete: true },
+      });
+      const held = prods.find((p) => p.masterDataComplete === false && normalizeMaterialType(p.category) !== 'Tools & Fixtures');
+      if (held) {
+        return res.status(400).json({
+          error: `On hold: master data not added yet for "${held.name}" — a unit head or QC must add its master data (specs / shelf life) on the Master Data screen before it can be inwarded.`,
+        });
+      }
+    }
+
     // Find the lot being inwarded: the most recent QC inspection on this PO
     // whose result was finalised (PASSED/PARTIAL). Each "mark goods arrived"
     // creates exactly one inspection, and the workflow guarantees only one

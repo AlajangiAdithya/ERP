@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, UserCog,
   BarChart3, Settings, Menu, X,
-  CheckSquare, ScrollText,
+  CheckSquare, ClipboardCheck, ScrollText,
   Building2, ShieldCheck, Crown, Boxes, Ruler,
   ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation, Gauge,
 } from 'lucide-react';
@@ -40,6 +40,9 @@ const DISPATCH_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY' && r !== 'QC');
 const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
+    // INWARD_QC is a single-purpose login — its only entry is the inward QC page.
+    // (Not in ALL_ROLES, so every other item below stays hidden for it.)
+    { to: '/inward-entry', icon: ClipboardCheck, label: 'Inward QC', roles: ['INWARD_QC'] },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC', 'PLANNING'] },
     // Messaging stays reachable from the Dashboard card; no sidebar entry.
     { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: PROCUREMENT_ROLES },

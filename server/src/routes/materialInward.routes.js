@@ -4,7 +4,7 @@ const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const {
   paginate, applyDateFilter, generateSequentialNumber, withDocRetry, OWNER_DEPTS, deptForRole,
-  formatDDMMYY,
+  formatDDMMYY, normalizeMaterialType,
 } = require('../utils/helpers');
 const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 
@@ -13,11 +13,13 @@ const router = express.Router();
 // ── Role groups ──
 // Stores does the actual inward work (create rows, request QC, final inward).
 const WRITE_ROLES = ['ADMIN', 'STORE_MANAGER'];
-// QC reviews each lot inside the register.
-const QC_ROLES = ['ADMIN', 'QC'];
-// Everyone with oversight may read the register.
+// QC reviews each lot inside the register. INWARD_QC is the inward-only QC
+// operator — it shares exactly this one capability (take/finish review) and
+// nothing else (no create, no request-QC, no inward-into-stock).
+const QC_ROLES = ['ADMIN', 'QC', 'INWARD_QC'];
+// Everyone with oversight may read the register (INWARD_QC must read it to review).
 const VIEW_ROLES = [
-  'ADMIN', 'STORE_MANAGER', 'QC', 'PURCHASE_OFFICER', 'PLANNING',
+  'ADMIN', 'STORE_MANAGER', 'QC', 'INWARD_QC', 'PURCHASE_OFFICER', 'PLANNING',
   'SAFETY', 'MANAGER', 'SUPPLY_CHAIN', 'ACCOUNTING', 'FINANCE',
 ];
 
@@ -44,6 +46,28 @@ const requireInwardWrite = (req, res, next) => {
 };
 
 const USER_SELECT = { select: { id: true, name: true, role: true } };
+
+// Tools & Fixtures fast-path. Such items may be inwarded straight to the unit,
+// bypassing BOTH the QC requirement AND the master-data hold; QC is performed
+// later on the already-inwarded lot. Category comes from the linked product
+// (falling back to the register row's own materialType for free-text entries).
+const isToolsAndFixtures = (product, row) =>
+  normalizeMaterialType(product?.category || row?.materialType) === 'Tools & Fixtures';
+
+// Notify QC + the owning unit's manager that a material is held at inward because
+// its master data hasn't been added yet (or, on deferred-QC failure, to flag it).
+async function notifyMasterDataHold(row, sentById, { title, message }) {
+  const base = { type: 'INWARD_MASTER_DATA_HOLD', title, message, sentById };
+  const notes = [{ ...base, targetRole: 'QC', targetUserId: null }];
+  if (row.issuedToUnitId) {
+    const mgr = await prisma.user.findFirst({
+      where: { role: 'MANAGER', unitId: row.issuedToUnitId, isActive: true },
+      select: { id: true },
+    });
+    if (mgr) notes.push({ ...base, targetRole: null, targetUserId: mgr.id });
+  }
+  await prisma.notification.createMany({ data: notes });
+}
 
 // POs that can still receive material (anything that isn't fully closed).
 const ACTIVE_PO_STATUSES = [
@@ -398,7 +422,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const [users, units, products, mivItems, pos, poItems] = await Promise.all([
       userIds.size ? prisma.user.findMany({ where: { id: { in: [...userIds] } }, select: { id: true, name: true, role: true } }) : [],
       unitIds.size ? prisma.unit.findMany({ where: { id: { in: [...unitIds] } }, select: { id: true, name: true, code: true } }) : [],
-      productIds.size ? prisma.product.findMany({ where: { id: { in: [...productIds] } }, select: { id: true, name: true, sku: true, materialCode: true, unit: true, shelfLife: true, storageTemp: true, msdsUrl: true } }) : [],
+      productIds.size ? prisma.product.findMany({ where: { id: { in: [...productIds] } }, select: { id: true, name: true, sku: true, materialCode: true, unit: true, category: true, shelfLife: true, storageTemp: true, msdsUrl: true, masterDataComplete: true } }) : [],
       batchNos.size ? prisma.requestItem.findMany({
         where: { materialBatchNo: { in: [...batchNos] } },
         select: {
@@ -470,6 +494,17 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       orderedQty: r.purchaseOrderItemId ? (poItemMap[r.purchaseOrderItemId]?.quantity ?? null) : null,
       mivs: r.batchNo ? (mivMap[r.batchNo] || []) : [],
       refDocs: r.purchaseOrderId ? (refDocsMap[r.purchaseOrderId] || []) : [],
+      // On hold: a non-Tools&Fixtures material whose master data hasn't been added
+      // yet — Stores can't inward it until a unit head / QC completes it.
+      masterDataPending: (() => {
+        const p = r.productId ? productMap[r.productId] : null;
+        if (!p || r.inwardedAt) return false;
+        if (isToolsAndFixtures(p, r)) return false;
+        return p.masterDataComplete === false;
+      })(),
+      // Tools & Fixtures inwarded to a unit before QC — QC still pending.
+      qcPending: !!(r.inwardedAt && !r.qcResult),
+      isToolsAndFixtures: isToolsAndFixtures(r.productId ? productMap[r.productId] : null, r),
     }));
 
     res.json({ rows: decorated, total });
@@ -830,7 +865,10 @@ router.post('/:id/request-qc', authenticate, requireInwardWrite, async (req, res
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
-    if (!['DRAFT', 'QC_REQUESTED'].includes(row.status)) {
+    // Tools & Fixtures may have been inwarded before QC (deferred). Such a lot is
+    // already in stock (inwardedAt set) but still needs its QC — allow requesting it.
+    const deferredQcPending = !!(row.inwardedAt && !row.qcResult);
+    if (!['DRAFT', 'QC_REQUESTED'].includes(row.status) && !deferredQcPending) {
       return res.status(400).json({ error: 'QC has already been taken up for this entry' });
     }
 
@@ -970,18 +1008,45 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
         qcFinishedAt: new Date(),
       },
     });
+    // Deferred QC: a Tools & Fixtures lot inwarded to the unit before QC. The stock
+    // is already in place, so the outcome is informational — a failure is flagged
+    // (no auto-reversal), not a rejection that blocks inward.
+    const deferred = !!row.inwardedAt;
     const resultLabel = qcResult === 'ON_HOLD' ? 'on hold' : qcResult.toLowerCase();
+    let message;
+    if (onHold) {
+      message = `${req.user.name} placed inward ${row.mirNo} on hold — ${b.holdReason.trim()}. Address it and resend to QC.`;
+    } else if (deferred) {
+      message = qcResult === 'FAILED'
+        ? `${req.user.name} finished deferred QC for ${row.mirNo} — FAILED. This Tools & Fixtures lot is already with ${row.issuedToLabel || 'the unit'}; it is flagged QC-failed (stock not auto-removed). Decide on disposition.`
+        : `${req.user.name} finished deferred QC for ${row.mirNo} — ${qcResult}. The lot is already in the unit's stock.`;
+    } else {
+      message = `${req.user.name} finished QC for inward ${row.mirNo} — ${qcResult}. ${qcResult === 'FAILED' ? 'Material rejected.' : 'Ready to inward into stores.'}`;
+    }
     await prisma.notification.create({
       data: {
-        type: onHold ? 'INWARD_QC_HOLD' : 'INWARD_QC_DONE',
+        type: onHold ? 'INWARD_QC_HOLD' : (deferred && qcResult === 'FAILED' ? 'INWARD_TF_QC_FAILED' : 'INWARD_QC_DONE'),
         title: `QC ${resultLabel}: ${row.itemDescription || row.mirNo}`,
-        message: onHold
-          ? `${req.user.name} placed inward ${row.mirNo} on hold — ${b.holdReason.trim()}. Address it and resend to QC.`
-          : `${req.user.name} finished QC for inward ${row.mirNo} — ${qcResult}. ${qcResult === 'FAILED' ? 'Material rejected.' : 'Ready to inward into stores.'}`,
+        message,
         targetRole: 'STORE_MANAGER',
         sentById: req.user.id,
       },
     });
+    // Deferred-QC failure also flags the owning unit's manager directly (no reversal).
+    if (deferred && qcResult === 'FAILED' && row.issuedToUnitId) {
+      const mgr = await prisma.user.findFirst({ where: { role: 'MANAGER', unitId: row.issuedToUnitId, isActive: true }, select: { id: true } });
+      if (mgr) {
+        await prisma.notification.create({
+          data: {
+            type: 'INWARD_TF_QC_FAILED',
+            title: `QC failed (post-inward): ${row.itemDescription || row.mirNo}`,
+            message: `Deferred QC failed for ${row.mirNo} — ${b.qcReportRemark.trim()}. The stock is already in your unit and is flagged QC-failed. Decide on disposition.`,
+            targetUserId: mgr.id,
+            sentById: req.user.id,
+          },
+        }).catch(() => {});
+      }
+    }
     res.json(updated);
   } catch (err) {
     console.error('finish-review error:', err);
@@ -1068,8 +1133,27 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
-    if (row.status !== 'QC_DONE') return res.status(400).json({ error: 'Finish QC before inwarding' });
-    if (row.qcResult === 'FAILED') return res.status(400).json({ error: 'QC failed — this material cannot be inwarded' });
+    if (row.inwardedAt) return res.status(400).json({ error: 'This entry has already been inwarded' });
+
+    // Linked product (if any) drives the Tools & Fixtures fast-path + master-data gate.
+    const product = row.productId ? await prisma.product.findUnique({ where: { id: row.productId } }) : null;
+    const isTF = isToolsAndFixtures(product, row);
+
+    if (!isTF) {
+      // Normal flow: QC must be finished + passed, and the master data must have
+      // been added, before any stock is created.
+      if (row.status !== 'QC_DONE') return res.status(400).json({ error: 'Finish QC before inwarding' });
+      if (row.qcResult === 'FAILED') return res.status(400).json({ error: 'QC failed — this material cannot be inwarded' });
+      if (product && product.masterDataComplete === false) {
+        await notifyMasterDataHold(row, req.user.id, {
+          title: `Master data needed: ${row.itemDescription || row.mirNo}`,
+          message: `${req.user.name} tried to inward ${row.mirNo} but "${product.name}" has no master data yet. Add its master data (specs / shelf life) on the Master Data screen so Stores can inward it.`,
+        });
+        return res.status(400).json({ error: "On hold: master data not added yet — a unit head or QC must add this material's master data before it can be inwarded." });
+      }
+    }
+    // Tools & Fixtures: inward allowed from any pre-inward status; QC + master data
+    // are deferred and handled later on the already-inwarded lot.
 
     // Inward the QC-accepted qty when QC set one, else the received qty.
     const qty = row.qtyAccepted != null ? row.qtyAccepted : (row.qtyReceived || 0);
@@ -1082,8 +1166,6 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
       return res.json({ row: marked, stocked: false });
     }
     if (!qty || qty <= 0) return res.status(400).json({ error: 'Accepted quantity must be greater than zero' });
-
-    const product = await prisma.product.findUnique({ where: { id: row.productId } });
     if (!product) return res.status(404).json({ error: 'Linked product not found' });
 
     // Auto-split the accepted qty across every unit that raised a PR for this
@@ -1182,7 +1264,21 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
       return { row: updatedRow, movements, batch };
     });
 
-    res.json({ ...result, stocked: true });
+    // Tools & Fixtures inwarded straight to the unit before QC — flag QC to do the
+    // (deferred) inspection on the lot that's already in stock.
+    if (isTF) {
+      await prisma.notification.create({
+        data: {
+          type: 'INWARD_TF_QC_PENDING',
+          title: `T&F inwarded — QC pending: ${row.itemDescription || row.mirNo}`,
+          message: `${req.user.name} inwarded Tools & Fixtures ${row.mirNo}${row.issuedToLabel ? ` to ${row.issuedToLabel}` : ''} directly to the unit. QC is still pending — review the lot when ready.`,
+          targetRole: 'QC',
+          sentById: req.user.id,
+        },
+      }).catch(() => {});
+    }
+
+    res.json({ ...result, stocked: true, qcDeferred: isTF });
   } catch (err) {
     console.error('material-inward inward error:', err);
     res.status(500).json({ error: 'Failed to record inward' });

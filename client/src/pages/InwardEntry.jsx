@@ -3,7 +3,7 @@ import {
   Package, Plus, FlaskConical, ClipboardCheck, CheckCircle2,
   Search, Filter, X, Pencil, Trash2, ArrowDownToLine, Building2,
   Paperclip, Upload, Eye, FileText, FileSearch, ExternalLink, UserRound,
-  Send, FileInput,
+  Send, FileInput, AlertTriangle, Wrench,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -93,8 +93,14 @@ const iirRequestDefaults = (row) => {
 };
 
 // Stores owns the register; QC reviews each lot inline. Everyone else is read-only.
+// INWARD_QC is the inward-only QC operator — same review actions as QC, nothing else.
 const WRITE_ROLES = ['ADMIN', 'STORE_MANAGER'];
-const QC_ROLES = ['ADMIN', 'QC'];
+const QC_ROLES = ['ADMIN', 'QC', 'INWARD_QC'];
+
+// Who performed a QC review, with their role spelled out so an Inward QC operator
+// is clearly distinguished from full QC on the register and the report.
+const QC_ROLE_LABELS = { QC: 'Quality Control', INWARD_QC: 'Inward QC', ADMIN: 'Admin' };
+const reviewerLabel = (u) => (u ? `${u.name}${u.role ? ` (${QC_ROLE_LABELS[u.role] || u.role})` : ''}` : '');
 
 // The Unit-5 manager also runs inward entry. Mirror of the server's detection
 // (materialInward.routes.js) — Unit 5 may surface as a code, unit name, or
@@ -478,6 +484,24 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                     <Pill tone={r.status === 'QC_DONE' && r.qcResult ? RESULT_TONE[r.qcResult] : meta.tone}>
                       {r.status === 'QC_DONE' && r.qcResult ? `QC ${r.qcResult}` : meta.label}
                     </Pill>
+                    {/* Tools & Fixtures inwarded to the unit before QC — QC still pending. */}
+                    {r.qcPending && (
+                      <div className="text-[10px] text-amber-700 mt-0.5 font-semibold inline-flex items-center gap-1">
+                        <Wrench size={10} /> QC pending (inwarded)
+                      </div>
+                    )}
+                    {/* Inwarded T&F whose deferred QC failed — flagged, stock not removed. */}
+                    {r.inwardedAt && r.qcResult === 'FAILED' && (
+                      <div className="text-[10px] text-red-700 mt-0.5 font-semibold inline-flex items-center gap-1">
+                        <AlertTriangle size={10} /> QC failed (post-inward)
+                      </div>
+                    )}
+                    {/* Non-T&F material held until its master data is added. */}
+                    {r.masterDataPending && (
+                      <div className="text-[10px] text-amber-700 mt-0.5 font-semibold inline-flex items-center gap-1" title="A unit head or QC must add this material's master data before it can be inwarded.">
+                        <AlertTriangle size={10} /> On hold — master data pending
+                      </div>
+                    )}
                     {r.qcReportNo && <div className="text-[10px] text-gray-500 mt-0.5 font-mono" title="Inward Inspection No.">{r.qcReportNo}</div>}
                     {r.qtyAccepted != null && (
                       <div className="text-[10px] text-gray-500">Acc {fmtQty(r.qtyAccepted)}{r.qtyRejected ? ` · Rej ${fmtQty(r.qtyRejected)}` : ''}</div>
@@ -491,7 +515,7 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                     {r.qcReportRemark && (
                       <div className="text-[10px] text-gray-600 mt-0.5 line-clamp-2" title={r.qcReportRemark}>“{r.qcReportRemark}”</div>
                     )}
-                    {r.qcReviewer && <div className="text-[10px] text-gray-400 mt-0.5">by {r.qcReviewer.name}</div>}
+                    {r.qcReviewer && <div className="text-[10px] text-gray-400 mt-0.5">by {reviewerLabel(r.qcReviewer)}</div>}
                     {(r.status === 'QC_DONE' || r.status === 'INWARDED' || r.status === 'ON_HOLD') && r.qcResult && (
                       <button onClick={() => onViewReport(r)} className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-navy-600 hover:text-navy-800">
                         <FileSearch size={11} /> View report
@@ -516,6 +540,10 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                       <div className="flex flex-col gap-1 items-start">
                         {canWrite && r.status === 'DRAFT' && (
                           <>
+                            {/* Tools & Fixtures fast-path: straight to the unit, QC later. */}
+                            {r.isToolsAndFixtures && (
+                              <ActBtn tone="green" busy={busy} onClick={() => onInward(r)}><ArrowDownToLine size={11} /> Inward to unit (QC later)</ActBtn>
+                            )}
                             <ActBtn tone="amber" busy={busy} onClick={() => onRequestQc(r)}><FlaskConical size={11} /> Request QC</ActBtn>
                             <div className="flex gap-1">
                               <IconBtn title="Edit" onClick={() => onEdit(r)}><Pencil size={12} /></IconBtn>
@@ -529,21 +557,29 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                         {isQC && r.status === 'QC_IN_REVIEW' && (
                           <ActBtn tone="blue" busy={busy} onClick={() => onContinueReview(r)}><ClipboardCheck size={11} /> Continue</ActBtn>
                         )}
-                        {canWrite && r.status === 'QC_DONE' && r.qcResult !== 'FAILED' && (
-                          <ActBtn tone="green" busy={busy} onClick={() => onInward(r)}><ArrowDownToLine size={11} /> Inward</ActBtn>
+                        {canWrite && r.status === 'QC_DONE' && r.qcResult !== 'FAILED' && !r.inwardedAt && (
+                          r.masterDataPending
+                            ? <Pill tone="amber">Master data pending</Pill>
+                            : <ActBtn tone="green" busy={busy} onClick={() => onInward(r)}><ArrowDownToLine size={11} /> Inward</ActBtn>
                         )}
                         {canWrite && r.status === 'ON_HOLD' && (
                           <ActBtn tone="amber" busy={busy} onClick={() => onResend(r)}><Send size={11} /> Resend to QC</ActBtn>
                         )}
                         {r.status === 'QC_DONE' && r.qcResult === 'FAILED' && (
                           <>
-                            <Pill tone="red">Rejected</Pill>
+                            {!r.inwardedAt && <Pill tone="red">Rejected</Pill>}
                             {canWrite && (
                               <ActBtn tone="amber" busy={busy} onClick={() => onResend(r)}><Send size={11} /> Re-inspect</ActBtn>
                             )}
                           </>
                         )}
-                        {r.status === 'INWARDED' && <span className="inline-flex items-center gap-1 text-[10px] text-green-700 font-semibold"><CheckCircle2 size={12} /> Done</span>}
+                        {/* Deferred T&F: inwarded to the unit, QC still to be done. */}
+                        {canWrite && r.status === 'INWARDED' && r.qcPending && (
+                          <ActBtn tone="amber" busy={busy} onClick={() => onRequestQc(r)}><FlaskConical size={11} /> Request QC</ActBtn>
+                        )}
+                        {r.inwardedAt && !r.qcPending && r.qcResult !== 'FAILED' && (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-green-700 font-semibold"><CheckCircle2 size={12} /> Done</span>
+                        )}
                       </div>
                     </Td>
                   )}
@@ -1506,6 +1542,12 @@ function InwardConfirmModal({ row, onClose, onDone }) {
             </div>
           )}
           {!row.product && <p className="text-[11px] text-amber-600">No linked product — this will mark the row inwarded without a stock movement.</p>}
+          {row.isToolsAndFixtures && !row.qcResult && (
+            <p className="text-[11px] bg-amber-50 border border-amber-200 text-amber-800 rounded p-2">
+              <strong>Tools &amp; Fixtures fast-path:</strong> this goes straight to the unit without QC or a
+              master-data check. QC can be done later on the inwarded lot.
+            </p>
+          )}
         </div>
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -1569,7 +1611,7 @@ function ReportViewModal({ row, onClose }) {
             <p className="text-sm font-semibold text-navy-800">{row.qcReportNo || row.mirNo}</p>
             <p className="text-[11px] text-gray-500">
               Result: <span className={`font-semibold ${row.qcResult === 'FAILED' ? 'text-rose-600' : row.qcResult === 'PARTIAL' ? 'text-amber-600' : 'text-emerald-600'}`}>{row.qcResult || '—'}</span>
-              {row.qcReviewer ? ` · by ${row.qcReviewer.name}` : ''}{row.qcFinishedAt ? ` · ${formatDate(row.qcFinishedAt)}` : ''}
+              {row.qcReviewer ? ` · by ${reviewerLabel(row.qcReviewer)}` : ''}{row.qcFinishedAt ? ` · ${formatDate(row.qcFinishedAt)}` : ''}
             </p>
           </div>
           <DownloadPdfButton

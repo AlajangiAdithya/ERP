@@ -7,7 +7,7 @@ import {
   FileText, Receipt, ShieldAlert, Upload, AlertTriangle, Timer, Trash2, Check,
   GitBranch, ArrowRight, ArrowDown, Download, Paperclip, BellRing,
   Banknote, Wallet, FilePlus2, FileCheck2, UserCheck, Truck, RefreshCw,
-  Filter, X, Hash, ArrowUpDown, SlidersHorizontal,
+  Filter, X, Hash, ArrowUpDown, SlidersHorizontal, Pencil,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -1387,6 +1387,301 @@ function Section({ title, children }) {
 }
 
 // ────────────────────────────────────────────────────────────────────
+// Edit work order details — the WORK ORDER form fields (scope / specs / dates /
+// customer) are rarely fully known when Supply Chain releases the order, so they
+// stay editable afterwards. Supply Chain / Admin / Planning and the assigned
+// unit's head may all fill in / correct them. Every change is recorded (see the
+// Edit History tab) — who, when, and exactly what moved.
+// BG / Insurance (own history tab), Remarks (own tab) and the closure/finance
+// cycle are intentionally NOT edited here.
+// ────────────────────────────────────────────────────────────────────
+const toDateInput = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+
+function EditWorkOrderModal({ wo, units, currentUser, onClose, onSaved }) {
+  const role = currentUser?.role;
+  const isManager = role === 'MANAGER';
+  // Unit reassignment + material-line edits are owned by SC / Admin / Planning;
+  // the unit head fills scope details only. Items also lock once a lot is sent.
+  const canEditUnit = !isManager;
+  const noLotsSent = (wo.closures?.length || 0) === 0;
+  const canEditItems = !isManager && noLotsSent;
+
+  const [form, setForm] = useState({
+    supplyOrderNo: wo.supplyOrderNo || '',
+    supplyOrderDate: toDateInput(wo.supplyOrderDate),
+    ionNumber: wo.ionNumber || '',
+    supplyOrderDescription: wo.supplyOrderDescription || '',
+    nomenclature: wo.nomenclature || '',
+    customerName: wo.customerName || '',
+    customerContact: wo.customerContact || '',
+    pdcDate: toDateInput(wo.pdcDate),
+    pdcChangeReason: '',
+    lotsExpected: wo.lotsExpected ?? '',
+    deliveryClause: wo.deliveryClause || '',
+    fimDetails: wo.fimDetails || '',
+    inspectionAgency: wo.inspectionAgency || '',
+    qapNo: wo.qapNo || '',
+    drawingsDetails: wo.drawingsDetails || '',
+    processDrawingsDetails: wo.processDrawingsDetails || '',
+    toolingScope: wo.toolingScope || '',
+    packingDetails: wo.packingDetails || '',
+    transportationDetails: wo.transportationDetails || '',
+    majorWorksAtSite: wo.majorWorksAtSite || '',
+    projectCoordinator: wo.projectCoordinator || '',
+    orderTermsAndScope: wo.orderTermsAndScope || '',
+    otherInformation: wo.otherInformation || '',
+    assignedUnitId: wo.assignedUnit?.id || wo.assignedUnitId || '',
+  });
+  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const [items, setItems] = useState(
+    (wo.items || []).length
+      ? wo.items.map((it) => ({ description: it.description || '', quantity: String(it.quantity ?? ''), uom: it.uom || 'Nos.' }))
+      : [{ description: '', quantity: '', uom: 'Nos.' }],
+  );
+  const setItem = (i, k, v) => setItems((rows) => rows.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
+  const addItem = () => setItems((rows) => [...rows, { description: '', quantity: '', uom: 'Nos.' }]);
+  const removeItem = (i) => setItems((rows) => (rows.length > 1 ? rows.filter((_, idx) => idx !== i) : rows));
+
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  // A PDC move triggers a logged WorkOrderPdcChange — surface an optional reason.
+  const pdcMoved = toDateInput(wo.pdcDate) !== form.pdcDate;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    try {
+      const payload = {
+        supplyOrderNo: form.supplyOrderNo,
+        supplyOrderDate: form.supplyOrderDate || undefined,
+        ionNumber: form.ionNumber,
+        supplyOrderDescription: form.supplyOrderDescription,
+        nomenclature: form.nomenclature,
+        customerName: form.customerName,
+        customerContact: form.customerContact,
+        pdcDate: form.pdcDate || undefined,
+        deliveryClause: form.deliveryClause,
+        fimDetails: form.fimDetails,
+        inspectionAgency: form.inspectionAgency,
+        qapNo: form.qapNo,
+        drawingsDetails: form.drawingsDetails,
+        processDrawingsDetails: form.processDrawingsDetails,
+        toolingScope: form.toolingScope,
+        packingDetails: form.packingDetails,
+        transportationDetails: form.transportationDetails,
+        majorWorksAtSite: form.majorWorksAtSite,
+        projectCoordinator: form.projectCoordinator,
+        orderTermsAndScope: form.orderTermsAndScope,
+        otherInformation: form.otherInformation,
+        lotsExpected: form.lotsExpected === '' ? null : Number(form.lotsExpected),
+      };
+      if (pdcMoved && form.pdcChangeReason.trim()) payload.pdcChangeReason = form.pdcChangeReason.trim();
+      if (canEditUnit) payload.assignedUnitId = form.assignedUnitId || null;
+      if (canEditItems) {
+        const clean = items
+          .map((r) => ({ description: r.description.trim(), quantity: Number(r.quantity), uom: (r.uom || '').trim() || 'Nos' }))
+          .filter((r) => r.description && Number.isFinite(r.quantity) && r.quantity > 0);
+        if (!clean.length) {
+          setError('Add at least one material with a description and quantity.');
+          setSubmitting(false);
+          return;
+        }
+        // Only send when the materials actually changed — avoids replacing rows
+        // (and logging a "Materials updated" entry) on every save.
+        const orig = (wo.items || []).map((it) => ({ description: it.description, quantity: Number(it.quantity), uom: it.uom }));
+        const next = clean.map((r) => ({ description: r.description, quantity: r.quantity, uom: r.uom }));
+        if (JSON.stringify(orig) !== JSON.stringify(next)) payload.items = clean;
+      }
+      await api.patch(`/work-orders/${wo.id}`, payload);
+      onSaved();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to save changes');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal isOpen onClose={onClose} title={`Edit Work Order ${wo.workOrderNumber}`} size="xl">
+      <form onSubmit={submit} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+        {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+        <div className="p-2.5 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
+          Fill in or correct any detail received after the order was released. Every change is recorded in the
+          <strong> Edit History</strong> tab — who changed it, when, and the exact old → new value.
+          {isManager && ' As the unit head you can edit scope / spec details; the order materials and unit assignment are managed by Supply Chain / Admin.'}
+        </div>
+
+        <Section title="External Supply Order">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Input label="Supply Order No *" value={form.supplyOrderNo} onChange={(e) => setField('supplyOrderNo', e.target.value)} required />
+            <Input label="Supply Order Date" type="date" value={form.supplyOrderDate} onChange={(e) => setField('supplyOrderDate', e.target.value)} />
+            <Input label="ION No (header)" value={form.ionNumber} onChange={(e) => setField('ionNumber', e.target.value)} />
+          </div>
+          <Textarea label="Supply Order Description" rows={2} value={form.supplyOrderDescription} onChange={(e) => setField('supplyOrderDescription', e.target.value)} />
+          <Input label="Nomenclature" value={form.nomenclature} onChange={(e) => setField('nomenclature', e.target.value)} />
+        </Section>
+
+        <Section title="Customer">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input label="Customer Name *" value={form.customerName} onChange={(e) => setField('customerName', e.target.value)} required />
+            <Input label="Customer Details (Contact)" value={form.customerContact} onChange={(e) => setField('customerContact', e.target.value)} />
+          </div>
+        </Section>
+
+        <Section title="Order & Delivery">
+          {canEditItems ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] uppercase tracking-wider font-semibold text-navy-500">Materials</p>
+                <Button type="button" variant="secondary" onClick={addItem}><Plus size={14} className="mr-1" /> Add Row</Button>
+              </div>
+              <div className="overflow-x-auto border border-navy-100 rounded-md">
+                <table className="w-full text-sm">
+                  <thead className="bg-navy-50 text-navy-600">
+                    <tr>
+                      <th className="text-left px-2 py-1.5 w-10">S.No</th>
+                      <th className="text-left px-2 py-1.5">Description</th>
+                      <th className="text-left px-2 py-1.5 w-28">Quantity</th>
+                      <th className="text-left px-2 py-1.5 w-24">UOM</th>
+                      <th className="px-2 py-1.5 w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((row, i) => (
+                      <tr key={i} className="border-t border-navy-50">
+                        <td className="px-2 py-1 text-navy-500 text-center">{i + 1}</td>
+                        <td className="px-2 py-1"><Input value={row.description} onChange={(e) => setItem(i, 'description', e.target.value)} /></td>
+                        <td className="px-2 py-1"><Input type="number" step="any" min="0" value={row.quantity} onChange={(e) => setItem(i, 'quantity', e.target.value)} /></td>
+                        <td className="px-2 py-1">
+                          <Select value={row.uom} onChange={(e) => setItem(i, 'uom', e.target.value)}>
+                            <option value="">UOM…</option>
+                            {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                          </Select>
+                        </td>
+                        <td className="px-2 py-1 text-center">
+                          <button type="button" onClick={() => removeItem(i)} disabled={items.length === 1} className="text-navy-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed" title="Remove row"><Trash2 size={15} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-navy-500">
+              Materials: <span className="text-navy-800 font-medium">{fmtQty(wo.orderQuantity)} {wo.orderUnit}</span>
+              {' '}({(wo.items || []).length} line{(wo.items || []).length === 1 ? '' : 's'}) —{' '}
+              {isManager ? 'managed by Supply Chain / Admin.' : 'locked once a lot has been sent.'}
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Input label="PDC Date" type="date" value={form.pdcDate} onChange={(e) => setField('pdcDate', e.target.value)} />
+            <Input label="No. of Lots Expected" type="number" min="1" value={form.lotsExpected} onChange={(e) => setField('lotsExpected', e.target.value)} />
+            <Input label="Delivery Clause" value={form.deliveryClause} onChange={(e) => setField('deliveryClause', e.target.value)} />
+          </div>
+          {pdcMoved && (
+            <Input label="Reason for PDC change (optional)" value={form.pdcChangeReason} onChange={(e) => setField('pdcChangeReason', e.target.value)} placeholder="Why is the commitment date moving?" />
+          )}
+        </Section>
+
+        <Section title="Scope & Specs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Textarea label="FIM Details" rows={2} value={form.fimDetails} onChange={(e) => setField('fimDetails', e.target.value)} />
+            <Input label="Inspection Agency" value={form.inspectionAgency} onChange={(e) => setField('inspectionAgency', e.target.value)} />
+            <Input label="QAP No" value={form.qapNo} onChange={(e) => setField('qapNo', e.target.value)} />
+            <Input label="Drawings Details" value={form.drawingsDetails} onChange={(e) => setField('drawingsDetails', e.target.value)} />
+            <Input label="Process Drawings Details" value={form.processDrawingsDetails} onChange={(e) => setField('processDrawingsDetails', e.target.value)} />
+            <Input label="Tooling (RAPS / Customer scope)" value={form.toolingScope} onChange={(e) => setField('toolingScope', e.target.value)} />
+            <Input label="Packing Details" value={form.packingDetails} onChange={(e) => setField('packingDetails', e.target.value)} />
+            <Input label="Transportation Details" value={form.transportationDetails} onChange={(e) => setField('transportationDetails', e.target.value)} />
+            <Input label="Major works at site" value={form.majorWorksAtSite} onChange={(e) => setField('majorWorksAtSite', e.target.value)} />
+            <Input label="Project Co-Ordinator" value={form.projectCoordinator} onChange={(e) => setField('projectCoordinator', e.target.value)} />
+          </div>
+          <Textarea label="Order Terms & Conditions / Scope" rows={3} value={form.orderTermsAndScope} onChange={(e) => setField('orderTermsAndScope', e.target.value)} />
+          <Textarea label="Other Information" rows={2} value={form.otherInformation} onChange={(e) => setField('otherInformation', e.target.value)} />
+        </Section>
+
+        {canEditUnit && (
+          <Section title="Unit Assignment">
+            <Select label="Assigned Unit Manager" value={form.assignedUnitId} onChange={(e) => setField('assignedUnitId', e.target.value)}>
+              <option value="">Unassigned</option>
+              {units.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.code})</option>)}
+            </Select>
+          </Section>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2 border-t">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={submitting}>{submitting ? 'Saving...' : 'Save Changes'}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ─── Edit History tab — field-level audit of every core/scope edit ───
+// Who changed what, when, and the exact old → new value. Populated whenever
+// Supply Chain / Admin / Planning / the unit head saves the Edit Details form.
+// Mirrors the Product Detail edit-history view for a consistent feel.
+function WoEditHistoryTab({ wo }) {
+  const entries = wo.editHistory || [];
+  const fmtVal = (v) => {
+    if (v === null || v === undefined || v === '') return <span className="text-gray-400 italic">empty</span>;
+    return <span className="font-medium text-gray-800 break-words">{String(v)}</span>;
+  };
+
+  if (entries.length === 0) {
+    return (
+      <p className="text-sm text-navy-400 py-6 text-center">
+        No detail edits recorded yet. Any change to this work order's details — who made it, when, and exactly
+        what changed — will be listed here.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
+        Every edit to this work order's details is recorded below — who changed it, their role, when, and the exact
+        field-by-field change (old → new value).
+      </div>
+      {entries.map((h) => {
+        const changes = Array.isArray(h.changes) ? h.changes : [];
+        return (
+          <div key={h.id} className="border border-gray-200 rounded p-3 bg-white">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="text-sm flex items-center gap-1.5">
+                <Pencil size={13} className="text-navy-700 shrink-0" />
+                <span className="font-semibold text-navy-700">{h.changedByName || 'Unknown user'}</span>
+                {h.changedByRole && <span className="text-[11px] text-gray-500">({h.changedByRole.replace(/_/g, ' ')})</span>}
+              </div>
+              <span className="text-xs text-gray-500 shrink-0">{formatDateTime(h.createdAt)}</span>
+            </div>
+            {changes.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">No field details recorded.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {changes.map((c, i) => (
+                  <li key={i} className="text-xs text-gray-700 flex flex-wrap items-center gap-1.5">
+                    <span className="font-medium text-gray-600">{c.label || c.field}:</span>
+                    {fmtVal(c.from)}
+                    <ArrowRight size={12} className="text-gray-400 shrink-0" />
+                    {fmtVal(c.to)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
 // Detail / action modal
 // ────────────────────────────────────────────────────────────────────
 // Red blinking alert shown on the WO header when PDC is ≤ 90 days away.
@@ -1460,6 +1755,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [section, setSection] = useState('overview');
+  const [showEdit, setShowEdit] = useState(false);
 
   const fetchOne = () => {
     setLoading(true);
@@ -1483,15 +1779,24 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
   const isAdmin = role === 'ADMIN';
   const isSupplyChain = role === 'SUPPLY_CHAIN';
   const isAccounting = role === 'ACCOUNTING';
+  const isPlanning = role === 'PLANNING';
   const isUnitManager = role === 'MANAGER' && currentUser.unitId === wo.assignedUnitId;
   const canReassign = (isSupplyChain || isAdmin) && wo.status === 'ON_HOLD';
-  // Server now restricts: BG/Insurance/Extensions are SUPPLY_CHAIN + ADMIN only
-  // (accounts can no longer mutate BG/Insurance; PDC extensions also dropped MANAGER).
-  const canManageExtensions = isSupplyChain || isAdmin;
+  // PDC + PDC extensions: SUPPLY_CHAIN / ADMIN / PLANNING and the assigned unit's
+  // MANAGER (the "unit head") may change PDC at any time. Every change is kept in
+  // the PDC History (extensions carry grantedBy; base-date edits are logged too).
+  const canManageExtensions = isSupplyChain || isAdmin || isPlanning || isUnitManager;
+  // BG / Insurance stay SUPPLY_CHAIN + ADMIN only (accounts may view, not modify).
   const canEditDelivery = isSupplyChain || isAdmin || isAccounting;
   const canEditBgInsurance = isSupplyChain || isAdmin;
   // Anyone who can see the WO can edit remarks.
   const canEditRemarks = true;
+  // Core/scope details (FIM, inspection agency, QAP, drawings, tooling, packing,
+  // scope …) are filled in AFTER release — Supply Chain / Admin / Planning and the
+  // assigned unit's head may all edit them while the WO is live. Every change is
+  // logged to the Edit History tab. Mirror of the server PATCH guard.
+  const canEditDetails = (isSupplyChain || isAdmin || isPlanning || isUnitManager)
+    && !['CANCELLED', 'REJECTED'].includes(wo.status);
   const meta = STATUS_META[wo.status];
 
   const handleAction = async (fn) => {
@@ -1547,10 +1852,20 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
               <ShieldCheck size={11} /> PDC remark (unit): {wo.pdc3MonthMgrAckBy.name}
             </span>
           )}
+          {canEditDetails && (
+            <button
+              type="button"
+              onClick={() => setShowEdit(true)}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-navy-200 bg-white px-3 py-1.5 text-xs font-semibold text-navy-700 shadow-sm transition hover:bg-navy-50"
+              title="Edit work order details — fill in / correct scope info received after release. Every change is logged."
+            >
+              <Pencil size={14} /> Edit Details
+            </button>
+          )}
         </div>
 
         <div className="border-b flex gap-2 flex-wrap">
-          {['overview', 'bg-insurance', 'extensions', 'closures', 'delivery', 'remarks', 'requests', 'alarms'].map((s) => {
+          {['overview', 'bg-insurance', 'extensions', 'closures', 'delivery', 'remarks', 'edits', 'requests', 'alarms'].map((s) => {
             const activeAlarmCount = (wo.alarms || []).filter((a) => a.status === 'ACTIVE').length;
             const isAlarms = s === 'alarms';
             return (
@@ -1563,6 +1878,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
                   : s === 'closures' ? `Lots (${(wo.closures || []).length})`
                   : s === 'bg-insurance' ? 'BG / Insurance'
                   : s === 'remarks' ? 'Remarks & History'
+                  : s === 'edits' ? `Edit History (${(wo.editHistory || []).length})`
                   : s === 'requests' ? `PR / MIV (${(wo.purchaseRequests?.length || 0) + (wo.productRequests?.length || 0)})`
                   : s === 'alarms' ? (
                     <>Alarms {activeAlarmCount > 0 && (
@@ -1617,6 +1933,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
             onSave={(remarks) => handleAction(() => api.patch(`/work-orders/${wo.id}/remarks`, { remarks }))}
           />
         )}
+        {section === 'edits' && <WoEditHistoryTab wo={wo} />}
         {section === 'requests' && <RequestsTab wo={wo} />}
         {section === 'alarms' && (
           <AlarmsTab
@@ -1683,6 +2000,16 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
           <Button variant="secondary" onClick={onClose}>Close</Button>
         </div>
       </div>
+
+      {showEdit && (
+        <EditWorkOrderModal
+          wo={wo}
+          units={units}
+          currentUser={currentUser}
+          onClose={() => setShowEdit(false)}
+          onSaved={() => { setShowEdit(false); fetchOne(); onUpdated(); }}
+        />
+      )}
     </Modal>
   );
 }
@@ -1928,21 +2255,7 @@ function ExtensionsTab({ wo, canManage, busy, onAdd, onUpdate }) {
 
   return (
     <div className="space-y-3">
-      {wo.extensions.length === 0 ? (
-        <p className="text-sm text-navy-500">No extensions logged. Effective PDC = original PDC ({formatDate(wo.pdcDate)}).</p>
-      ) : (
-        <div className="space-y-2">
-          {wo.extensions.map((ext) => (
-            <ExtensionRow
-              key={ext.id}
-              ext={ext}
-              canManage={canManage}
-              busy={busy}
-              onUpdate={(payload) => onUpdate(ext.id, payload)}
-            />
-          ))}
-        </div>
-      )}
+      <PdcHistoryPanel wo={wo} canManage={canManage} busy={busy} onUpdate={onUpdate} />
 
       {canManage && (
         <form onSubmit={submit} className="border-t pt-3 space-y-2">
@@ -1963,7 +2276,82 @@ function ExtensionsTab({ wo, canManage, busy, onAdd, onUpdate }) {
   );
 }
 
-function ExtensionRow({ ext, canManage, busy, onUpdate }) {
+// Visible "PDC History" — every change to the PDC in one chronological list:
+// the original PDC, any direct edits of the base date (wo.pdcChanges), and every
+// PDC extension (wo.extensions). Each row shows who (name + role), when, the
+// date it moved from → to, and the reason. Extension rows stay editable (BG /
+// letter / PRC statuses) for those allowed to manage extensions.
+function PdcHistoryPanel({ wo, canManage, busy, onUpdate }) {
+  const events = [];
+  events.push({ key: 'orig', at: wo.createdAt, by: wo.createdBy, kind: 'original', to: wo.pdcDate });
+  (wo.pdcChanges || []).forEach((c) => events.push({
+    key: `edit-${c.id}`, at: c.changedAt, by: c.changedBy, kind: 'edit',
+    from: c.oldPdcDate, to: c.newPdcDate, reason: c.reason,
+  }));
+  (wo.extensions || []).forEach((ext) => events.push({
+    key: `ext-${ext.id}`, at: ext.grantedAt, by: ext.grantedBy, kind: 'extension', ext,
+    to: ext.newPdcDate, reason: ext.reason,
+  }));
+  events.sort((a, b) => new Date(a.at) - new Date(b.at));
+  // Walk in time order so each change shows the PDC it moved FROM.
+  let prev = null;
+  events.forEach((e) => {
+    if (e.from === undefined) e.from = prev;
+    if (e.to != null) prev = e.to;
+  });
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">
+        PDC Change History
+      </p>
+      <p className="text-xs text-navy-500">
+        Effective PDC: <strong className="text-navy-800">{formatDate(wo.effectivePdcDate)}</strong>
+        {wo.extensions.length ? ` · ${wo.extensions.length} extension${wo.extensions.length > 1 ? 's' : ''}` : ' · original (no changes)'}
+      </p>
+      <div className="space-y-2">
+        {events.map((e) => (e.kind === 'extension'
+          ? (
+            <ExtensionRow
+              key={e.key}
+              ext={e.ext}
+              from={e.from}
+              canManage={canManage}
+              busy={busy}
+              onUpdate={(payload) => onUpdate(e.ext.id, payload)}
+            />
+          )
+          : <PdcEventRow key={e.key} event={e} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const roleLabel = (u) => (u?.role ? ` (${u.role.replace(/_/g, ' ').toLowerCase()})` : '');
+
+// Non-extension PDC event: original PDC set, or a direct base-date edit.
+function PdcEventRow({ event }) {
+  const isOriginal = event.kind === 'original';
+  return (
+    <div className="p-3 bg-navy-50 rounded-md">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <span className="font-semibold text-navy-800">
+          {isOriginal ? 'Original PDC' : 'PDC edited'}
+        </span>
+        <span className="text-sm text-navy-600">
+          {!isOriginal && event.from ? `${formatDate(event.from)} → ` : ''}{formatDate(event.to)}
+        </span>
+      </div>
+      {event.reason && <p className="text-xs text-navy-600 mt-1">{event.reason}</p>}
+      <p className="text-xs text-navy-400 mt-1">
+        {isOriginal ? 'Set' : 'Changed'} by {event.by?.name || '—'}{roleLabel(event.by)} · {formatDate(event.at)}
+      </p>
+    </div>
+  );
+}
+
+function ExtensionRow({ ext, from, canManage, busy, onUpdate }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     requestLetterStatus: ext.requestLetterStatus || '',
@@ -1975,7 +2363,7 @@ function ExtensionRow({ ext, canManage, busy, onUpdate }) {
     <div className="p-3 bg-navy-50 rounded-md">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <span className="font-semibold text-navy-800">Extension #{ext.extensionNo}</span>
-        <span className="text-sm text-navy-600">New PDC: {formatDate(ext.newPdcDate)}</span>
+        <span className="text-sm text-navy-600">{from ? `${formatDate(from)} → ` : 'New PDC: '}{formatDate(ext.newPdcDate)}</span>
       </div>
       {ext.reason && <p className="text-xs text-navy-600 mt-1">{ext.reason}</p>}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-navy-600 mt-2">
@@ -1983,7 +2371,7 @@ function ExtensionRow({ ext, canManage, busy, onUpdate }) {
         <div><span className="text-navy-500">Req Letter:</span> {ext.requestLetterStatus || '—'}</div>
         <div><span className="text-navy-500">PRC:</span> {ext.prcStatus || '—'}</div>
       </div>
-      <p className="text-xs text-navy-400 mt-1">Granted {formatDate(ext.grantedAt)}</p>
+      <p className="text-xs text-navy-400 mt-1">Granted by {ext.grantedBy?.name || '—'}{roleLabel(ext.grantedBy)} · {formatDate(ext.grantedAt)}</p>
 
       {canManage && (
         editing ? (
@@ -2103,6 +2491,14 @@ function buildWoTimeline(wo, alarms) {
       ext.requestLetterStatus ? `Request letter: ${ext.requestLetterStatus}` : null,
       ext.prcStatus ? `PRC: ${ext.prcStatus}` : null,
     ) || null,
+  }));
+
+  // ── PDC base-date edits (direct corrections of the original commitment) ──
+  (wo.pdcChanges || []).forEach((c) => push(c.changedAt, {
+    color: 'amber', Icon: CalendarClock,
+    title: `PDC changed${c.oldPdcDate ? ` ${formatDate(c.oldPdcDate)} →` : ' →'} ${formatDate(c.newPdcDate)}`,
+    actor: nm(c.changedBy),
+    body: c.reason || null,
   }));
 
   // ── Bank Guarantee / Insurance history ──

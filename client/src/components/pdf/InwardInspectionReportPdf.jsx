@@ -7,6 +7,11 @@ import { Cell, IirTitleBlock, BORDER, RequestFormPage } from './InwardInspection
 // the complete two-page IIR document. `row` is the decorated register row.
 const fmtQty = (n) => (n == null || n === '' ? '' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 3 }));
 
+// Spell out the reviewer's role on the sign-off so the report records whether
+// full Quality Control or the inward-only Inward QC operator performed it.
+const QC_ROLE_LABELS = { QC: 'Quality Control', INWARD_QC: 'Inward QC', ADMIN: 'Admin' };
+const signerLabel = (u) => (u ? `${u.name || ''}${u.role ? ` (${QC_ROLE_LABELS[u.role] || u.role})` : ''}` : '');
+
 function Box({ checked }) {
   return (
     <View style={{ width: 9, height: 9, borderWidth: 1, borderColor: BORDER, alignItems: 'center', justifyContent: 'center' }}>
@@ -118,7 +123,7 @@ export function ReportPage({ row }) {
           <Text style={{ fontSize: 8 }}>{r.qcRequestedBy?.name || r.createdBy?.name || ''}</Text>
         </View>
         <View style={{ width: '50%', borderWidth: 1, borderTopWidth: 0, borderLeftWidth: 0, borderColor: BORDER, padding: 4, minHeight: 46 }}>
-          <Text style={{ fontSize: 8 }}>{r.qcReviewer?.name || ''}{r.qcResult ? `   ·   ${r.qcResult}` : ''}</Text>
+          <Text style={{ fontSize: 8 }}>{signerLabel(r.qcReviewer)}{r.qcResult ? `   ·   ${r.qcResult}` : ''}</Text>
         </View>
       </View>
       <View style={{ flexDirection: 'row' }}>

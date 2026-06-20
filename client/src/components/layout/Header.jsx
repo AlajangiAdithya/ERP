@@ -11,6 +11,7 @@ const ROLE_LABELS = {
   PURCHASE_OFFICER: 'Purchase Officer',
   ACCOUNTING: 'Accounting',
   QC: 'Quality Control',
+  INWARD_QC: 'Inward QC',
   LAB: 'Lab',
   METROLOGY: 'Metrology',
   NDT: 'NDT',

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowDown, ArrowUp, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine, FileText, GitBranch, Box, Paperclip, Upload, X } from 'lucide-react';
+import { ArrowLeft, ArrowDown, ArrowUp, ArrowRight, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine, FileText, GitBranch, Box, Paperclip, Upload, X, Pencil } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { isProductMasterEditor } from '../utils/roles';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -12,6 +13,11 @@ import { formatDate, formatDateTime } from '../utils/formatters';
 import MovementNotes from '../components/shared/MovementNotes';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import ProductStickerPdf from '../components/pdf/ProductStickerPdf';
+
+// Uploaded docs are served from the API origin (strip the trailing /api), same
+// as the Inward register page. Resolves to a relative path for same-origin.
+const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
+const fileUrl = (u) => (u && u.startsWith('http') ? u : `${API_ORIGIN}${u || ''}`);
 
 const formatCurrency = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
@@ -717,6 +723,25 @@ function FimTab({ product, user, onRefresh }) {
   );
 }
 
+// Every supporting document attached to a batch's inward — invoice, DC, test
+// report, COA, COC, 3rd-party clearance … New inward-register batches carry the
+// complete list in `insp.documents`; older QC-inspection batches expose only the
+// invoice + lot-report URLs, so fall back to those. Surfaced together so the
+// procurement chain is the single place to find every paper for a batch.
+function batchDocs(insp) {
+  if (!insp) return [];
+  const docs = Array.isArray(insp.documents) ? insp.documents : [];
+  if (docs.length) {
+    return docs
+      .filter((d) => d && d.url)
+      .map((d) => ({ label: d.label || d.name || 'Document', url: d.url }));
+  }
+  const out = [];
+  if (insp.invoiceFileUrl) out.push({ label: 'Invoice PDF', url: insp.invoiceFileUrl });
+  if (insp.lotReportFileUrl) out.push({ label: 'Lot report PDF', url: insp.lotReportFileUrl });
+  return out;
+}
+
 // ─── Procurement Chain / Stores Trace Tab ────────────────────────────────
 // For every PO-flow batch of this product, render the full origin chain:
 //   PR (raised by Unit Manager) → PO → Lot N (invoice/MRD) → Batch (inwarded qty)
@@ -837,20 +862,26 @@ function ProcurementChainTab({ product, isStores }) {
                         </Badge>
                       </div>
                     )}
-                    {insp.invoiceFileUrl && (
-                      <div className="mt-1">
-                        <a href={insp.invoiceFileUrl} target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-navy-700 hover:underline font-medium">
-                          <FileText size={12} /> View invoice PDF
-                        </a>
+                    {/* Tools & Fixtures fast-path: inwarded to the unit before QC. */}
+                    {!insp.result && insp.qcDeferred && (
+                      <div>
+                        <span className="text-gray-500">QC:</span>{' '}
+                        <Badge color="yellow">Pending (inwarded — T&amp;F)</Badge>
                       </div>
                     )}
-                    {insp.lotReportFileUrl && (
-                      <div className="mt-1">
-                        <a href={insp.lotReportFileUrl} target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-indigo-700 hover:underline font-medium">
-                          <FileText size={12} /> View lot report PDF
-                        </a>
+                    {batchDocs(insp).length > 0 && (
+                      <div className="mt-1.5 pt-1.5 border-t border-amber-200 space-y-1">
+                        <p className="text-[10px] uppercase tracking-wide text-amber-700 font-semibold">
+                          Documents ({batchDocs(insp).length})
+                        </p>
+                        {batchDocs(insp).map((d, i) => (
+                          <div key={i}>
+                            <a href={fileUrl(d.url)} target="_blank" rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-navy-700 hover:underline font-medium">
+                              <FileText size={12} /> {d.label}
+                            </a>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -903,20 +934,14 @@ function ProcurementChainTab({ product, isStores }) {
                         ))}
                       </div>
                     )}
-                    {(insp.invoiceFileUrl || insp.lotReportFileUrl) && (
+                    {batchDocs(insp).length > 0 && (
                       <div className="flex flex-wrap gap-2 pt-1">
-                        {insp.invoiceFileUrl && (
-                          <a href={insp.invoiceFileUrl} target="_blank" rel="noreferrer"
+                        {batchDocs(insp).map((d, i) => (
+                          <a key={i} href={fileUrl(d.url)} target="_blank" rel="noreferrer"
                             className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline font-medium">
-                            <FileText size={11} /> Invoice PDF
+                            <FileText size={11} /> {d.label}
                           </a>
-                        )}
-                        {insp.lotReportFileUrl && (
-                          <a href={insp.lotReportFileUrl} target="_blank" rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] text-indigo-700 hover:underline font-medium">
-                            <FileText size={11} /> Lot Report PDF
-                          </a>
-                        )}
+                        ))}
                       </div>
                     )}
                   </div>
@@ -998,6 +1023,71 @@ function ProcurementChainTab({ product, isStores }) {
   );
 }
 
+// ─── Edit History Tab ────────────────────────────────────────────────────
+// Field-level trail of every change made to this product's details (ID No.,
+// name, material type, specification, shelf life, storage temp, min level …).
+// Records who changed it, their role, when, and the exact old → new value of
+// each field. This is the single place the product edit history lives — kept on
+// the detail page so any edit (notably the Stores team's temporary rollout
+// access) is fully traceable.
+function EditHistoryTab({ product }) {
+  const entries = product.editHistory || [];
+
+  const fmtVal = (v) => {
+    if (v === null || v === undefined || v === '') return <span className="text-gray-400 italic">empty</span>;
+    return <span className="font-medium text-gray-800 break-words">{String(v)}</span>;
+  };
+
+  if (entries.length === 0) {
+    return (
+      <p className="text-sm text-gray-400 py-6 text-center">
+        No edits recorded yet. Any change to this product's details will be listed here —
+        who made it, when, and exactly what changed.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
+        Every edit to this product's details is recorded below — who changed it, their role, when,
+        and the exact field-by-field change (old → new value).
+      </div>
+      {entries.map((h) => {
+        const changes = Array.isArray(h.changes) ? h.changes : [];
+        return (
+          <div key={h.id} className="border border-gray-200 rounded p-3 bg-white">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="text-sm flex items-center gap-1.5">
+                <Pencil size={13} className="text-navy-700 shrink-0" />
+                <span className="font-semibold text-navy-700">{h.changedByName || 'Unknown user'}</span>
+                {h.changedByRole && (
+                  <span className="text-[11px] text-gray-500">({h.changedByRole.replace(/_/g, ' ')})</span>
+                )}
+              </div>
+              <span className="text-xs text-gray-500 shrink-0">{formatDateTime(h.createdAt)}</span>
+            </div>
+            {changes.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">No field details recorded.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {changes.map((c, i) => (
+                  <li key={i} className="text-xs text-gray-700 flex flex-wrap items-center gap-1.5">
+                    <span className="font-medium text-gray-600">{c.label || c.field}:</span>
+                    {fmtVal(c.from)}
+                    <ArrowRight size={12} className="text-gray-400 shrink-0" />
+                    {fmtVal(c.to)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Main ProductDetail page ─────────────────────────────────────────────
 export default function ProductDetail() {
   const { id } = useParams();
@@ -1041,7 +1131,9 @@ export default function ProductDetail() {
     setRequoteOpen(true);
   };
 
-  const canManageSpecs = user?.role === 'ADMIN' || user?.role === 'STORE_MANAGER';
+  // Spec library + MSDS are master data — owned by Unit 1–5 managers + QC (+ Admin),
+  // matching the server guard. Stores no longer edits these from the product page.
+  const canManageSpecs = isProductMasterEditor(user);
 
   const uploadSpec = async (file) => {
     if (!file) return;
@@ -1331,6 +1423,14 @@ export default function ProductDetail() {
               <FileInput size={14} className="inline mr-1.5" /> FIM / Gate Pass ({product.fimBatches.length})
             </button>
           )}
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+              activeTab === 'history' ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Pencil size={14} className="inline mr-1.5" /> Edit History ({(product.editHistory || []).length})
+          </button>
         </div>
 
         {activeTab === 'overview' && (
@@ -1480,6 +1580,8 @@ export default function ProductDetail() {
         )}
 
         {activeTab === 'fim' && <FimTab product={product} user={user} onRefresh={loadProduct} />}
+
+        {activeTab === 'history' && <EditHistoryTab product={product} />}
       </Card>
 
       <QuickRequoteModal

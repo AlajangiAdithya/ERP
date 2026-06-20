@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   ShoppingCart, Truck, ClipboardCheck, ClipboardList, ArrowLeftRight, ArrowRight,
   FileSearch, CreditCard, Building2, PackagePlus, Package, Sparkles, Boxes,
-  GitBranch, FileText, ArrowDown, Download, Paperclip,
+  GitBranch, FileText, ArrowDown, Download, Paperclip, Database,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -31,13 +31,24 @@ const MODULES = [
   {
     to: '/products',
     icon: Package,
-    title: 'Products',
-    description: 'Browse the product catalogue, current stock, and per-unit balances.',
+    title: 'Stock Details',
+    description: 'Current stock, batches, per-unit balances and FIM lifecycle across the catalogue.',
     roles: ALL_ROLES,
     gradient: 'from-sky-500 via-sky-600 to-cyan-600',
     glow: 'group-hover:shadow-sky-500/40',
     iconBg: 'bg-gradient-to-br from-sky-100 to-cyan-200 text-sky-700',
     ringColor: 'ring-sky-200/60',
+  },
+  {
+    to: '/master-data',
+    icon: Database,
+    title: 'Master Data',
+    description: 'Product master data (specifications + shelf life) and the Approved Supplier List.',
+    roles: ['ADMIN', 'MANAGER', 'QC', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS', 'SUPERADMIN'],
+    gradient: 'from-fuchsia-500 via-purple-600 to-violet-700',
+    glow: 'group-hover:shadow-purple-500/40',
+    iconBg: 'bg-gradient-to-br from-fuchsia-100 to-purple-200 text-purple-700',
+    ringColor: 'ring-purple-200/60',
   },
   {
     to: '/purchase-requests',
@@ -83,17 +94,6 @@ const MODULES = [
     glow: 'group-hover:shadow-teal-500/40',
     iconBg: 'bg-gradient-to-br from-teal-100 to-cyan-200 text-teal-700',
     ringColor: 'ring-teal-200/60',
-  },
-  {
-    to: '/suppliers',
-    icon: Building2,
-    title: 'Approved Suppliers',
-    description: 'Approved Supplier List, re-evaluation log, assessment forms and performance ratings.',
-    roles: ['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS'],
-    gradient: 'from-slate-500 via-slate-600 to-gray-700',
-    glow: 'group-hover:shadow-slate-500/40',
-    iconBg: 'bg-gradient-to-br from-slate-100 to-gray-200 text-slate-700',
-    ringColor: 'ring-slate-200/60',
   },
   {
     to: '/inward-entry',
