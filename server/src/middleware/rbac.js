@@ -61,21 +61,21 @@ const authorizeMinRole = (minRole) => {
   };
 };
 
-// Product master-data editors. The Master Data screen (product specs + shelf
-// life) is owned by the Unit 1–5 managers and QC (plus ADMIN/SUPERADMIN). A
-// MANAGER of any other unit (e.g. Unit 1A) is read-only. Stores/Purchase never
-// edit master data — they only consume product names. Unit codes are seeded as
-// '1','1A','2','3','4','5' (prisma/seed.js); req.user.unit.code is loaded by the
-// auth middleware.
+// Product master-data editors. Master data (product specs + shelf life) is owned
+// exclusively by the Unit 1–5 managers. A MANAGER of any other unit (e.g. Unit
+// 1A) is read-only, and QC/Stores/Purchase only consume product names — they
+// don't edit master data. ADMIN/SUPERADMIN keep an override for support. Unit
+// codes are seeded as '1','1A','2','3','4','5' (prisma/seed.js); req.user.unit.code
+// is loaded by the auth middleware.
 const PRODUCT_MASTER_UNIT_CODES = ['1', '2', '3', '4', '5'];
 
-// Is this user a permanent product master-data owner (Unit 1–5 manager / QC /
-// Admin / Superadmin)? Reused by the guard and the edit route to decide whether
+// Is this user a product master-data owner (Unit 1–5 manager, plus ADMIN/
+// SUPERADMIN override)? Reused by the guard and the edit route to decide whether
 // saving a product also finalises its master-data gate.
 const isProductMasterRole = (user) => {
   if (!user) return false;
   const { role } = user;
-  if (role === 'SUPERADMIN' || role === 'ADMIN' || role === 'QC') return true;
+  if (role === 'SUPERADMIN' || role === 'ADMIN') return true;
   return role === 'MANAGER' && PRODUCT_MASTER_UNIT_CODES.includes(user.unit?.code);
 };
 

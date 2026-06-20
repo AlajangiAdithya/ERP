@@ -22,8 +22,6 @@ import Suppliers from './pages/Suppliers';
 import PurchaseOrders from './pages/PurchaseOrders';
 import PaymentRequests from './pages/PaymentRequests';
 import Procurement from './pages/Procurement';
-import MasterData from './pages/MasterData';
-import ProductMasterData from './pages/ProductMasterData';
 import Monitoring from './pages/Monitoring';
 import GatePass from './pages/GatePass';
 import Vehicles from './pages/Vehicles';
@@ -197,15 +195,12 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER']}><QuotationManagement /></PrivateRoute>
               } />
 
-              {/* Master Data hub — Product Master Data (Unit 1–5 managers + QC own
-                  it) + Approved Supplier List. Stores/Purchase only consume product
-                  names elsewhere; they don't manage master data here. */}
-              <Route path="/master-data" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'QC', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS', 'SUPERADMIN']}><MasterData /></PrivateRoute>
-              } />
-              <Route path="/master-data/products" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'QC', 'SUPERADMIN']}><ProductMasterData /></PrivateRoute>
-              } />
+              {/* Product Master Data now lives inside Stock Details as the
+                  "Master Data" tab (owned by Unit 1–5 managers). The Approved
+                  Supplier List is a standalone, final register at /suppliers.
+                  Redirect the old hub paths so existing bookmarks still land. */}
+              <Route path="/master-data" element={<Navigate to="/products" replace />} />
+              <Route path="/master-data/products" element={<Navigate to="/products" replace />} />
 
               {/* Approved Supplier List register — client-spec viewers only:
                   admin, managers, purchase, stores, designs. */}

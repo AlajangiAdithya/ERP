@@ -1,14 +1,14 @@
-// Product master-data editors. The Master Data screen (product specs + shelf
-// life) is owned by the Unit 1–5 managers and QC (plus ADMIN/SUPERADMIN). A
-// MANAGER of any other unit (e.g. Unit 1A) is read-only. Stores/Purchase never
-// edit master data — they only consume product names. Mirrors the server guard
-// `authorizeProductMaster` in server/src/middleware/rbac.js.
+// Product master-data editors. Master data (product specs + shelf life) is owned
+// exclusively by the Unit 1–5 managers. A MANAGER of any other unit (e.g. Unit
+// 1A) is read-only; QC/Stores/Purchase only consume product names. ADMIN/
+// SUPERADMIN keep an override for support. Mirrors the server guard
+// `isProductMasterRole` / `authorizeProductMaster` in server/src/middleware/rbac.js.
 const PRODUCT_MASTER_UNIT_CODES = ['1', '2', '3', '4', '5'];
 
 export function isProductMasterEditor(user) {
   if (!user) return false;
   const { role } = user;
-  if (role === 'SUPERADMIN' || role === 'ADMIN' || role === 'QC') return true;
+  if (role === 'SUPERADMIN' || role === 'ADMIN') return true;
   return role === 'MANAGER' && PRODUCT_MASTER_UNIT_CODES.includes(user.unit?.code);
 }
 

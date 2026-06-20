@@ -13,7 +13,6 @@ const HUB_CHILDREN = [
     hubLabel: 'Procurement & Inventory',
     childPrefixes: [
       '/products',
-      '/master-data',
       '/purchase-requests',
       '/quotations',
       '/suppliers',

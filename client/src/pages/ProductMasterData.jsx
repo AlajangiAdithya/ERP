@@ -22,7 +22,10 @@ const blankForm = () => ({
   shelfLife: '', storageTemp: '',
 });
 
-export default function ProductMasterData() {
+// `embedded` renders this inside the Stock Details "Master Data" tab — it drops
+// the standalone PageHero (Stock Details already shows one) and exposes the Add
+// Product action in a compact bar instead.
+export default function ProductMasterData({ embedded = false }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const canEdit = isProductMasterEditor(user);
@@ -268,16 +271,27 @@ export default function ProductMasterData() {
   );
 
   return (
-    <div className="space-y-6">
-      <PageHero
-        title="Product Master Data"
-        subtitle="Define products with their specifications and shelf life. Stock and batches are managed separately under Stock Details."
-        eyebrow="Master Data"
-        icon={Package}
-        actions={canEdit ? (
-          <Button onClick={openCreate}><Plus size={16} /> Add Product</Button>
-        ) : null}
-      />
+    <div className={embedded ? 'space-y-4' : 'space-y-6'}>
+      {embedded ? (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <p className="text-sm text-gray-500">
+            Define products with their specifications and shelf life. Only Unit 1–5 managers can edit master data.
+          </p>
+          {canEdit && (
+            <Button onClick={openCreate}><Plus size={16} /> Add Product</Button>
+          )}
+        </div>
+      ) : (
+        <PageHero
+          title="Product Master Data"
+          subtitle="Define products with their specifications and shelf life. Stock and batches are managed separately under Stock Details."
+          eyebrow="Master Data"
+          icon={Package}
+          actions={canEdit ? (
+            <Button onClick={openCreate}><Plus size={16} /> Add Product</Button>
+          ) : null}
+        />
+      )}
 
       <Card>
         <div className="flex flex-col sm:flex-row gap-3 mb-4">

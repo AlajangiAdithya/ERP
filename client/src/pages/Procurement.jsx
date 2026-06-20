@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   ShoppingCart, Truck, ClipboardCheck, ClipboardList, ArrowLeftRight, ArrowRight,
   FileSearch, CreditCard, Building2, PackagePlus, Package, Sparkles, Boxes,
-  GitBranch, FileText, ArrowDown, Download, Paperclip, Database,
+  GitBranch, FileText, ArrowDown, Download, Paperclip,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -40,11 +40,11 @@ const MODULES = [
     ringColor: 'ring-sky-200/60',
   },
   {
-    to: '/master-data',
-    icon: Database,
-    title: 'Master Data',
-    description: 'Product master data (specifications + shelf life) and the Approved Supplier List.',
-    roles: ['ADMIN', 'MANAGER', 'QC', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS', 'SUPERADMIN'],
+    to: '/suppliers',
+    icon: Building2,
+    title: 'Approved Supplier List',
+    description: 'Approved Supplier List, re-evaluation log, assessment forms and performance ratings. Product master data now lives under Stock Details.',
+    roles: ['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS'],
     gradient: 'from-fuchsia-500 via-purple-600 to-violet-700',
     glow: 'group-hover:shadow-purple-500/40',
     iconBg: 'bg-gradient-to-br from-fuchsia-100 to-purple-200 text-purple-700',

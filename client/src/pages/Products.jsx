@@ -8,6 +8,7 @@ import {
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { canEditProductDetails, STORE_PRODUCT_EDIT_UNTIL } from '../utils/roles';
+import ProductMasterData from './ProductMasterData';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Table from '../components/ui/Table';
@@ -38,7 +39,10 @@ function returnCountdown(returnDate) {
 export default function Products() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [tab, setTab] = useState('raps'); // 'raps' | 'fim'
+  const [tab, setTab] = useState('raps'); // 'raps' | 'fim' | 'master'
+  // Master Data lives here as a tab beside FIM. Same viewers as the old
+  // standalone screen; editing is restricted to Unit 1–5 managers (+ Admin).
+  const canSeeMasterData = ['ADMIN', 'MANAGER', 'QC', 'SUPERADMIN'].includes(user?.role);
   const [products, setProducts] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -359,7 +363,7 @@ export default function Products() {
     <div className="space-y-6">
       <PageHero
         title="Stock Details"
-        subtitle="Current stock, batches, per-unit balances and FIM lifecycle. Specifications & shelf life live under Master Data."
+        subtitle="Current stock, batches, per-unit balances, FIM lifecycle and product master data — all in one place."
         eyebrow="Stock Details"
         icon={Package}
         actions={
@@ -399,6 +403,18 @@ export default function Products() {
         >
           FIM Status
         </button>
+        {canSeeMasterData && (
+          <button
+            onClick={() => setTab('master')}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === 'master'
+                ? 'border-navy-700 text-navy-700'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Master Data
+          </button>
+        )}
       </div>
 
       {tab === 'raps' ? (
@@ -441,8 +457,10 @@ export default function Products() {
             </>
           )}
         </Card>
-      ) : (
+      ) : tab === 'fim' ? (
         <FimStatusView user={user} onOpenProduct={(id) => navigate(`/products/${id}`)} />
+      ) : (
+        <ProductMasterData embedded />
       )}
 
       {/* Add Product(s) Modal — enter one or many items in one go */}
