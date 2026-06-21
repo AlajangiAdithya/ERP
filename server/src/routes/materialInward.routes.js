@@ -4,7 +4,7 @@ const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const {
   paginate, applyDateFilter, generateSequentialNumber, withDocRetry, OWNER_DEPTS, deptForRole,
-  formatDDMMYY, normalizeMaterialType,
+  formatDDMMYY, normalizeMaterialType, getFinancialYear,
 } = require('../utils/helpers');
 const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 
@@ -44,6 +44,117 @@ const requireInwardWrite = (req, res, next) => {
   if (req.user?.role === 'SUPERADMIN' || canInwardWrite(req.user)) return next();
   return res.status(403).json({ error: 'Insufficient permissions' });
 };
+
+// Who may EDIT an existing register row's fields (a lighter grant than creating /
+// QC-ing / inwarding). Stores + the Unit-5 manager may edit any row; any other
+// unit manager may edit only the rows bound for their own unit — so units can set
+// up / correct their own receipts during rollout without touching others'.
+const canEditInwardRow = (user, row) => {
+  if (!user || !row) return false;
+  if (user.role === 'SUPERADMIN' || canInwardWrite(user)) return true; // Stores + Unit-5
+  if (user.role === 'MANAGER' && user.unitId && row.issuedToUnitId === user.unitId) return true;
+  return false;
+};
+
+// ── Inline edit log ───────────────────────────────────────────────────
+// Which fields are tracked on the row's append-only edit history, and how their
+// before/after values read in the eye-icon popover.
+const INWARD_EDIT_FIELDS = {
+  vehicleDetails: 'Vehicle',
+  docType: 'Document type',
+  docNumber: 'Document number',
+  documentDate: 'Document date',
+  purpose: 'Purpose',
+  itemDescription: 'Item name',
+  uom: 'UOM',
+  materialType: 'Product type',
+  supplierName: 'Supplier',
+  manualPoNumber: 'PO number',
+  issuedToLabel: 'Assigned to',
+  qtyReceived: 'Qty received',
+  batchNo: 'Batch no.',
+  dateOfExpiry: 'Expiry date',
+  manufacturingDate: 'Mfg date',
+};
+const INWARD_DATE_FIELDS = new Set(['documentDate', 'dateOfExpiry', 'manufacturingDate']);
+const INWARD_DOC_LABELS = { INVOICE: 'Invoice', CASH_PURCHASE: 'Cash Purchase', DELIVERY_CHALLAN: 'Delivery Challan', GATE_PASS: 'Gate Pass' };
+const inwardEditVal = (field, v) => {
+  if (v === undefined || v === null || v === '') return '—';
+  if (field === 'docType') return INWARD_DOC_LABELS[v] || v;
+  if (INWARD_DATE_FIELDS.has(field)) { const d = new Date(v); return Number.isNaN(+d) ? String(v) : d.toLocaleDateString('en-GB'); }
+  return String(v);
+};
+// Compare a pending patch against the current row → the list of fields that
+// actually change, each with a human label and formatted from/to value.
+function diffInwardChanges(row, patch) {
+  const changes = [];
+  for (const [field, label] of Object.entries(INWARD_EDIT_FIELDS)) {
+    if (!(field in patch)) continue;
+    const before = row[field];
+    const after = patch[field];
+    const same = INWARD_DATE_FIELDS.has(field)
+      ? (+new Date(before || 0) === +new Date(after || 0))
+      : ((before ?? '') === (after ?? ''));
+    if (same) continue;
+    changes.push({ field, label, from: inwardEditVal(field, before), to: inwardEditVal(field, after) });
+  }
+  return changes;
+}
+
+// ── MIR numbering with back-dating ────────────────────────────────────
+// A new inward dated on the newest day in the register gets the plain next
+// sequential MIR number. A *back-dated* entry — one whose date falls behind a
+// later entry — instead slots a letter onto the last MIR number on-or-before that
+// day (10 → 10A, then 10B …). This keeps the register reading chronologically
+// without ever renumbering existing rows or disturbing the forward chain:
+// parseInt('10A') === 10, so the main max+1 counter is unaffected.
+const MIR_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+function nextMirSuffix(used) {
+  for (const a of MIR_LETTERS) if (!used.has(a)) return a;
+  for (const a of MIR_LETTERS) for (const b of MIR_LETTERS) if (!used.has(a + b)) return a + b;
+  return `Z${Date.now()}`; // pathological fallback (>700 same-day back-dates)
+}
+async function generateMirForDate(prisma, inwardDate) {
+  const date = inwardDate ? new Date(inwardDate) : new Date();
+  const prefix = `RAPS/MIR/${getFinancialYear(date)}/`;
+  const dayEnd = new Date(date);
+  dayEnd.setHours(23, 59, 59, 999);
+
+  // Anything dated strictly after this day? If not, this is the newest day →
+  // plain next number.
+  const laterCount = await prisma.materialInwardRegister.count({
+    where: { mirNo: { startsWith: prefix }, inwardDate: { gt: dayEnd } },
+  });
+  if (laterCount === 0) return generateSequentialNumber(prisma, 'MIR', date);
+
+  // Back-dated: base = the highest numeric MIR on-or-before this day (the last
+  // MIR of that day, or — for an empty day — the last MIR of the day before).
+  const priorRows = await prisma.materialInwardRegister.findMany({
+    where: { mirNo: { startsWith: prefix }, inwardDate: { lte: dayEnd } },
+    select: { mirNo: true },
+  });
+  if (!priorRows.length) return generateSequentialNumber(prisma, 'MIR', date); // before the FY's first entry
+  let base = 0;
+  for (const r of priorRows) {
+    const n = parseInt((r.mirNo || '').slice(prefix.length), 10);
+    if (!Number.isNaN(n) && n > base) base = n;
+  }
+  if (base < 1) return generateSequentialNumber(prisma, 'MIR', date);
+
+  // Pick the next free letter on that base (skip any already taken).
+  const baseStr = `${prefix}${base}`;
+  const sameBase = await prisma.materialInwardRegister.findMany({
+    where: { mirNo: { startsWith: baseStr } },
+    select: { mirNo: true },
+  });
+  const used = new Set();
+  const re = new RegExp(`^${base}([A-Z]+)$`);
+  for (const r of sameBase) {
+    const m = (r.mirNo || '').slice(prefix.length).match(re);
+    if (m) used.add(m[1]);
+  }
+  return `${baseStr}${nextMirSuffix(used)}`;
+}
 
 const USER_SELECT = { select: { id: true, name: true, role: true } };
 
@@ -403,7 +514,9 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     if (req.user.role === 'MANAGER' && !isUnit5(req.user)) where.issuedToUnitId = req.user.unitId;
 
     const [rows, total] = await Promise.all([
-      prisma.materialInwardRegister.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
+      // Chronological by receipt date so a back-dated entry (e.g. 10A) lands in
+      // its own day's group; newest day first, then most-recently recorded.
+      prisma.materialInwardRegister.findMany({ where, orderBy: [{ inwardDate: 'desc' }, { createdAt: 'desc' }], skip, take }),
       prisma.materialInwardRegister.count({ where }),
     ]);
 
@@ -590,7 +703,7 @@ router.post('/', authenticate, requireInwardWrite, async (req, res) => {
     }
 
     const row = await withDocRetry(async () => {
-      const mirNo = await generateSequentialNumber(prisma, 'MIR');
+      const mirNo = await generateMirForDate(prisma, data.inwardDate);
       return prisma.materialInwardRegister.create({ data: { ...data, mirNo } });
     });
 
@@ -637,7 +750,7 @@ router.post('/bulk', authenticate, requireInwardWrite, async (req, res) => {
       const { prNumbers, issuedToUnitId, issuedToDept, issuedToLabel, indenterId, indenterName, unitAllocations } = issuedToForItem(po, item);
       lot += 1;
       const row = await withDocRetry(async () => {
-        const mirNo = await generateSequentialNumber(prisma, 'MIR');
+        const mirNo = await generateMirForDate(prisma, header.inwardDate);
         return prisma.materialInwardRegister.create({
           data: {
             ...header,
@@ -721,7 +834,8 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
 
     // One MIR number shared across every item in this cash purchase. mirNo is not
     // unique, so there's no constraint to race on — generate it once and reuse it.
-    const mirNo = await generateSequentialNumber(prisma, 'MIR');
+    // Date-aware: a back-dated cash purchase gets a letter-suffixed MIR.
+    const mirNo = await generateMirForDate(prisma, header.inwardDate);
     const multi = items.length > 1;
 
     const created = [];
@@ -759,34 +873,56 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
 });
 
 // ── PATCH /api/material-inward/:id ────────────────────────────────────
-// Edit row fields before QC has been requested (DRAFT only).
-router.patch('/:id', authenticate, requireInwardWrite, async (req, res) => {
+// Edit row fields. Stores + the Unit-5 manager may edit any row; any other unit
+// manager may edit the rows bound for their own unit. The inward date is never
+// editable here (it's fixed at creation, and drives the MIR numbering). Metadata
+// (vehicle / document / PO no. / item name / assign-to / supplier / purpose) is
+// editable until the row is inwarded; the stock fields (qty / batch / expiry /
+// mfg) stay draft-only so a QC'd or in-flight lot can't be silently re-quantified.
+router.patch('/:id', authenticate, async (req, res) => {
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
-    if (row.status !== 'DRAFT') return res.status(400).json({ error: 'Only draft entries can be edited' });
+    if (!canEditInwardRow(req.user, row)) return res.status(403).json({ error: 'Insufficient permissions' });
+    if (row.status === 'INWARDED') return res.status(400).json({ error: 'Inwarded entries can no longer be edited' });
+    const isDraft = row.status === 'DRAFT';
 
     const b = req.body || {};
     const patch = {};
+    // ── Metadata — editable for any not-yet-inwarded row ──
     if (b.vehicleDetails !== undefined) patch.vehicleDetails = b.vehicleDetails?.trim() || null;
     if (b.docType && ['INVOICE', 'CASH_PURCHASE', 'DELIVERY_CHALLAN', 'GATE_PASS'].includes(b.docType)) patch.docType = b.docType;
     if (b.docNumber !== undefined) patch.docNumber = b.docNumber?.trim() || null;
     if (b.documentDate !== undefined) patch.documentDate = b.documentDate ? new Date(b.documentDate) : null;
-    if (b.qtyReceived !== undefined) patch.qtyReceived = b.qtyReceived === '' || b.qtyReceived == null ? null : Number(b.qtyReceived);
     if (b.purpose !== undefined) patch.purpose = b.purpose?.trim() || null;
-    if (b.batchNo !== undefined) patch.batchNo = b.batchNo?.trim() || null;
-    if (b.dateOfExpiry !== undefined) patch.dateOfExpiry = b.dateOfExpiry ? new Date(b.dateOfExpiry) : null;
-    if (b.manufacturingDate !== undefined) patch.manufacturingDate = b.manufacturingDate ? new Date(b.manufacturingDate) : null;
-    if (b.itemDescription !== undefined && !row.purchaseOrderId) patch.itemDescription = b.itemDescription?.trim() || row.itemDescription;
-    if (b.uom !== undefined && !row.purchaseOrderId) patch.uom = b.uom?.trim() || null;
-    if (b.materialType !== undefined && !row.purchaseOrderId) patch.materialType = b.materialType?.trim() || null;
-    if (b.productId !== undefined && !row.purchaseOrderId) patch.productId = b.productId || null;
-    // Manual PO number is editable only on non-system-PO rows (never on real POs).
-    if (b.manualPoNumber !== undefined && !row.purchaseOrderId) patch.manualPoNumber = b.manualPoNumber?.trim() || null;
-    // Reassignment is only meaningful for direct/cash rows (PO rows derive it
-    // from the PR). Re-resolve the unit/dept + label server-side.
-    if (!row.purchaseOrderId && (b.issuedToUnitId !== undefined || b.issuedToDept !== undefined)) {
-      await resolveDirectIssuedTo(patch, b);
+    // Item identity / source / assignment — only on non-system-PO rows (real PO
+    // rows derive these from the PR and stay locked).
+    if (!row.purchaseOrderId) {
+      if (b.itemDescription !== undefined) patch.itemDescription = b.itemDescription?.trim() || row.itemDescription;
+      if (b.uom !== undefined) patch.uom = b.uom?.trim() || null;
+      if (b.materialType !== undefined) patch.materialType = b.materialType?.trim() || null;
+      if (b.productId !== undefined) patch.productId = b.productId || null;
+      if (b.supplierName !== undefined) patch.supplierName = b.supplierName?.trim() || null;
+      if (b.manualPoNumber !== undefined) patch.manualPoNumber = b.manualPoNumber?.trim() || null;
+      // Re-resolve the unit/dept + label server-side from what was picked.
+      if (b.issuedToUnitId !== undefined || b.issuedToDept !== undefined) {
+        await resolveDirectIssuedTo(patch, b);
+      }
+    }
+    // ── Stock fields — draft-only ──
+    if (isDraft) {
+      if (b.qtyReceived !== undefined) patch.qtyReceived = b.qtyReceived === '' || b.qtyReceived == null ? null : Number(b.qtyReceived);
+      if (b.batchNo !== undefined) patch.batchNo = b.batchNo?.trim() || null;
+      if (b.dateOfExpiry !== undefined) patch.dateOfExpiry = b.dateOfExpiry ? new Date(b.dateOfExpiry) : null;
+      if (b.manufacturingDate !== undefined) patch.manufacturingDate = b.manufacturingDate ? new Date(b.manufacturingDate) : null;
+    }
+
+    // Append the change set (field, from → to, who, when) to the row's edit log.
+    const changes = diffInwardChanges(row, patch);
+    if (changes.length) {
+      const hist = Array.isArray(row.editHistory) ? [...row.editHistory] : [];
+      hist.push({ at: new Date().toISOString(), byId: req.user.id, byName: req.user.name, byRole: req.user.role, changes });
+      patch.editHistory = hist;
     }
 
     const updated = await prisma.materialInwardRegister.update({ where: { id: row.id }, data: patch });

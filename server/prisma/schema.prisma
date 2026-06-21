@@ -2791,6 +2791,11 @@ model MaterialInwardRegister {
   inwardedAt DateTime?
   batchId    String?
 
+  // Append-only edit log: every field edit records who changed what (field,
+  // from → to) and when. Surfaced inline via a small "edited" eye icon on the
+  // row. [{ at, byId, byName, byRole, changes: [{ field, label, from, to }] }]
+  editHistory Json?
+
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

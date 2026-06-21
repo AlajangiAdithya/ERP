@@ -220,6 +220,10 @@ function MaterialInwardRegister() {
   const role = user?.role;
   const canWrite = canInwardWrite(user);
   const isQC = QC_ROLES.includes(role);
+  // Editing existing rows is a lighter grant than full inward write: Stores + the
+  // Unit-5 manager (canWrite) plus any unit manager (who only sees / edits their
+  // own unit's rows — the server enforces the own-unit rule).
+  const canEdit = canWrite || role === 'MANAGER';
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -233,6 +237,7 @@ function MaterialInwardRegister() {
   const [docsFor, setDocsFor] = useState(null);        // row -> manage / view documents
   const [reportFor, setReportFor] = useState(null);    // row -> view filled IIR report
   const [resendFor, setResendFor] = useState(null);    // row -> resend held/failed lot to QC
+  const [historyFor, setHistoryFor] = useState(null);  // row -> view edit history
   const [busyId, setBusyId] = useState(null);
 
   const load = () => {
@@ -338,6 +343,7 @@ function MaterialInwardRegister() {
         <InwardSheet
           rows={filtered}
           canWrite={canWrite}
+          canEdit={canEdit}
           isQC={isQC}
           busyId={busyId}
           onRequestQc={setRequestFor}
@@ -349,6 +355,7 @@ function MaterialInwardRegister() {
           onDocs={setDocsFor}
           onViewReport={setReportFor}
           onResend={setResendFor}
+          onHistory={setHistoryFor}
         />
       )}
 
@@ -376,6 +383,9 @@ function MaterialInwardRegister() {
       {resendFor && (
         <ResendQcModal row={resendFor} onClose={() => setResendFor(null)} onDone={() => { setResendFor(null); load(); }} />
       )}
+      {historyFor && (
+        <EditHistoryModal row={historyFor} onClose={() => setHistoryFor(null)} />
+      )}
     </div>
   );
 }
@@ -383,7 +393,7 @@ function MaterialInwardRegister() {
 // ────────────────────────────────────────────────────────────────────
 // The Excel-style register sheet (horizontal scroll, sticky header + MIR col)
 // ────────────────────────────────────────────────────────────────────
-function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs, onViewReport, onResend }) {
+function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs, onViewReport, onResend, onHistory }) {
   return (
     <Card className="!p-0 overflow-hidden">
       <div className="overflow-x-auto">
@@ -405,7 +415,7 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
               <Th groupEnd>Issued To</Th>
               <Th>QC / Review</Th>
               <Th>MIV No.</Th>
-              {(canWrite || isQC) && <Th>Action</Th>}
+              {(canEdit || isQC) && <Th>Action</Th>}
             </tr>
           </thead>
           <tbody>
@@ -433,6 +443,13 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                         <span className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700" title="Re-inspection round">Re-insp {r.qcRound}</span>
                       )}
                     </div>
+                    {/* Subtle "edited" marker — click the eye to see what changed, when, by whom. */}
+                    {r.editHistory?.length > 0 && (
+                      <button onClick={() => onHistory(r)} title={`${r.editHistory.length} edit${r.editHistory.length > 1 ? 's' : ''} — view history`}
+                        className="mt-1 inline-flex items-center gap-1 text-[9px] text-gray-400 hover:text-navy-600">
+                        <Eye size={11} /> edited
+                      </button>
+                    )}
                   </Td>
                   <Td>{formatDate(r.inwardDate)}</Td>
                   <Td nowrap={false} className="max-w-[120px]">{r.vehicleDetails || <Dash />}</Td>
@@ -535,7 +552,7 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                     ) : <Dash />}
                   </Td>
                   {/* Action */}
-                  {(canWrite || isQC) && (
+                  {(canEdit || isQC) && (
                     <Td>
                       <div className="flex flex-col gap-1 items-start">
                         {canWrite && r.status === 'DRAFT' && (
@@ -545,10 +562,7 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                               <ActBtn tone="green" busy={busy} onClick={() => onInward(r)}><ArrowDownToLine size={11} /> Inward to unit (QC later)</ActBtn>
                             )}
                             <ActBtn tone="amber" busy={busy} onClick={() => onRequestQc(r)}><FlaskConical size={11} /> Request QC</ActBtn>
-                            <div className="flex gap-1">
-                              <IconBtn title="Edit" onClick={() => onEdit(r)}><Pencil size={12} /></IconBtn>
-                              <IconBtn title="Delete" danger onClick={() => onDelete(r)}><Trash2 size={12} /></IconBtn>
-                            </div>
+                            <IconBtn title="Delete" danger onClick={() => onDelete(r)}><Trash2 size={12} /></IconBtn>
                           </>
                         )}
                         {isQC && r.status === 'QC_REQUESTED' && (
@@ -579,6 +593,11 @@ function InwardSheet({ rows, canWrite, isQC, busyId, onRequestQc, onTakeReview, 
                         )}
                         {r.inwardedAt && !r.qcPending && r.qcResult !== 'FAILED' && (
                           <span className="inline-flex items-center gap-1 text-[10px] text-green-700 font-semibold"><CheckCircle2 size={12} /> Done</span>
+                        )}
+                        {/* Edit metadata (vehicle / document / PO no. / item name / assign-to).
+                            Available to Stores + unit managers on any not-yet-inwarded row. */}
+                        {canEdit && r.status !== 'INWARDED' && (
+                          <IconBtn title="Edit" onClick={() => onEdit(r)}><Pencil size={12} /></IconBtn>
                         )}
                       </div>
                     </Td>
@@ -653,6 +672,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [f, setF] = useState({
+    // Receipt date. Defaults to today; Stores can back-date a receipt that
+    // physically arrived earlier (the server then gives it a letter-suffixed MIR,
+    // e.g. 10A, in that day's sequence). Not editable once created.
+    inwardDate: editRow?.inwardDate ? String(editRow.inwardDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
     vehicleDetails: editRow?.vehicleDetails || '',
     docType: editRow?.docType || 'INVOICE',
     docNumber: editRow?.docNumber || '',
@@ -756,9 +779,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
         if (!it.qtyReceived || Number(it.qtyReceived) <= 0) return setError(`Enter the received quantity for ${it.itemDescription || 'each item'}.`);
       }
     }
-    // Form-level qty only applies when editing a single row (new entries are
-    // per-line for POs and per-item for cash).
-    if (isEdit && (!f.qtyReceived || Number(f.qtyReceived) <= 0)) {
+    // Form-level qty only applies when editing a DRAFT row (new entries are
+    // per-line for POs and per-item for cash; past-draft rows lock the qty).
+    if (isEdit && editRow.status === 'DRAFT' && (!f.qtyReceived || Number(f.qtyReceived) <= 0)) {
       return setError('Enter the received quantity.');
     }
     // Decode the assign-to picker into the unit / dept the server resolves.
@@ -774,18 +797,20 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           manufacturingDate: f.manufacturingDate || null,
           purpose: f.purpose,
           // Real (system) PO rows derive their item/assign-to from the PR — locked.
-          // Cash + manual-PO rows keep their free-text fields editable; a manual PO
-          // also lets the typed PO number be corrected.
+          // Cash + manual-PO rows keep their free-text fields editable; the PO
+          // number is free to set/clear (typing one turns a cash row into an
+          // existing-PO entry; clearing it makes it a cash purchase again).
           ...(editRow.purchaseOrderId ? {} : {
             itemDescription: f.itemDescription, uom: f.uom, materialType: f.materialType,
-            productId: editRow.productId || null, issuedToUnitId, issuedToDept,
-            ...(isManualPo ? { manualPoNumber: f.manualPoNumber.trim() } : {}),
+            supplierName: f.supplierName, productId: editRow.productId || null, issuedToUnitId, issuedToDept,
+            manualPoNumber: f.manualPoNumber.trim() || null,
           }),
         });
       } else if (perLine) {
         // One delivery → many lines → one MIR row each (server assigns lots).
         await api.post('/material-inward/bulk', {
           purchaseOrderId: poId,
+          inwardDate: f.inwardDate || null,
           vehicleDetails: f.vehicleDetails,
           docType: f.docType,
           docNumber: f.docNumber,
@@ -804,6 +829,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
         // all under a single shared MIR number (one register row per item). A
         // manual-PO entry also carries the typed PO number.
         await api.post('/material-inward/cash-bulk', {
+          inwardDate: f.inwardDate || null,
           vehicleDetails: f.vehicleDetails,
           // Pure cash entries default an invoice doc-type to Cash Purchase; a
           // manual PO keeps the chosen doc-type (usually an invoice / DC).
@@ -1034,26 +1060,45 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
             those per-line (PO) or per-item (cash) above. */}
         <FormBlock title="Receipt details">
           <div className="space-y-3">
+            {/* New entries pick the receipt date (defaults today; back-dating gives
+                a letter-suffixed MIR). The date is fixed once created — not shown on edit. */}
+            {!isEdit && (
+              <div className="space-y-1">
+                <Input label="Inward / receipt date *" type="date" value={f.inwardDate} onChange={(e) => set('inwardDate', e.target.value)} />
+                <p className="text-[11px] text-gray-400">Defaults to today. Pick an earlier date for material received before — it’ll get a letter-suffixed MIR (e.g. 10A) in that day’s sequence.</p>
+              </div>
+            )}
             <Input label="Vehicle details" value={f.vehicleDetails} onChange={(e) => set('vehicleDetails', e.target.value)} placeholder="e.g. AP 31 CD 1234" />
             <Select label="Document type" value={f.docType} onChange={(e) => set('docType', e.target.value)}>
               {DOC_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
             </Select>
             <Input label="Document number" value={f.docNumber} onChange={(e) => set('docNumber', e.target.value)} placeholder="Invoice / DC / GP no." />
             <Input label="Document date" type="date" value={f.documentDate} onChange={(e) => set('documentDate', e.target.value)} />
-            {isEdit && <Input label="Qty received *" type="number" min="0" step="any" value={f.qtyReceived} onChange={(e) => set('qtyReceived', e.target.value)} />}
-            {isEdit && <Input label="Batch number" value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />}
-            {isEdit && <Input label="Manufacturing date" type="date" value={f.manufacturingDate} onChange={(e) => set('manufacturingDate', e.target.value)} />}
-            {isEdit && <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />}
-            {isEdit && isManualPo && (
-              <Input label="Purchase Order number" value={f.manualPoNumber} onChange={(e) => set('manualPoNumber', e.target.value)} placeholder="Existing PO number" />
-            )}
+            {/* Item identity / PO ref / assignment — editable when the row isn't a
+                real (system) PO. Available on edit for any not-yet-inwarded row. */}
             {isEdit && isDirect && (
               <>
+                <div className="space-y-1">
+                  <Input label="PO number (existing PO, not in system)" value={f.manualPoNumber} onChange={(e) => set('manualPoNumber', e.target.value)} placeholder="Leave blank for a cash purchase" />
+                  <p className="text-[11px] text-gray-400">Type a PO number to log this as an existing PO (one not yet in the system). Leave it blank to keep it a cash purchase.</p>
+                </div>
+                <Input label="Item name" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="Material / item description" />
+                <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
                 <Select label="Product type" value={f.materialType || ''} onChange={(e) => set('materialType', e.target.value)}>
                   <option value="">Select type…</option>
                   {MATERIAL_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
                 </Select>
                 <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
+              </>
+            )}
+            {/* Stock fields stay editable only while the row is a draft — a QC'd or
+                in-flight lot can't be silently re-quantified. */}
+            {isEdit && editRow.status === 'DRAFT' && (
+              <>
+                <Input label="Qty received *" type="number" min="0" step="any" value={f.qtyReceived} onChange={(e) => set('qtyReceived', e.target.value)} />
+                <Input label="Batch number" value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />
+                <Input label="Manufacturing date" type="date" value={f.manufacturingDate} onChange={(e) => set('manufacturingDate', e.target.value)} />
+                <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />
               </>
             )}
             <Textarea label="Purpose" rows={2} value={f.purpose} onChange={(e) => set('purpose', e.target.value)} placeholder="What it is for (optional)" />
@@ -1187,6 +1232,41 @@ function ReadKV({ label, value, span = false }) {
     <div className={span ? 'col-span-2 sm:col-span-4' : ''}>
       <span className="text-gray-500">{label}:</span> <span className="font-medium text-navy-800">{value || '—'}</span>
     </div>
+  );
+}
+
+// ── Edit history — the append-only audit trail behind the row's "edited" eye
+// icon. Each entry: who, when, and every field change as from → to. Newest first.
+function EditHistoryModal({ row, onClose }) {
+  const hist = Array.isArray(row.editHistory) ? [...row.editHistory].reverse() : [];
+  return (
+    <Modal isOpen onClose={onClose} title={`Edit history — ${row.mirNo}`} size="md">
+      <div className="space-y-3">
+        {!hist.length ? (
+          <p className="text-sm text-gray-400">No edits recorded for this entry.</p>
+        ) : hist.map((h, i) => (
+          <div key={i} className="border border-gray-200 rounded-lg p-3">
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="font-semibold text-navy-700">{h.byName || 'Someone'}{h.byRole ? ` · ${h.byRole}` : ''}</span>
+              <span className="text-gray-400">{h.at ? new Date(h.at).toLocaleString('en-GB') : ''}</span>
+            </div>
+            <ul className="mt-1.5 space-y-1">
+              {(h.changes || []).map((c, k) => (
+                <li key={k} className="text-[12px]">
+                  <span className="font-medium text-navy-700">{c.label}:</span>{' '}
+                  <span className="text-rose-600 line-through">{c.from}</span>{' '}
+                  <span className="text-gray-400">→</span>{' '}
+                  <span className="text-emerald-700 font-medium">{c.to}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        <div className="flex justify-end pt-2 border-t">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
