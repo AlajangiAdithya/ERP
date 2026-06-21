@@ -680,6 +680,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     docType: editRow?.docType || 'INVOICE',
     docNumber: editRow?.docNumber || '',
     manualPoNumber: editRow?.manualPoNumber || '',
+    prNumbers: editRow?.prNumbers || '',
     documentDate: editRow?.documentDate ? String(editRow.documentDate).slice(0, 10) : '',
     itemDescription: editRow?.itemDescription || '',
     uom: editRow?.uom || '',
@@ -804,6 +805,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
             itemDescription: f.itemDescription, uom: f.uom, materialType: f.materialType,
             supplierName: f.supplierName, productId: editRow.productId || null, issuedToUnitId, issuedToDept,
             manualPoNumber: f.manualPoNumber.trim() || null,
+            prNumbers: f.prNumbers.trim() || null,
           }),
         });
       } else if (perLine) {
@@ -835,6 +837,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           // manual PO keeps the chosen doc-type (usually an invoice / DC).
           docType: isManualPo ? f.docType : (f.docType === 'INVOICE' ? 'CASH_PURCHASE' : f.docType),
           manualPoNumber: isManualPo ? f.manualPoNumber.trim() : null,
+          prNumbers: isManualPo ? (f.prNumbers.trim() || null) : null,
           docNumber: f.docNumber,
           documentDate: f.documentDate || null,
           purpose: f.purpose,
@@ -938,12 +941,17 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
             {isCashLike && (
               <div className="space-y-4 pt-1">
                 {isManualPo && (
-                  <div className="space-y-1">
-                    <Input label="Purchase Order number *" value={f.manualPoNumber}
-                      onChange={(e) => set('manualPoNumber', e.target.value)}
-                      placeholder="Type the existing PO number (e.g. RAPS/PO/…)" />
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <Input label="Purchase Order number *" value={f.manualPoNumber}
+                        onChange={(e) => set('manualPoNumber', e.target.value)}
+                        placeholder="Existing PO number (e.g. RAPS/PO/…)" />
+                      <Input label="PR number(s)" value={f.prNumbers}
+                        onChange={(e) => set('prNumbers', e.target.value)}
+                        placeholder="Existing PR number(s), if any" />
+                    </div>
                     <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1.5">
-                      For a PO that isn’t in the system yet. Type its number and record the received items below — the rest of the inward (QC, inward into stock) works exactly as a normal entry.
+                      For a PO that isn’t in the system yet. Type its PO (and PR) number and record the received items below — the rest of the inward (QC, inward into stock) works exactly as a normal entry.
                     </p>
                   </div>
                 )}
@@ -1079,7 +1087,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
             {isEdit && isDirect && (
               <>
                 <div className="space-y-1">
-                  <Input label="PO number (existing PO, not in system)" value={f.manualPoNumber} onChange={(e) => set('manualPoNumber', e.target.value)} placeholder="Leave blank for a cash purchase" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Input label="PO number (existing PO, not in system)" value={f.manualPoNumber} onChange={(e) => set('manualPoNumber', e.target.value)} placeholder="Leave blank for a cash purchase" />
+                    <Input label="PR number(s)" value={f.prNumbers} onChange={(e) => set('prNumbers', e.target.value)} placeholder="Existing PR number(s), if any" />
+                  </div>
                   <p className="text-[11px] text-gray-400">Type a PO number to log this as an existing PO (one not yet in the system). Leave it blank to keep it a cash purchase.</p>
                 </div>
                 <Input label="Item name" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="Material / item description" />

@@ -70,6 +70,7 @@ const INWARD_EDIT_FIELDS = {
   materialType: 'Product type',
   supplierName: 'Supplier',
   manualPoNumber: 'PO number',
+  prNumbers: 'PR number',
   issuedToLabel: 'Assigned to',
   qtyReceived: 'Qty received',
   batchNo: 'Batch no.',
@@ -846,6 +847,8 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
       documentDate: b.documentDate ? new Date(b.documentDate) : null,
       // Existing PO not yet in the system — typed by hand, shared across items.
       manualPoNumber: b.manualPoNumber?.trim() || null,
+      // Existing PR number(s), also typed by hand for a manual PO.
+      prNumbers: b.prNumbers?.trim() || null,
       supplierName: b.supplierName?.trim() || null,
       purpose: b.purpose?.trim() || null,
       issuedToUnitId: issuedTo.issuedToUnitId,
@@ -925,6 +928,7 @@ router.patch('/:id', authenticate, async (req, res) => {
       if (b.productId !== undefined) patch.productId = b.productId || null;
       if (b.supplierName !== undefined) patch.supplierName = b.supplierName?.trim() || null;
       if (b.manualPoNumber !== undefined) patch.manualPoNumber = b.manualPoNumber?.trim() || null;
+      if (b.prNumbers !== undefined) patch.prNumbers = b.prNumbers?.trim() || null;
       // Re-resolve the unit/dept + label server-side from what was picked.
       if (b.issuedToUnitId !== undefined || b.issuedToDept !== undefined) {
         await resolveDirectIssuedTo(patch, b);
