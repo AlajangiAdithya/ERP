@@ -450,6 +450,24 @@ async function buildIirAuto(row) {
   return out;
 }
 
+// Register display order: by MIR number — newest financial year first, highest
+// base number first, then suffix ascending so a back-dated 10A sits immediately
+// after 10 (…12, 11, 10, 10A, 10B, 9…). Cash sub-items (which share one MIR)
+// keep their lot order. Done in JS because a plain string sort would mis-order
+// the numeric part ("10" < "2").
+const mirParts = (mirNo) => {
+  const m = /\/(\d{2}-\d{2})\/(\d+)([A-Z]*)$/.exec(mirNo || '');
+  return m ? { fy: m[1], base: parseInt(m[2], 10), suffix: m[3] || '' } : { fy: '', base: 0, suffix: '' };
+};
+const compareMirForList = (a, b) => {
+  const ka = mirParts(a.mirNo);
+  const kb = mirParts(b.mirNo);
+  if (ka.fy !== kb.fy) return ka.fy < kb.fy ? 1 : -1;                  // newer FY first
+  if (ka.base !== kb.base) return kb.base - ka.base;                  // higher base first
+  if (ka.suffix !== kb.suffix) return ka.suffix < kb.suffix ? -1 : 1; // 10 before 10A
+  return (a.lotNo || 0) - (b.lotNo || 0);                             // cash sub-items in order
+};
+
 // ── GET /api/material-inward/active-pos ───────────────────────────────
 // Active POs the stores person can attach an inward row to. Each entry carries
 // just enough to auto-fill the register: supplier, PR no(s), items, issued-to.
@@ -514,8 +532,8 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     if (req.user.role === 'MANAGER' && !isUnit5(req.user)) where.issuedToUnitId = req.user.unitId;
 
     const [rows, total] = await Promise.all([
-      // Chronological by receipt date so a back-dated entry (e.g. 10A) lands in
-      // its own day's group; newest day first, then most-recently recorded.
+      // Fetch window: newest receipts first. Final display order is by MIR number
+      // (compareMirForList below) so a back-dated 10A lands right after 10.
       prisma.materialInwardRegister.findMany({ where, orderBy: [{ inwardDate: 'desc' }, { createdAt: 'desc' }], skip, take }),
       prisma.materialInwardRegister.count({ where }),
     ]);
@@ -623,6 +641,9 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       qcPending: !!(r.inwardedAt && !r.qcResult),
       isToolsAndFixtures: isToolsAndFixtures(r.productId ? productMap[r.productId] : null, r),
     }));
+
+    // Order by MIR number so a back-dated 10A lands right after 10.
+    decorated.sort(compareMirForList);
 
     res.json({ rows: decorated, total });
   } catch (err) {
