@@ -171,6 +171,11 @@ model Unit {
   name                       String                      @unique
   code                       String                      @unique
   isActive                   Boolean                     @default(true)
+  // OFFSITE units (ANSP, CPDC, Adibatla, ASL, RCI, IBRPTM …). Their MIVs follow a
+  // distinct path: ADMIN approval (with qty edit) → central store dispatches the
+  // material out on NON_RETURNABLE gate passes → the unit's MANAGER acks receipt.
+  // Normal (on-campus) units keep the existing draw-from-store-stock MIV flow.
+  isOffsite                  Boolean                     @default(false)
   createdAt                  DateTime                    @default(now())
   updatedAt                  DateTime                    @updatedAt
   users                      User[]
@@ -458,6 +463,10 @@ model RequestItem {
   purpose         String? // Purpose (Production fills)
   qtyIssued       Float? // Qty Issue (Store fills)
   materialBatchNo String? // Material Batch No. If any (Store fills)
+  // OFFSITE flow only: cumulative qty already dispatched out on gate passes
+  // (sum of this item's GatePassMivLink quantities). Never exceeds approvedQty.
+  dispatchedQty   Float          @default(0)
+  gatePassLinks   GatePassMivLink[]
 }
 
 enum RequestStatus {
@@ -1324,8 +1333,29 @@ model GatePassItem {
   // FIM batches created from this INWARD item
   fimBatches ProductBatch[] @relation("FimSourceItem")
 
+  // OFFSITE dispatch: which offsite-MIV line(s) this dispatched item fulfils.
+  mivLinks GatePassMivLink[]
+
   @@index([gatePassId])
   @@index([sourceInwardGatePassItemId])
+}
+
+// ──── OFFSITE MIV ↔ GATE PASS LINK ────
+// Many-to-many bridge between an offsite MIV line (RequestItem) and the gate-pass
+// line (GatePassItem) that dispatched part of it. One GP can carry several MIVs'
+// items; one MIV is fulfilled across several GPs (partial dispatch). `quantity` is
+// how much of the MIV line went out on this GP line.
+model GatePassMivLink {
+  id            String      @id @default(uuid())
+  gatePassItemId String
+  gatePassItem  GatePassItem @relation(fields: [gatePassItemId], references: [id], onDelete: Cascade)
+  requestItemId String
+  requestItem   RequestItem @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+  quantity      Float
+  createdAt     DateTime    @default(now())
+
+  @@index([gatePassItemId])
+  @@index([requestItemId])
 }
 
 enum GatePassType {

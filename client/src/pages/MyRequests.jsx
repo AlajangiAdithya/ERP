@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, ClipboardList } from 'lucide-react';
+import { Plus, X, ClipboardList, Truck, CheckCircle } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAutoRefresh } from '../context/NotificationContext';
@@ -34,6 +34,10 @@ export default function MyRequests() {
   // can be tied to the WO it's issued against ("" = No work order).
   const [workOrders, setWorkOrders] = useState([]);
   const [workOrderId, setWorkOrderId] = useState('');
+  // Offsite-only: gate passes the central store dispatched to this unit, awaiting
+  // (or already given) the manager's receipt acknowledgement.
+  const [offsiteGps, setOffsiteGps] = useState([]);
+  const [acking, setAcking] = useState(null);
   const refreshKey = useAutoRefresh();
 
   const fetchRequests = () => {
@@ -43,7 +47,30 @@ export default function MyRequests() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchRequests(); }, [fromDate, toDate, refreshKey]);
+  const fetchOffsiteGps = () => {
+    api.get('/requests/offsite/gatepasses')
+      .then(({ data }) => setOffsiteGps(data || []))
+      .catch(() => setOffsiteGps([]));
+  };
+
+  useEffect(() => { fetchRequests(); fetchOffsiteGps(); }, [fromDate, toDate, refreshKey]);
+
+  // Distinct MIV numbers carried on a gate pass (for the GP ↔ MIV mapping column).
+  const gpMivNumbers = (gp) => [...new Set((gp.items || []).flatMap(it =>
+    (it.mivLinks || []).map(l => l.requestItem?.request?.requestNumber).filter(Boolean)))];
+
+  const ackGatePass = async (gpId) => {
+    if (!confirm('Confirm your unit received the materials on this gate pass?')) return;
+    setAcking(gpId);
+    try {
+      await api.put(`/requests/offsite/gatepass/${gpId}/ack`);
+      fetchOffsiteGps();
+      fetchRequests();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to acknowledge');
+    }
+    setAcking(null);
+  };
 
   const loadWorkOrders = () => {
     api.get('/work-orders/assignable')
@@ -210,6 +237,60 @@ export default function MyRequests() {
           </div>
         )}
       </Card>
+
+      {/* Offsite: gate passes dispatched to this unit — acknowledge receipt */}
+      {offsiteGps.length > 0 && (
+        <Card>
+          <div className="flex items-center gap-2 mb-3">
+            <Truck size={18} className="text-navy-700" />
+            <h3 className="font-semibold text-navy-800">Incoming Material — Gate Passes</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">GP No.</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Against MIV(s)</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Vehicle</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Dispatched</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {offsiteGps.map((gp, i) => (
+                  <tr key={gp.id} className={`border-b border-gray-100 ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                    <td className="px-3 py-2 font-medium text-navy-700">{gp.passNumber}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600">{gpMivNumbers(gp).join(', ') || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">
+                      {(gp.items || []).map(it => `${it.description} ×${it.quantity}`).join('; ')}
+                    </td>
+                    <td className="px-3 py-2 text-gray-600">{gp.vehicleNo || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{gp.dispatchedAt ? formatDateTime(gp.dispatchedAt) : '—'}</td>
+                    <td className="px-3 py-2">
+                      <Badge color={gp.status === 'CLOSED' ? 'blue' : gp.status === 'IN_TRANSIT' ? 'orange' : 'gray'}>
+                        {gp.status === 'CLOSED' ? 'RECEIVED' : gp.status === 'IN_TRANSIT' ? 'IN TRANSIT' : gp.status === 'PENDING_LOGISTICS' ? 'PREPARING' : gp.status}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2">
+                      {gp.status === 'IN_TRANSIT' ? (
+                        <Button size="sm" onClick={() => ackGatePass(gp.id)} disabled={acking === gp.id}>
+                          <CheckCircle size={14} /> {acking === gp.id ? 'Saving…' : 'Acknowledge'}
+                        </Button>
+                      ) : gp.status === 'CLOSED' ? (
+                        <span className="text-xs text-gray-500">{gp.reachedDate ? formatDateTime(gp.reachedDate) : 'Received'}</span>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {/* Create Request Modal */}
       <Modal isOpen={showCreate} onClose={() => { setShowCreate(false); setEditingId(null); }} title={editingId ? 'Edit Product Request' : 'New Product Request'} size="lg">
@@ -379,6 +460,47 @@ export default function MyRequests() {
                 </tbody>
               </table>
             </div>
+
+            {showDetail.unit?.isOffsite && (
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Dispatch Tracking</h4>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Dispatched</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">On Gate Pass(es)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {showDetail.items?.map((item, i) => {
+                      const approved = item.approvedQty ?? item.quantity;
+                      return (
+                        <tr key={item.id} className={`border-b border-gray-100 ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'}`}>
+                          <td className="px-3 py-2 text-gray-700">{item.product?.name}</td>
+                          <td className="px-3 py-2 text-gray-600">{approved} {item.product?.unit}</td>
+                          <td className="px-3 py-2 text-gray-600">{item.dispatchedQty || 0} {item.product?.unit}</td>
+                          <td className="px-3 py-2 text-xs">
+                            {(item.gatePassLinks || []).length === 0 ? <span className="text-gray-400">—</span> : (
+                              <div className="space-y-0.5">
+                                {item.gatePassLinks.map(l => (
+                                  <div key={l.id} className="text-gray-600">
+                                    <span className="font-medium text-navy-700">{l.gatePassItem?.gatePass?.passNumber}</span>
+                                    <span className="text-gray-400"> ×{l.quantity} · </span>
+                                    <span>{l.gatePassItem?.gatePass?.status === 'CLOSED' ? 'received' : l.gatePassItem?.gatePass?.status === 'IN_TRANSIT' ? 'in transit' : 'preparing'}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <div className="flex justify-end gap-3 pt-2">
               <DownloadPdfButton

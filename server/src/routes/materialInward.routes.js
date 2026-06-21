@@ -23,35 +23,22 @@ const VIEW_ROLES = [
   'SAFETY', 'MANAGER', 'SUPPLY_CHAIN', 'ACCOUNTING', 'FINANCE',
 ];
 
-// The Unit-5 manager is granted the same inward-entry rights as Stores (create
-// rows, edit drafts, request/resend QC, inward into stock). Unit 5 may appear as
-// code '5', name 'Unit 5', or username 'unit 5' depending on which path created
-// the account — match any of them (mirrors the metrology / machinery registers).
-const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
-const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
-const isUnit5 = (user) => {
-  if (!user) return false;
-  const code = (user.unit?.code || '').toString().toUpperCase();
-  const name = (user.unit?.name || '').toString().trim().toLowerCase();
-  const username = (user.username || '').toString().trim().toLowerCase();
-  return EDIT_UNIT_CODES.includes(code)
-    || EDIT_UNIT_NAMES.includes(name)
-    || EDIT_UNIT_NAMES.includes(username);
-};
-// Inward-write = Stores roles OR the Unit-5 manager.
-const canInwardWrite = (user) => !!user && (WRITE_ROLES.includes(user.role) || isUnit5(user));
+// Inward-write = Stores roles only. Unit managers (including Unit 5) get just the
+// generic own-unit read/edit grant below — no Stores-like inward-entry access
+// (create rows, request/resend QC, inward into stock).
+const canInwardWrite = (user) => !!user && WRITE_ROLES.includes(user.role);
 const requireInwardWrite = (req, res, next) => {
   if (req.user?.role === 'SUPERADMIN' || canInwardWrite(req.user)) return next();
   return res.status(403).json({ error: 'Insufficient permissions' });
 };
 
 // Who may EDIT an existing register row's fields (a lighter grant than creating /
-// QC-ing / inwarding). Stores + the Unit-5 manager may edit any row; any other
-// unit manager may edit only the rows bound for their own unit — so units can set
-// up / correct their own receipts during rollout without touching others'.
+// QC-ing / inwarding). Stores may edit any row; any other unit manager may edit
+// only the rows bound for their own unit — so units can set up / correct their own
+// receipts during rollout without touching others'.
 const canEditInwardRow = (user, row) => {
   if (!user || !row) return false;
-  if (user.role === 'SUPERADMIN' || canInwardWrite(user)) return true; // Stores + Unit-5
+  if (user.role === 'SUPERADMIN' || canInwardWrite(user)) return true; // Stores
   if (user.role === 'MANAGER' && user.unitId && row.issuedToUnitId === user.unitId) return true;
   return false;
 };
@@ -534,9 +521,8 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const where = {};
     applyDateFilter(where, { fromDate, toDate }, 'inwardDate');
     if (status) where.status = status;
-    // Managers only see rows bound for their own unit — except the Unit-5
-    // manager, who runs inward entry and needs the full register like Stores.
-    if (req.user.role === 'MANAGER' && !isUnit5(req.user)) where.issuedToUnitId = req.user.unitId;
+    // Managers only see rows bound for their own unit.
+    if (req.user.role === 'MANAGER') where.issuedToUnitId = req.user.unitId;
 
     const [rows, total] = await Promise.all([
       // Fetch window: newest receipts first. Final display order is by MIR number
@@ -927,8 +913,8 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
 });
 
 // ── PATCH /api/material-inward/:id ────────────────────────────────────
-// Edit row fields. Stores + the Unit-5 manager may edit any row; any other unit
-// manager may edit the rows bound for their own unit. The inward date is never
+// Edit row fields. Stores may edit any row; any other unit manager may edit the
+// rows bound for their own unit. The inward date is never
 // editable here (it's fixed at creation, and drives the MIR numbering). Metadata
 // (vehicle / document / PO no. / item name / assign-to / supplier / purpose) is
 // editable until the row is inwarded; the stock fields (qty / batch / expiry /
@@ -1045,8 +1031,9 @@ const DOC_REQUIREMENTS = ['Test Report', 'COC', 'COA', '3rd Party / Customer Cle
 
 // ── GET /api/material-inward/:id/iir-auto ─────────────────────────────
 // The auto / locked Inward-Inspection-Request fields (rows 1–11) for the form.
-// Stores opens the request form → these come pre-filled and read-only.
-router.get('/:id/iir-auto', authenticate, requireInwardWrite, async (req, res) => {
+// Stores opens the request form → these come pre-filled and read-only. QC also
+// reads them to auto-fill the inspection report's "Qty as per PR" / "Qty ordered".
+router.get('/:id/iir-auto', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
   try {
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
@@ -1097,6 +1084,13 @@ router.post('/:id/request-qc', authenticate, requireInwardWrite, async (req, res
       // Documents QC must verify → pre-checks the report checklist.
       docsRequired,
     };
+    // Qty-as-per-PR (row 03) & qty-ordered (row 08): locked auto values for a
+    // system PO; Stores-entered for a manual / existing-PO entry (no system chain
+    // to derive them from).
+    if (!row.purchaseOrderId) {
+      if (rq.qtyAsPerPR !== undefined) qcRequest.qtyAsPerPR = str(rq.qtyAsPerPR);
+      if (rq.qtyOrdered !== undefined) qcRequest.qtyOrdered = str(rq.qtyOrdered);
+    }
 
     // Generate the ION No. once (kept across re-requests). withDocRetry handles
     // the unique-constraint race on ionNo.

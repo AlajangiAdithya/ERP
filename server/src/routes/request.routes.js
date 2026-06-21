@@ -23,6 +23,24 @@ const MANAGE_ROLES = [...REQUESTER_ROLES, 'PLANNING'];
 // department's reserved bucket and the unassigned pool.
 const UNIT_BOUND_ROLES = ['MANAGER', 'RND'];
 
+// Per-MIV-line reverse map: which gate pass(es) carried this offsite line out.
+// Attached to RequestItem.gatePassLinks on the read endpoints so the MIV view can
+// show GP no. ↔ MIV no. mapping, dispatch + arrival dates, and vehicle.
+const OFFSITE_GP_LINK_INCLUDE = {
+  gatePassItem: {
+    select: {
+      id: true,
+      gatePass: {
+        select: {
+          id: true, passNumber: true, status: true, dispatchedAt: true,
+          reachedDate: true, vehicleNo: true, driverName: true, siteName: true,
+          destinationUnitId: true,
+        },
+      },
+    },
+  },
+};
+
 const createRequestSchema = z.object({
   notes: z.string().optional(),
   remarks: z.string().optional(),
@@ -170,10 +188,13 @@ router.get('/', authenticate, async (req, res) => {
         where,
         include: {
           manager: { select: { id: true, name: true, username: true, role: true } },
-          unit: { select: { id: true, name: true, code: true } },
+          unit: { select: { id: true, name: true, code: true, isOffsite: true } },
           workOrder: { select: { id: true, workOrderNumber: true, supplyOrderNo: true } },
           items: {
-            include: { product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } } },
+            include: {
+              product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } },
+              gatePassLinks: { include: OFFSITE_GP_LINK_INCLUDE },
+            },
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -208,10 +229,13 @@ router.get('/:id', authenticate, async (req, res) => {
       where: { id: req.params.id },
       include: {
         manager: { select: { id: true, name: true, username: true, role: true, unit: { select: { name: true, code: true } } } },
-        unit: { select: { id: true, name: true, code: true } },
+        unit: { select: { id: true, name: true, code: true, isOffsite: true } },
         workOrder: { select: { id: true, workOrderNumber: true, supplyOrderNo: true } },
         items: {
-          include: { product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } } },
+          include: {
+            product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
+            gatePassLinks: { include: OFFSITE_GP_LINK_INCLUDE },
+          },
         },
       },
     });
@@ -243,6 +267,13 @@ router.post('/', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
     // link a WO assigned to their own unit.
     const woLink = await validateWorkOrderLink(prisma, data.workOrderId, req.user.unitId || null);
     if (!woLink.ok) return res.status(400).json({ error: woLink.error });
+
+    // Offsite units route to ADMIN for approval (with qty edit) instead of the
+    // store auto-issue path; everything else is unchanged.
+    const offsiteUnit = req.user.unitId
+      ? await prisma.unit.findUnique({ where: { id: req.user.unitId }, select: { isOffsite: true } })
+      : null;
+    const isOffsite = !!offsiteUnit?.isOffsite;
 
     const requestNumber = await generateSequentialNumber(prisma, 'MIV');
 
@@ -290,13 +321,15 @@ router.post('/', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
       },
     });
 
-    // Notify store managers
+    // Notify the next approver: ADMIN for offsite MIVs, store managers otherwise.
     await prisma.notification.create({
       data: {
         type: 'NEW_REQUEST',
-        title: `New Request: ${requestNumber}`,
-        message: `${req.user.name}${req.user.unit ? ` (${req.user.unit.name})` : ` (${req.user.role})`} has submitted a new product request with ${data.items.length} item(s).`,
-        targetRole: 'STORE_MANAGER',
+        title: `New ${isOffsite ? 'Offsite ' : ''}MIV: ${requestNumber}`,
+        message: isOffsite
+          ? `${req.user.name}${req.user.unit ? ` (${req.user.unit.name})` : ''} raised offsite MIV ${requestNumber} with ${data.items.length} item(s). Awaiting your approval.`
+          : `${req.user.name}${req.user.unit ? ` (${req.user.unit.name})` : ` (${req.user.role})`} has submitted a new product request with ${data.items.length} item(s).`,
+        targetRole: isOffsite ? 'ADMIN' : 'STORE_MANAGER',
         sentById: req.user.id,
       },
     });
@@ -416,11 +449,14 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
       include: {
         items: { include: { product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } } } },
         manager: { select: { id: true, name: true, role: true } },
-        unit: { select: { id: true, name: true, code: true } },
+        unit: { select: { id: true, name: true, code: true, isOffsite: true } },
       },
     });
 
     if (!request) return res.status(404).json({ error: 'Request not found' });
+    if (request.unit?.isOffsite) {
+      return res.status(400).json({ error: 'Offsite MIVs are approved by an admin and dispatched on a gate pass — this store-issue path does not apply.' });
+    }
     if (request.status !== 'PENDING') {
       return res.status(400).json({ error: 'Only pending requests can be approved' });
     }
@@ -572,11 +608,14 @@ router.put('/:id/issue-available', authenticate, authorize('STORE_MANAGER', 'ADM
       include: {
         items: { include: { product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } } } },
         manager: { select: { id: true, name: true, role: true } },
-        unit: { select: { id: true, name: true, code: true } },
+        unit: { select: { id: true, name: true, code: true, isOffsite: true } },
       },
     });
 
     if (!request) return res.status(404).json({ error: 'Request not found' });
+    if (request.unit?.isOffsite) {
+      return res.status(400).json({ error: 'Offsite MIVs are dispatched on gate passes — this store-issue path does not apply.' });
+    }
     if (request.status !== 'PARTIAL') {
       return res.status(400).json({ error: 'Only partially-issued MIVs can be topped up' });
     }
@@ -794,6 +833,9 @@ router.put('/:id/collect', authenticate, authorize(...MANAGE_ROLES), async (req,
     });
 
     if (!request) return res.status(404).json({ error: 'Request not found' });
+    if (request.unit?.isOffsite) {
+      return res.status(400).json({ error: 'Offsite MIVs are received by acknowledging the gate pass, not collected from the store.' });
+    }
     if (request.managerId !== req.user.id) {
       return res.status(403).json({ error: 'You can only collect your own requests' });
     }
@@ -1000,6 +1042,9 @@ router.put('/:id/kill-remaining', authenticate, authorize(...MANAGE_ROLES), asyn
     });
 
     if (!request) return res.status(404).json({ error: 'Request not found' });
+    if (request.unit?.isOffsite) {
+      return res.status(400).json({ error: 'Offsite MIVs close automatically once every gate pass is acknowledged.' });
+    }
     if (request.managerId !== req.user.id) {
       return res.status(403).json({ error: 'You can only modify your own requests' });
     }
@@ -1083,6 +1128,522 @@ router.put('/:id/cancel', authenticate, authorize(...MANAGE_ROLES), async (req, 
   } catch (error) {
     console.error('Cancel request error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// OFFSITE MIV DISPATCH  (units flagged Unit.isOffsite — ANSP, CPDC, Adibatla, …)
+// ────────────────────────────────────────────────────────────────────────────
+// Flow:  site MANAGER raises MIV → ADMIN approves (may edit qty) → central store
+// builds NON_RETURNABLE gate passes for selected lines/qty (one GP = one site,
+// may bundle several of that site's MIVs) → store/logistics attaches a vehicle &
+// dispatches → the site's MANAGER acks receipt, closing the GP. A MIV closes
+// (COLLECTED) only once every approved qty is dispatched AND every GP it rode on
+// has been acknowledged.
+// ════════════════════════════════════════════════════════════════════════════
+
+// FIFO draw for an offsite dispatch: pull `take` units from the oldest batches and
+// decrement Product.currentStock. Returns the picked batch-number string; the
+// caller logs the OUT stockMovement (GatePass reference) and bumps dispatchedQty.
+async function dispatchFifo(tx, productId, take) {
+  const batches = await tx.productBatch.findMany({
+    where: { productId, remaining: { gt: 0 } },
+    orderBy: { receivedDate: 'asc' },
+  });
+  let toFulfill = take;
+  const slices = [];
+  for (const batch of batches) {
+    if (toFulfill <= 0) break;
+    const slice = Math.min(batch.remaining, toFulfill);
+    await tx.productBatch.update({ where: { id: batch.id }, data: { remaining: batch.remaining - slice } });
+    slices.push({ batchNo: batch.batchNo, quantity: slice });
+    toFulfill -= slice;
+  }
+  return { batchNo: slices.map(s => s.batchNo).filter(Boolean).join(', ') || null, slices };
+}
+
+// Notify the active MANAGERs of a unit by user id (scoped — avoids paging every
+// manager org-wide). `extra` merges into each notification.
+async function notifyUnitManagers(unitId, extra) {
+  const managers = await prisma.user.findMany({
+    where: { role: 'MANAGER', unitId, isActive: true },
+    select: { id: true },
+  });
+  await Promise.all(managers.map((m) => prisma.notification.create({
+    data: { ...extra, targetUserId: m.id },
+  })));
+}
+
+// Recompute closure for one offsite MIV inside a txn. COLLECTED once every line is
+// fully dispatched AND every gate pass it rode on is CLOSED (acked). Otherwise it
+// stays PARTIAL (in-progress). Returns the resulting status.
+async function recomputeOffsiteMivStatus(tx, requestId) {
+  const request = await tx.productRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      items: { include: { gatePassLinks: { include: { gatePassItem: { select: { gatePass: { select: { status: true } } } } } } } },
+    },
+  });
+  if (!request) return null;
+  if (['REJECTED', 'CANCELLED'].includes(request.status)) return request.status;
+
+  const fullyDispatched = request.items.every((ri) => {
+    const approved = ri.approvedQty ?? ri.quantity;
+    return (ri.dispatchedQty || 0) >= approved - 0.001;
+  });
+  const allGpStatuses = request.items.flatMap((ri) => ri.gatePassLinks.map((l) => l.gatePassItem.gatePass.status));
+  const hasAnyGp = allGpStatuses.length > 0;
+  const allGpClosed = allGpStatuses.every((s) => s === 'CLOSED');
+
+  const done = fullyDispatched && hasAnyGp && allGpClosed;
+  const next = done ? 'COLLECTED' : 'PARTIAL';
+  await tx.productRequest.update({
+    where: { id: requestId },
+    data: { status: next, ...(done ? { collectedAt: new Date() } : {}) },
+  });
+  return next;
+}
+
+// PUT /api/requests/:id/admin-approve — ADMIN approves an offsite MIV and may edit
+// per-line quantities. Body: { items?: [{ id, approvedQty }], notes? }. Lines not
+// listed keep their requested qty. Moves the MIV to APPROVED (awaiting dispatch).
+router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, res) => {
+  try {
+    const request = await prisma.productRequest.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: { include: { product: { select: { id: true, name: true } } } },
+        manager: { select: { id: true, name: true, role: true } },
+        unit: { select: { id: true, name: true, code: true, isOffsite: true } },
+      },
+    });
+
+    if (!request) return res.status(404).json({ error: 'Request not found' });
+    if (!request.unit?.isOffsite) return res.status(400).json({ error: 'Admin approval applies to offsite MIVs only' });
+    if (request.status !== 'PENDING') return res.status(400).json({ error: 'Only pending MIVs can be approved' });
+
+    const overrides = Array.isArray(req.body?.items) ? req.body.items : [];
+    // Resolve approved qty per line: explicit override (>= 0) or the requested qty.
+    const approvedByItem = {};
+    for (const ri of request.items) {
+      const ov = overrides.find((o) => o.id === ri.id);
+      let qty = ri.quantity;
+      if (ov && ov.approvedQty !== undefined && ov.approvedQty !== null) {
+        qty = Number(ov.approvedQty);
+        if (!Number.isFinite(qty) || qty < 0) {
+          return res.status(400).json({ error: `Invalid approvedQty for item ${ri.id}` });
+        }
+      }
+      approvedByItem[ri.id] = qty;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const ri of request.items) {
+        await tx.requestItem.update({ where: { id: ri.id }, data: { approvedQty: approvedByItem[ri.id] } });
+      }
+      await tx.productRequest.update({
+        where: { id: request.id },
+        data: {
+          status: 'APPROVED',
+          clearedById: req.user.id,
+          clearedAt: new Date(),
+          ...(req.body?.notes ? { clearanceNotes: String(req.body.notes) } : {}),
+        },
+      });
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'APPROVE',
+        entity: 'ProductRequest',
+        entityId: request.id,
+        details: {
+          requestNumber: request.requestNumber,
+          action: 'OFFSITE_ADMIN_APPROVED',
+          items: request.items.map((i) => ({ product: i.product?.name, requested: i.quantity, approved: approvedByItem[i.id] })),
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    // Stores can now dispatch; tell the requester it cleared.
+    await prisma.notification.create({
+      data: {
+        type: 'NEW_REQUEST',
+        title: `Offsite MIV ${request.requestNumber} approved`,
+        message: `${req.user.name} approved offsite MIV ${request.requestNumber} for ${request.unit?.name}. Ready for dispatch.`,
+        targetRole: 'STORE_MANAGER',
+        sentById: req.user.id,
+      },
+    });
+    await prisma.notification.create({
+      data: {
+        type: 'REQUEST_APPROVED',
+        title: `Offsite MIV ${request.requestNumber} approved`,
+        message: `Your offsite MIV ${request.requestNumber} was approved by ${req.user.name}. Stores will dispatch the material.`,
+        targetUserId: request.managerId,
+        sentById: req.user.id,
+      },
+    });
+
+    const updated = await prisma.productRequest.findUnique({
+      where: { id: request.id },
+      include: {
+        manager: { select: { id: true, name: true } },
+        unit: { select: { id: true, name: true, code: true, isOffsite: true } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+      },
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('Offsite admin-approve error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// GET /api/requests/offsite/queue — APPROVED/PARTIAL offsite MIVs that still have
+// qty left to dispatch. Powers the store's gate-pass builder. STORE_MANAGER/ADMIN.
+router.get('/offsite/queue', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const requests = await prisma.productRequest.findMany({
+      where: { unit: { isOffsite: true }, status: { in: ['APPROVED', 'PARTIAL'] } },
+      include: {
+        manager: { select: { id: true, name: true } },
+        unit: { select: { id: true, name: true, code: true } },
+        workOrder: { select: { id: true, workOrderNumber: true } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } } } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    // Keep only MIVs with at least one line still owing qty.
+    const open = requests.filter((r) => r.items.some((i) => ((i.approvedQty ?? i.quantity) - (i.dispatchedQty || 0)) > 0.001));
+    res.json(open);
+  } catch (error) {
+    console.error('Offsite queue error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/requests/offsite/gatepasses — dispatched-lot tracker. Each GP with its
+// items, MIV-no mapping, vehicle and ack status. MANAGERs see only their own
+// unit's; STORE_MANAGER/ADMIN/LOGISTICS see all.
+router.get('/offsite/gatepasses', authenticate, async (req, res) => {
+  try {
+    const where = { kind: 'OUTSIDE', destinationUnit: { isOffsite: true } };
+    // Scope unit-bound requesters (incl. site managers) to their own unit.
+    if (!['ADMIN', 'STORE_MANAGER', 'LOGISTICS'].includes(req.user.role)) {
+      if (!req.user.unitId) return res.json([]);
+      where.destinationUnitId = req.user.unitId;
+    }
+    const gatePasses = await prisma.gatePass.findMany({
+      where,
+      include: {
+        destinationUnit: { select: { id: true, name: true, code: true } },
+        assignedVehicle: { select: { id: true, regNumber: true } },
+        createdBy: { select: { id: true, name: true } },
+        items: {
+          include: {
+            mivLinks: {
+              include: { requestItem: { select: { id: true, request: { select: { id: true, requestNumber: true } } } } },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(gatePasses);
+  } catch (error) {
+    console.error('Offsite gatepasses error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/requests/offsite/gatepass — central store builds a NON_RETURNABLE gate
+// pass for selected offsite-MIV lines (one site only; may bundle several MIVs).
+// Body: { unitId, passNumber?, items: [{ requestItemId, quantity }] }. FIFO-draws
+// stock now; the GP then awaits a vehicle. STORE_MANAGER/ADMIN.
+router.post('/offsite/gatepass', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const { unitId, passNumber: rawPassNumber } = req.body || {};
+    const lines = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!unitId) return res.status(400).json({ error: 'unitId is required' });
+    if (lines.length === 0) return res.status(400).json({ error: 'Select at least one item to dispatch' });
+
+    const unit = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true, name: true, isOffsite: true } });
+    if (!unit) return res.status(404).json({ error: 'Unit not found' });
+    if (!unit.isOffsite) return res.status(400).json({ error: 'Gate-pass dispatch applies to offsite units only' });
+
+    // Load + validate every selected MIV line.
+    const resolved = [];
+    for (const ln of lines) {
+      const qty = Number(ln.quantity);
+      if (!ln.requestItemId || !Number.isFinite(qty) || qty <= 0) {
+        return res.status(400).json({ error: 'Each item needs a requestItemId and a positive quantity' });
+      }
+      const ri = await prisma.requestItem.findUnique({
+        where: { id: ln.requestItemId },
+        include: {
+          product: { select: { id: true, name: true, unit: true, currentStock: true } },
+          request: { select: { id: true, requestNumber: true, unitId: true, status: true, unit: { select: { isOffsite: true } } } },
+        },
+      });
+      if (!ri) return res.status(404).json({ error: `MIV line ${ln.requestItemId} not found` });
+      if (!ri.request.unit?.isOffsite || ri.request.unitId !== unitId) {
+        return res.status(400).json({ error: 'All selected lines must belong to the same offsite unit' });
+      }
+      if (!['APPROVED', 'PARTIAL'].includes(ri.request.status)) {
+        return res.status(400).json({ error: `MIV ${ri.request.requestNumber} is not approved for dispatch` });
+      }
+      const remaining = (ri.approvedQty ?? ri.quantity) - (ri.dispatchedQty || 0);
+      if (qty > remaining + 0.001) {
+        return res.status(400).json({ error: `${ri.product.name}: qty ${qty} exceeds remaining ${remaining} on MIV ${ri.request.requestNumber}` });
+      }
+      resolved.push({ ri, qty });
+    }
+
+    // Stock check (aggregate per product across the selected lines).
+    const neededByProduct = {};
+    for (const { ri, qty } of resolved) neededByProduct[ri.productId] = (neededByProduct[ri.productId] || 0) + qty;
+    for (const [productId, need] of Object.entries(neededByProduct)) {
+      const p = resolved.find((r) => r.ri.productId === productId).ri.product;
+      if ((p.currentStock || 0) < need - 0.001) {
+        return res.status(400).json({ error: `Insufficient stock for ${p.name}: need ${need}, have ${p.currentStock || 0}` });
+      }
+    }
+
+    const passNumber = (rawPassNumber || '').trim() || await generateSequentialNumber(prisma, 'GP');
+    const affectedRequestIds = [...new Set(resolved.map((r) => r.ri.request.id))];
+
+    const created = await prisma.$transaction(async (tx) => {
+      const gp = await tx.gatePass.create({
+        data: {
+          passNumber,
+          direction: 'OUTWARD',
+          kind: 'OUTSIDE',
+          passType: 'NON_RETURNABLE',
+          status: 'PENDING_LOGISTICS',
+          destinationUnitId: unit.id,
+          siteName: unit.name,
+          createdById: req.user.id,
+        },
+      });
+
+      for (const { ri, qty } of resolved) {
+        const { batchNo } = await dispatchFifo(tx, ri.productId, qty);
+        await tx.product.update({ where: { id: ri.productId }, data: { currentStock: { decrement: qty } } });
+
+        const gpItem = await tx.gatePassItem.create({
+          data: {
+            gatePassId: gp.id,
+            description: ri.product.name,
+            quantity: qty,
+            unit: ri.product.unit || 'pcs',
+            itemPassType: 'NON_RETURNABLE',
+            dispatchedTo: unit.name,
+            gatePassDetails: `MIV ${ri.request.requestNumber}${batchNo ? ` · Batch ${batchNo}` : ''}`,
+          },
+        });
+        await tx.gatePassMivLink.create({ data: { gatePassItemId: gpItem.id, requestItemId: ri.id, quantity: qty } });
+        await tx.requestItem.update({ where: { id: ri.id }, data: { dispatchedQty: { increment: qty } } });
+
+        await tx.stockMovement.create({
+          data: {
+            productId: ri.productId,
+            type: 'OUT',
+            quantity: qty,
+            referenceType: 'GatePass',
+            referenceId: gp.id,
+            batchNumber: batchNo,
+            notes: `Offsite dispatch GP ${passNumber} → ${unit.name} (MIV ${ri.request.requestNumber})`,
+            performedBy: req.user.id,
+            unitId: unit.id,
+          },
+        });
+      }
+
+      // Touched MIVs go to PARTIAL (in-progress) until fully dispatched + acked.
+      for (const rid of affectedRequestIds) await recomputeOffsiteMivStatus(tx, rid);
+      return gp;
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'CREATE',
+        entity: 'GatePass',
+        entityId: created.id,
+        details: {
+          passNumber, unit: unit.name, kind: 'OUTSIDE', passType: 'NON_RETURNABLE',
+          mivs: affectedRequestIds.length, lines: resolved.length,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    const gatePass = await prisma.gatePass.findUnique({
+      where: { id: created.id },
+      include: {
+        destinationUnit: { select: { id: true, name: true, code: true } },
+        items: { include: { mivLinks: { include: { requestItem: { select: { request: { select: { requestNumber: true } } } } } } } },
+      },
+    });
+    res.status(201).json(gatePass);
+  } catch (error) {
+    console.error('Offsite gatepass build error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// POST /api/requests/offsite/gatepass/:gpId/dispatch — attach a vehicle and send
+// the consignment. Body: { vehicleId?, driverId?, privateVehicle?{regNumber,
+// driverName, driverPhone} }. STORE_MANAGER, LOGISTICS or ADMIN.
+router.post('/offsite/gatepass/:gpId/dispatch', authenticate, authorize('STORE_MANAGER', 'LOGISTICS', 'ADMIN'), async (req, res) => {
+  try {
+    const { vehicleId, driverId, privateVehicle } = req.body || {};
+    const gp = await prisma.gatePass.findUnique({
+      where: { id: req.params.gpId },
+      include: { destinationUnit: { select: { id: true, name: true, isOffsite: true } } },
+    });
+    if (!gp) return res.status(404).json({ error: 'Gate pass not found' });
+    if (gp.kind !== 'OUTSIDE' || !gp.destinationUnit?.isOffsite) {
+      return res.status(400).json({ error: 'Not an offsite gate pass' });
+    }
+    if (gp.status !== 'PENDING_LOGISTICS') return res.status(400).json({ error: 'Gate pass is not awaiting dispatch' });
+    if (!vehicleId && !privateVehicle) return res.status(400).json({ error: 'A vehicle (registered or private) is required to dispatch' });
+
+    const data = { status: 'IN_TRANSIT', dispatchedAt: new Date(), logisticsById: req.user.id, logisticsAt: new Date() };
+
+    if (vehicleId) {
+      const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } });
+      if (!vehicle) return res.status(400).json({ error: 'Vehicle not found' });
+      if (vehicle.status !== 'ACTIVE') return res.status(400).json({ error: 'Vehicle is not ACTIVE' });
+      let driver = null;
+      if (driverId) {
+        driver = await prisma.driver.findUnique({ where: { id: driverId } });
+        if (!driver) return res.status(400).json({ error: 'Driver not found' });
+      }
+      Object.assign(data, {
+        assignedVehicleId: vehicle.id,
+        assignedDriverId: driver?.id || null,
+        privateVehicle: false,
+        vehicleNo: vehicle.regNumber,
+        driverName: driver?.name || vehicle.driverName,
+        driverPhone: driver?.phone || vehicle.driverPhone || null,
+      });
+    } else {
+      const regNumber = (privateVehicle.regNumber || '').trim();
+      const pvDriverName = (privateVehicle.driverName || '').trim();
+      if (!regNumber) return res.status(400).json({ error: 'Private vehicle number is required' });
+      if (!pvDriverName) return res.status(400).json({ error: 'Driver name is required for a private vehicle' });
+      Object.assign(data, {
+        assignedVehicleId: null,
+        assignedDriverId: null,
+        privateVehicle: true,
+        vehicleNo: regNumber.toUpperCase(),
+        driverName: pvDriverName,
+        driverPhone: (privateVehicle.driverPhone || '').trim() || null,
+      });
+    }
+
+    const updated = await prisma.gatePass.update({ where: { id: gp.id }, data });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'LOGISTICS_DISPATCH',
+        entity: 'GatePass',
+        entityId: gp.id,
+        details: { passNumber: gp.passNumber, unit: gp.destinationUnit?.name, vehicleNo: updated.vehicleNo },
+        ipAddress: req.ip,
+      },
+    });
+
+    await notifyUnitManagers(gp.destinationUnitId, {
+      type: 'GATE_PASS_STAGE',
+      title: `Materials dispatched: ${gp.passNumber}`,
+      message: `${req.user.name} dispatched gate pass ${gp.passNumber} to ${gp.destinationUnit?.name} on vehicle ${updated.vehicleNo || ''}. Acknowledge receipt when it arrives.`,
+      sentById: req.user.id,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Offsite dispatch error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// PUT /api/requests/offsite/gatepass/:gpId/ack — the destination site's MANAGER
+// acknowledges receipt. Closes the GP (non-returnable) and re-evaluates closure of
+// every MIV it carried. MANAGER (own unit only) or ADMIN.
+router.put('/offsite/gatepass/:gpId/ack', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const gp = await prisma.gatePass.findUnique({
+      where: { id: req.params.gpId },
+      include: {
+        destinationUnit: { select: { id: true, name: true, isOffsite: true } },
+        items: { include: { mivLinks: { include: { requestItem: { select: { requestId: true } } } } } },
+      },
+    });
+    if (!gp) return res.status(404).json({ error: 'Gate pass not found' });
+    if (gp.kind !== 'OUTSIDE' || !gp.destinationUnit?.isOffsite) return res.status(400).json({ error: 'Not an offsite gate pass' });
+    if (gp.status !== 'IN_TRANSIT') return res.status(400).json({ error: 'Gate pass is not in transit' });
+    if (req.user.role === 'MANAGER' && req.user.unitId !== gp.destinationUnitId) {
+      return res.status(403).json({ error: 'You can only acknowledge gate passes sent to your unit' });
+    }
+
+    const now = new Date();
+    const requestIds = [...new Set(gp.items.flatMap((it) => it.mivLinks.map((l) => l.requestItem.requestId)))];
+
+    await prisma.$transaction(async (tx) => {
+      await tx.gatePass.update({
+        where: { id: gp.id },
+        data: {
+          status: 'CLOSED',
+          reachedDate: now,
+          siteOfficeAckById: req.user.id,
+          siteOfficeAckAt: now,
+          collectedById: req.user.id,
+          collectedAt: now,
+          approvedById: req.user.id,
+          approvedAt: now,
+        },
+      });
+      for (const rid of requestIds) await recomputeOffsiteMivStatus(tx, rid);
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'COLLECT',
+        entity: 'GatePass',
+        entityId: gp.id,
+        details: { passNumber: gp.passNumber, action: 'OFFSITE_RECEIPT_ACK', unit: gp.destinationUnit?.name },
+        ipAddress: req.ip,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        type: 'GATE_PASS_APPROVED',
+        title: `Receipt confirmed: ${gp.passNumber}`,
+        message: `${req.user.name} confirmed ${gp.destinationUnit?.name} received gate pass ${gp.passNumber}.`,
+        targetRole: 'STORE_MANAGER',
+        sentById: req.user.id,
+      },
+    });
+
+    const updated = await prisma.gatePass.findUnique({
+      where: { id: gp.id },
+      include: {
+        destinationUnit: { select: { id: true, name: true, code: true } },
+        items: { include: { mivLinks: { include: { requestItem: { select: { request: { select: { requestNumber: true } } } } } } } },
+      },
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('Offsite ack error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 

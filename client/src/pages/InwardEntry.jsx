@@ -102,22 +102,9 @@ const QC_ROLES = ['ADMIN', 'QC', 'INWARD_QC'];
 const QC_ROLE_LABELS = { QC: 'Quality Control', INWARD_QC: 'Inward QC', ADMIN: 'Admin' };
 const reviewerLabel = (u) => (u ? `${u.name}${u.role ? ` (${QC_ROLE_LABELS[u.role] || u.role})` : ''}` : '');
 
-// The Unit-5 manager also runs inward entry. Mirror of the server's detection
-// (materialInward.routes.js) — Unit 5 may surface as a code, unit name, or
-// username depending on how the account was created.
-const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
-const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
-const isUnit5 = (user) => {
-  if (!user) return false;
-  const code = (user.unit?.code || '').toString().toUpperCase();
-  const name = (user.unit?.name || '').toString().trim().toLowerCase();
-  const username = (user.username || '').toString().trim().toLowerCase();
-  return EDIT_UNIT_CODES.includes(code)
-    || EDIT_UNIT_NAMES.includes(name)
-    || EDIT_UNIT_NAMES.includes(username);
-};
-// Inward-write = Stores roles OR the Unit-5 manager.
-const canInwardWrite = (user) => WRITE_ROLES.includes(user?.role) || isUnit5(user);
+// Inward-write = Stores roles only. Mirror of the server (materialInward.routes.js).
+// Unit managers get only the generic own-unit edit grant — no inward-entry access.
+const canInwardWrite = (user) => WRITE_ROLES.includes(user?.role);
 
 const DOC_TYPES = [
   { value: 'INVOICE', label: 'Invoice' },
@@ -177,8 +164,7 @@ const MAIN_TABS = [
 
 export default function InwardEntry() {
   const { user } = useAuth();
-  // FIM / customer-property intake stays Stores-only (the server rejects unit
-  // managers). The Unit-5 grant applies only to the Material Inward register.
+  // FIM / customer-property intake stays Stores-only (the server rejects unit managers).
   const canEditFim = WRITE_ROLES.includes(user?.role);
   const [mainTab, setMainTab] = useState('register');
 
@@ -220,9 +206,9 @@ function MaterialInwardRegister() {
   const role = user?.role;
   const canWrite = canInwardWrite(user);
   const isQC = QC_ROLES.includes(role);
-  // Editing existing rows is a lighter grant than full inward write: Stores + the
-  // Unit-5 manager (canWrite) plus any unit manager (who only sees / edits their
-  // own unit's rows — the server enforces the own-unit rule).
+  // Editing existing rows is a lighter grant than full inward write: Stores (canWrite)
+  // plus any unit manager (who only sees / edits their own unit's rows — the server
+  // enforces the own-unit rule).
   const canEdit = canWrite || role === 'MANAGER';
 
   const [rows, setRows] = useState([]);
@@ -470,9 +456,17 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTak
                     <div className="text-[10px] text-gray-500">{r.docNumber || <Dash />}</div>
                     {r.documentDate && <div className="text-[10px] text-gray-400" title="Document date">{formatDate(r.documentDate)}</div>}
                     {r.documents?.length ? (
-                      <button onClick={() => onDocs(r)} className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-navy-600 hover:text-navy-800">
-                        <Paperclip size={10} /> {r.documents.length} file{r.documents.length > 1 ? 's' : ''}
-                      </button>
+                      <div className="mt-0.5 space-y-0.5">
+                        {r.documents.map((d, di) => (
+                          <a key={di} href={fileUrl(d.url)} target="_blank" rel="noreferrer" title={d.name || d.label}
+                            className="flex items-center gap-1 text-[10px] font-semibold text-navy-600 hover:text-navy-800 max-w-[150px]">
+                            <Paperclip size={10} className="flex-shrink-0" /> <span className="truncate">{d.label}</span>
+                          </a>
+                        ))}
+                        {canWrite && (
+                          <button onClick={() => onDocs(r)} className="inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-navy-600">+ manage</button>
+                        )}
+                      </div>
                     ) : canWrite ? (
                       <button onClick={() => onDocs(r)} className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-navy-600">
                         <Paperclip size={10} /> add
@@ -1338,12 +1332,22 @@ function RequestQcModal({ row, onClose, onDone }) {
   const toggleDocReq = (d) => setDocsRequired((p) => (p.includes(d) ? p.filter((x) => x !== d) : [...p, d]));
   const refDocs = refDocsFor(row);
 
+  // A system PO derives the locked rows; a manual / existing-PO entry lets Stores
+  // type the qty-as-per-PR and qty-ordered (rows 03 & 08).
+  const qtyEditable = !row.purchaseOrderId;
+
   // Pull the auto / locked rows (ION + 1–11) from the PR / PO / quotation chain.
   useEffect(() => {
     api.get(`/material-inward/${row.id}/iir-auto`)
-      .then(({ data }) => setForm((p) => ({ ...p, ...(data.iir || {}) })))
+      .then(({ data }) => {
+        const iir = { ...(data.iir || {}) };
+        // For a manual entry these two are Stores-entered — don't let the (empty)
+        // auto values clobber what Stores typed.
+        if (qtyEditable) { delete iir.qtyAsPerPR; delete iir.qtyOrdered; }
+        setForm((p) => ({ ...p, ...iir }));
+      })
       .catch(() => {});
-  }, [row.id]);
+  }, [row.id, qtyEditable]);
 
   const submit = async () => {
     setSaving(true); setError('');
@@ -1368,6 +1372,8 @@ function RequestQcModal({ row, onClose, onDone }) {
           dcNo: form.dcNo, gatePassNo: form.gatePassNo, gatePassType: form.gatePassType,
           probableReturnDate: form.probableReturnDate, materialReceiptDate: form.materialReceiptDate,
           storesRemark: form.storesRemark,
+          // Stores-entered for a manual entry; ignored server-side for a system PO.
+          qtyAsPerPR: form.qtyAsPerPR, qtyOrdered: form.qtyOrdered,
         },
       });
       onDone();
@@ -1383,7 +1389,8 @@ function RequestQcModal({ row, onClose, onDone }) {
 
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <p className="text-[11px] text-gray-500">
-            {row.mirNo}{row.lotNo != null ? ` · Lot ${row.lotNo}` : ''} · rows 1–11 are locked (auto-filled from the PR / PO / quotation). Fill rows 12–16 + the documents below, then send to QA/QC.
+            {row.mirNo}{row.lotNo != null ? ` · Lot ${row.lotNo}` : ''} · rows 1–11 are auto-filled from the PR / PO / quotation
+            {qtyEditable ? ' (qty as-per-PR & qty ordered are yours to fill for this manual entry)' : ' (locked)'}. Fill rows 12–16 + the documents below, then send to QA/QC.
           </p>
           <DownloadPdfButton document={<InwardInspectionRequestPdf row={row} form={form} />} fileName={`IIR-Request-${row.mirNo}.pdf`} label="View / Print form" />
         </div>
@@ -1397,7 +1404,8 @@ function RequestQcModal({ row, onClose, onDone }) {
           <FormBlock key={sec.title} title={sec.title}>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {sec.rows.map((r) => {
-                const editable = IIR_EDITABLE_KEYS.has(r.key);
+                const editable = IIR_EDITABLE_KEYS.has(r.key)
+                  || (qtyEditable && (r.key === 'qtyAsPerPR' || r.key === 'qtyOrdered'));
                 return (
                   <Input
                     key={r.key}
@@ -1470,6 +1478,18 @@ function RequestQcModal({ row, onClose, onDone }) {
   );
 }
 
+// Map the inward row's material type → the QC report's category vocabulary so the
+// "Material category" select comes pre-filled (still editable).
+const reportCategoryFor = (row) => {
+  const s = (row.materialType || row.product?.category || '').toLowerCase();
+  if (!s) return '';
+  if (/raw/.test(s)) return 'Raw materials';
+  if (/consumable/.test(s)) return 'Consumables';
+  if (/tool|fixture|fastner|fastener/.test(s)) return 'Tooling & Fixtures';
+  if (/fim|free issue|customer/.test(s)) return 'FIM';
+  return '';
+};
+
 // ── QC review — the full IIR report, pre-filled from the PO/inward data.
 // QC just reviews/adjusts, sets the result + remark, and finishes.
 function ReviewModal({ row, onClose, onDone }) {
@@ -1480,17 +1500,45 @@ function ReviewModal({ row, onClose, onDone }) {
     inspectionLocation: rep.inspectionLocation || 'At RAPS Inward Store',
     reportReferenceNo: rep.reportReferenceNo || row.docNumber || '',
     materialDescription: rep.materialDescription || row.itemDescription || '',
-    materialCategory: rep.materialCategory || '',
+    // Auto-filled from the row's product type (editable).
+    materialCategory: rep.materialCategory || reportCategoryFor(row),
     packingCondition: rep.packingCondition || 'Sealed',
     packingDamageNotes: rep.packingDamageNotes || '',
-    dateOfManufacturing: rep.dateOfManufacturing ? String(rep.dateOfManufacturing).slice(0, 10) : '',
+    // Auto-filled from the received lot's manufacturing date (editable).
+    dateOfManufacturing: rep.dateOfManufacturing
+      ? String(rep.dateOfManufacturing).slice(0, 10)
+      : (row.manufacturingDate ? String(row.manufacturingDate).slice(0, 10) : ''),
     tappedHolesCondition: rep.tappedHolesCondition || '',
     dimInspectionSupplier: rep.dimInspectionSupplier || false,
     dimInspectionRaps: rep.dimInspectionRaps || false,
-    qtyAsPerPR: rep.qtyAsPerPR ?? row.orderedQty ?? '',
+    // Qty ordered comes from the PO line; qty-as-per-PR is auto-filled below for a
+    // system PO (from the PR), else left for Stores/QC to enter.
+    qtyAsPerPR: rep.qtyAsPerPR ?? '',
     qtyOrdered: rep.qtyOrdered ?? row.orderedQty ?? '',
     rejectionReason: rep.rejectionReason || '',
   });
+
+  // Auto-fill "Qty as per PR" and "Qty ordered" (only what QC hasn't set): a system
+  // PO derives them from the PR/PO chain; a manual entry carries the values Stores
+  // typed on the request form.
+  useEffect(() => {
+    const fill = (prRaw, ordRaw) => {
+      const prNum = parseFloat(prRaw);
+      const ordNum = parseFloat(ordRaw);
+      setF((p) => ({
+        ...p,
+        qtyAsPerPR: (p.qtyAsPerPR === '' && !Number.isNaN(prNum)) ? prNum : p.qtyAsPerPR,
+        qtyOrdered: (p.qtyOrdered === '' && !Number.isNaN(ordNum)) ? ordNum : p.qtyOrdered,
+      }));
+    };
+    if (row.purchaseOrderId) {
+      api.get(`/material-inward/${row.id}/iir-auto`)
+        .then(({ data }) => fill((data.iir || {}).qtyAsPerPR, (data.iir || {}).qtyOrdered))
+        .catch(() => {});
+    } else if (row.qcRequest) {
+      fill(row.qcRequest.qtyAsPerPR, row.qcRequest.qtyOrdered);
+    }
+  }, [row.id, row.purchaseOrderId]);
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
   // Pre-tick from QC's own prior save, else from the documents Stores asked QC
   // to verify on the request form (qcRequest.docsRequired / qcDocRequirement).
@@ -1509,7 +1557,9 @@ function ReviewModal({ row, onClose, onDone }) {
   const [qtyRejected, setQtyRejected] = useState(row.qtyRejected ?? '');
   const [qtyHeld, setQtyHeld] = useState(row.qtyHeld ?? '');
   const [holdReason, setHoldReason] = useState(row.holdReason || '');
-  const [reportNo, setReportNo] = useState(row.qcReportNo || '');
+  // Inward Inspection No. is auto-generated server-side on finish (kept across
+  // re-reviews). Shown read-only — QC never types it.
+  const reportNo = row.qcReportNo || '';
   const [remark, setRemark] = useState(row.qcReportRemark || '');
   // NCR — raised when QC rejects the lot (FAILED). Notifies the unit managers,
   // admins + purchase; Stores then records replacement material against this MIR.
@@ -1525,7 +1575,6 @@ function ReviewModal({ row, onClose, onDone }) {
 
   const submit = async () => {
     setError('');
-    if (!reportNo.trim()) return setError('Inward Inspection No. is required.');
     if (!remark.trim()) return setError('A report remark is required.');
     if (onHold && !holdReason.trim()) return setError('A hold reason is required to place the lot on hold.');
     if (isFail && !isDeferred && !ncrFile && !row.ncrDocUrl) {
@@ -1656,7 +1705,7 @@ function ReviewModal({ row, onClose, onDone }) {
               <option value="FAILED">Failed (all rejected)</option>
               <option value="ON_HOLD">On Hold (re-inspect later)</option>
             </Select>
-            <Input label="Inward Inspection No. *" value={reportNo} onChange={(e) => setReportNo(e.target.value)} className="sm:col-span-2" placeholder="e.g. RAPS/IR/25/021" />
+            <Input label="Inward Inspection No. (auto)" value={reportNo} disabled className="sm:col-span-2" placeholder="Auto-generated on finish" />
           </div>
           {onHold && (
             <Input label="Hold reason *" value={holdReason} onChange={(e) => setHoldReason(e.target.value)} placeholder="Why is this lot held? (pending COA / retest / clarification…)" />

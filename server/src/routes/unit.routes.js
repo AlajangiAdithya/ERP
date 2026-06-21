@@ -10,6 +10,9 @@ const router = express.Router();
 const unitSchema = z.object({
   name: z.string().min(1),
   code: z.string().min(1),
+  // Offsite units (ANSP, CPDC, …) route their MIVs through admin approval +
+  // gate-pass dispatch instead of drawing from store stock directly.
+  isOffsite: z.boolean().optional(),
 });
 
 // GET /api/units

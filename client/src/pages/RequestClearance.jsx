@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, CheckSquare } from 'lucide-react';
+import { CheckCircle, XCircle, CheckSquare, Truck, PackagePlus } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
+import Input from '../components/ui/Input';
 import Modal from '../components/ui/Modal';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import MaterialIssuePdf from '../components/pdf/MaterialIssuePdf';
@@ -19,6 +20,18 @@ export default function RequestClearance() {
   const [rejectNote, setRejectNote] = useState('');
   const [processing, setProcessing] = useState(false);
   const [tab, setTab] = useState('PENDING');
+  // Offsite dispatch state.
+  const [queue, setQueue] = useState([]);            // APPROVED/PARTIAL offsite MIVs awaiting dispatch
+  const [offsiteGps, setOffsiteGps] = useState([]);  // dispatched-lot tracker
+  const [buildUnitId, setBuildUnitId] = useState(''); // which site the GP is being built for
+  const [pick, setPick] = useState({});              // requestItemId -> qty to dispatch (string)
+  const [building, setBuilding] = useState(false);
+  const [dispatchGp, setDispatchGp] = useState(null);
+  const [vehicles, setVehicles] = useState([]);
+  const [vehicleId, setVehicleId] = useState('');
+  const [usePrivate, setUsePrivate] = useState(false);
+  const [pv, setPv] = useState({ regNumber: '', driverName: '', driverPhone: '' });
+  const STATUS_TABS = ['PENDING', 'PARTIAL', 'COLLECTED', 'REJECTED', 'ALL'];
   const refreshKey = useAutoRefresh();
 
   const fetchRequests = () => {
@@ -28,7 +41,72 @@ export default function RequestClearance() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchRequests(); }, [tab, refreshKey]);
+  const fetchQueue = () => {
+    setLoading(true);
+    api.get('/requests/offsite/queue')
+      .then(({ data }) => setQueue(data || []))
+      .finally(() => setLoading(false));
+  };
+
+  const fetchOffsiteGps = () => {
+    setLoading(true);
+    api.get('/requests/offsite/gatepasses')
+      .then(({ data }) => setOffsiteGps(data || []))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (tab === 'OFFSITE') fetchQueue();
+    else if (tab === 'LOTS') fetchOffsiteGps();
+    else fetchRequests();
+  }, [tab, refreshKey]);
+
+  // Units present in the dispatch queue (one GP targets one site).
+  const queueUnits = [...new Map(queue.map((r) => [r.unit.id, r.unit])).values()];
+  const queueForUnit = queue.filter((r) => r.unit.id === buildUnitId);
+  const lineRemaining = (it) => (it.approvedQty ?? it.quantity) - (it.dispatchedQty || 0);
+
+  const buildGatePass = async () => {
+    const items = [];
+    queueForUnit.forEach((r) => (r.items || []).forEach((it) => {
+      const qty = Number(pick[it.id]);
+      if (Number.isFinite(qty) && qty > 0) items.push({ requestItemId: it.id, quantity: qty });
+    }));
+    if (items.length === 0) return alert('Enter a quantity for at least one line');
+    setBuilding(true);
+    try {
+      const { data } = await api.post('/requests/offsite/gatepass', { unitId: buildUnitId, items });
+      setPick({});
+      setBuildUnitId('');
+      alert(`Gate pass ${data.passNumber} created. Attach a vehicle from the Dispatched Lots tab.`);
+      setTab('LOTS');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to build gate pass');
+    }
+    setBuilding(false);
+  };
+
+  const openDispatch = (gp) => {
+    setDispatchGp(gp);
+    setVehicleId(''); setUsePrivate(false); setPv({ regNumber: '', driverName: '', driverPhone: '' });
+    api.get('/vehicles').then(({ data }) => setVehicles((data.vehicles || []).filter((v) => v.status === 'ACTIVE'))).catch(() => setVehicles([]));
+  };
+
+  const submitDispatch = async () => {
+    setProcessing(true);
+    try {
+      const body = usePrivate ? { privateVehicle: pv } : { vehicleId };
+      await api.post(`/requests/offsite/gatepass/${dispatchGp.id}/dispatch`, body);
+      setDispatchGp(null);
+      fetchOffsiteGps();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to dispatch');
+    }
+    setProcessing(false);
+  };
+
+  const gpMivNumbers = (gp) => [...new Set((gp.items || []).flatMap((it) =>
+    (it.mivLinks || []).map((l) => l.requestItem?.request?.requestNumber).filter(Boolean)))];
 
   const openRequest = (request) => {
     setSelectedRequest(request);
@@ -82,7 +160,8 @@ export default function RequestClearance() {
     PENDING: 'yellow', APPROVED: 'green', PARTIAL: 'orange', COLLECTED: 'blue', REJECTED: 'red', CANCELLED: 'gray'
   }[s] || 'gray');
 
-  const tabs = ['PENDING', 'PARTIAL', 'COLLECTED', 'REJECTED', 'ALL'];
+  const tabs = [...STATUS_TABS, 'OFFSITE', 'LOTS'];
+  const tabLabel = (t) => ({ OFFSITE: 'Offsite Dispatch', LOTS: 'Dispatched Lots' }[t] || t);
 
   return (
     <div className="space-y-6">
@@ -100,10 +179,11 @@ export default function RequestClearance() {
             className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
               tab === t ? 'bg-white text-navy-700 font-medium shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
-          >{t}</button>
+          >{tabLabel(t)}</button>
         ))}
       </div>
 
+      {!['OFFSITE', 'LOTS'].includes(tab) && (
       <Card>
         {loading ? (
           <div className="flex justify-center py-8">
@@ -155,6 +235,165 @@ export default function RequestClearance() {
           </div>
         )}
       </Card>
+      )}
+
+      {/* Offsite Dispatch — build a NON_RETURNABLE gate pass from approved offsite MIVs */}
+      {tab === 'OFFSITE' && (
+        <Card>
+          {loading ? (
+            <div className="flex justify-center py-8"><div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" /></div>
+          ) : queue.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">No approved offsite MIVs awaiting dispatch.</div>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Site (one gate pass per site)</label>
+                <select
+                  value={buildUnitId}
+                  onChange={(e) => { setBuildUnitId(e.target.value); setPick({}); }}
+                  className="w-full max-w-sm px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
+                >
+                  <option value="">— Select a site —</option>
+                  {queueUnits.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.code})</option>)}
+                </select>
+              </div>
+
+              {buildUnitId && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">MIV #</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">In Stock</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Remaining</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Dispatch Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {queueForUnit.flatMap((r) => (r.items || [])
+                        .filter((it) => lineRemaining(it) > 0.001)
+                        .map((it) => {
+                          const rem = lineRemaining(it);
+                          const short = (it.product?.currentStock ?? 0) < Number(pick[it.id] || 0);
+                          return (
+                            <tr key={it.id} className="border-b border-gray-50 hover:bg-navy-50">
+                              <td className="px-3 py-2 text-navy-700 font-medium">{r.requestNumber}</td>
+                              <td className="px-3 py-2 text-gray-700">{it.product?.name}</td>
+                              <td className={`px-3 py-2 ${short ? 'text-red-600 font-medium' : 'text-gray-600'}`}>{it.product?.currentStock} {it.product?.unit}</td>
+                              <td className="px-3 py-2 text-gray-600">{rem} {it.product?.unit}</td>
+                              <td className="px-3 py-2">
+                                <Input
+                                  type="number" min={0} max={rem} className="w-24 text-center"
+                                  value={pick[it.id] ?? ''}
+                                  placeholder="0"
+                                  onChange={(e) => setPick((m) => ({ ...m, [it.id]: e.target.value }))}
+                                />
+                              </td>
+                            </tr>
+                          );
+                        }))}
+                    </tbody>
+                  </table>
+                  <div className="flex justify-end pt-3">
+                    <Button onClick={buildGatePass} disabled={building}>
+                      <PackagePlus size={16} className="mr-1" /> {building ? 'Creating…' : 'Raise Gate Pass'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Dispatched Lots — GP ↔ MIV mapping, vehicle, dispatch + ack status */}
+      {tab === 'LOTS' && (
+        <Card>
+          {loading ? (
+            <div className="flex justify-center py-8"><div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" /></div>
+          ) : offsiteGps.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">No offsite gate passes yet.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">GP No.</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Site</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Against MIV(s)</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Vehicle</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Dispatched</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {offsiteGps.map((gp, i) => (
+                    <tr key={gp.id} className={`border-b border-gray-100 ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                      <td className="px-3 py-2 font-medium text-navy-700">{gp.passNumber}</td>
+                      <td className="px-3 py-2"><Badge color="blue">{gp.destinationUnit?.code}</Badge></td>
+                      <td className="px-3 py-2 text-xs text-gray-600">{gpMivNumbers(gp).join(', ') || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">{(gp.items || []).map((it) => `${it.description} ×${it.quantity}`).join('; ')}</td>
+                      <td className="px-3 py-2 text-gray-600">{gp.vehicleNo || '—'}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{gp.dispatchedAt ? formatDateTime(gp.dispatchedAt) : '—'}</td>
+                      <td className="px-3 py-2">
+                        <Badge color={gp.status === 'CLOSED' ? 'blue' : gp.status === 'IN_TRANSIT' ? 'orange' : 'gray'}>
+                          {gp.status === 'CLOSED' ? 'RECEIVED' : gp.status === 'IN_TRANSIT' ? 'IN TRANSIT' : gp.status === 'PENDING_LOGISTICS' ? 'AWAITING VEHICLE' : gp.status}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2">
+                        {gp.status === 'PENDING_LOGISTICS' ? (
+                          <Button size="sm" onClick={() => openDispatch(gp)}><Truck size={14} className="mr-1" /> Dispatch</Button>
+                        ) : gp.status === 'IN_TRANSIT' ? (
+                          <span className="text-xs text-gray-500">Awaiting site ack</span>
+                        ) : gp.reachedDate ? (
+                          <span className="text-xs text-gray-500">{formatDateTime(gp.reachedDate)}</span>
+                        ) : <span className="text-xs text-gray-400">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Dispatch (attach vehicle) modal */}
+      <Modal isOpen={!!dispatchGp} onClose={() => setDispatchGp(null)} title={`Dispatch ${dispatchGp?.passNumber || ''}`} size="md">
+        {dispatchGp && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">Attach a vehicle and dispatch to <strong>{dispatchGp.destinationUnit?.name}</strong>.</p>
+            <div className="flex gap-2 text-sm">
+              <button onClick={() => setUsePrivate(false)} className={`px-3 py-1.5 rounded-md ${!usePrivate ? 'bg-navy-700 text-white' : 'bg-gray-100 text-gray-600'}`}>Registered vehicle</button>
+              <button onClick={() => setUsePrivate(true)} className={`px-3 py-1.5 rounded-md ${usePrivate ? 'bg-navy-700 text-white' : 'bg-gray-100 text-gray-600'}`}>Private / hired</button>
+            </div>
+            {!usePrivate ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle</label>
+                <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                  <option value="">— Select a vehicle —</option>
+                  {vehicles.map((v) => <option key={v.id} value={v.id}>{v.regNumber}{v.driverName ? ` — ${v.driverName}` : ''}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-2">
+                <Input label="Vehicle No." value={pv.regNumber} onChange={(e) => setPv({ ...pv, regNumber: e.target.value })} />
+                <Input label="Driver Name" value={pv.driverName} onChange={(e) => setPv({ ...pv, driverName: e.target.value })} />
+                <Input label="Driver Phone" value={pv.driverPhone} onChange={(e) => setPv({ ...pv, driverPhone: e.target.value })} />
+              </div>
+            )}
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="secondary" onClick={() => setDispatchGp(null)} disabled={processing}>Cancel</Button>
+              <Button onClick={submitDispatch} disabled={processing || (!usePrivate && !vehicleId) || (usePrivate && (!pv.regNumber || !pv.driverName))}>
+                <Truck size={16} className="mr-1" /> {processing ? 'Dispatching…' : 'Dispatch'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Review Modal */}
       <Modal isOpen={!!selectedRequest} onClose={() => setSelectedRequest(null)} title={`Review ${selectedRequest?.requestNumber}`} size="lg">
@@ -171,13 +410,19 @@ export default function RequestClearance() {
               {selectedRequest.issueDate && <div><span className="text-gray-500">Issue Date:</span> <span>{formatDateTime(selectedRequest.issueDate)}</span></div>}
             </div>
 
-            {selectedRequest.status === 'PENDING' && (
+            {selectedRequest.unit?.isOffsite && (
+              <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
+                Offsite MIV — approved by Admin and dispatched on a gate pass, not issued from store stock. Build the gate pass from the <strong>Offsite Dispatch</strong> tab and track it under <strong>Dispatched Lots</strong>.
+              </div>
+            )}
+
+            {selectedRequest.status === 'PENDING' && !selectedRequest.unit?.isOffsite && (
               <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-900">
                 Accept to issue whatever stock is available now — each item gets what's in stock (full or part), FIFO batch numbers and an Issue No are filled in automatically, and stock is reduced immediately. Any shortfall is left <strong>pending</strong>; the MIV moves to <strong>Partial</strong> and you can issue the rest from the Partial tab once stock arrives.
               </div>
             )}
 
-            {selectedRequest.status === 'PARTIAL' && (
+            {selectedRequest.status === 'PARTIAL' && !selectedRequest.unit?.isOffsite && (
               <div className="bg-orange-50 border border-orange-200 rounded p-3 text-xs text-orange-900">
                 This MIV is partly issued — some items are still waiting on stock. Click <strong>Issue available now</strong> to release whatever stock has since arrived against the pending quantities. It stays in Partial until every item is fully issued.
               </div>
@@ -241,7 +486,7 @@ export default function RequestClearance() {
               </div>
             </div>
 
-            {selectedRequest.status === 'PENDING' && !rejectMode && (
+            {selectedRequest.status === 'PENDING' && !rejectMode && !selectedRequest.unit?.isOffsite && (
               <div className="flex justify-end gap-3 pt-2">
                 <Button variant="danger" onClick={() => setRejectMode(true)} disabled={processing}>
                   <XCircle size={16} className="mr-1" /> Reject
@@ -252,7 +497,7 @@ export default function RequestClearance() {
               </div>
             )}
 
-            {selectedRequest.status === 'PARTIAL' && (
+            {selectedRequest.status === 'PARTIAL' && !selectedRequest.unit?.isOffsite && (
               <div className="flex justify-end gap-3 pt-2">
                 <Button onClick={issueAvailable} disabled={processing}>
                   <CheckCircle size={16} className="mr-1" /> {processing ? 'Issuing…' : 'Issue available now'}
@@ -260,7 +505,7 @@ export default function RequestClearance() {
               </div>
             )}
 
-            {selectedRequest.status === 'PENDING' && rejectMode && (
+            {selectedRequest.status === 'PENDING' && rejectMode && !selectedRequest.unit?.isOffsite && (
               <div className="space-y-3 border-t pt-3">
                 <label className="block text-sm font-medium text-gray-700">Reason for rejection <span className="text-red-600">*</span></label>
                 <textarea

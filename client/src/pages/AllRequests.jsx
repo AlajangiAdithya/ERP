@@ -3,6 +3,8 @@ import api from '../api/axios';
 import { useAutoRefresh } from '../context/NotificationContext';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
 import Modal from '../components/ui/Modal';
 import Pagination from '../components/shared/Pagination';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
@@ -21,6 +23,10 @@ export default function AllRequests() {
   const [showDetail, setShowDetail] = useState(null);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [reload, setReload] = useState(0);
+  // Offsite admin-approval working state: per-line approved qty + busy flag.
+  const [approveQtys, setApproveQtys] = useState({});
+  const [busy, setBusy] = useState(false);
   const refreshKey = useAutoRefresh();
 
   useEffect(() => {
@@ -28,7 +34,45 @@ export default function AllRequests() {
     api.get('/requests', { params: { status: statusFilter || undefined, page, limit: 20, fromDate: fromDate || undefined, toDate: toDate || undefined } })
       .then(({ data }) => { setRequests(data.requests); setTotalPages(data.totalPages); })
       .finally(() => setLoading(false));
-  }, [page, statusFilter, fromDate, toDate, refreshKey]);
+  }, [page, statusFilter, fromDate, toDate, refreshKey, reload]);
+
+  // Seed editable approved quantities whenever an offsite PENDING MIV is opened.
+  useEffect(() => {
+    if (showDetail?.unit?.isOffsite && showDetail.status === 'PENDING') {
+      const seed = {};
+      (showDetail.items || []).forEach((it) => { seed[it.id] = it.quantity; });
+      setApproveQtys(seed);
+    }
+  }, [showDetail]);
+
+  const isOffsitePending = showDetail?.unit?.isOffsite && showDetail.status === 'PENDING';
+
+  const approveOffsite = async () => {
+    setBusy(true);
+    try {
+      const items = (showDetail.items || []).map((it) => ({ id: it.id, approvedQty: Number(approveQtys[it.id] ?? it.quantity) }));
+      await api.put(`/requests/${showDetail.id}/admin-approve`, { items });
+      setShowDetail(null);
+      setReload((x) => x + 1);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to approve');
+    }
+    setBusy(false);
+  };
+
+  const rejectOffsite = async () => {
+    const reason = prompt('Reason for rejecting this MIV?');
+    if (reason === null) return;
+    setBusy(true);
+    try {
+      await api.put(`/requests/${showDetail.id}/reject`, { clearanceNotes: reason || 'Rejected' });
+      setShowDetail(null);
+      setReload((x) => x + 1);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to reject');
+    }
+    setBusy(false);
+  };
 
   const statusColor = (s) => ({
     PENDING: 'yellow', APPROVED: 'green', PARTIAL: 'orange', COLLECTED: 'blue', REJECTED: 'red', CANCELLED: 'gray'
@@ -130,22 +174,47 @@ export default function AllRequests() {
             </div>
             {showDetail.notes && <div className="bg-gray-50 rounded-md p-3 text-sm"><span className="text-gray-500">Notes:</span> {showDetail.notes}</div>}
             {showDetail.clearanceNotes && <div className="bg-blue-50 rounded-md p-3 text-sm"><span className="text-blue-600">Clearance:</span> {showDetail.clearanceNotes}</div>}
+            {isOffsitePending && (
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-800">
+                Offsite MIV — review and adjust the approved quantities, then approve. Stores will dispatch the material on a gate pass.
+              </div>
+            )}
             <table className="w-full text-sm">
               <thead><tr className="border-b">
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">{isOffsitePending ? 'Approve Qty' : 'Approved'}</th>
               </tr></thead>
               <tbody>
                 {showDetail.items?.map((item, i) => (
                   <tr key={item.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 text-gray-700">{item.product?.name}</td>
                     <td className="px-3 py-2">{item.quantity} {item.product?.unit}</td>
-                    <td className="px-3 py-2">{item.approvedQty != null ? `${item.approvedQty} ${item.product?.unit}` : '—'}</td>
+                    <td className="px-3 py-2">
+                      {isOffsitePending ? (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number" min={0} className="w-24 text-center"
+                            value={approveQtys[item.id] ?? item.quantity}
+                            onChange={(e) => setApproveQtys((m) => ({ ...m, [item.id]: e.target.value }))}
+                          />
+                          <span className="text-xs text-gray-500">{item.product?.unit}</span>
+                        </div>
+                      ) : (
+                        item.approvedQty != null ? `${item.approvedQty} ${item.product?.unit}` : '—'
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+
+            {isOffsitePending && (
+              <div className="flex justify-end gap-3 pt-2">
+                <Button variant="danger" onClick={rejectOffsite} disabled={busy}>Reject</Button>
+                <Button onClick={approveOffsite} disabled={busy}>{busy ? 'Saving…' : 'Approve for Dispatch'}</Button>
+              </div>
+            )}
           </div>
         )}
       </Modal>
