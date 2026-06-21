@@ -4,7 +4,7 @@ const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const {
   paginate, applyDateFilter, generateSequentialNumber, withDocRetry, OWNER_DEPTS, deptForRole,
-  formatDDMMYY, normalizeMaterialType, getFinancialYear,
+  formatDDMMYY, normalizeMaterialType, getFinancialYear, generateProductSku,
 } = require('../utils/helpers');
 const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 
@@ -1316,7 +1316,37 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
     if (row.inwardedAt) return res.status(400).json({ error: 'This entry has already been inwarded' });
 
     // Linked product (if any) drives the Tools & Fixtures fast-path + master-data gate.
-    const product = row.productId ? await prisma.product.findUnique({ where: { id: row.productId } }) : null;
+    let product = row.productId ? await prisma.product.findUnique({ where: { id: row.productId } }) : null;
+
+    // Free-text inward with no linked product (a "New item" cash purchase, etc.):
+    // create — or reuse — a product master entry now so the received qty actually
+    // lands in inventory instead of being recorded and then lost. Mirrors the
+    // gate-pass new-product path. masterDataComplete=true so it clears the inward
+    // gate (Stores already has the goods in hand); it can be enriched later.
+    if (!product && (row.itemDescription || '').trim()) {
+      const name = row.itemDescription.trim();
+      product = await prisma.product.findFirst({
+        where: { isActive: true, name: { equals: name, mode: 'insensitive' } },
+      });
+      if (!product) {
+        const category = normalizeMaterialType(row.materialType);
+        product = await withDocRetry(async () => {
+          const sku = await generateProductSku(prisma, category);
+          return prisma.product.create({
+            data: {
+              name, sku, category,
+              unit: row.uom || 'pcs',
+              currentStock: 0,
+              isActive: true,
+              masterDataComplete: true,
+            },
+          });
+        });
+      }
+      await prisma.materialInwardRegister.update({ where: { id: row.id }, data: { productId: product.id } });
+      row.productId = product.id;
+    }
+
     const isTF = isToolsAndFixtures(product, row);
     const isHT = isHandTools(product, row);
 
@@ -1340,8 +1370,8 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
     // Inward the QC-accepted qty when QC set one, else the received qty.
     const qty = row.qtyAccepted != null ? row.qtyAccepted : (row.qtyReceived || 0);
     if (!row.productId) {
-      // No resolved product — mark the register row inwarded without touching
-      // stock (rare: free-text direct entry with no product picked).
+      // No product and no description to build one from — mark the register row
+      // inwarded without touching stock (rare: an empty free-text row).
       const marked = await prisma.materialInwardRegister.update({
         where: { id: row.id }, data: { status: 'INWARDED', inwardedAt: new Date() },
       });
