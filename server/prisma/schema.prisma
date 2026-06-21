@@ -2703,6 +2703,10 @@ model MaterialInwardRegister {
   // stays readable even if the PO later changes.
   purchaseOrderId     String?
   purchaseOrderItemId String?
+  // An existing PO that isn't in the system yet (rollout period): Stores types
+  // the PO number by hand and records the items like a cash purchase. Mutually
+  // exclusive with purchaseOrderId (which links a real, system PO).
+  manualPoNumber      String?
   supplierName        String?
   prNumbers           String? // comma-joined PR numbers from the PO
   itemDescription     String?

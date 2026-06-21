@@ -656,6 +656,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     vehicleDetails: editRow?.vehicleDetails || '',
     docType: editRow?.docType || 'INVOICE',
     docNumber: editRow?.docNumber || '',
+    manualPoNumber: editRow?.manualPoNumber || '',
     documentDate: editRow?.documentDate ? String(editRow.documentDate).slice(0, 10) : '',
     itemDescription: editRow?.itemDescription || '',
     uom: editRow?.uom || '',
@@ -669,13 +670,22 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   });
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
 
-  // The "RAPS Purchase Order" picker drives everything: its first option is
-  // "Cash Purchase" (poId === 'CASH'); the rest are real POs. No separate toggle.
-  const isCash = isEdit ? !editRow.poNumber : poId === 'CASH';
-  const isPo = isEdit ? !!editRow.poNumber : (!!poId && poId !== 'CASH');
-  // Direct/cash rows let Stores pick the assign-to (PO rows derive it from the PR).
-  const isDirect = isCash;
-  // From-PO receipts are per-line (a delivery carries several lines, each batched).
+  // The "RAPS Purchase Order" picker drives everything. Options: "Cash Purchase"
+  // (poId === 'CASH'), "Existing PO — not in system" (poId === 'MANUAL_PO'), then
+  // the real, system POs. No separate toggle.
+  //
+  // A real PO row carries a purchaseOrderId; a manual PO row only a typed
+  // manualPoNumber (an existing PO not yet entered during rollout). Both manual
+  // POs and cash purchases record items free-text with a Stores-chosen assign-to.
+  const isManualPo = isEdit ? (!editRow.purchaseOrderId && !!editRow.manualPoNumber) : poId === 'MANUAL_PO';
+  const isCash = isEdit ? (!editRow.purchaseOrderId && !editRow.manualPoNumber) : poId === 'CASH';
+  const isPo = isEdit ? !!editRow.purchaseOrderId : (!!poId && poId !== 'CASH' && poId !== 'MANUAL_PO');
+  // Cash + manual-PO share the same free-text, multi-item format.
+  const isCashLike = isCash || isManualPo;
+  // Direct/cash/manual-PO rows let Stores pick the assign-to (real PO rows derive
+  // it from the PR).
+  const isDirect = isCashLike;
+  // From-(real)-PO receipts are per-line (a delivery carries several lines, each batched).
   const perLine = !isEdit && isPo;
 
   // POs for the picker — always load so the dropdown's list is ready.
@@ -684,11 +694,11 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     api.get('/material-inward/active-pos').then(({ data }) => setPos(data.orders || [])).catch(() => setPos([]));
   }, [isEdit]);
 
-  // Products for cash-purchase product linking.
+  // Products for cash / manual-PO product linking.
   useEffect(() => {
-    if (isEdit || !isCash) return;
+    if (isEdit || !isCashLike) return;
     api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products || [])).catch(() => setProducts([]));
-  }, [isCash, isEdit]);
+  }, [isCashLike, isEdit]);
 
   // Units for the cash "assign to" picker (also needed when editing a direct row).
   useEffect(() => {
@@ -736,8 +746,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           return setError(`Enter a received quantity for ${it?.productName || 'each ticked line'}.`);
         }
       }
-    } else if (!isEdit && isCash) {
-      // Multi-item cash — every item must be complete.
+    } else if (!isEdit && isCashLike) {
+      // Existing PO not in the system → the typed PO number is required.
+      if (isManualPo && !f.manualPoNumber.trim()) return setError('Enter the existing PO number.');
+      // Multi-item cash / manual-PO — every item must be complete.
       for (const it of items) {
         if (it.itemMode === 'existing' && !it.productId) return setError('Pick a product for each existing item (or remove the empty row).');
         if (it.itemMode === 'new' && !it.itemDescription.trim()) return setError('Enter a description for each new item (or remove the empty row).');
@@ -761,7 +773,14 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           qtyReceived: f.qtyReceived, batchNo: f.batchNo, dateOfExpiry: f.dateOfExpiry || null,
           manufacturingDate: f.manufacturingDate || null,
           purpose: f.purpose,
-          ...(editRow.poNumber ? {} : { itemDescription: f.itemDescription, uom: f.uom, materialType: f.materialType, productId: editRow.productId || null, issuedToUnitId, issuedToDept }),
+          // Real (system) PO rows derive their item/assign-to from the PR — locked.
+          // Cash + manual-PO rows keep their free-text fields editable; a manual PO
+          // also lets the typed PO number be corrected.
+          ...(editRow.purchaseOrderId ? {} : {
+            itemDescription: f.itemDescription, uom: f.uom, materialType: f.materialType,
+            productId: editRow.productId || null, issuedToUnitId, issuedToDept,
+            ...(isManualPo ? { manualPoNumber: f.manualPoNumber.trim() } : {}),
+          }),
         });
       } else if (perLine) {
         // One delivery → many lines → one MIR row each (server assigns lots).
@@ -781,12 +800,15 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           })),
         });
       } else {
-        // Cash purchase — one or several items from the same supplier, all under
-        // a single shared MIR number (one register row per item).
+        // Cash purchase / manual PO — one or several items from the same supplier,
+        // all under a single shared MIR number (one register row per item). A
+        // manual-PO entry also carries the typed PO number.
         await api.post('/material-inward/cash-bulk', {
           vehicleDetails: f.vehicleDetails,
-          // Cash entries default an invoice doc-type to Cash Purchase.
-          docType: f.docType === 'INVOICE' ? 'CASH_PURCHASE' : f.docType,
+          // Pure cash entries default an invoice doc-type to Cash Purchase; a
+          // manual PO keeps the chosen doc-type (usually an invoice / DC).
+          docType: isManualPo ? f.docType : (f.docType === 'INVOICE' ? 'CASH_PURCHASE' : f.docType),
+          manualPoNumber: isManualPo ? f.manualPoNumber.trim() : null,
           docNumber: f.docNumber,
           documentDate: f.documentDate || null,
           purpose: f.purpose,
@@ -827,6 +849,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
               onChange={(e) => { const v = e.target.value; setPoId(v); setSel({}); set('docType', v === 'CASH' ? 'CASH_PURCHASE' : 'INVOICE'); }}>
               <option value="">Select…</option>
               <option value="CASH">Cash Purchase</option>
+              <option value="MANUAL_PO">Existing PO — not in the system (enter manually)</option>
               {pos.map((p) => <option key={p.id} value={p.id}>{p.orderNumber} — {p.supplierName} {p.isUnion ? '(UNION)' : ''}</option>)}
             </Select>
 
@@ -883,10 +906,21 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
               </>
             )}
 
-            {/* Cash Purchase — a shared supplier + one or more items, all under a
-                single MIR number. Each item is an existing product or a new item. */}
-            {isCash && (
+            {/* Cash Purchase / Manual PO — a shared supplier + one or more items,
+                all under a single MIR number. Each item is an existing product or a
+                new item. A manual PO additionally records the typed PO number. */}
+            {isCashLike && (
               <div className="space-y-4 pt-1">
+                {isManualPo && (
+                  <div className="space-y-1">
+                    <Input label="Purchase Order number *" value={f.manualPoNumber}
+                      onChange={(e) => set('manualPoNumber', e.target.value)}
+                      placeholder="Type the existing PO number (e.g. RAPS/PO/…)" />
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1.5">
+                      For a PO that isn’t in the system yet. Type its number and record the received items below — the rest of the inward (QC, inward into stock) works exactly as a normal entry.
+                    </p>
+                  </div>
+                )}
                 <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
 
                 <div>
@@ -1010,6 +1044,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
             {isEdit && <Input label="Batch number" value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />}
             {isEdit && <Input label="Manufacturing date" type="date" value={f.manufacturingDate} onChange={(e) => set('manufacturingDate', e.target.value)} />}
             {isEdit && <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />}
+            {isEdit && isManualPo && (
+              <Input label="Purchase Order number" value={f.manualPoNumber} onChange={(e) => set('manualPoNumber', e.target.value)} placeholder="Existing PO number" />
+            )}
             {isEdit && isDirect && (
               <>
                 <Select label="Product type" value={f.materialType || ''} onChange={(e) => set('materialType', e.target.value)}>

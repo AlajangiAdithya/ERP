@@ -280,7 +280,11 @@ async function buildIirAuto(row) {
   if (['INVOICE', 'CASH_PURCHASE'].includes(row.docType) && row.docNumber) {
     out.invoiceNoDate = `${row.docNumber} · ${fmtDMY(row.inwardDate)}`;
   }
-  if (!row.purchaseOrderId) return out; // direct / cash entry — no PR/PO chain.
+  if (!row.purchaseOrderId) {
+    // Manual PO (not in the system) — surface the typed number as the PO ref.
+    if (row.manualPoNumber) out.poNoDate = row.manualPoNumber;
+    return out; // direct / cash / manual-PO entry — no PR/PO chain to pull.
+  }
 
   const po = await prisma.purchaseOrder.findUnique({
     where: { id: row.purchaseOrderId },
@@ -490,7 +494,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       qcReviewer: r.qcReviewerId ? userMap[r.qcReviewerId] || null : null,
       issuedToUnit: r.issuedToUnitId ? unitMap[r.issuedToUnitId] || null : null,
       product: r.productId ? productMap[r.productId] || null : null,
-      poNumber: r.purchaseOrderId ? (poMap[r.purchaseOrderId]?.orderNumber || null) : null,
+      poNumber: r.purchaseOrderId ? (poMap[r.purchaseOrderId]?.orderNumber || null) : (r.manualPoNumber || null),
       orderedQty: r.purchaseOrderItemId ? (poItemMap[r.purchaseOrderItemId]?.quantity ?? null) : null,
       mivs: r.batchNo ? (mivMap[r.batchNo] || []) : [],
       refDocs: r.purchaseOrderId ? (refDocsMap[r.purchaseOrderId] || []) : [],
@@ -531,6 +535,8 @@ router.post('/', authenticate, requireInwardWrite, async (req, res) => {
       manufacturingDate: b.manufacturingDate ? new Date(b.manufacturingDate) : null,
       purchaseOrderId: b.purchaseOrderId || null,
       purchaseOrderItemId: b.purchaseOrderItemId || null,
+      // Manual PO ref only when no real PO is linked (mutually exclusive).
+      manualPoNumber: b.purchaseOrderId ? null : (b.manualPoNumber?.trim() || null),
       supplierName: b.supplierName?.trim() || null,
       prNumbers: b.prNumbers?.trim() || null,
       itemDescription: b.itemDescription?.trim() || null,
@@ -704,6 +710,8 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
       docType,
       docNumber: b.docNumber?.trim() || null,
       documentDate: b.documentDate ? new Date(b.documentDate) : null,
+      // Existing PO not yet in the system — typed by hand, shared across items.
+      manualPoNumber: b.manualPoNumber?.trim() || null,
       supplierName: b.supplierName?.trim() || null,
       purpose: b.purpose?.trim() || null,
       issuedToUnitId: issuedTo.issuedToUnitId,
@@ -773,6 +781,8 @@ router.patch('/:id', authenticate, requireInwardWrite, async (req, res) => {
     if (b.uom !== undefined && !row.purchaseOrderId) patch.uom = b.uom?.trim() || null;
     if (b.materialType !== undefined && !row.purchaseOrderId) patch.materialType = b.materialType?.trim() || null;
     if (b.productId !== undefined && !row.purchaseOrderId) patch.productId = b.productId || null;
+    // Manual PO number is editable only on non-system-PO rows (never on real POs).
+    if (b.manualPoNumber !== undefined && !row.purchaseOrderId) patch.manualPoNumber = b.manualPoNumber?.trim() || null;
     // Reassignment is only meaningful for direct/cash rows (PO rows derive it
     // from the PR). Re-resolve the unit/dept + label server-side.
     if (!row.purchaseOrderId && (b.issuedToUnitId !== undefined || b.issuedToDept !== undefined)) {
