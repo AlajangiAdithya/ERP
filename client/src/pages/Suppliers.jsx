@@ -39,6 +39,16 @@ const approvalBadgeColor = (s) => ({
 }[s] || 'gray');
 const materialTypeLabel = (m) => ({ MATERIAL: 'Material', JOB_WORK: 'Job Work', SERVICE: 'Service' }[m] || '—');
 
+// Server-side sort options (mirrors SORT_MAP in supplier.routes.js).
+const SORT_OPTS = [
+  { value: 'vendor_asc', label: 'Vendor ID (ascending)' },
+  { value: 'vendor_desc', label: 'Vendor ID (descending)' },
+  { value: 'name_asc', label: 'Name (A → Z)' },
+  { value: 'name_desc', label: 'Name (Z → A)' },
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+];
+
 // ISO date → YYYY-MM-DD for <input type="date">.
 const toDateInput = (v) => (v ? new Date(v).toISOString().slice(0, 10) : '');
 
@@ -59,6 +69,7 @@ export default function Suppliers() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('vendor_asc');
   const [loading, setLoading] = useState(true);
 
   const [showSupplierModal, setShowSupplierModal] = useState(false);
@@ -71,7 +82,7 @@ export default function Suppliers() {
 
   const fetchSuppliers = () => {
     setLoading(true);
-    const params = { page, limit: 25, search: search || undefined, fy: selectedFY || undefined };
+    const params = { page, limit: 25, search: search || undefined, fy: selectedFY || undefined, sort };
     api.get('/suppliers', { params })
       .then(({ data }) => {
         setSuppliers(data.suppliers);
@@ -82,7 +93,7 @@ export default function Suppliers() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchSuppliers(); /* eslint-disable-next-line */ }, [page, search, selectedFY]);
+  useEffect(() => { fetchSuppliers(); /* eslint-disable-next-line */ }, [page, search, selectedFY, sort]);
 
   // Build the FY dropdown from current FY + the last 4 — enough for review history.
   const fyOptions = useMemo(() => {
@@ -132,6 +143,18 @@ export default function Suppliers() {
             <SearchBar value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search by name, vendor ID, or scope..." />
           </div>
           <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600">Sort by</label>
+            <select
+              value={sort}
+              onChange={(e) => { setSort(e.target.value); setPage(1); }}
+              className="px-3 py-2 border rounded-md text-sm border-gray-300 focus:outline-none focus:ring-2 focus:ring-navy-500"
+            >
+              {SORT_OPTS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
             <label className="text-sm text-gray-600">Evaluation FY</label>
             <select
               value={selectedFY}
@@ -153,6 +176,8 @@ export default function Suppliers() {
           <ApprovedSupplierTable
             suppliers={suppliers}
             currentFY={selectedFY}
+            sort={sort}
+            onSortChange={(v) => { setSort(v); setPage(1); }}
             canEdit={canEdit}
             onEditSupplier={(s) => { setEditingSupplier(s); setShowSupplierModal(true); }}
             onReEvaluate={(s) => setReEvalFor(s)}
@@ -213,17 +238,12 @@ export default function Suppliers() {
 // ─── Wide Approved Supplier List table ────────────────────────────────────
 // Two-banner layout matching the client format: left = master register,
 // right = evaluation details for the selected FY.
-function ApprovedSupplierTable({ suppliers, currentFY, canEdit, onEditSupplier, onReEvaluate, onAssess, onUpload }) {
-  // Click "Vendor ID" header to cycle: none → asc → desc → none.
-  // Sort is natural (numeric-aware) so V2 sorts before V10.
-  const [vendorSort, setVendorSort] = useState('none');
-  const cycleVendorSort = () => setVendorSort((p) => (p === 'none' ? 'asc' : p === 'asc' ? 'desc' : 'none'));
-  const sortedSuppliers = useMemo(() => {
-    if (vendorSort === 'none') return suppliers;
-    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-    const sign = vendorSort === 'asc' ? 1 : -1;
-    return [...suppliers].sort((a, b) => sign * collator.compare(a.vendorIdNo || '', b.vendorIdNo || ''));
-  }, [suppliers, vendorSort]);
+function ApprovedSupplierTable({ suppliers, currentFY, sort, onSortChange, canEdit, onEditSupplier, onReEvaluate, onAssess, onUpload }) {
+  // Click "Vendor ID" header to toggle the server-side sort between ascending
+  // and descending — applies across all pages, not just the one on screen.
+  const vendorSort = sort === 'vendor_asc' ? 'asc' : sort === 'vendor_desc' ? 'desc' : 'none';
+  const cycleVendorSort = () => onSortChange(vendorSort === 'asc' ? 'vendor_desc' : 'vendor_asc');
+  const sortedSuppliers = suppliers;
 
   if (!suppliers.length) {
     return <div className="text-center py-10 text-gray-400 text-sm">No suppliers yet.</div>;

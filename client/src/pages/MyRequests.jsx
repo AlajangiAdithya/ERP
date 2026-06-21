@@ -97,13 +97,14 @@ export default function MyRequests() {
   };
 
   const submitRequest = async () => {
+    if (!workOrderId) return alert('Select a Work Order — it is required for an MIV');
     if (cartItems.length === 0) return alert('Add at least one product');
     setSaving(true);
     try {
       const payload = {
         notes: notes || undefined,
         remarks: remarks || undefined,
-        workOrderId: workOrderId || null,
+        workOrderId,
         items: cartItems.map(i => ({
           productId: i.productId,
           quantity: i.quantity,
@@ -214,13 +215,14 @@ export default function MyRequests() {
       <Modal isOpen={showCreate} onClose={() => { setShowCreate(false); setEditingId(null); }} title={editingId ? 'Edit Product Request' : 'New Product Request'} size="lg">
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Work Order</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Work Order <span className="text-red-500">*</span></label>
             <select
               value={workOrderId}
               onChange={(e) => setWorkOrderId(e.target.value)}
+              required
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
             >
-              <option value="">— No work order —</option>
+              <option value="">— Select a work order —</option>
               {workOrders.map(wo => (
                 <option key={wo.id} value={wo.id}>
                   {wo.workOrderNumber} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''}

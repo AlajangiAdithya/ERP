@@ -1209,6 +1209,10 @@ router.post('/:id/extensions', authenticate, authorize(...PDC_EDITOR_ROLES), asy
     });
 
     res.status(201).json(ext);
+    // The new extension pushes the effective PDC out, so the WO now has more
+    // time — re-run the alarm engine to auto-resolve any PDC_NEAR / PDC_OVERDUE
+    // alarms that no longer apply (and re-evaluate against the new date).
+    refreshAlarms(existing.id);
   } catch (error) {
     console.error('Add WO extension error:', error);
     res.status(500).json({ error: 'Internal server error' });

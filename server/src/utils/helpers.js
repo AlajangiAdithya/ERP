@@ -19,14 +19,20 @@ const applyDateFilter = (where, { fromDate, toDate }, field = 'createdAt') => {
 };
 
 // ──── Material types (fixed dropdown shared by PR items, Products, QC, SKU prefix) ────
-const MATERIAL_TYPES = ['Raw Material', 'Consumable', 'Hand Tools & Fastners', 'Tools & Fixtures', 'Stationery', 'Others'];
+// 'Hand Tools & Fastners' was split into two distinct categories: 'Hand Tools'
+// (no QC on inward) and 'Fasteners' (normal QC). The combined label is kept in
+// normalizeMaterialType() so legacy products keep their existing category.
+const MATERIAL_TYPES = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Stationery', 'Others'];
 
 const materialTypeToSkuPrefix = (materialType) => {
   switch ((materialType || '').trim().toLowerCase()) {
     case 'raw material':           return 'RAW';
     case 'consumable':             return 'CONS';
+    case 'hand tools':             return 'TOOL';
     case 'hand tools & fastners':  return 'TOOL';
     case 'tooling':                return 'TOOL';
+    case 'fasteners':              return 'FAST';
+    case 'fastners':               return 'FAST';
     case 'tools & fixtures':       return 'FIX';
     case 'tools and fixtures':     return 'FIX';
     case 'stationery':             return 'STAT';
@@ -40,11 +46,13 @@ const normalizeMaterialType = (value) => {
   const t = String(value).trim().toLowerCase();
   if (t === 'raw material' || t === 'raw' || t === 'raw_material') return 'Raw Material';
   if (t === 'consumable' || t === 'consumables') return 'Consumable';
+  // New split categories. 'tooling'/'tool' now map to Hand Tools.
+  if (t === 'hand tools' || t === 'hand tool' || t === 'tooling' || t === 'tool') return 'Hand Tools';
+  if (t === 'fasteners' || t === 'fastners' || t === 'fastener' || t === 'fastner') return 'Fasteners';
+  // Legacy combined label — kept intact so existing products are not re-bucketed.
   if (
     t === 'hand tools & fastners' ||
-    t === 'hand tools and fastners' ||
-    t === 'tooling' ||
-    t === 'tool'
+    t === 'hand tools and fastners'
   ) return 'Hand Tools & Fastners';
   if (
     t === 'tools & fixtures' ||

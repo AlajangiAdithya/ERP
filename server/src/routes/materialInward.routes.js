@@ -166,6 +166,12 @@ const USER_SELECT = { select: { id: true, name: true, role: true } };
 const isToolsAndFixtures = (product, row) =>
   normalizeMaterialType(product?.category || row?.materialType) === 'Tools & Fixtures';
 
+// Hand Tools need NO QC at all — they are inwarded straight into the store (or
+// assigned to units), bypassing both the QC requirement and the master-data
+// hold. Unlike Tools & Fixtures there is no deferred QC to perform later.
+const isHandTools = (product, row) =>
+  normalizeMaterialType(product?.category || row?.materialType) === 'Hand Tools';
+
 // Notify QC + the owning unit's manager that a material is held at inward because
 // its master data hasn't been added yet (or, on deferred-QC failure, to flag it).
 async function notifyMasterDataHold(row, sentById, { title, message }) {
@@ -630,17 +636,20 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       orderedQty: r.purchaseOrderItemId ? (poItemMap[r.purchaseOrderItemId]?.quantity ?? null) : null,
       mivs: r.batchNo ? (mivMap[r.batchNo] || []) : [],
       refDocs: r.purchaseOrderId ? (refDocsMap[r.purchaseOrderId] || []) : [],
-      // On hold: a non-Tools&Fixtures material whose master data hasn't been added
-      // yet — Stores can't inward it until a unit head / QC completes it.
+      // On hold: a material whose master data hasn't been added yet — Stores can't
+      // inward it until a unit head / QC completes it. Tools & Fixtures and Hand
+      // Tools bypass the master-data gate entirely.
       masterDataPending: (() => {
         const p = r.productId ? productMap[r.productId] : null;
         if (!p || r.inwardedAt) return false;
-        if (isToolsAndFixtures(p, r)) return false;
+        if (isToolsAndFixtures(p, r) || isHandTools(p, r)) return false;
         return p.masterDataComplete === false;
       })(),
-      // Tools & Fixtures inwarded to a unit before QC — QC still pending.
-      qcPending: !!(r.inwardedAt && !r.qcResult),
+      // Tools & Fixtures inwarded to a unit before QC — QC still pending. Scoped to
+      // T&F only: Hand Tools are inwarded with no qcResult but never need QC.
+      qcPending: isToolsAndFixtures(r.productId ? productMap[r.productId] : null, r) && !!(r.inwardedAt && !r.qcResult),
       isToolsAndFixtures: isToolsAndFixtures(r.productId ? productMap[r.productId] : null, r),
+      isHandTools: isHandTools(r.productId ? productMap[r.productId] : null, r),
     }));
 
     // Order by MIR number so a back-dated 10A lands right after 10.
@@ -1309,8 +1318,9 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
     // Linked product (if any) drives the Tools & Fixtures fast-path + master-data gate.
     const product = row.productId ? await prisma.product.findUnique({ where: { id: row.productId } }) : null;
     const isTF = isToolsAndFixtures(product, row);
+    const isHT = isHandTools(product, row);
 
-    if (!isTF) {
+    if (!isTF && !isHT) {
       // Normal flow: QC must be finished + passed, and the master data must have
       // been added, before any stock is created.
       if (row.status !== 'QC_DONE') return res.status(400).json({ error: 'Finish QC before inwarding' });
@@ -1325,6 +1335,7 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
     }
     // Tools & Fixtures: inward allowed from any pre-inward status; QC + master data
     // are deferred and handled later on the already-inwarded lot.
+    // Hand Tools: inward allowed from any pre-inward status; no QC is ever needed.
 
     // Inward the QC-accepted qty when QC set one, else the received qty.
     const qty = row.qtyAccepted != null ? row.qtyAccepted : (row.qtyReceived || 0);

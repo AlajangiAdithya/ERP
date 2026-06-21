@@ -498,7 +498,7 @@ export default function Products() {
                   <Input label="Description" value={item.description} onChange={(e) => updateItem(idx, { description: e.target.value })} />
                   <div className="grid grid-cols-3 gap-4">
                     <Select label="Material Type *" value={item.category} onChange={(e) => updateItem(idx, { category: e.target.value })}>
-                      {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools & Fastners', 'Tools & Fixtures', 'Stationery', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
+                      {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Stationery', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
                     </Select>
                     <Select label="Unit" value={item.unit} onChange={(e) => updateItem(idx, { unit: e.target.value })}>
                       {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
@@ -557,7 +557,7 @@ export default function Products() {
                 onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
               >
                 <option value="">—</option>
-                {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools & Fastners', 'Tools & Fixtures', 'Stationery', 'Others']).map((mt) => <option key={mt} value={mt}>{mt}</option>)}
+                {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Stationery', 'Others']).map((mt) => <option key={mt} value={mt}>{mt}</option>)}
               </Select>
               <Select
                 label="Unit (UOM)"

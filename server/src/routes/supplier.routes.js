@@ -78,13 +78,28 @@ async function nextVendorId() {
   return `RAPS/SUP/${String(max + 1).padStart(4, '0')}`;
 }
 
+// Sort-order options for the Approved Supplier List. Keyed by the `sort` query
+// param so the order is applied in the DB (across all pages), not just the page
+// the client is showing. Default = Vendor ID ascending (RAPS/SUP/#### is zero-
+// padded, so a string sort matches numeric order).
+const SORT_MAP = {
+  vendor_asc:  { vendorIdNo: 'asc' },
+  vendor_desc: { vendorIdNo: 'desc' },
+  name_asc:    { name: 'asc' },
+  name_desc:   { name: 'desc' },
+  newest:      { createdAt: 'desc' },
+  oldest:      { createdAt: 'asc' },
+};
+const resolveSort = (sort) => SORT_MAP[sort] || SORT_MAP.vendor_asc;
+
 // ─── List & detail ──────────────────────────────────────────────────────
 
-// GET /api/suppliers?search=&productId=&page=&limit=&fy=
+// GET /api/suppliers?search=&productId=&page=&limit=&fy=&sort=
 router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
   try {
-    const { search, productId, page, limit, fy } = req.query;
+    const { search, productId, page, limit, fy, sort } = req.query;
     const targetFY = fy || getFinancialYear();
+    const orderBy = resolveSort(sort);
 
     let supplierIdFilter = null;
     if (productId) {
@@ -125,7 +140,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
 
     if (limit === 'all') {
       const suppliers = await prisma.supplier.findMany({
-        where, orderBy: { name: 'asc' }, include: includeReEvals,
+        where, orderBy, include: includeReEvals,
       });
       return res.json({
         suppliers: suppliers.map((s) => decorate(s, targetFY)),
@@ -138,7 +153,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
 
     const { skip, take } = paginate(page, limit);
     const [suppliers, total] = await Promise.all([
-      prisma.supplier.findMany({ where, orderBy: { name: 'asc' }, skip, take, include: includeReEvals }),
+      prisma.supplier.findMany({ where, orderBy, skip, take, include: includeReEvals }),
       prisma.supplier.count({ where }),
     ]);
 
