@@ -45,6 +45,7 @@ export const NOTIFICATION_ROUTES = {
   INWARD_QC_REQUEST: '/inward-entry',
   INWARD_QC_DONE: '/inward-entry',
   INWARD_QC_HOLD: '/inward-entry',
+  INWARD_QC_FAILED: '/inward-entry',
 
   // Purchase requests / inspections
   INSPECTION_PASSED: '/purchase-requests',

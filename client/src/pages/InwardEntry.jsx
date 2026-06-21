@@ -3,7 +3,7 @@ import {
   Package, Plus, FlaskConical, ClipboardCheck, CheckCircle2,
   Search, Filter, X, Pencil, Trash2, ArrowDownToLine, Building2,
   Paperclip, Upload, Eye, FileText, FileSearch, ExternalLink, UserRound,
-  Send, FileInput, AlertTriangle, Wrench,
+  Send, FileInput, AlertTriangle, Wrench, FileWarning, Repeat,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -237,6 +237,7 @@ function MaterialInwardRegister() {
   const [docsFor, setDocsFor] = useState(null);        // row -> manage / view documents
   const [reportFor, setReportFor] = useState(null);    // row -> view filled IIR report
   const [resendFor, setResendFor] = useState(null);    // row -> resend held/failed lot to QC
+  const [replaceFor, setReplaceFor] = useState(null);  // failed row -> record replacement inward
   const [historyFor, setHistoryFor] = useState(null);  // row -> view edit history
   const [busyId, setBusyId] = useState(null);
 
@@ -355,6 +356,7 @@ function MaterialInwardRegister() {
           onDocs={setDocsFor}
           onViewReport={setReportFor}
           onResend={setResendFor}
+          onReplace={setReplaceFor}
           onHistory={setHistoryFor}
         />
       )}
@@ -383,6 +385,9 @@ function MaterialInwardRegister() {
       {resendFor && (
         <ResendQcModal row={resendFor} onClose={() => setResendFor(null)} onDone={() => { setResendFor(null); load(); }} />
       )}
+      {replaceFor && (
+        <ReplacementModal row={replaceFor} onClose={() => setReplaceFor(null)} onDone={() => { setReplaceFor(null); load(); }} />
+      )}
       {historyFor && (
         <EditHistoryModal row={historyFor} onClose={() => setHistoryFor(null)} />
       )}
@@ -393,7 +398,7 @@ function MaterialInwardRegister() {
 // ────────────────────────────────────────────────────────────────────
 // The Excel-style register sheet (horizontal scroll, sticky header + MIR col)
 // ────────────────────────────────────────────────────────────────────
-function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs, onViewReport, onResend, onHistory }) {
+function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs, onViewReport, onResend, onReplace, onHistory }) {
   return (
     <Card className="!p-0 overflow-hidden">
       <div className="overflow-x-auto">
@@ -443,6 +448,13 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTak
                         <span className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700" title="Re-inspection round">Re-insp {r.qcRound}</span>
                       )}
                     </div>
+                    {/* Replacement of an NCR-rejected lot — links back to the failed MIR. */}
+                    {r.replacesInward && (
+                      <div className="mt-1 inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800"
+                        title={`Replacement for QC-failed ${r.replacesInward.mirNo}${r.replacesInward.ncrNo ? ` · NCR ${r.replacesInward.ncrNo}` : ''}${r.replacesInward.qcReportRemark ? ` — ${r.replacesInward.qcReportRemark}` : ''}`}>
+                        <Repeat size={10} /> Replaces {r.replacesInward.mirNo}
+                      </div>
+                    )}
                     {/* Subtle "edited" marker — click the eye to see what changed, when, by whom. */}
                     {r.editHistory?.length > 0 && (
                       <button onClick={() => onHistory(r)} title={`${r.editHistory.length} edit${r.editHistory.length > 1 ? 's' : ''} — view history`}
@@ -588,8 +600,21 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTak
                         )}
                         {r.status === 'QC_DONE' && r.qcResult === 'FAILED' && (
                           <>
-                            {!r.inwardedAt && <Pill tone="red">Rejected</Pill>}
-                            {canWrite && (
+                            {!r.inwardedAt && <Pill tone="red">Rejected (NCR)</Pill>}
+                            {r.ncrDocUrl && (
+                              <a href={fileUrl(r.ncrDocUrl)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700 hover:text-rose-900">
+                                <FileWarning size={11} /> View NCR
+                              </a>
+                            )}
+                            {!r.inwardedAt && r.replacedByInward && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700" title={`Replacement: ${r.replacedByInward.mirNo}`}>
+                                <Repeat size={11} /> Replaced → {r.replacedByInward.mirNo}
+                              </span>
+                            )}
+                            {!r.inwardedAt && !r.replacedByInward && canWrite && (
+                              <ActBtn tone="green" busy={busy} onClick={() => onReplace(r)}><Repeat size={11} /> Add replacement</ActBtn>
+                            )}
+                            {canWrite && !r.replacedByInward && (
                               <ActBtn tone="amber" busy={busy} onClick={() => onResend(r)}><Send size={11} /> Re-inspect</ActBtn>
                             )}
                           </>
@@ -1142,7 +1167,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
 function DocsModal({ row, canWrite, onClose, onChanged }) {
   const [docs, setDocs] = useState(Array.isArray(row.documents) ? row.documents : []);
   const [files, setFiles] = useState([]);
-  const [label, setLabel] = useState('Invoice');
+  const [label, setLabel] = useState('Material Report');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -1179,10 +1204,10 @@ function DocsModal({ row, canWrite, onClose, onChanged }) {
         {canWrite && (
           <div className="border-t pt-3 space-y-2">
             <Select label="Document type" value={label} onChange={(e) => setLabel(e.target.value)}>
-              <option>Invoice</option>
-              <option>Delivery Challan</option>
               <option>Material Report</option>
               <option>Test Report / COA / COC</option>
+              <option>Delivery Challan</option>
+              <option>NCR</option>
               <option>Gate Pass</option>
               <option>Other</option>
             </Select>
@@ -1289,7 +1314,8 @@ function EditHistoryModal({ row, onClose }) {
 }
 
 // ── Request QC — Stores reviews the auto-filled inspection request, ticks the
-// receipt condition + enclosed documents, attaches the invoice, and sends it ──
+// receipt condition + enclosed documents, attaches material reports, and sends it.
+// Invoices are no longer uploaded (breach risk) — only the invoice NUMBER is kept ──
 const DOC_TYPE_CHECKS = ['Test Report', 'COC', 'COA', '3rd Party / Customer Clearance'];
 
 // Rows 12–16 are the only ones Stores fills — rows 0–11 (ION + PR/PO/quote
@@ -1304,7 +1330,6 @@ function RequestQcModal({ row, onClose, onDone }) {
     if (row.qcDocRequirement) return row.qcDocRequirement.split(',').map((s) => s.trim()).filter(Boolean);
     return [];
   });
-  const [invoice, setInvoice] = useState(null);
   const [reports, setReports] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -1323,10 +1348,10 @@ function RequestQcModal({ row, onClose, onDone }) {
   const submit = async () => {
     setSaving(true); setError('');
     try {
-      // 1) Upload invoice + material reports so they ride along with the request.
+      // 1) Upload material reports so they ride along with the request. Invoices are
+      //    no longer uploaded — Stores records only the invoice number (docNumber).
       const files = [];
       const labels = [];
-      if (invoice) { files.push(invoice); labels.push('Invoice'); }
       reports.forEach((f) => { files.push(f); labels.push('Material Report'); });
       if (files.length) {
         const fd = new FormData();
@@ -1353,6 +1378,8 @@ function RequestQcModal({ row, onClose, onDone }) {
     <Modal isOpen onClose={onClose} title="Inward Inspection Request Form — RAPS/IIR Rev 01" size="xl">
       <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+
+        {row.replacesInward && <ReplacementOriginBanner orig={row.replacesInward} />}
 
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <p className="text-[11px] text-gray-500">
@@ -1401,13 +1428,10 @@ function RequestQcModal({ row, onClose, onDone }) {
               <DocList docs={row.documents} />
             </div>
           )}
-          <div>
-            <label className="block text-[13px] font-semibold text-navy-700 mb-1">Invoice (PDF)</label>
-            <input type="file" accept="application/pdf"
-              onChange={(e) => { const f = e.target.files?.[0] || null; if (f && !checkFileSize(f)) { e.target.value = ''; return; } setInvoice(f); }}
-              className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800" />
-            {invoice && <p className="text-[11px] text-gray-500 mt-1 truncate">{invoice.name}</p>}
-          </div>
+          <p className="text-[11px] text-gray-500">
+            Invoices are no longer uploaded — record the invoice number in the document
+            field on the entry. Attach material reports below if any.
+          </p>
           <div>
             <label className="block text-[13px] font-semibold text-navy-700 mb-1">Material reports (if any) — PDF / image</label>
             <input type="file" multiple accept="application/pdf,image/png,image/jpeg"
@@ -1487,18 +1511,36 @@ function ReviewModal({ row, onClose, onDone }) {
   const [holdReason, setHoldReason] = useState(row.holdReason || '');
   const [reportNo, setReportNo] = useState(row.qcReportNo || '');
   const [remark, setRemark] = useState(row.qcReportRemark || '');
+  // NCR — raised when QC rejects the lot (FAILED). Notifies the unit managers,
+  // admins + purchase; Stores then records replacement material against this MIR.
+  const [ncrNo, setNcrNo] = useState(row.ncrNo || '');
+  const [ncrFile, setNcrFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const onHold = result === 'ON_HOLD';
+  const isFail = result === 'FAILED';
+  const isDeferred = !!row.inwardedAt; // deferred T&F QC — NCR/replacement N/A
+  const orig = row.replacesInward; // set when THIS row is itself a replacement
 
   const submit = async () => {
     setError('');
     if (!reportNo.trim()) return setError('Inward Inspection No. is required.');
     if (!remark.trim()) return setError('A report remark is required.');
     if (onHold && !holdReason.trim()) return setError('A hold reason is required to place the lot on hold.');
+    if (isFail && !isDeferred && !ncrFile && !row.ncrDocUrl) {
+      return setError('Upload the NCR document to reject this lot.');
+    }
     setSaving(true);
     try {
+      // NCR rejection: attach the NCR (number + PDF) before filing the FAILED
+      // outcome, so the failure notification + replacement flow carry it.
+      if (isFail && !isDeferred && (ncrFile || ncrNo.trim())) {
+        const fd = new FormData();
+        if (ncrFile) fd.append('ncrDoc', ncrFile);
+        if (ncrNo.trim()) fd.append('ncrNo', ncrNo.trim());
+        await api.post(`/material-inward/${row.id}/ncr`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      }
       await api.post(`/material-inward/${row.id}/finish-review`, {
         qcResult: result, qtyAccepted, qtyRejected, qtyHeld, holdReason,
         qcReportNo: reportNo, qcReportRemark: remark,
@@ -1516,6 +1558,8 @@ function ReviewModal({ row, onClose, onDone }) {
     <Modal isOpen onClose={onClose} title={`Inward Inspection Report (RAPS/IIR Rev 01) — ${row.mirNo}`} size="full">
       <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+
+        {orig && <ReplacementOriginBanner orig={orig} />}
 
         {/* Auto-filled context (from PO / inward) + the docs Stores sent */}
         <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -1619,6 +1663,29 @@ function ReviewModal({ row, onClose, onDone }) {
           )}
           {(result === 'FAILED' || result === 'PARTIAL') && (
             <Input label="Reason for rejection / non-conformity" value={f.rejectionReason} onChange={(e) => set('rejectionReason', e.target.value)} />
+          )}
+          {isFail && !isDeferred && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 space-y-2">
+              <p className="text-[12px] font-bold text-rose-700 inline-flex items-center gap-1.5">
+                <FileWarning size={14} /> Non-Conformance Report (NCR)
+              </p>
+              <p className="text-[11px] text-rose-600">
+                Rejecting this lot raises an NCR — the unit manager(s), admins and the purchase
+                team are notified, and Stores records the replacement material against this MIR.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input label="NCR no. (optional)" value={ncrNo} onChange={(e) => setNcrNo(e.target.value)} placeholder="e.g. RAPS/NCR/25/007" />
+                <div>
+                  <label className="block text-[13px] font-semibold text-navy-700 mb-1">NCR document (PDF / image) *</label>
+                  <input type="file" accept="application/pdf,image/png,image/jpeg"
+                    onChange={(e) => { const fl = e.target.files?.[0] || null; if (fl && !checkFileSize(fl)) { e.target.value = ''; return; } setNcrFile(fl); }}
+                    className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-rose-600 file:text-white hover:file:bg-rose-700" />
+                  {ncrFile ? <p className="text-[11px] text-gray-600 mt-1 truncate">{ncrFile.name}</p>
+                    : row.ncrDocUrl ? <p className="text-[11px] text-gray-600 mt-1">Existing: <a className="text-navy-700 underline" href={fileUrl(row.ncrDocUrl)} target="_blank" rel="noreferrer">{row.ncrDocName || 'NCR'}</a></p>
+                    : null}
+                </div>
+              </div>
+            </div>
           )}
           {onHold && (
             <p className="text-[11px] text-rose-600">On hold won't add stock. Once the issue is sorted, Stores can resend the lot to QC for re-inspection.</p>
@@ -1733,6 +1800,107 @@ function ResendQcModal({ row, onClose, onDone }) {
   );
 }
 
+// Banner shown on a replacement lot (and in its QC review) — surfaces the
+// NCR-rejected original it stands in for, with the NCR document + failed report.
+function ReplacementOriginBanner({ orig }) {
+  const rep = orig.qcReport || {};
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-1.5">
+      <p className="text-[12px] font-bold text-amber-800 inline-flex items-center gap-1.5">
+        <Repeat size={14} /> Replacement for QC-failed {orig.mirNo}
+      </p>
+      <p className="text-[11px] text-amber-700">
+        {orig.itemDescription || 'This material'} failed QC{orig.qcReportNo ? ` (report ${orig.qcReportNo})` : ''}
+        {orig.ncrNo ? ` · NCR ${orig.ncrNo}` : ''}. This lot re-runs the full inspection.
+      </p>
+      {(rep.rejectionReason || orig.qcReportRemark) && (
+        <p className="text-[11px] text-rose-700">
+          <span className="text-gray-500">Why it failed:</span> {rep.rejectionReason || orig.qcReportRemark}
+        </p>
+      )}
+      {orig.ncrDocUrl && (
+        <a href={fileUrl(orig.ncrDocUrl)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 hover:text-rose-900">
+          <FileWarning size={12} /> View NCR ({orig.ncrDocName || 'document'})
+        </a>
+      )}
+    </div>
+  );
+}
+
+// ── Record replacement material for an NCR-rejected lot ──
+// Creates a NEW inward MIR mapped back to the failed one (PO / PR / supplier /
+// item / issued-to all carried over). Stores enters only the new receipt details;
+// the replacement then flows through the normal QC cycle, still pointing at the
+// failed lot's NCR + reference documents.
+function ReplacementModal({ row, onClose, onDone }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [f, setF] = useState({
+    inwardDate: today, vehicleDetails: '', docNumber: '', documentDate: '',
+    qtyReceived: row.qtyReceived ?? '', batchNo: '', dateOfExpiry: '', manufacturingDate: '',
+  });
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  // Banner data: this row IS the failed original being replaced.
+  const orig = {
+    mirNo: row.mirNo, itemDescription: row.itemDescription, qcReportNo: row.qcReportNo,
+    qcReportRemark: row.qcReportRemark, qcReport: row.qcReport, ncrNo: row.ncrNo,
+    ncrDocUrl: row.ncrDocUrl, ncrDocName: row.ncrDocName,
+  };
+
+  const submit = async () => {
+    setError('');
+    if (!f.qtyReceived || Number(f.qtyReceived) <= 0) return setError('Enter the replacement quantity received.');
+    setSaving(true);
+    try {
+      await api.post(`/material-inward/${row.id}/replacement`, {
+        inwardDate: f.inwardDate || null,
+        vehicleDetails: f.vehicleDetails || null,
+        docNumber: f.docNumber || null,
+        documentDate: f.documentDate || null,
+        qtyReceived: f.qtyReceived,
+        batchNo: f.batchNo || null,
+        dateOfExpiry: f.dateOfExpiry || null,
+        manufacturingDate: f.manufacturingDate || null,
+      });
+      onDone();
+    } catch (err) { setError(err.response?.data?.error || 'Failed'); setSaving(false); }
+  };
+
+  return (
+    <Modal isOpen onClose={onClose} title={`Replacement inward for ${row.mirNo}`} size="lg">
+      <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+        {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+        <ReplacementOriginBanner orig={orig} />
+        <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div><span className="text-gray-500">Item:</span> <span className="font-medium text-navy-800">{row.itemDescription || '—'}</span></div>
+          <div><span className="text-gray-500">PO:</span> <span className="font-medium text-navy-800">{row.poNumber || 'Direct / Cash'}</span></div>
+          <div><span className="text-gray-500">Supplier:</span> <span className="font-medium text-navy-800">{row.supplierName || '—'}</span></div>
+          <div><span className="text-gray-500">Issued to:</span> <span className="font-medium text-navy-800">{row.issuedToLabel || row.issuedToDept || '—'}</span></div>
+        </div>
+        <p className="text-[11px] text-gray-500">
+          PO / PR / supplier / item / issued-to are carried over from the failed MIR.
+          Enter the new receipt details — the replacement gets its own MIR (mapped to {row.mirNo}) and goes through QC again.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Input label="Receipt date" type="date" value={f.inwardDate} onChange={(e) => set('inwardDate', e.target.value)} />
+          <Input label="Invoice / DC / GP number" value={f.docNumber} onChange={(e) => set('docNumber', e.target.value)} placeholder="Document number (no PDF)" />
+          <Input label="Document date" type="date" value={f.documentDate} onChange={(e) => set('documentDate', e.target.value)} />
+          <Input label={`Qty received (${row.uom || 'qty'}) *`} type="number" min="0" step="any" value={f.qtyReceived} onChange={(e) => set('qtyReceived', e.target.value)} />
+          <Input label="Batch no." value={f.batchNo} onChange={(e) => set('batchNo', e.target.value)} />
+          <Input label="Vehicle details" value={f.vehicleDetails} onChange={(e) => set('vehicleDetails', e.target.value)} />
+          <Input label="Mfg date" type="date" value={f.manufacturingDate} onChange={(e) => set('manufacturingDate', e.target.value)} />
+          <Input label="Expiry date" type="date" value={f.dateOfExpiry} onChange={(e) => set('dateOfExpiry', e.target.value)} />
+        </div>
+        <div className="flex justify-end gap-2 pt-2 border-t">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Recording…' : 'Create replacement inward'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ── View the filled inspection report (read-only, same format) ──
 // Shows the IIR fields QC filled and offers a print-ready PDF that merges the
 // reference PDFs (PO / supplier assessment / T&C / uploaded reports).
@@ -1742,6 +1910,7 @@ function ReportViewModal({ row, onClose }) {
   const pdfAttachments = [
     ...refDocs.map((d) => fileUrl(d.url)),
     ...((row.documents || []).map((d) => fileUrl(d.url))),
+    ...(row.ncrDocUrl ? [fileUrl(row.ncrDocUrl)] : []),
   ].filter((u) => /\.pdf(\?|$)/i.test(u));
 
   return (
@@ -1762,6 +1931,8 @@ function ReportViewModal({ row, onClose }) {
             appendPdfs={pdfAttachments}
           />
         </div>
+
+        {row.replacesInward && <ReplacementOriginBanner orig={row.replacesInward} />}
 
         <FormBlock title="Identification">
           <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -1803,6 +1974,13 @@ function ReportViewModal({ row, onClose }) {
           </div>
           {(row.qcResult === 'FAILED' || row.qcResult === 'PARTIAL') && rep.rejectionReason && (
             <p className="text-xs text-rose-700"><span className="text-gray-500">Reason for rejection:</span> {rep.rejectionReason}</p>
+          )}
+          {row.qcResult === 'FAILED' && (row.ncrNo || row.ncrDocUrl) && (
+            <p className="text-xs text-rose-700 inline-flex items-center gap-2 flex-wrap">
+              <span><span className="text-gray-500">NCR:</span> {row.ncrNo || '—'}</span>
+              {row.ncrDocUrl && <a href={fileUrl(row.ncrDocUrl)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold underline"><FileWarning size={12} /> {row.ncrDocName || 'View NCR'}</a>}
+              {row.replacedByInward && <span className="text-emerald-700">· Replaced → {row.replacedByInward.mirNo}</span>}
+            </p>
           )}
           {row.qcReportRemark && (
             <div>

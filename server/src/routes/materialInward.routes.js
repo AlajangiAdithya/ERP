@@ -552,6 +552,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const batchNos = new Set();
     const poIds = new Set();
     const poItemIds = new Set();
+    const linkIds = new Set(); // failed ↔ replacement MIR cross-links
     rows.forEach((r) => {
       [r.createdById, r.qcRequestedById, r.qcReviewerId].forEach((id) => id && userIds.add(id));
       if (r.issuedToUnitId) unitIds.add(r.issuedToUnitId);
@@ -559,6 +560,8 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       if (r.batchNo) batchNos.add(r.batchNo);
       if (r.purchaseOrderId) poIds.add(r.purchaseOrderId);
       if (r.purchaseOrderItemId) poItemIds.add(r.purchaseOrderItemId);
+      if (r.replacesInwardId) linkIds.add(r.replacesInwardId);
+      if (r.replacedByInwardId) linkIds.add(r.replacedByInwardId);
     });
 
     const [users, units, products, mivItems, pos, poItems] = await Promise.all([
@@ -589,6 +592,21 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
     const poMap = Object.fromEntries(pos.map((p) => [p.id, p]));
     const poItemMap = Object.fromEntries(poItems.map((it) => [it.id, it]));
+
+    // Cross-link rows: for a failed lot, its replacement MIR; for a replacement,
+    // the failed lot it stands in for (with the NCR + failed-report details QC
+    // needs to see while inspecting the replacement).
+    const linkRows = linkIds.size
+      ? await prisma.materialInwardRegister.findMany({
+        where: { id: { in: [...linkIds] } },
+        select: {
+          id: true, mirNo: true, status: true, qcResult: true, itemDescription: true,
+          qcReportNo: true, qcReportRemark: true, qcReport: true,
+          ncrNo: true, ncrDocUrl: true, ncrDocName: true, ncrUploadedAt: true,
+        },
+      })
+      : [];
+    const linkMap = Object.fromEntries(linkRows.map((l) => [l.id, l]));
 
     // Reference documents QC views alongside the invoice: the signed PO PDF,
     // the supplier's assessment / vendor-evaluation forms, and each source PR's
@@ -636,6 +654,9 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       orderedQty: r.purchaseOrderItemId ? (poItemMap[r.purchaseOrderItemId]?.quantity ?? null) : null,
       mivs: r.batchNo ? (mivMap[r.batchNo] || []) : [],
       refDocs: r.purchaseOrderId ? (refDocsMap[r.purchaseOrderId] || []) : [],
+      // Replacement chain (NCR rejection → fresh inward).
+      replacesInward: r.replacesInwardId ? (linkMap[r.replacesInwardId] || null) : null,
+      replacedByInward: r.replacedByInwardId ? (linkMap[r.replacedByInwardId] || null) : null,
       // On hold: a material whose master data hasn't been added yet — Stores can't
       // inward it until a unit head / QC completes it. Tools & Fixtures and Hand
       // Tools bypass the master-data gate entirely.
@@ -1203,15 +1224,27 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
     } else {
       message = `${req.user.name} finished QC for inward ${row.mirNo} — ${qcResult}. ${qcResult === 'FAILED' ? 'Material rejected.' : 'Ready to inward into stores.'}`;
     }
-    await prisma.notification.create({
-      data: {
-        type: onHold ? 'INWARD_QC_HOLD' : (deferred && qcResult === 'FAILED' ? 'INWARD_TF_QC_FAILED' : 'INWARD_QC_DONE'),
-        title: `QC ${resultLabel}: ${row.itemDescription || row.mirNo}`,
-        message,
-        targetRole: 'STORE_MANAGER',
-        sentById: req.user.id,
-      },
-    });
+    const notes = [{
+      type: onHold ? 'INWARD_QC_HOLD' : (deferred && qcResult === 'FAILED' ? 'INWARD_TF_QC_FAILED' : (qcResult === 'FAILED' ? 'INWARD_QC_FAILED' : 'INWARD_QC_DONE')),
+      title: `QC ${resultLabel}: ${row.itemDescription || row.mirNo}`,
+      message,
+      targetRole: 'STORE_MANAGER',
+      sentById: req.user.id,
+    }];
+    // A normal (non-deferred) QC rejection is an NCR event: alert the owning unit's
+    // manager(s), the admins, and the purchase team so a replacement is arranged.
+    if (qcResult === 'FAILED' && !deferred && !onHold) {
+      const ncrTitle = `QC FAILED / NCR: ${row.itemDescription || row.mirNo}`;
+      const ncrMsg = `${req.user.name} rejected inward ${row.mirNo} at QC — ${b.qcReportRemark.trim()}.${row.ncrNo || row.ncrDocUrl ? ` NCR ${row.ncrNo || 'raised'}.` : ''} Stores must record the replacement material against this MIR.`;
+      ['ADMIN', 'PURCHASE_OFFICER'].forEach((roleT) => notes.push({
+        type: 'INWARD_QC_FAILED', title: ncrTitle, message: ncrMsg, targetRole: roleT, sentById: req.user.id,
+      }));
+      if (row.issuedToUnitId) {
+        const mgrs = await prisma.user.findMany({ where: { role: 'MANAGER', unitId: row.issuedToUnitId, isActive: true }, select: { id: true } });
+        mgrs.forEach((m) => notes.push({ type: 'INWARD_QC_FAILED', title: ncrTitle, message: ncrMsg, targetUserId: m.id, sentById: req.user.id }));
+      }
+    }
+    await prisma.notification.createMany({ data: notes });
     // Deferred-QC failure also flags the owning unit's manager directly (no reversal).
     if (deferred && qcResult === 'FAILED' && row.issuedToUnitId) {
       const mgr = await prisma.user.findFirst({ where: { role: 'MANAGER', unitId: row.issuedToUnitId, isActive: true }, select: { id: true } });
@@ -1231,6 +1264,31 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
   } catch (err) {
     console.error('finish-review error:', err);
     res.status(500).json({ error: 'Failed to finish review' });
+  }
+});
+
+// ── POST /api/material-inward/:id/ncr ─────────────────────────────────
+// QC attaches the Non-Conformance Report (NCR) for a lot it is rejecting. Called
+// from the review screen right before filing a FAILED outcome. PDF or image.
+router.post('/:id/ncr', authenticate, authorize(...QC_ROLES), qcDocsUpload.single('ncrDoc'), async (req, res) => {
+  try {
+    const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
+    if (!row) return res.status(404).json({ error: 'Entry not found' });
+    const data = {};
+    if (req.body?.ncrNo !== undefined) data.ncrNo = req.body.ncrNo?.trim() || null;
+    if (req.file) {
+      data.ncrDocUrl = publicUrlFor('qc-docs', req.file.filename);
+      data.ncrDocName = req.file.originalname || req.file.filename;
+      data.ncrUploadedAt = new Date();
+    }
+    if (data.ncrDocUrl === undefined && data.ncrNo === undefined) {
+      return res.status(400).json({ error: 'Provide an NCR number or document' });
+    }
+    const updated = await prisma.materialInwardRegister.update({ where: { id: row.id }, data });
+    res.json(updated);
+  } catch (err) {
+    console.error('inward ncr error:', err);
+    res.status(500).json({ error: 'Failed to attach NCR' });
   }
 });
 
@@ -1494,6 +1552,81 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
   } catch (err) {
     console.error('material-inward inward error:', err);
     res.status(500).json({ error: 'Failed to record inward' });
+  }
+});
+
+// ── POST /api/material-inward/:id/replacement ─────────────────────────
+// After an NCR rejection, Stores receives replacement material and records it as a
+// NEW inward MIR mapped back to the failed one. The PO / PR / supplier / item /
+// issued-to snapshot is copied so the replacement reads identically and reuses the
+// same reference documents; QC then re-runs the full inspection on it. The failed
+// row is stamped with replacedByInwardId so the register shows the linkage.
+router.post('/:id/replacement', authenticate, requireInwardWrite, async (req, res) => {
+  try {
+    const orig = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
+    if (!orig) return res.status(404).json({ error: 'Entry not found' });
+    if (orig.qcResult !== 'FAILED') return res.status(400).json({ error: 'A replacement can only be raised for a QC-failed lot' });
+    if (orig.replacedByInwardId) return res.status(400).json({ error: 'A replacement has already been raised for this lot' });
+
+    const b = req.body || {};
+    const inwardDate = b.inwardDate ? new Date(b.inwardDate) : new Date();
+    // Carry the trusted snapshot from the failed lot (PO / PR / supplier / item /
+    // issued-to). Stores supplies only the new receipt details below.
+    const data = {
+      inwardDate,
+      vehicleDetails: b.vehicleDetails?.trim() || null,
+      docType: orig.docType,
+      docNumber: b.docNumber?.trim() || null,
+      documentDate: b.documentDate ? new Date(b.documentDate) : null,
+      manufacturingDate: b.manufacturingDate ? new Date(b.manufacturingDate) : null,
+      purchaseOrderId: orig.purchaseOrderId,
+      purchaseOrderItemId: orig.purchaseOrderItemId,
+      manualPoNumber: orig.manualPoNumber,
+      supplierName: orig.supplierName,
+      prNumbers: orig.prNumbers,
+      itemDescription: orig.itemDescription,
+      uom: orig.uom,
+      materialType: orig.materialType,
+      qtyReceived: b.qtyReceived != null && b.qtyReceived !== '' ? Number(b.qtyReceived) : null,
+      productId: orig.productId,
+      issuedToUnitId: orig.issuedToUnitId,
+      issuedToDept: orig.issuedToDept,
+      issuedToLabel: orig.issuedToLabel,
+      indenterId: orig.indenterId,
+      indenterName: orig.indenterName,
+      unitAllocations: orig.unitAllocations ?? undefined,
+      purpose: orig.purpose,
+      batchNo: b.batchNo?.trim() || null,
+      dateOfExpiry: b.dateOfExpiry ? new Date(b.dateOfExpiry) : null,
+      replacesInwardId: orig.id,
+      createdById: req.user.id,
+    };
+    // Replacement is a fresh receipt → its own lot against the same PO.
+    if (data.purchaseOrderId) {
+      const lotCount = await prisma.materialInwardRegister.count({ where: { purchaseOrderId: data.purchaseOrderId } });
+      data.lotNo = lotCount + 1;
+    }
+
+    const row = await withDocRetry(async () => {
+      const mirNo = await generateMirForDate(prisma, data.inwardDate);
+      return prisma.materialInwardRegister.create({ data: { ...data, mirNo } });
+    });
+    await prisma.materialInwardRegister.update({ where: { id: orig.id }, data: { replacedByInwardId: row.id } });
+
+    await prisma.notification.create({
+      data: {
+        type: 'INWARD_QC_REQUEST',
+        title: `Replacement inward ${row.mirNo} for failed ${orig.mirNo}`,
+        message: `${req.user.name} recorded replacement ${row.mirNo} for NCR-rejected ${orig.mirNo} (${orig.itemDescription || ''}). Send it to QC for a fresh inspection.`,
+        targetRole: 'STORE_MANAGER',
+        sentById: req.user.id,
+      },
+    }).catch(() => {});
+
+    res.status(201).json(row);
+  } catch (err) {
+    console.error('material-inward replacement error:', err);
+    res.status(500).json({ error: 'Failed to create replacement inward' });
   }
 });
 

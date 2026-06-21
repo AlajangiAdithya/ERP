@@ -2787,6 +2787,22 @@ model MaterialInwardRegister {
   qcReport     Json?
   qcFinishedAt DateTime?
 
+  // Non-conformance (NCR). When QC rejects a lot (qcResult = FAILED) it uploads the
+  // NCR document here. This drives the replacement chain below — Stores raises a
+  // fresh inward for the replacement material, mapped back to this failed MIR, and
+  // the whole QC cycle re-runs on it.
+  ncrNo         String?
+  ncrDocUrl     String?
+  ncrDocName    String?
+  ncrUploadedAt DateTime?
+
+  // Replacement chain for an NCR-rejected lot. The replacement row points back to
+  // the failed original via replacesInwardId; the failed original is stamped with
+  // replacedByInwardId so the register can show "failed here → replaced in MIR X".
+  // Plain id refs (no Prisma self-relation) — resolved in the list endpoint.
+  replacesInwardId   String?
+  replacedByInwardId String?
+
   // Inward completion — stock created.
   inwardedAt DateTime?
   batchId    String?
