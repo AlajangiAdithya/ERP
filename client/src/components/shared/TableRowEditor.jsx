@@ -19,11 +19,25 @@ export function inferType(val) {
   return 'text';
 }
 
-// Build the field descriptors for editing an existing row.
+// Build the field descriptors for editing an existing row. Skips id/timestamps
+// and the server's resolved-label helper keys (anything starting with "_"). When
+// a column is a foreign key whose name we resolved, that name rides along as a
+// `hint` so the editor can show "productId = Acetone".
 export function editFieldsFor(row) {
   return Object.keys(row)
-    .filter((k) => !AUTO_FIELDS.includes(k))
-    .map((k) => ({ key: k, type: inferType(row[k]), value: row[k], wasNull: row[k] == null }));
+    .filter((k) => !AUTO_FIELDS.includes(k) && !k.startsWith('_'))
+    .map((k) => ({ key: k, type: inferType(row[k]), value: row[k], wasNull: row[k] == null, hint: row._labels?.[k] || null }));
+}
+
+// "productId" → "Product", "workOrderId" → "Work Order". Display only.
+export function prettyHeader(col) {
+  return col.replace(/Id$/, '').replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()).trim();
+}
+
+// The readable label the server resolved for a foreign-key column, else the raw
+// stored value.
+export function cellValue(row, col) {
+  return row._labels && row._labels[col] != null ? row._labels[col] : row[col];
 }
 
 // Turn the per-field form values back into a typed payload for the API.
@@ -148,6 +162,7 @@ export function RowEditor({ title, subtitle, fields, omitEmpty, submitLabel, bus
               <div key={f.key}>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   {f.key}
+                  {f.hint && <span className="ml-1.5 text-purple-700 font-normal">= {f.hint}</span>}
                   <span className="ml-1.5 text-[10px] uppercase tracking-wide text-gray-400">{f.type}</span>
                 </label>
                 <FieldInput field={f} value={values[f.key]} onChange={(v) => set(f.key, v)} />

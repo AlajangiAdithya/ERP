@@ -12,7 +12,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Database, Edit2, Trash2, Plus, X, RefreshCw, FileText, ExternalLink, Search } from 'lucide-react';
 import api from '../../api/axios';
 import PageHero from '../../components/shared/PageHero';
-import { AUTO_FIELDS, inferType, editFieldsFor, renderCell, RowEditor } from '../../components/shared/TableRowEditor';
+import { AUTO_FIELDS, inferType, editFieldsFor, renderCell, RowEditor, cellValue } from '../../components/shared/TableRowEditor';
 
 export default function RealtimeCorrections() {
   const [view, setView] = useState('tables'); // 'tables' | 'uploads'
@@ -134,7 +134,8 @@ export default function RealtimeCorrections() {
   const columns = useMemo(() => {
     if (rows.length === 0) return [];
     const keys = new Set();
-    rows.forEach((r) => Object.keys(r).forEach((k) => keys.add(k)));
+    // Skip the server's resolved-label helper keys (_labels, _rowLabel).
+    rows.forEach((r) => Object.keys(r).forEach((k) => { if (!k.startsWith('_')) keys.add(k); }));
     // id first
     return ['id', ...Array.from(keys).filter((k) => k !== 'id')];
   }, [rows]);
@@ -568,7 +569,7 @@ export default function RealtimeCorrections() {
                             <div className="flex items-center justify-between gap-2">
                               <label className="flex items-center gap-2 min-w-0">
                                 <input type="checkbox" checked={selectedRows.has(row.id)} onChange={() => toggleRowSelection(row.id)} />
-                                <span className="font-mono text-xs text-gray-500 truncate">#{String(row.id)}</span>
+                                <span className="font-semibold text-sm text-gray-900 truncate">{row._rowLabel || `#${String(row.id)}`}</span>
                               </label>
                               <div className="flex gap-4">
                                 <button onClick={() => { setModalError(''); setEditRow(row); }} className="text-blue-600" title="Edit"><Edit2 size={18} /></button>
@@ -579,7 +580,7 @@ export default function RealtimeCorrections() {
                               {columns.filter((c) => c !== 'id').map((c) => (
                                 <div key={c} className="flex gap-2 text-xs">
                                   <dt className="text-gray-500 w-28 shrink-0 truncate">{c}</dt>
-                                  <dd className="text-gray-800 min-w-0 break-words">{renderCell(row[c])}</dd>
+                                  <dd className="text-gray-800 min-w-0 break-words">{renderCell(cellValue(row, c))}</dd>
                                 </div>
                               ))}
                             </dl>
@@ -625,7 +626,7 @@ export default function RealtimeCorrections() {
                                 </div>
                               </td>
                               {columns.map((c) => (
-                                <td key={c} className="px-2 py-1 whitespace-nowrap max-w-xs truncate">{renderCell(row[c])}</td>
+                                <td key={c} className="px-2 py-1 whitespace-nowrap max-w-xs truncate">{renderCell(cellValue(row, c))}</td>
                               ))}
                             </tr>
                           ))}

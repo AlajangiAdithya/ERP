@@ -9,6 +9,7 @@ const { Prisma } = require('@prisma/client');
 const { authenticate } = require('../middleware/auth');
 const { superadminOnly } = require('../middleware/superadminOnly');
 const { generateAccessToken } = require('../utils/jwt');
+const { toOneRelations, relationInclude, decorateRow } = require('../utils/rowLabels');
 const prisma = require('../config/db');
 const {
   listBackupTree, signBackupUrl, previewBackup,
@@ -126,7 +127,10 @@ router.get('/table/:name', async (req, res) => {
       where = { OR: fields.map((f) => ({ [f]: { contains: q, mode: 'insensitive' } })) };
     }
   }
-  const findArgs = { skip: (page - 1) * limit, take: limit, ...(where && { where }) };
+  // Resolve foreign-key ids to readable names (productId → "Acetone", etc.).
+  const rels = toOneRelations(name);
+  const include = relationInclude(rels);
+  const findArgs = { skip: (page - 1) * limit, take: limit, ...(where && { where }), ...(include && { include }) };
   const countArgs = where ? { where } : undefined;
 
   try {
@@ -134,6 +138,7 @@ router.get('/table/:name', async (req, res) => {
       prisma[key].findMany({ ...findArgs, orderBy: { createdAt: 'desc' } }),
       prisma[key].count(countArgs),
     ]);
+    rows.forEach((r) => decorateRow(r, rels));
     res.json({ rows, total, page, totalPages: Math.ceil(total / limit) });
   } catch (e) {
     // Tables without createdAt fall back to no ordering
@@ -142,6 +147,7 @@ router.get('/table/:name', async (req, res) => {
         prisma[key].findMany(findArgs),
         prisma[key].count(countArgs),
       ]);
+      rows.forEach((r) => decorateRow(r, rels));
       res.json({ rows, total, page, totalPages: Math.ceil(total / limit) });
     } catch (e2) {
       console.error(`superadmin/table/${name} error:`, e2);

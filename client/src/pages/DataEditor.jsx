@@ -10,7 +10,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Pencil, RefreshCw, Search, Table2 } from 'lucide-react';
 import api from '../api/axios';
 import PageHero from '../components/shared/PageHero';
-import { editFieldsFor, renderCell, RowEditor } from '../components/shared/TableRowEditor';
+import { editFieldsFor, renderCell, RowEditor, prettyHeader, cellValue } from '../components/shared/TableRowEditor';
 
 export default function DataEditor() {
   const [tables, setTables] = useState([]);
@@ -81,11 +81,13 @@ export default function DataEditor() {
     setPage(1);
   }
 
+  // Columns to show: skip the raw id and the server's "_labels"/"_rowLabel"
+  // helper keys. The friendly row label stands in for the id.
   const columns = useMemo(() => {
     if (rows.length === 0) return [];
     const keys = new Set();
-    rows.forEach((r) => Object.keys(r).forEach((k) => keys.add(k)));
-    return ['id', ...Array.from(keys).filter((k) => k !== 'id')];
+    rows.forEach((r) => Object.keys(r).forEach((k) => { if (k !== 'id' && !k.startsWith('_')) keys.add(k); }));
+    return Array.from(keys);
   }, [rows]);
 
   async function saveEdit(payload) {
@@ -207,19 +209,19 @@ export default function DataEditor() {
                     {rows.map((row) => (
                       <div key={row.id} className="p-3">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-mono text-xs text-gray-500 truncate">#{String(row.id)}</span>
+                          <span className="font-semibold text-sm text-gray-900 min-w-0 truncate">{row._rowLabel || '—'}</span>
                           <button
                             onClick={() => { setModalError(''); setEditRow(row); }}
-                            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg"
+                            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg shrink-0"
                           >
                             <Pencil size={15} /> Edit
                           </button>
                         </div>
                         <dl className="mt-2 space-y-1">
-                          {columns.filter((c) => c !== 'id').map((c) => (
+                          {columns.map((c) => (
                             <div key={c} className="flex gap-2 text-xs">
-                              <dt className="text-gray-500 w-28 shrink-0 truncate">{c}</dt>
-                              <dd className="text-gray-800 min-w-0 break-words">{renderCell(row[c])}</dd>
+                              <dt className="text-gray-500 w-28 shrink-0 truncate">{prettyHeader(c)}</dt>
+                              <dd className="text-gray-800 min-w-0 break-words">{renderCell(cellValue(row, c))}</dd>
                             </div>
                           ))}
                         </dl>
@@ -233,8 +235,9 @@ export default function DataEditor() {
                       <thead className="bg-gray-50 sticky top-0">
                         <tr>
                           <th className="px-2 py-2 text-left font-semibold text-gray-600 w-16">Edit</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">Record</th>
                           {columns.map((c) => (
-                            <th key={c} className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">{c}</th>
+                            <th key={c} className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">{prettyHeader(c)}</th>
                           ))}
                         </tr>
                       </thead>
@@ -246,8 +249,9 @@ export default function DataEditor() {
                                 <Pencil size={15} />
                               </button>
                             </td>
+                            <td className="px-2 py-1 font-medium text-gray-900 whitespace-nowrap max-w-xs truncate">{row._rowLabel || '—'}</td>
                             {columns.map((c) => (
-                              <td key={c} className="px-2 py-1 whitespace-nowrap max-w-xs truncate">{renderCell(row[c])}</td>
+                              <td key={c} className="px-2 py-1 whitespace-nowrap max-w-xs truncate">{renderCell(cellValue(row, c))}</td>
                             ))}
                           </tr>
                         ))}
