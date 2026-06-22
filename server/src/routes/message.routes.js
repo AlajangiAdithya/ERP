@@ -15,6 +15,7 @@ const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { paginate } = require('../utils/helpers');
+const { HIDDEN_ROLES } = require('../utils/hiddenRoles');
 
 const router = express.Router();
 
@@ -97,13 +98,13 @@ router.get('/', authenticate, async (req, res) => {
 });
 
 // ── GET /api/messages/recipients — usernames for the @mention picker ──
-// Every active user except SUPERADMIN (hidden) and the caller themselves.
+// Every active user except hidden roles (SUPERADMIN, DATA_EDITOR) and the caller.
 router.get('/recipients', authenticate, async (req, res) => {
   try {
     const users = await prisma.user.findMany({
       where: {
         isActive: true,
-        role: { not: 'SUPERADMIN' },
+        role: { notIn: HIDDEN_ROLES },
         NOT: { id: req.user.id },
       },
       select: {
@@ -142,7 +143,7 @@ router.post('/', authenticate, async (req, res) => {
       // against the whole candidate list and keep the LONGEST one that the
       // text starts with on a word boundary. The remainder is the message.
       const candidates = await prisma.user.findMany({
-        where: { isActive: true, role: { not: 'SUPERADMIN' } },
+        where: { isActive: true, role: { notIn: HIDDEN_ROLES } },
         select: { id: true, username: true },
       });
       let match = null;

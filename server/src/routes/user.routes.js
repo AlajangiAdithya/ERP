@@ -5,6 +5,7 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
+const { HIDDEN_ROLES } = require('../utils/hiddenRoles');
 
 const router = express.Router();
 
@@ -54,8 +55,9 @@ router.get('/managers', authenticate, authorize('MANAGER', 'LAB', 'ADMIN'), asyn
 router.get('/', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
     const users = await prisma.user.findMany({
-      // SUPERADMIN account is never returned here — only its own session can see it.
-      where: req.user.role === 'SUPERADMIN' ? {} : { role: { not: 'SUPERADMIN' } },
+      // Hidden roles (SUPERADMIN, DATA_EDITOR) are never returned here — only a
+      // SUPERADMIN session sees everything; everyone else (incl. ADMIN) can't.
+      where: req.user.role === 'SUPERADMIN' ? {} : { role: { notIn: HIDDEN_ROLES } },
       select: {
         id: true, username: true, name: true, role: true,
         unitId: true, unit: { select: { id: true, name: true, code: true } },

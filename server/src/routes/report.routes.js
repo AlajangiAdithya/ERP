@@ -3,6 +3,7 @@ const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { paginate, applyDateFilter } = require('../utils/helpers');
+const { HIDDEN_ROLES } = require('../utils/hiddenRoles');
 
 const router = express.Router();
 
@@ -31,7 +32,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
         )
       `,
 
-      prisma.user.count({ where: { isActive: true, role: { not: 'SUPERADMIN' } } }),
+      prisma.user.count({ where: { isActive: true, role: { notIn: HIDDEN_ROLES } } }),
 
       prisma.productRequest.count({ where: { status: 'PENDING' } }),
 

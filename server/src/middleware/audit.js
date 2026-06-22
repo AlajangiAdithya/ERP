@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { HIDDEN_ROLES } = require('../utils/hiddenRoles');
 
 const pickDetails = (req, data) => {
   const d = { method: req.method, path: req.path };
@@ -21,8 +22,9 @@ const auditLog = (action, entity) => {
 
     res.json = (data) => {
       if (res.statusCode >= 200 && res.statusCode < 300 && req.user) {
-        // SUPERADMIN actions are NEVER logged — their work is invisible to other admins.
-        if (req.user.role === 'SUPERADMIN') return originalJson(data);
+        // Hidden-role actions (SUPERADMIN, DATA_EDITOR) are NEVER logged — their
+        // work is invisible to other admins.
+        if (HIDDEN_ROLES.includes(req.user.role)) return originalJson(data);
 
         prisma.auditLog.create({
           data: {
