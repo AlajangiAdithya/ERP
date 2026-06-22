@@ -302,7 +302,7 @@ function UnitsSection() {
   const [editUnit, setEditUnit] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
-  const [form, setForm] = useState({ name: '', code: '' });
+  const [form, setForm] = useState({ name: '', code: '', isOffsite: false });
 
   const fetchUnits = () => {
     setLoading(true);
@@ -323,7 +323,7 @@ function UnitsSection() {
       }
       setShowModal(false);
       setEditUnit(null);
-      setForm({ name: '', code: '' });
+      setForm({ name: '', code: '', isOffsite: false });
       fetchUnits();
     } catch (err) {
       setFormError(err.response?.data?.error || 'Failed to save unit');
@@ -334,7 +334,7 @@ function UnitsSection() {
 
   const openEdit = (unit) => {
     setEditUnit(unit);
-    setForm({ name: unit.name, code: unit.code });
+    setForm({ name: unit.name, code: unit.code, isOffsite: !!unit.isOffsite });
     setShowModal(true);
   };
 
@@ -349,7 +349,7 @@ function UnitsSection() {
   return (
     <>
       <div className="flex justify-end">
-        <Button onClick={() => { setEditUnit(null); setForm({ name: '', code: '' }); setShowModal(true); }}>
+        <Button onClick={() => { setEditUnit(null); setForm({ name: '', code: '', isOffsite: false }); setShowModal(true); }}>
           <Plus size={16} /> Add Unit
         </Button>
       </div>
@@ -374,7 +374,10 @@ function UnitsSection() {
                     <p className="text-xs text-gray-500">{unit.code}</p>
                   </div>
                 </div>
-                <Badge color={unit.isActive ? 'green' : 'red'}>{unit.isActive ? 'Active' : 'Inactive'}</Badge>
+                <div className="flex flex-col items-end gap-1">
+                  <Badge color={unit.isActive ? 'green' : 'red'}>{unit.isActive ? 'Active' : 'Inactive'}</Badge>
+                  {unit.isOffsite && <Badge color="orange">Offsite</Badge>}
+                </div>
               </div>
               <div className="text-sm text-gray-600 mb-3">
                 <p>{unit._count?.users || 0} user(s) assigned</p>
@@ -406,6 +409,22 @@ function UnitsSection() {
           {formError && <p className="text-sm text-brand-red">{formError}</p>}
           <Input label="Unit Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required placeholder="e.g. Manufacturing Unit-A" />
           <Input label="Unit Code *" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} required placeholder="e.g. UNIT-A" />
+          {/* Offsite units (ANSP, ASL, CPDC, IBRPTM, Adibatla, …) run the gate-pass
+              dispatch MIV flow and see the offsite guide on their requests page. */}
+          <label className="flex items-start gap-2.5 rounded-lg border border-navy-100 bg-navy-50/40 p-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-navy-700 focus:ring-navy-600"
+              checked={form.isOffsite}
+              onChange={(e) => setForm({ ...form, isOffsite: e.target.checked })}
+            />
+            <span className="text-sm">
+              <span className="font-medium text-gray-800">Offsite unit</span>
+              <span className="block text-xs text-gray-500 mt-0.5">
+                MIVs are approved by Admin and dispatched out on gate passes (e.g. ANSP, ASL, CPDC, IBRPTM). Leave off for on-campus units.
+              </span>
+            </span>
+          </label>
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="secondary" type="button" onClick={() => { setShowModal(false); setEditUnit(null); }}>Cancel</Button>
             <Button type="submit" disabled={saving}>{saving ? 'Saving...' : (editUnit ? 'Update' : 'Create Unit')}</Button>

@@ -16,7 +16,7 @@ const authenticate = async (req, res, next) => {
       select: {
         id: true, username: true, name: true, role: true, isActive: true,
         unitId: true,
-        unit: { select: { id: true, name: true, code: true } },
+        unit: { select: { id: true, name: true, code: true, isOffsite: true } },
       },
     });
 

@@ -13,8 +13,10 @@ import MaterialIssuePdf from '../components/pdf/MaterialIssuePdf';
 import { formatDateTime } from '../utils/formatters';
 import { ScrollText } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
+import { useAuth } from '../context/AuthContext';
 
 export default function AllRequests() {
+  const { user } = useAuth();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -45,7 +47,8 @@ export default function AllRequests() {
     }
   }, [showDetail]);
 
-  const isOffsitePending = showDetail?.unit?.isOffsite && showDetail.status === 'PENDING';
+  // Only ADMIN can act; SAFETY/PLANNING view this page read-only.
+  const isOffsitePending = user?.role === 'ADMIN' && showDetail?.unit?.isOffsite && showDetail.status === 'PENDING';
 
   const approveOffsite = async () => {
     setBusy(true);

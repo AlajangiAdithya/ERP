@@ -19,7 +19,7 @@ router.post('/login', async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { username },
-      include: { unit: { select: { id: true, name: true, code: true } } },
+      include: { unit: { select: { id: true, name: true, code: true, isOffsite: true } } },
     });
     if (!user || !user.isActive) {
       return res.status(401).json({ error: 'Invalid credentials' });

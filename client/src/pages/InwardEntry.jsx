@@ -207,8 +207,8 @@ function MaterialInwardRegister() {
   const canWrite = canInwardWrite(user);
   const isQC = QC_ROLES.includes(role);
   // Editing existing rows is a lighter grant than full inward write: Stores (canWrite)
-  // plus any unit manager (who only sees / edits their own unit's rows — the server
-  // enforces the own-unit rule).
+  // plus any unit manager (Units 1–5), who can view and edit every row in the shared
+  // register regardless of which unit it is bound for (the server allows all-unit edits).
   const canEdit = canWrite || role === 'MANAGER';
 
   const [rows, setRows] = useState([]);

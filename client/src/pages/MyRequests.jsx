@@ -12,6 +12,7 @@ import SearchBar from '../components/shared/SearchBar';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import MaterialIssuePdf from '../components/pdf/MaterialIssuePdf';
+import OffsiteMivGuide from '../components/shared/OffsiteMivGuide';
 import { formatDateTime } from '../utils/formatters';
 import { useAuth } from '../context/AuthContext';
 
@@ -181,6 +182,10 @@ export default function MyRequests() {
         icon={ClipboardList}
         actions={<Button onClick={openCreate}><Plus size={16} /> New Request</Button>}
       />
+
+      {/* Offsite units (ANSP/Adibatla, ASL, CPDC, IBRPTM, …) run a different MIV
+          path — show them a step-by-step guide so they understand the flow. */}
+      {user?.unit?.isOffsite && <OffsiteMivGuide />}
 
       <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
 

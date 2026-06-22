@@ -33,13 +33,13 @@ const requireInwardWrite = (req, res, next) => {
 };
 
 // Who may EDIT an existing register row's fields (a lighter grant than creating /
-// QC-ing / inwarding). Stores may edit any row; any other unit manager may edit
-// only the rows bound for their own unit — so units can set up / correct their own
-// receipts during rollout without touching others'.
+// QC-ing / inwarding). Stores may edit any row; any unit manager (Units 1–5) may
+// edit any row regardless of which unit it is bound for — the register is shared
+// across units so managers can set up / correct each other's receipts.
 const canEditInwardRow = (user, row) => {
   if (!user || !row) return false;
   if (user.role === 'SUPERADMIN' || canInwardWrite(user)) return true; // Stores
-  if (user.role === 'MANAGER' && user.unitId && row.issuedToUnitId === user.unitId) return true;
+  if (user.role === 'MANAGER') return true; // any unit manager may edit any row
   return false;
 };
 
@@ -521,8 +521,8 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const where = {};
     applyDateFilter(where, { fromDate, toDate }, 'inwardDate');
     if (status) where.status = status;
-    // Managers only see rows bound for their own unit.
-    if (req.user.role === 'MANAGER') where.issuedToUnitId = req.user.unitId;
+    // The register is shared across units: all unit managers (Units 1–5) see
+    // every row, regardless of which unit it is bound for.
 
     const [rows, total] = await Promise.all([
       // Fetch window: newest receipts first. Final display order is by MIR number

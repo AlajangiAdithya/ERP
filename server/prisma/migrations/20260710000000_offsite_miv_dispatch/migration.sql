@@ -3,6 +3,7 @@
 -- ADMIN approves (and may edit qty) → central store dispatches material out on
 -- NON_RETURNABLE gate passes → the offsite unit's MANAGER acks receipt. This adds
 -- the offsite flag, per-line dispatched-qty tracking, and the MIV↔GatePass bridge.
+-- Fully idempotent so it can be safely re-run after a partial apply.
 
 -- 1. Flag a unit as offsite.
 ALTER TABLE "Unit" ADD COLUMN IF NOT EXISTS "isOffsite" BOOLEAN NOT NULL DEFAULT false;
@@ -24,12 +25,22 @@ CREATE TABLE IF NOT EXISTS "GatePassMivLink" (
 CREATE INDEX IF NOT EXISTS "GatePassMivLink_gatePassItemId_idx" ON "GatePassMivLink"("gatePassItemId");
 CREATE INDEX IF NOT EXISTS "GatePassMivLink_requestItemId_idx" ON "GatePassMivLink"("requestItemId");
 
-ALTER TABLE "GatePassMivLink"
-    ADD CONSTRAINT "GatePassMivLink_gatePassItemId_fkey"
-    FOREIGN KEY ("gatePassItemId") REFERENCES "GatePassItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "GatePassMivLink"
-    ADD CONSTRAINT "GatePassMivLink_requestItemId_fkey"
-    FOREIGN KEY ("requestItemId") REFERENCES "RequestItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Foreign keys (ALTER ... ADD CONSTRAINT has no IF NOT EXISTS, so guard them).
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'GatePassMivLink_gatePassItemId_fkey') THEN
+        ALTER TABLE "GatePassMivLink"
+            ADD CONSTRAINT "GatePassMivLink_gatePassItemId_fkey"
+            FOREIGN KEY ("gatePassItemId") REFERENCES "GatePassItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'GatePassMivLink_requestItemId_fkey') THEN
+        ALTER TABLE "GatePassMivLink"
+            ADD CONSTRAINT "GatePassMivLink_requestItemId_fkey"
+            FOREIGN KEY ("requestItemId") REFERENCES "RequestItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- 4. Seed the six known offsite units (idempotent; matches name or code).
 UPDATE "Unit"
