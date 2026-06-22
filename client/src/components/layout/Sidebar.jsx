@@ -5,7 +5,7 @@ import {
   BarChart3, Settings, Menu, X,
   CheckSquare, ClipboardCheck, ScrollText,
   Building2, ShieldCheck, Crown, Boxes, Ruler,
-  ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation, Gauge,
+  ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation, Gauge, Table2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -82,6 +82,8 @@ const buildAllItems = () => {
     // SUPERADMIN-only owner hatch — invisible to everyone else. One entry
     // takes the owner to the hub; deeper pages link from there.
     { to: '/superadmin', icon: Crown, label: 'Control Hub', roles: ['SUPERADMIN'] },
+    // DATA_EDITOR-only — single-purpose edit-only table corrector.
+    { to: '/data-editor', icon: Table2, label: 'Edit Data', roles: ['DATA_EDITOR'] },
   ];
 
   return items;

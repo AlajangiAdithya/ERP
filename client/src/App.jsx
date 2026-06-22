@@ -39,6 +39,7 @@ import SuperAdminHub from './pages/superadmin/Hub';
 import SuperAdminUsers from './pages/superadmin/Users';
 import SuperAdminBroadcast from './pages/superadmin/Broadcast';
 import SuperAdminActivity from './pages/superadmin/Activity';
+import DataEditor from './pages/DataEditor';
 import Metrology from './pages/Metrology';
 import PressureGauges from './pages/metrology/PressureGauges';
 import VacuumGauges from './pages/metrology/VacuumGauges';
@@ -148,7 +149,11 @@ export default function App() {
             <Routes>
               {/* INWARD_QC is a single-purpose login: no dashboard, straight to
                   the Material Inward register where it does its one job (QC review). */}
-              <Route path="/" element={user?.role === 'INWARD_QC' ? <Navigate to="/inward-entry" replace /> : <Dashboard />} />
+              <Route path="/" element={
+                user?.role === 'INWARD_QC' ? <Navigate to="/inward-entry" replace />
+                : user?.role === 'DATA_EDITOR' ? <Navigate to="/data-editor" replace />
+                : <Dashboard />
+              } />
 
               {/* Admin only */}
               <Route path="/management" element={
@@ -364,6 +369,11 @@ export default function App() {
               } />
               <Route path="/superadmin/health" element={
                 <PrivateRoute allowedRoles={['SUPERADMIN']}><Health /></PrivateRoute>
+              } />
+
+              {/* DATA_EDITOR — edit-only "Edit Data" table corrector (SUPERADMIN too). */}
+              <Route path="/data-editor" element={
+                <PrivateRoute allowedRoles={['DATA_EDITOR', 'SUPERADMIN']}><DataEditor /></PrivateRoute>
               } />
 
               {/* All roles */}

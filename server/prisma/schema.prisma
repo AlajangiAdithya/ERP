@@ -163,6 +163,11 @@ enum Role {
   // Hidden owner-only role — never appears in UI lists, dashboards, notification
   // broadcasts, approval chains. Has Real-time Corrections + Backups + Audit pages.
   SUPERADMIN
+  // Edit-only data corrector. Single-purpose login: lands straight on the
+  // "Edit Data" page where it can change values in existing rows via a simple
+  // form (no insert / delete / JSON). Backed by /api/data-editor. Enforced by
+  // middleware/dataEditorOnly.js — NOT by the role hierarchy.
+  DATA_EDITOR
 }
 
 // ──── UNITS ────

@@ -18,6 +18,9 @@ const ROLE_HIERARCHY = {
   INWARD_QC: 2,
   DESIGNS: 2,
   PURCHASE_OFFICER: 1,
+  // Edit-only data corrector. Sits at the bottom of the hierarchy — its access
+  // is the /api/data-editor route allow-list, not any authorize() check.
+  DATA_EDITOR: 1,
   LAB: 1,
   METROLOGY: 1,
   NDT: 1,
