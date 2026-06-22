@@ -36,6 +36,12 @@ export default function MaterialIssuePdf({ data }) {
             <View style={[styles.cell, { width: '30%' }]}><Text>{r.mirNo || '—'}</Text></View>
           </View>
           <View style={styles.row}>
+            <View style={[styles.cellLabel, { width: '20%' }]}><Text>Work Order No.</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{r.workOrder?.workOrderNumber || '—'}</Text></View>
+            <View style={[styles.cellLabel, { width: '20%' }]}><Text>Supply Order No.</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{r.workOrder?.supplyOrderNo || '—'}</Text></View>
+          </View>
+          <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Requested By</Text></View>
             <View style={[styles.cell, { width: '30%' }]}><Text>{r.manager?.name || '—'}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Unit / Dept.</Text></View>
