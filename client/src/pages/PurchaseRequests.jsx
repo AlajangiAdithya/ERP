@@ -453,6 +453,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                       <option value="Hand Tools">Hand Tools</option>
                       <option value="Fasteners">Fasteners</option>
                       <option value="Tools & Fixtures">Tools & Fixtures</option>
+                      <option value="Machinery">Machinery</option>
                       <option value="Others">Others</option>
                     </select>
                   </td>

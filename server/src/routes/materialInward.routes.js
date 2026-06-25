@@ -159,6 +159,12 @@ const isToolsAndFixtures = (product, row) =>
 const isHandTools = (product, row) =>
   normalizeMaterialType(product?.category || row?.materialType) === 'Hand Tools';
 
+// Machinery needs NO QC at all — like Hand Tools it is inwarded straight into the
+// store (or assigned to units), bypassing both the QC requirement and the
+// master-data hold. There is no deferred QC to perform later.
+const isMachinery = (product, row) =>
+  normalizeMaterialType(product?.category || row?.materialType) === 'Machinery';
+
 // Notify QC + the owning unit's manager that a material is held at inward because
 // its master data hasn't been added yet (or, on deferred-QC failure, to flag it).
 async function notifyMasterDataHold(row, sentById, { title, message }) {
@@ -649,7 +655,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       masterDataPending: (() => {
         const p = r.productId ? productMap[r.productId] : null;
         if (!p || r.inwardedAt) return false;
-        if (isToolsAndFixtures(p, r) || isHandTools(p, r)) return false;
+        if (isToolsAndFixtures(p, r) || isHandTools(p, r) || isMachinery(p, r)) return false;
         return p.masterDataComplete === false;
       })(),
       // Tools & Fixtures inwarded to a unit before QC — QC still pending. Scoped to
@@ -657,6 +663,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       qcPending: isToolsAndFixtures(r.productId ? productMap[r.productId] : null, r) && !!(r.inwardedAt && !r.qcResult),
       isToolsAndFixtures: isToolsAndFixtures(r.productId ? productMap[r.productId] : null, r),
       isHandTools: isHandTools(r.productId ? productMap[r.productId] : null, r),
+      isMachinery: isMachinery(r.productId ? productMap[r.productId] : null, r),
     }));
 
     // Order by MIR number so a back-dated 10A lands right after 10.
@@ -1401,8 +1408,9 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
 
     const isTF = isToolsAndFixtures(product, row);
     const isHT = isHandTools(product, row);
+    const isMach = isMachinery(product, row);
 
-    if (!isTF && !isHT) {
+    if (!isTF && !isHT && !isMach) {
       // Normal flow: QC must be finished + passed, and the master data must have
       // been added, before any stock is created.
       if (row.status !== 'QC_DONE') return res.status(400).json({ error: 'Finish QC before inwarding' });
@@ -1417,7 +1425,7 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
     }
     // Tools & Fixtures: inward allowed from any pre-inward status; QC + master data
     // are deferred and handled later on the already-inwarded lot.
-    // Hand Tools: inward allowed from any pre-inward status; no QC is ever needed.
+    // Hand Tools / Machinery: inward allowed from any pre-inward status; no QC is ever needed.
 
     // Inward the QC-accepted qty when QC set one, else the received qty.
     const qty = row.qtyAccepted != null ? row.qtyAccepted : (row.qtyReceived || 0);

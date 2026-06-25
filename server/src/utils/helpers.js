@@ -22,7 +22,8 @@ const applyDateFilter = (where, { fromDate, toDate }, field = 'createdAt') => {
 // 'Hand Tools & Fastners' was split into two distinct categories: 'Hand Tools'
 // (no QC on inward) and 'Fasteners' (normal QC). The combined label is kept in
 // normalizeMaterialType() so legacy products keep their existing category.
-const MATERIAL_TYPES = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Stationery', 'Others'];
+// 'Machinery' also skips QC on inward — it's inwarded straight into the store.
+const MATERIAL_TYPES = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Stationery', 'Others'];
 
 const materialTypeToSkuPrefix = (materialType) => {
   switch ((materialType || '').trim().toLowerCase()) {
@@ -35,6 +36,8 @@ const materialTypeToSkuPrefix = (materialType) => {
     case 'fastners':               return 'FAST';
     case 'tools & fixtures':       return 'FIX';
     case 'tools and fixtures':     return 'FIX';
+    case 'machinery':              return 'MACH';
+    case 'machineries':            return 'MACH';
     case 'stationery':             return 'STAT';
     case 'stationary':             return 'STAT';
     default:                       return 'OTH';
@@ -62,6 +65,7 @@ const normalizeMaterialType = (value) => {
     t === 'fixtures' ||
     t === 'fixture'
   ) return 'Tools & Fixtures';
+  if (t === 'machinery' || t === 'machineries' || t === 'machine') return 'Machinery';
   if (t === 'stationery' || t === 'stationary') return 'Stationery';
   return 'Others';
 };

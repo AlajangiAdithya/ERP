@@ -120,7 +120,7 @@ const ASSIGN_DEPTS = ['Designs', 'QC', 'Lab', 'Metrology', 'NDT', 'Safety', 'Pla
 const docLabel = (v) => DOC_TYPES.find((d) => d.value === v)?.label || v;
 
 // Product / material type — same vocabulary as the PR form (PurchaseRequests).
-const MATERIAL_TYPE_OPTIONS = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Others'];
+const MATERIAL_TYPE_OPTIONS = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Others'];
 
 const STATUS_META = {
   DRAFT:        { label: 'Draft',        tone: 'gray' },
@@ -563,16 +563,16 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTak
                       <div className="flex flex-col gap-1 items-start">
                         {canWrite && r.status === 'DRAFT' && (
                           <>
-                            {/* Hand Tools: no QC at all — inward straight to store / unit. */}
-                            {r.isHandTools && (
+                            {/* Hand Tools / Machinery: no QC at all — inward straight to store / unit. */}
+                            {(r.isHandTools || r.isMachinery) && (
                               <ActBtn tone="green" busy={busy} onClick={() => onInward(r)}><ArrowDownToLine size={11} /> Inward (no QC)</ActBtn>
                             )}
                             {/* Tools & Fixtures fast-path: straight to the unit, QC later. */}
                             {r.isToolsAndFixtures && (
                               <ActBtn tone="green" busy={busy} onClick={() => onInward(r)}><ArrowDownToLine size={11} /> Inward to unit (QC later)</ActBtn>
                             )}
-                            {/* Hand Tools skip QC entirely; everything else can be sent to QC. */}
-                            {!r.isHandTools && (
+                            {/* Hand Tools / Machinery skip QC entirely; everything else can be sent to QC. */}
+                            {!r.isHandTools && !r.isMachinery && (
                               <ActBtn tone="amber" busy={busy} onClick={() => onRequestQc(r)}><FlaskConical size={11} /> Request QC</ActBtn>
                             )}
                             <IconBtn title="Delete" danger onClick={() => onDelete(r)}><Trash2 size={12} /></IconBtn>
@@ -1793,9 +1793,9 @@ function InwardConfirmModal({ row, onClose, onDone }) {
             </div>
           )}
           {!row.product && <p className="text-[11px] text-amber-600">No linked product — this will mark the row inwarded without a stock movement.</p>}
-          {row.isHandTools && (
+          {(row.isHandTools || row.isMachinery) && (
             <p className="text-[11px] bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-2">
-              <strong>Hand Tools:</strong> no QC required — this is inwarded straight into the store (or
+              <strong>{row.isMachinery ? 'Machinery' : 'Hand Tools'}:</strong> no QC required — this is inwarded straight into the store (or
               assigned to the unit) without a QC or master-data check.
             </p>
           )}
@@ -2639,6 +2639,7 @@ function AcceptInwardForm({ gatePass, onCancel, onComplete, canEdit }) {
                       <option>Hand Tools</option>
                       <option>Fasteners</option>
                       <option>Tools & Fixtures</option>
+                      <option>Machinery</option>
                     </select>
                   </div>
                 </>
