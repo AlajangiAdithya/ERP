@@ -191,7 +191,12 @@ export default function PaymentRequests() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const isAccounting = ['ACCOUNTING', 'ADMIN'].includes(user?.role);
+  // Roles that see the whole payment ledger (vs PURCHASE_OFFICER's own list).
+  // FINANCE is a read-only observer here, so it gets the full-list view but not
+  // the process capability below.
+  const isAccounting = ['ACCOUNTING', 'ADMIN', 'FINANCE'].includes(user?.role);
+  // Who can actually action a payment (approve/process) — FINANCE excluded.
+  const canProcess = ['ACCOUNTING', 'ADMIN'].includes(user?.role);
   const refreshKey = useAutoRefresh();
 
   const fetchData = async () => {
@@ -285,7 +290,7 @@ export default function PaymentRequests() {
                       <Button size="sm" variant="secondary" onClick={() => setSelectedPayment(p)}>
                         <Eye size={14} className="mr-1" /> {
                           user?.role === 'ADMIN' && p.status === 'PENDING' ? 'Review' :
-                          isAccounting && p.status === 'APPROVED' ? 'Process' : 'View'
+                          canProcess && p.status === 'APPROVED' ? 'Process' : 'View'
                         }
                       </Button>
                     </td>

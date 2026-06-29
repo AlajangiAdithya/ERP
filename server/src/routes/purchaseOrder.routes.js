@@ -52,7 +52,9 @@ const router = express.Router();
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
 // LAB / METROLOGY / NDT included so they can track POs born from their own PRs
 // (they raise PRs and are own-scoped below, mirroring the PR list).
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'SAFETY', 'LAB', 'METROLOGY', 'NDT'];
+// ACCOUNTING + FINANCE are admin-level read-only observers (no status scoping
+// below applies to them, so they see every PO like ADMIN).
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'SAFETY', 'LAB', 'METROLOGY', 'NDT'];
 
 // Requester roles that may reach the PO chain but must only see POs tied to their
 // OWN purchase requests — same own-only model as the PR list. Unit managers see

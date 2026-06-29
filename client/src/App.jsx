@@ -62,8 +62,10 @@ import Qms from './pages/Qms';
 import QmsDocuments from './pages/qms/QmsDocuments';
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
-// Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+// Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts,
+// Finance, Planning (+ ADMIN). ACCOUNTING + FINANCE are admin-level read-only
+// observers — full chain visibility, no edit/approve controls.
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
 
 // Metrology calibration registers access (per access chart RAPS/QSP):
 // Full edit = METROLOGY, QC, MANAGER@UNIT-V.
@@ -160,10 +162,10 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN']}><Management /></PrivateRoute>
               } />
               <Route path="/all-requests" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'SAFETY', 'PLANNING']}><AllRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'SAFETY', 'PLANNING', 'ACCOUNTING', 'FINANCE']}><AllRequests /></PrivateRoute>
               } />
               <Route path="/audit-logs" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'SAFETY', 'PLANNING']}><AuditLogs /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'SAFETY', 'PLANNING', 'ACCOUNTING', 'FINANCE']}><AuditLogs /></PrivateRoute>
               } />
               <Route path="/unit-usage" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><UnitUsageLogs /></PrivateRoute>
@@ -188,7 +190,7 @@ export default function App() {
 
               {/* Monitoring hub — Stock Movements, Audit Logs, Unit Usage Logs. */}
               <Route path="/monitoring" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY']}><Monitoring /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY', 'ACCOUNTING', 'FINANCE']}><Monitoring /></PrivateRoute>
               } />
 
               {/* PR → PO → QC → Inward chain — restricted to: Unit Managers, Quality,
@@ -198,7 +200,7 @@ export default function App() {
               } />
 
               <Route path="/quotations" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER']}><QuotationManagement /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE']}><QuotationManagement /></PrivateRoute>
               } />
 
               {/* Product Master Data now lives inside Stock Details as the
@@ -211,7 +213,7 @@ export default function App() {
               {/* Approved Supplier List register — client-spec viewers only:
                   admin, managers, purchase, stores, designs. */}
               <Route path="/suppliers" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS']}><Suppliers /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS', 'ACCOUNTING', 'FINANCE']}><Suppliers /></PrivateRoute>
               } />
 
               <Route path="/purchase-orders" element={
@@ -219,17 +221,17 @@ export default function App() {
               } />
 
               <Route path="/payment-requests" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING']}><PaymentRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING', 'FINANCE']}><PaymentRequests /></PrivateRoute>
               } />
 
               {/* Inward Entry — Stores does the work; Manager/QC/Designs/R&D/Safety
                   get read-only access for traceability. INWARD_QC lands here as its
                 only page and performs the QC review. */}
               <Route path="/inward-entry" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'SAFETY']}><InwardEntry /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'SAFETY', 'ACCOUNTING', 'FINANCE']}><InwardEntry /></PrivateRoute>
               } />
               <Route path="/stock-movements" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY']}><StockMovements /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY', 'ACCOUNTING', 'FINANCE']}><StockMovements /></PrivateRoute>
               } />
               {/* Dispatch hub — landing page for Gate Pass, Logistics, Vehicle Movement. */}
               <Route path="/transport" element={<PrivateRoute><Transport /></PrivateRoute>} />
@@ -246,7 +248,7 @@ export default function App() {
               } />
               {/* Inventory Transfers — unit MANAGERs + owner depts (QC/Designs/Lab/Metrology/NDT/Safety/Planning) + LOGISTICS/ADMIN monitor */}
               <Route path="/inventory-transfers" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LOGISTICS', 'SAFETY', 'ADMIN', 'QC', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'PLANNING']}><InventoryTransfers /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LOGISTICS', 'SAFETY', 'ADMIN', 'QC', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'PLANNING', 'ACCOUNTING', 'FINANCE']}><InventoryTransfers /></PrivateRoute>
               } />
 
               {/* ION — MANAGER / LAB / METROLOGY / NDT / RND (creators + recipients);

@@ -17,7 +17,9 @@ const router = express.Router();
 // Approved Supplier List viewers: per client spec — admin, managers, purchase,
 // stores, designs. (Other procurement roles can still see suppliers through
 // quotation/PO contexts; this scope governs the register UI.)
-const VIEW_ROLES = ['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS'];
+// ACCOUNTING + FINANCE added as read-only observers; the client hides edit
+// controls from them (canEdit = PURCHASE_OFFICER/ADMIN only).
+const VIEW_ROLES = ['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS', 'ACCOUNTING', 'FINANCE'];
 
 // Decorate a supplier with compliance flags computed from current FY plus the
 // latest re-evaluation snapshot for the "Evaluation Details" panel. The client

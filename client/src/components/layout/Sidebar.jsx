@@ -17,7 +17,7 @@ const ALL_ROLES = [
 
 // Departments allowed to see the PR → PO → QC → Inward chain.
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'SAFETY'];
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'SAFETY'];
 
 // Metrology hub viewers (per access chart RAPS/QSP):
 // Full edit = METROLOGY, QC, MANAGER@UNIT-V.
@@ -26,9 +26,9 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'HR', 'PLANNING'];
 
 // Procurement & Inventory Management hub is visible to every authenticated
-// user EXCEPT Supply Chain, HR, and Finance — Finance is customer-side
-// receivables only and doesn't raise material PRs through this hub.
-const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN' && r !== 'HR' && r !== 'FINANCE');
+// user EXCEPT Supply Chain and HR. ACCOUNTING + FINANCE are admin-level
+// read-only observers of the procurement chain, so the hub is open to them.
+const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN' && r !== 'HR');
 
 // HR hub is hidden from Metrology — not part of their workflow.
 const NON_METROLOGY_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY');
@@ -69,7 +69,7 @@ const buildAllItems = () => {
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY'] },
     // Monitoring hub — Stock Movements, All MIV Requests, Audit Logs, Unit Usage Logs.
-    { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY'] },
+    { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY', 'ACCOUNTING', 'FINANCE'] },
     // QMS hub (SOPs, Work Instructions, KPIs).
     // Document uploads gated to Unit-5 server-side.
     // HIDDEN FROM ERP (code retained, not removed):

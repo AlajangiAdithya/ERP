@@ -11,10 +11,10 @@ const router = express.Router();
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING'];
 
-// Payment-request read access — narrower than CHAIN_ROLES. Only Admin,
-// Purchase Officer (raises the request), and Accounting (approves & pays)
-// need visibility into supplier payments.
-const PAYMENT_VIEW_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING'];
+// Payment-request read access. Admin, Purchase Officer (raises the request),
+// and Accounting (approves & pays) act on these; FINANCE is added as a
+// read-only observer (the pay/approve/reject endpoints below stay Accounting/Admin).
+const PAYMENT_VIEW_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING', 'FINANCE'];
 
 const createSchema = z.object({
   purchaseOrderId: z.string().uuid(),
@@ -35,7 +35,7 @@ router.get('/', authenticate, authorize(...PAYMENT_VIEW_ROLES), async (req, res)
     if (req.user.role === 'PURCHASE_OFFICER') {
       where.createdById = req.user.id;
     }
-    // ACCOUNTING and ADMIN see all
+    // ACCOUNTING, ADMIN and FINANCE see all (FINANCE is read-only)
 
     if (status) where.status = status;
     if (purchaseOrderId) where.purchaseOrderId = purchaseOrderId;

@@ -9,7 +9,8 @@ import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
 
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+// ACCOUNTING + FINANCE are admin-level read-only observers across the chain.
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
 
 // Every authenticated role gets Products visibility — stock data is universal.
 const ALL_ROLES = [
@@ -20,12 +21,14 @@ const ALL_ROLES = [
 
 // Narrower visibility for finance-sensitive modules. Unit managers and the
 // quality/design departments don't need to see supplier prices or payment runs.
-const QUOTATION_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER'];
-const PAYMENT_ROLES   = ['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING'];
+// ACCOUNTING + FINANCE added as read-only observers of the finance-sensitive modules.
+const QUOTATION_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE'];
+const PAYMENT_ROLES   = ['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING', 'FINANCE'];
 
 // Inward Entry: Stores actually records inward (write); Manager/QC/Designs/R&D
 // can see what's ready and what's been inwarded for traceability (read-only).
-const INWARD_ROLES = ['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'DESIGNS', 'RND'];
+// ACCOUNTING + FINANCE get the same read-only traceability view.
+const INWARD_ROLES = ['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'ACCOUNTING', 'FINANCE'];
 
 const MODULES = [
   {
@@ -44,7 +47,7 @@ const MODULES = [
     icon: Building2,
     title: 'Approved Supplier List',
     description: 'Approved Supplier List, re-evaluation log, assessment forms and performance ratings. Product master data now lives under Stock Details.',
-    roles: ['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS'],
+    roles: ['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS', 'ACCOUNTING', 'FINANCE'],
     gradient: 'from-fuchsia-500 via-purple-600 to-violet-700',
     glow: 'group-hover:shadow-purple-500/40',
     iconBg: 'bg-gradient-to-br from-fuchsia-100 to-purple-200 text-purple-700',
@@ -122,7 +125,7 @@ const MODULES = [
     icon: ScrollText,
     title: 'All MIV Requests',
     description: 'Every Material Issue Voucher request across units, with full status history.',
-    roles: ['ADMIN', 'SAFETY', 'PLANNING'],
+    roles: ['ADMIN', 'SAFETY', 'PLANNING', 'ACCOUNTING', 'FINANCE'],
     gradient: 'from-emerald-500 via-teal-500 to-cyan-600',
     glow: 'group-hover:shadow-emerald-500/40',
     iconBg: 'bg-gradient-to-br from-emerald-100 to-teal-200 text-emerald-700',
@@ -133,7 +136,7 @@ const MODULES = [
     icon: ArrowLeftRight,
     title: 'Inventory Transfers',
     description: 'Move reserved stock between units and departments; track approvals.',
-    roles: ['MANAGER', 'LOGISTICS', 'SAFETY', 'ADMIN', 'QC', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'PLANNING'],
+    roles: ['MANAGER', 'LOGISTICS', 'SAFETY', 'ADMIN', 'QC', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'PLANNING', 'ACCOUNTING', 'FINANCE'],
     gradient: 'from-rose-500 via-pink-500 to-fuchsia-600',
     glow: 'group-hover:shadow-rose-500/40',
     iconBg: 'bg-gradient-to-br from-rose-100 to-pink-200 text-rose-700',

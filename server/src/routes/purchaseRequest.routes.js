@@ -28,9 +28,11 @@ const OWN_ONLY_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'LAB', 'METROLOGY', '
 // Monitor roles — full read visibility across the chain. PLANNING also raises
 // its own PRs (see REQUESTER_ROLES), but its visibility stays org-wide.
 const MONITOR_ROLES = ['PLANNING'];
-// Full chain visibility: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
+// Full chain visibility: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Finance, Planning (+ ADMIN).
 // LAB / METROLOGY / NDT included so their own raised PRs are visible to them through the listing endpoints.
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+// ACCOUNTING + FINANCE are admin-level read-only observers — they see the whole
+// chain (every PR in every status) but never get the approve/edit endpoints.
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
 // Roles that are globally-scoped — they raise PRs in their own name, not for any
 // specific unit. Their PRs have unitId = null and only show up on their own
 // dashboard plus the procurement chain (ADMIN, PURCHASE_OFFICER, ACCOUNTING).
@@ -136,10 +138,10 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
     } else if (req.user.role === 'PURCHASE_OFFICER') {
       // PO sees approved and beyond
       where.status = { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE'] };
-    } else if (req.user.role === 'ACCOUNTING') {
-      where.status = { in: ['QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED'] };
     }
-    // ADMIN and STORE_MANAGER see all
+    // ADMIN, STORE_MANAGER, ACCOUNTING and FINANCE see all — accounts/finance are
+    // full read-only observers, so they get every PR in every status (including
+    // the still-floating pending/in-progress ones), exactly like admin.
 
     if (status && !['PURCHASE_OFFICER'].includes(req.user.role)) {
       where.status = status;
@@ -498,9 +500,9 @@ router.get('/dashboard-stats', authenticate, async (req, res) => {
       where.managerId = req.user.id;
     } else if (req.user.role === 'PURCHASE_OFFICER') {
       where.status = { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE'] };
-    } else if (req.user.role === 'ACCOUNTING') {
-      where.status = { in: ['QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED'] };
     }
+    // ACCOUNTING / FINANCE fall through to the unfiltered count — they observe
+    // every PR in every status, same as ADMIN.
 
     const groups = await prisma.purchaseRequest.groupBy({
       by: ['status'],

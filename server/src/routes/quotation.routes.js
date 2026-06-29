@@ -22,7 +22,10 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 
 // Quotation read access — narrower than CHAIN_ROLES. Supplier prices are
 // finance-sensitive: only Admin, Purchase Officer, and Stores need them.
-const QUOTATION_VIEW_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER'];
+// ACCOUNTING + FINANCE added as read-only observers — they see submitted
+// quotations (same as a non-PURCHASE_OFFICER viewer) but get none of the
+// create/select/hold endpoints below.
+const QUOTATION_VIEW_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE'];
 
 // Product names entered on quotations can drift from the canonical PR-item
 // productName by whitespace / case. Always normalize before comparing — the

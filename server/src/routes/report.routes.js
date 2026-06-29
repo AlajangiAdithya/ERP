@@ -143,8 +143,8 @@ router.get('/unit-usage', authenticate, authorize('ADMIN', 'SAFETY'), async (req
   }
 });
 
-// GET /api/reports/audit-logs — Admin / Safety / Planning: full audit logs (read-only)
-router.get('/audit-logs', authenticate, authorize('ADMIN', 'SAFETY', 'PLANNING'), async (req, res) => {
+// GET /api/reports/audit-logs — Admin / Safety / Planning / Accounting / Finance: full audit logs (read-only)
+router.get('/audit-logs', authenticate, authorize('ADMIN', 'SAFETY', 'PLANNING', 'ACCOUNTING', 'FINANCE'), async (req, res) => {
   try {
     const { userId, action, entity, page, limit, fromDate, toDate, startDate, endDate } = req.query;
     const { skip, take } = paginate(page, limit);
