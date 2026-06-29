@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Package, Plus, FlaskConical, ClipboardCheck, CheckCircle2,
   Search, Filter, X, Pencil, Trash2, ArrowDownToLine, Building2,
-  Paperclip, Upload, Eye, FileText, FileSearch, ExternalLink, UserRound,
+  Paperclip, Upload, FileText, FileSearch, ExternalLink, UserRound,
   Send, FileInput, AlertTriangle, Wrench, FileWarning, Repeat,
 } from 'lucide-react';
 import api from '../api/axios';
@@ -224,7 +224,6 @@ function MaterialInwardRegister() {
   const [reportFor, setReportFor] = useState(null);    // row -> view filled IIR report
   const [resendFor, setResendFor] = useState(null);    // row -> resend held/failed lot to QC
   const [replaceFor, setReplaceFor] = useState(null);  // failed row -> record replacement inward
-  const [historyFor, setHistoryFor] = useState(null);  // row -> view edit history
   const [busyId, setBusyId] = useState(null);
 
   const load = () => {
@@ -343,7 +342,6 @@ function MaterialInwardRegister() {
           onViewReport={setReportFor}
           onResend={setResendFor}
           onReplace={setReplaceFor}
-          onHistory={setHistoryFor}
         />
       )}
 
@@ -374,9 +372,6 @@ function MaterialInwardRegister() {
       {replaceFor && (
         <ReplacementModal row={replaceFor} onClose={() => setReplaceFor(null)} onDone={() => { setReplaceFor(null); load(); }} />
       )}
-      {historyFor && (
-        <EditHistoryModal row={historyFor} onClose={() => setHistoryFor(null)} />
-      )}
     </div>
   );
 }
@@ -384,7 +379,7 @@ function MaterialInwardRegister() {
 // ────────────────────────────────────────────────────────────────────
 // The Excel-style register sheet (horizontal scroll, sticky header + MIR col)
 // ────────────────────────────────────────────────────────────────────
-function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs, onViewReport, onResend, onReplace, onHistory }) {
+function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs, onViewReport, onResend, onReplace }) {
   return (
     <Card className="!p-0 overflow-hidden">
       <div className="overflow-x-auto">
@@ -441,13 +436,8 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTak
                         <Repeat size={10} /> Replaces {r.replacesInward.mirNo}
                       </div>
                     )}
-                    {/* Subtle "edited" marker — click the eye to see what changed, when, by whom. */}
-                    {r.editHistory?.length > 0 && (
-                      <button onClick={() => onHistory(r)} title={`${r.editHistory.length} edit${r.editHistory.length > 1 ? 's' : ''} — view history`}
-                        className="mt-1 inline-flex items-center gap-1 text-[9px] text-gray-400 hover:text-navy-600">
-                        <Eye size={11} /> edited
-                      </button>
-                    )}
+                    {/* Edit history is intentionally not surfaced in the register —
+                        row edits stay recorded server-side but are not shown here. */}
                   </Td>
                   <Td>{formatDate(r.inwardDate)}</Td>
                   <Td nowrap={false} className="max-w-[120px]">{r.vehicleDetails || <Dash />}</Td>
@@ -1269,41 +1259,6 @@ function ReadKV({ label, value, span = false }) {
     <div className={span ? 'col-span-2 sm:col-span-4' : ''}>
       <span className="text-gray-500">{label}:</span> <span className="font-medium text-navy-800">{value || '—'}</span>
     </div>
-  );
-}
-
-// ── Edit history — the append-only audit trail behind the row's "edited" eye
-// icon. Each entry: who, when, and every field change as from → to. Newest first.
-function EditHistoryModal({ row, onClose }) {
-  const hist = Array.isArray(row.editHistory) ? [...row.editHistory].reverse() : [];
-  return (
-    <Modal isOpen onClose={onClose} title={`Edit history — ${row.mirNo}`} size="md">
-      <div className="space-y-3">
-        {!hist.length ? (
-          <p className="text-sm text-gray-400">No edits recorded for this entry.</p>
-        ) : hist.map((h, i) => (
-          <div key={i} className="border border-gray-200 rounded-lg p-3">
-            <div className="flex items-center justify-between gap-2 text-[11px]">
-              <span className="font-semibold text-navy-700">{h.byName || 'Someone'}{h.byRole ? ` · ${h.byRole}` : ''}</span>
-              <span className="text-gray-400">{h.at ? new Date(h.at).toLocaleString('en-GB') : ''}</span>
-            </div>
-            <ul className="mt-1.5 space-y-1">
-              {(h.changes || []).map((c, k) => (
-                <li key={k} className="text-[12px]">
-                  <span className="font-medium text-navy-700">{c.label}:</span>{' '}
-                  <span className="text-rose-600 line-through">{c.from}</span>{' '}
-                  <span className="text-gray-400">→</span>{' '}
-                  <span className="text-emerald-700 font-medium">{c.to}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-        <div className="flex justify-end pt-2 border-t">
-          <Button variant="secondary" onClick={onClose}>Close</Button>
-        </div>
-      </div>
-    </Modal>
   );
 }
 

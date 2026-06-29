@@ -1084,7 +1084,7 @@ router.put('/:id/qc-approve', authenticate, authorize('QC'), async (req, res) =>
           type: 'PURCHASE_REQUEST_APPROVED',
           title: `Purchase Request ${request.requestNumber} — QC Approved`,
           message: `Your purchase request ${request.requestNumber} has been approved by QC and forwarded to admin.${qcNotes ? ' QC notes: ' + qcNotes : ''}`,
-          targetRole: request.manager.role,
+          targetUserId: request.managerId,
           sentById: req.user.id,
         },
       ],
@@ -1148,7 +1148,7 @@ router.put('/:id/qc-reject', authenticate, authorize('QC'), async (req, res) => 
         type: 'PURCHASE_REQUEST_REJECTED',
         title: `Purchase Request ${request.requestNumber} Rejected by QC`,
         message: `Your purchase request ${request.requestNumber} has been rejected by QC. Reason: ${qcNotes || 'No reason provided'}`,
-        targetRole: request.manager.role,
+        targetUserId: request.managerId,
         sentById: req.user.id,
       },
     });
@@ -1223,14 +1223,13 @@ router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, r
     });
 
     // Notify the creator (look up their role) and purchase officer
-    const creator = await prisma.user.findUnique({ where: { id: request.managerId }, select: { role: true } });
     await prisma.notification.createMany({
       data: [
         {
           type: 'PURCHASE_REQUEST_APPROVED',
           title: `Purchase Request ${request.requestNumber} Approved`,
           message: `Your purchase request ${request.requestNumber} has been approved by admin.${adminNotes ? ' Notes: ' + adminNotes : ''}`,
-          targetRole: creator?.role || 'MANAGER',
+          targetUserId: request.managerId,
           sentById: req.user.id,
         },
         {
@@ -1293,13 +1292,12 @@ router.put('/:id/admin-reject', authenticate, authorize('ADMIN'), async (req, re
     });
 
     // Notify the creator (look up their role)
-    const creator = await prisma.user.findUnique({ where: { id: request.managerId }, select: { role: true } });
     await prisma.notification.create({
       data: {
         type: 'PURCHASE_REQUEST_REJECTED',
         title: `Purchase Request ${request.requestNumber} Rejected`,
         message: `Your purchase request ${request.requestNumber} has been rejected. Reason: ${adminNotes || 'No reason provided'}`,
-        targetRole: creator?.role || 'MANAGER',
+        targetUserId: request.managerId,
         sentById: req.user.id,
       },
     });
@@ -1414,13 +1412,12 @@ router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), 
 
     // Notify the creator if completed
     if (allComplete) {
-      const creator = await prisma.user.findUnique({ where: { id: request.managerId }, select: { role: true } });
       await prisma.notification.create({
         data: {
           type: 'PURCHASE_COMPLETED',
           title: `Purchase Complete: ${request.requestNumber}`,
           message: `All items for purchase request ${request.requestNumber} have been fully purchased.`,
-          targetRole: creator?.role || 'MANAGER',
+          targetUserId: request.managerId,
           sentById: req.user.id,
         },
       });

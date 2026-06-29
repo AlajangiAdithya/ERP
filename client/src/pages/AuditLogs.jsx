@@ -45,26 +45,76 @@ export default function AuditLogs() {
   const actions = ['', 'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 'APPROVE', 'REJECT', 'COLLECT', 'CANCEL'];
   const entities = ['', 'User', 'Unit', 'Product', 'ProductRequest', 'PurchaseRequest', 'InwardEntry', 'Notification', 'StockAdjustment'];
 
+  // Turn a raw API path into a human module name, e.g.
+  // "/api/purchase-requests/<uuid>" → "purchase request".
+  const MODULE_LABELS = {
+    'purchase-requests': 'purchase request',
+    'purchase-orders': 'purchase order',
+    'payment-requests': 'payment request',
+    'quotations': 'quotation',
+    'suppliers': 'supplier',
+    'products': 'product',
+    'material-inward': 'material inward',
+    'inventory': 'stock',
+    'calibration': 'instrument',
+    'machinery': 'machinery',
+    'gatepass': 'gate pass',
+    'gate-pass': 'gate pass',
+    'work-orders': 'work order',
+    'users': 'user',
+    'units': 'unit',
+  };
+  const METHOD_VERBS = { POST: 'Created', PUT: 'Updated', PATCH: 'Updated', DELETE: 'Deleted', GET: 'Viewed' };
+
+  // Convert SNAKE_CASE codes (QC_APPROVED, ORDER_PLACED) into "Qc approved".
+  const prettify = (s) =>
+    String(s).toLowerCase().replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+
+  const friendlyFromPath = (method, path) => {
+    if (!path) return '';
+    const seg = path.replace(/^\/api\//, '').split('/').filter(Boolean);
+    const moduleKey = seg[0] || '';
+    const label = MODULE_LABELS[moduleKey] || moduleKey.replace(/-/g, ' ');
+    const verb = METHOD_VERBS[method] || 'Changed';
+    return label ? `${verb} ${label}` : verb;
+  };
+
   const formatDetails = (details) => {
     if (!details) return '—';
     if (typeof details === 'string') return details;
+
     const parts = [];
-    if (details.method) parts.push(details.method);
-    if (details.path) {
-      const clean = details.path.replace(/^\/api\//, '').replace(/\/[a-f0-9-]{36}/g, '/:id');
-      parts.push(clean);
-    }
-    if (details.reason) parts.push(details.reason);
-    if (details.status) parts.push(`→ ${details.status}`);
-    if (details.amount) parts.push(`₹${Number(details.amount).toLocaleString('en-IN')}`);
-    if (details.quantity) parts.push(`qty: ${details.quantity}`);
-    if (details.productName) parts.push(details.productName);
-    if (details.orderNumber) parts.push(details.orderNumber);
-    if (details.requestNumber) parts.push(details.requestNumber);
+
+    // 1) The record's human identifier (PR/PO/GP/payment number, product/batch name).
+    const ident =
+      details.requestNumber || details.orderNumber || details.gatePassNumber ||
+      details.paymentNumber || details.productName || details.batchNumber;
+    if (ident) parts.push(ident);
+
+    // 2) What happened — sub-action and/or status transition.
+    if (details.action) parts.push(prettify(details.action));
+    const newStatus = details.newStatus || details.status;
+    if (newStatus) parts.push(`→ ${prettify(newStatus)}`);
+
+    // 3) Numbers worth seeing.
+    if (details.itemCount != null) parts.push(`${details.itemCount} item${details.itemCount === 1 ? '' : 's'}`);
+    if (details.quantity != null) parts.push(`qty ${details.quantity}`);
+    if (details.amount != null) parts.push(`₹${Number(details.amount).toLocaleString('en-IN')}`);
+
+    // 4) Context — unit, supplier, department.
+    if (details.unit) parts.push(`Unit ${details.unit}`);
+    if (details.supplierName) parts.push(details.supplierName);
+    if (details.assignedDept) parts.push(details.assignedDept);
+
+    // 5) Free-text reason / notes, quoted and trimmed.
+    const note = details.reason || details.adminNotes || details.qcNotes;
+    if (note) parts.push(`“${String(note).slice(0, 80)}”`);
+
     if (parts.length > 0) return parts.join(' · ');
-    const keys = Object.keys(details).filter(k => !['method', 'path'].includes(k));
-    if (keys.length === 0 && details.method) return `${details.method} ${(details.path || '').replace(/^\/api\//, '')}`;
-    return keys.map(k => `${k}: ${details[k]}`).join(', ');
+
+    // Fallback: derive a friendly phrase from the HTTP method + path.
+    if (details.path) return friendlyFromPath(details.method, details.path);
+    return '—';
   };
 
   return (

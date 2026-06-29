@@ -564,7 +564,7 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
         message: allDone
           ? `Your MIV ${request.requestNumber} has been accepted by ${req.user.name}. Issue No: ${issueNo}. Materials issued from stock.`
           : `Your MIV ${request.requestNumber} has been accepted by ${req.user.name} (partial). ${fullyIssuedCount}/${request.items.length} item(s) issued${issueNo ? ` — Issue No: ${issueNo}` : ''}; the remaining items are waiting on stock and will be issued when available.`,
-        targetRole: request.manager?.role || 'MANAGER',
+        targetUserId: request.managerId,
         sentById: req.user.id,
       },
     });
@@ -729,7 +729,7 @@ router.put('/:id/issue-available', authenticate, authorize('STORE_MANAGER', 'ADM
         message: allDone
           ? `Your MIV ${request.requestNumber} is now fully issued by ${req.user.name}. Issue No: ${issueNo}.`
           : `${req.user.name} issued more stock against your MIV ${request.requestNumber}. Some items are still waiting on stock.`,
-        targetRole: request.manager?.role || 'MANAGER',
+        targetUserId: request.managerId,
         sentById: req.user.id,
       },
     });
@@ -805,13 +805,12 @@ router.put('/:id/reject', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
     });
 
     // Notify the creator (look up their role)
-    const creator = await prisma.user.findUnique({ where: { id: request.managerId }, select: { role: true } });
     await prisma.notification.create({
       data: {
         type: 'REQUEST_REJECTED',
         title: `Request ${request.requestNumber} Rejected`,
         message: `Your product request ${request.requestNumber} has been rejected. Reason: ${clearanceNotes || 'No reason provided'}`,
-        targetRole: creator?.role || 'MANAGER',
+        targetUserId: request.managerId,
         sentById: req.user.id,
       },
     });
