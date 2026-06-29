@@ -188,6 +188,17 @@ router.delete('/notifications/clear-all', authenticate, async (req, res) => {
 // DELETE /api/alerts/notifications/:id — dismiss (delete) a single notification
 router.delete('/notifications/:id', authenticate, async (req, res) => {
   try {
+    // Only let a user dismiss a notification actually addressed to them — their
+    // own user, their role, or a global broadcast. Stops anyone deleting another
+    // user's personal notification by guessing its id.
+    const notif = await prisma.notification.findUnique({ where: { id: req.params.id } });
+    if (!notif) return res.status(404).json({ error: 'Notification not found' });
+    const visible =
+      notif.targetUserId === req.user.id ||
+      (notif.targetRole && notif.targetRole === req.user.role) ||
+      (!notif.targetRole && !notif.targetUserId);
+    if (!visible) return res.status(403).json({ error: 'Not allowed' });
+
     await prisma.notification.delete({
       where: { id: req.params.id },
     });

@@ -1010,16 +1010,23 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
     });
 
     // Only ask a unit manager to accept when it is NOT an auto-accept unit.
+    // Notify ONLY this unit's managers — not every MANAGER in the company.
     if (accept && unitId && !autoAccept) {
-      await prisma.notification.create({
-        data: {
-          type: 'WORK_ORDER_ASSIGNED_TO_UNIT',
-          title: `Work Order ${updated.workOrderNumber} assigned to your unit`,
-          message: `Admin accepted WO ${updated.workOrderNumber} (Customer: ${updated.customerName}). Please review and accept to start execution.`,
-          targetRole: 'MANAGER',
-          sentById: req.user.id,
-        },
+      const unitManagers = await prisma.user.findMany({
+        where: { role: 'MANAGER', unitId, isActive: true },
+        select: { id: true },
       });
+      if (unitManagers.length) {
+        await prisma.notification.createMany({
+          data: unitManagers.map((m) => ({
+            type: 'WORK_ORDER_ASSIGNED_TO_UNIT',
+            title: `Work Order ${updated.workOrderNumber} assigned to your unit`,
+            message: `Admin accepted WO ${updated.workOrderNumber} (Customer: ${updated.customerName}). Please review and accept to start execution.`,
+            targetUserId: m.id,
+            sentById: req.user.id,
+          })),
+        });
+      }
     }
     await prisma.notification.create({
       data: {
@@ -1142,16 +1149,23 @@ router.post('/:id/reassign', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), a
     });
 
     // Auto-accept units have no manager to notify for acceptance.
+    // Notify ONLY the reassigned unit's managers, not all managers.
     if (!autoAccept) {
-      await prisma.notification.create({
-        data: {
-          type: 'WORK_ORDER_ASSIGNED_TO_UNIT',
-          title: `Work Order ${updated.workOrderNumber} reassigned to your unit`,
-          message: `${req.user.name} reassigned WO ${updated.workOrderNumber} (Customer: ${updated.customerName}). Please review and accept.`,
-          targetRole: 'MANAGER',
-          sentById: req.user.id,
-        },
+      const unitManagers = await prisma.user.findMany({
+        where: { role: 'MANAGER', unitId: assignedUnitId, isActive: true },
+        select: { id: true },
       });
+      if (unitManagers.length) {
+        await prisma.notification.createMany({
+          data: unitManagers.map((m) => ({
+            type: 'WORK_ORDER_ASSIGNED_TO_UNIT',
+            title: `Work Order ${updated.workOrderNumber} reassigned to your unit`,
+            message: `${req.user.name} reassigned WO ${updated.workOrderNumber} (Customer: ${updated.customerName}). Please review and accept.`,
+            targetUserId: m.id,
+            sentById: req.user.id,
+          })),
+        });
+      }
     }
 
     res.json(decorate(updated, req.user));
@@ -2067,15 +2081,23 @@ router.post(
           include: CLOSURE_INCLUDE,
         }),
       ]);
-      await prisma.notification.create({
-        data: {
-          type: 'WO_CLOSURE_ON_HOLD',
-          title: `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — On hold`,
-          message: `${req.user.name} flagged missing items: ${missingItems.map((m) => m.docType).join(', ')}${reason ? `. Reason: ${reason}` : ''}.`,
-          targetRole: 'MANAGER',
-          sentById: req.user.id,
-        },
-      });
+      const holdUnitManagers = closure.workOrder.assignedUnitId
+        ? await prisma.user.findMany({
+            where: { role: 'MANAGER', unitId: closure.workOrder.assignedUnitId, isActive: true },
+            select: { id: true },
+          })
+        : [];
+      if (holdUnitManagers.length) {
+        await prisma.notification.createMany({
+          data: holdUnitManagers.map((u) => ({
+            type: 'WO_CLOSURE_ON_HOLD',
+            title: `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — On hold`,
+            message: `${req.user.name} flagged missing items: ${missingItems.map((m) => m.docType).join(', ')}${reason ? `. Reason: ${reason}` : ''}.`,
+            targetUserId: u.id,
+            sentById: req.user.id,
+          })),
+        });
+      }
       res.json({ hold, closure: updated });
       refreshAlarms(req.params.id);
     } catch (error) {
