@@ -22,7 +22,9 @@ const router = express.Router();
 const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
 const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
-const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'LAB', 'NDT', 'RND', 'HR', 'PLANNING'];
+// ACCOUNTING + FINANCE added as read-only viewers of the calibration / instrument
+// registers (view + cert download). They never get the edit roles below.
+const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'LAB', 'NDT', 'RND', 'HR', 'PLANNING', 'ACCOUNTING', 'FINANCE'];
 
 const unitCodeOf = (user) => (user?.unit?.code || '').toString().toUpperCase();
 const unitNameOf = (user) => (user?.unit?.name || '').toString().trim().toLowerCase();
@@ -54,6 +56,16 @@ const canRead = (user) => {
 
 const requireRead = (req, res, next) => {
   if (!canRead(req.user)) return res.status(403).json({ error: 'Forbidden' });
+  next();
+};
+
+// ACCOUNTING + FINANCE are pure read-only observers — they may view and download
+// certs but must not write remarks. Everyone else who can read may remark.
+const REMARK_DENY_ROLES = ['ACCOUNTING', 'FINANCE'];
+const requireRemark = (req, res, next) => {
+  if (!canRead(req.user) || REMARK_DENY_ROLES.includes(req.user?.role)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   next();
 };
 
@@ -295,7 +307,8 @@ router.put('/:id', authenticate, requireRead, requireWrite, async (req, res) => 
 });
 
 // PATCH /api/calibration/:id/remarks — any viewer can edit the remarks cell
-router.patch('/:id/remarks', authenticate, requireRead, async (req, res) => {
+// (except ACCOUNTING/FINANCE, who are pure read-only observers).
+router.patch('/:id/remarks', authenticate, requireRemark, async (req, res) => {
   try {
     const remarks = req.body.remarks == null || req.body.remarks === ''
       ? null

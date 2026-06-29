@@ -35,11 +35,14 @@ const computeFiscalYear = (v) => {
 // Metrology access (per access chart RAPS/QSP):
 // Full edit: METROLOGY, QC, MANAGER@Unit-V. SUPERADMIN bypasses.
 // View + remarks + cert download: ADMIN, MANAGER (all units), LAB, NDT, RND.
+// View-only (no remarks): ACCOUNTING, FINANCE — pure read-only observers.
 // Unit 5 may appear as code '5', name 'Unit 5', or username 'unit 5'.
 const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
 const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
-const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'LAB', 'NDT', 'RND'];
+const BASE_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'LAB', 'NDT', 'RND', 'ACCOUNTING', 'FINANCE'];
+// Read-only observers who may view + download certs but not write remarks.
+const READ_ONLY_ROLES = ['ACCOUNTING', 'FINANCE'];
 
 const isUnit5Manager = (user) => {
   if (user?.role !== 'MANAGER') return false;
@@ -169,6 +172,13 @@ export default function CalibrationList({
     if (user.role === 'MANAGER') return true; // any unit manager may view
     return false;
   }, [user, canEdit]);
+
+  // Every viewer may write remarks except the pure read-only observers
+  // (ACCOUNTING / FINANCE). Mirrors requireRemark in calibration.routes.js.
+  const canRemark = useMemo(
+    () => canView && !READ_ONLY_ROLES.includes(user?.role),
+    [canView, user],
+  );
 
   const theme = HERO_THEME[category] || (unifiedCategories ? HERO_THEME.MMR : HERO_THEME.PRESSURE_GAUGE);
 
@@ -601,7 +611,11 @@ export default function CalibrationList({
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{title}</h1>
               <p className="text-sm text-white/80 mt-1">
                 Periodicity of calibration: <span className="font-semibold">one year</span>
-                {canEdit ? ' · You can add, edit, or remove entries below.' : ' · Read-only view — remarks remain editable.'}
+                {canEdit
+                  ? ' · You can add, edit, or remove entries below.'
+                  : canRemark
+                    ? ' · Read-only view — remarks remain editable.'
+                    : ' · Read-only view.'}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -907,19 +921,23 @@ export default function CalibrationList({
                         ];
                       })}
 
-                      {/* Remarks — every viewer can edit */}
+                      {/* Remarks — every viewer can edit except read-only observers */}
                       <Td nowrap={false} className="min-w-[200px]">
-                        <div className="flex items-start gap-1">
-                          <textarea
-                            value={remarksDraft[row.id] ?? ''}
-                            onChange={(e) => setRemarksDraft((d) => ({ ...d, [row.id]: e.target.value }))}
-                            onBlur={() => saveRemarks(row)}
-                            placeholder="Add remarks…"
-                            rows={1}
-                            className="w-full text-[11px] px-2 py-1 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-navy-400 focus:border-navy-400 bg-gray-50 hover:bg-white focus:bg-white resize-y transition-colors"
-                          />
-                          {remarksBusy[row.id] && <Save size={12} className="text-gray-400 animate-pulse mt-1.5 flex-shrink-0" />}
-                        </div>
+                        {canRemark ? (
+                          <div className="flex items-start gap-1">
+                            <textarea
+                              value={remarksDraft[row.id] ?? ''}
+                              onChange={(e) => setRemarksDraft((d) => ({ ...d, [row.id]: e.target.value }))}
+                              onBlur={() => saveRemarks(row)}
+                              placeholder="Add remarks…"
+                              rows={1}
+                              className="w-full text-[11px] px-2 py-1 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-navy-400 focus:border-navy-400 bg-gray-50 hover:bg-white focus:bg-white resize-y transition-colors"
+                            />
+                            {remarksBusy[row.id] && <Save size={12} className="text-gray-400 animate-pulse mt-1.5 flex-shrink-0" />}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-gray-700 whitespace-pre-wrap">{row.remarks || <Dash />}</span>
+                        )}
                       </Td>
 
                       {canEdit && (

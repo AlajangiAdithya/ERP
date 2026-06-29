@@ -23,7 +23,7 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 // Full edit = METROLOGY, QC, MANAGER@UNIT-V.
 // View + remarks + cert download = ADMIN, MANAGER (all units), LAB, NDT, RND, HR.
 // SUPERADMIN reaches this register from Real-time Corrections, not the sidebar.
-const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'HR', 'PLANNING'];
+const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'HR', 'PLANNING', 'ACCOUNTING', 'FINANCE'];
 
 // Procurement & Inventory Management hub is visible to every authenticated
 // user EXCEPT Supply Chain and HR. ACCOUNTING + FINANCE are admin-level
@@ -54,8 +54,9 @@ const buildAllItems = () => {
     { to: '/transport', icon: Navigation, label: 'Gate Pass & Vehicles', roles: DISPATCH_ROLES },
     { to: '/metrology', icon: Ruler, label: 'Measuring and Monitoring Resources', roles: METROLOGY_VIEW_ROLES },
     // Machinery register — view-only for everyone, edit for SAFETY + Unit-5 (gated server-side).
-    // Hidden from Accounting and Supply Chain — not part of their workflow.
-    { to: '/machinery', icon: Wrench, label: 'Machinery Register', roles: ALL_ROLES.filter((r) => r !== 'ACCOUNTING' && r !== 'SUPPLY_CHAIN') },
+    // Hidden from Supply Chain — not part of their workflow. ACCOUNTING + FINANCE
+    // get read-only visibility.
+    { to: '/machinery', icon: Wrench, label: 'Machinery Register', roles: ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN') },
     // HR hub — employees, skill matrix, annual training plan, training records.
     // HR + ADMIN edit; Managers can append training items for their unit; all view.
     // Hidden from Metrology — not part of their workflow.

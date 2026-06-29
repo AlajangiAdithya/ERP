@@ -72,7 +72,7 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 // View + remarks + cert download = ADMIN, MANAGER (all units), LAB, NDT, RND, PLANNING.
 // The route guard allows any potential viewer through; the page itself
 // (and the server's calibration.routes.js) enforces the unit-aware split.
-const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'SUPERADMIN', 'PLANNING'];
+const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'SUPERADMIN', 'PLANNING', 'ACCOUNTING', 'FINANCE'];
 
 // Global ErrorBoundary — catches render-phase errors so a single page bug
 // doesn't white-screen the entire app. Reload restores normal navigation.
