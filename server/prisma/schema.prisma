@@ -1429,7 +1429,8 @@ model InterOfficeNote {
   externalQAWitness  String?
   qcContactDetails   String?
   otherInformation   String?
-  reportNoAndDate    String? // NDT only: "Report No & Date" closing field
+  reportNoAndDate    String? // report number filled at Work Done step
+  collectedBy        String? // name of person who collected items (filled at Collected step)
   status             IONStatus @default(SENT)
   recipientRole      String?   @default("LAB") // LAB | METROLOGY | NDT | RND | DESIGNS (when not assigned to a specific manager)
   createdById        String
@@ -1461,6 +1462,7 @@ model IONItem {
 enum IONStatus {
   SENT
   WAITING
+  WORK_DONE
   COLLECTED
 }
 

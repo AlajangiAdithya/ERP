@@ -109,16 +109,16 @@ router.get('/:id', authenticate, authorize(...ION_VIEW_ROLES), async (req, res) 
 });
 
 // POST /api/ion — MANAGER / LAB / METROLOGY / NDT / RND create
-//   recipientType:  'LAB' (default) | 'METROLOGY' | 'NDT' | 'RND' | 'MANAGER'
-//   assignedToId:   required when recipientType === 'MANAGER' (must be a MANAGER user id)
+//   recipientType:  'LAB' (default) | 'METROLOGY' | 'NDT' | 'RND' | 'UNIT'
+//   assignedUnitId: required when recipientType === 'UNIT' (routes to that unit's manager)
 router.post('/', authenticate, authorize(...ION_CREATOR_ROLES), async (req, res) => {
   try {
     const {
-      recipientType, assignedToId,
+      recipientType, assignedToId, assignedUnitId,
       userReferenceNo, section, projectName, supplyOrderNo, referenceDocQA,
       materialSupplyDate, sampleRequired, reportGeneration, requiredByDate,
       externalQAWitness, qcContactDetails, otherInformation, remarks,
-      reportNoAndDate, // NDT only
+      reportNoAndDate,
       items,
     } = req.body;
 
@@ -133,7 +133,24 @@ router.post('/', authenticate, authorize(...ION_CREATOR_ROLES), async (req, res)
 
     let resolvedAssigneeId = null;
     let resolvedRecipientRole = 'LAB';
-    if (recipientType === 'MANAGER') {
+    if (recipientType === 'UNIT') {
+      if (!assignedUnitId) {
+        return res.status(400).json({ error: 'Select a unit to send the ION to' });
+      }
+      const unitManager = await prisma.user.findFirst({
+        where: { unitId: assignedUnitId, role: 'MANAGER', isActive: true },
+        select: { id: true },
+      });
+      if (!unitManager) {
+        return res.status(400).json({ error: 'No active manager found for the selected unit' });
+      }
+      if (unitManager.id === req.user.id) {
+        return res.status(400).json({ error: 'You cannot send an ION to your own unit' });
+      }
+      resolvedAssigneeId = unitManager.id;
+      resolvedRecipientRole = null;
+    } else if (recipientType === 'MANAGER') {
+      // legacy path — keep for backwards compat
       if (!assignedToId) {
         return res.status(400).json({ error: 'Select a manager to send the ION to' });
       }
@@ -222,13 +239,13 @@ router.post('/', authenticate, authorize(...ION_CREATOR_ROLES), async (req, res)
   }
 });
 
-// PUT /api/ion/:id/status — recipient transitions SENT → WAITING → COLLECTED
+// PUT /api/ion/:id/status — recipient transitions SENT → WAITING → WORK_DONE → COLLECTED
 //   Recipient = LAB/METROLOGY/NDT/RND user (for unassigned/role-assigned) OR the specific manager assigned to it.
 router.put('/:id/status', authenticate, authorize(...ION_ROLES), async (req, res) => {
   try {
-    const { status, remarks } = req.body;
-    if (!['WAITING', 'COLLECTED'].includes(status)) {
-      return res.status(400).json({ error: 'Status must be WAITING or COLLECTED' });
+    const { status, remarks, reportNoAndDate, collectedBy } = req.body;
+    if (!['WAITING', 'WORK_DONE', 'COLLECTED'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
     }
 
     const existing = await prisma.interOfficeNote.findUnique({
@@ -251,19 +268,29 @@ router.put('/:id/status', authenticate, authorize(...ION_ROLES), async (req, res
       }
     }
 
-    if (status === 'WAITING' && existing.status !== 'SENT') {
-      return res.status(400).json({ error: 'Can only move SENT → WAITING' });
+    if (status === 'WAITING'   && existing.status !== 'SENT')     return res.status(400).json({ error: 'Can only move SENT → In Progress' });
+    if (status === 'WORK_DONE' && existing.status !== 'WAITING')  return res.status(400).json({ error: 'Can only move In Progress → Work Done' });
+    if (status === 'COLLECTED' && existing.status !== 'WORK_DONE') return res.status(400).json({ error: 'Can only move Work Done → Collected' });
+
+    if (status === 'WORK_DONE' && !reportNoAndDate?.trim()) {
+      return res.status(400).json({ error: 'Report number is required to mark work done' });
     }
-    if (status === 'COLLECTED' && existing.status !== 'WAITING') {
-      return res.status(400).json({ error: 'Can only move WAITING → COLLECTED' });
+    if (status === 'COLLECTED' && !collectedBy?.trim()) {
+      return res.status(400).json({ error: 'Please enter who collected the items' });
     }
 
     const data = {
       status,
-      remarks: remarks != null ? remarks : existing.remarks,
       assignedToId: existing.assignedToId || req.user.id,
     };
-    if (status === 'COLLECTED') data.completedDate = new Date();
+    if (remarks != null) data.remarks = remarks;
+    if (status === 'WORK_DONE') {
+      data.completedDate = new Date();
+      data.reportNoAndDate = reportNoAndDate.trim();
+    }
+    if (status === 'COLLECTED') {
+      data.collectedBy = collectedBy.trim();
+    }
 
     const updated = await prisma.interOfficeNote.update({
       where: { id: req.params.id },
@@ -272,20 +299,23 @@ router.put('/:id/status', authenticate, authorize(...ION_ROLES), async (req, res
     });
 
     if (existing.createdBy?.id && existing.createdBy.id !== req.user.id) {
-      const statusMsg = status === 'WAITING'
-        ? `${req.user.name} has started work on your ION ${updated.ionNumber}.`
-        : `Work on your ION ${updated.ionNumber} is complete. Your items are ready for collection from ${req.user.name}.`;
-      await prisma.notification.create({
-        data: {
-          type: 'ION_STATUS_UPDATE',
-          title: status === 'WAITING'
-            ? `ION ${updated.ionNumber}: Work Started`
-            : `ION ${updated.ionNumber}: Work Complete — Ready for Collection`,
-          message: statusMsg,
-          targetUserId: existing.createdBy.id,
-          sentById: req.user.id,
-        },
-      });
+      const notifMap = {
+        WAITING:   { title: `ION ${updated.ionNumber}: Work Started`,              msg: `${req.user.name} has started work on your ION ${updated.ionNumber}.` },
+        WORK_DONE: { title: `ION ${updated.ionNumber}: Work Done — Ready to Collect`, msg: `${req.user.name} has completed work on ION ${updated.ionNumber}. Report: ${reportNoAndDate}. Please collect.` },
+        COLLECTED: { title: `ION ${updated.ionNumber}: Collected`,                 msg: `Items for ION ${updated.ionNumber} have been collected by ${collectedBy}.` },
+      };
+      const n = notifMap[status];
+      if (n) {
+        await prisma.notification.create({
+          data: {
+            type: 'ION_STATUS_UPDATE',
+            title: n.title,
+            message: n.msg,
+            targetUserId: existing.createdBy.id,
+            sentById: req.user.id,
+          },
+        });
+      }
     }
 
     res.json(updated);
