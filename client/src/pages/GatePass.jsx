@@ -3,7 +3,7 @@ import {
   Plus, Trash2, RotateCcw, CheckCircle2, Truck, PackageCheck,
   Send, ShieldCheck, Calculator, Stamp, XCircle, Clock, AlertCircle, LayoutList,
   DoorOpen, FileText, Upload, FileDown, ClipboardList, Briefcase,
-  GitBranch, ArrowRight, ArrowDown, User, Workflow, Eye, Filter,
+  GitBranch, ArrowRight, ArrowDown, User, Workflow, Eye, Filter, Pencil,
 } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
@@ -193,8 +193,9 @@ export default function GatePass() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showFlow, setShowFlow] = useState(false);
-  const [detail, setDetail] = useState(null);     // read-only view
-  const [actionFor, setActionFor] = useState(null); // { gatePass, type }
+  const [detail, setDetail] = useState(null);       // read-only view
+  const [editTarget, setEditTarget] = useState(null); // gate pass being edited
+  const [actionFor, setActionFor] = useState(null);  // { gatePass, type }
   const [refreshKey, setRefreshKey] = useState(0);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -312,7 +313,9 @@ export default function GatePass() {
           rows={filtered}
           view={view}
           role={role}
+          canCreate={canCreate}
           onView={setDetail}
+          onEdit={setEditTarget}
           onAction={(gatePass, type) => setActionFor({ gatePass, type })}
         />
       )}
@@ -322,6 +325,16 @@ export default function GatePass() {
           defaultKind={view}
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); refresh(); }}
+        />
+      )}
+
+      {editTarget && (
+        <CreateGatePassModal
+          defaultKind={editTarget.kind || view}
+          initialData={editTarget}
+          editId={editTarget.id}
+          onClose={() => setEditTarget(null)}
+          onCreated={() => { setEditTarget(null); refresh(); }}
         />
       )}
 
@@ -347,7 +360,7 @@ export default function GatePass() {
 // The Excel-style register sheet — one row per gate pass, columns adapt to the
 // chosen format, every workflow step actioned inline from the row.
 // ────────────────────────────────────────────────────────────────────
-function GatePassSheet({ rows, view, role, onView, onAction }) {
+function GatePassSheet({ rows, view, role, canCreate, onView, onEdit, onAction }) {
   const isLocal = view === 'LOCAL_JOB';
   return (
     <Card className="!p-0 overflow-hidden">
@@ -471,6 +484,9 @@ function GatePassSheet({ rows, view, role, onView, onAction }) {
                           className="!px-2 !py-1 !text-[10px]"
                         />
                         <IconBtn title="View details" onClick={() => onView(g)}><Eye size={13} /></IconBtn>
+                        {canCreate && g.status === 'PENDING_STORE' && (
+                          <IconBtn title="Edit gate pass" onClick={() => onEdit(g)}><Pencil size={13} /></IconBtn>
+                        )}
                         {acts.includes('reject') && (
                           <IconBtn title="Reject" danger onClick={() => onAction(g, 'reject')}><XCircle size={13} /></IconBtn>
                         )}
@@ -627,14 +643,30 @@ function ActionModal({ gatePass, type, onClose, onDone }) {
   );
 }
 
-function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', onClose, onCreated }) {
-  const [kind, setKind] = useState(defaultKind === 'OUTSIDE' ? 'OUTSIDE' : 'LOCAL_JOB');
-  const [passNumber, setPassNumber] = useState('');
-  const [siteName, setSiteName] = useState('');
-  const [jobWorkNo, setJobWorkNo] = useState('');
-  const [jobWorkDate, setJobWorkDate] = useState('');
-  const [remarks, setRemarks] = useState('');
-  const [items, setItems] = useState([blankItem()]);
+function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, editId = null, onClose, onCreated }) {
+  const isEdit = !!editId;
+  const [kind, setKind] = useState(initialData?.kind ?? (defaultKind === 'OUTSIDE' ? 'OUTSIDE' : 'LOCAL_JOB'));
+  const [passNumber, setPassNumber] = useState(initialData?.passNumber ?? '');
+  const [siteName, setSiteName] = useState(initialData?.siteName ?? '');
+  const [jobWorkNo, setJobWorkNo] = useState(initialData?.jobWorkNo ?? '');
+  const [jobWorkDate, setJobWorkDate] = useState(
+    initialData?.jobWorkDate ? initialData.jobWorkDate.slice(0, 10) : ''
+  );
+  const [remarks, setRemarks] = useState(initialData?.remarks ?? '');
+  const [items, setItems] = useState(
+    initialData?.items?.length
+      ? initialData.items.map((it) => ({
+          description: it.description || '',
+          quantity: it.quantity ?? 1,
+          unit: it.unit || 'pcs',
+          dispatchedTo: it.dispatchedTo || '',
+          itemPurpose: it.itemPurpose || '',
+          probableReturnDate: it.probableReturnDate ? it.probableReturnDate.slice(0, 10) : '',
+          itemPassType: it.itemPassType || 'RETURNABLE',
+          contactPersonDetails: it.contactPersonDetails || '',
+        }))
+      : [blankItem()]
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -656,29 +688,32 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', onClose, onCreated }) 
     }
 
     setSaving(true);
+    const payload = {
+      passNumber: passNumber.trim(),
+      siteName: siteName.trim() || undefined,
+      jobWorkNo: kind === 'LOCAL_JOB' ? (jobWorkNo.trim() || undefined) : undefined,
+      jobWorkDate: kind === 'LOCAL_JOB' ? (jobWorkDate || undefined) : undefined,
+      remarks: remarks.trim() || undefined,
+      items: items.map(i => ({
+        description: i.description.trim(),
+        quantity: Number(i.quantity),
+        unit: i.unit || 'pcs',
+        dispatchedTo: i.dispatchedTo?.trim() || null,
+        itemPurpose: i.itemPurpose?.trim() || null,
+        probableReturnDate: i.probableReturnDate || null,
+        itemPassType: i.itemPassType === 'DELIVERY_CHALLAN' ? 'NON_RETURNABLE' : (i.itemPassType || null),
+        contactPersonDetails: i.contactPersonDetails?.trim() || null,
+      })),
+    };
     try {
-      await api.post('/gatepasses', {
-        direction: 'OUTWARD',
-        passNumber: passNumber.trim(),
-        kind,
-        siteName: siteName.trim() || undefined,
-        jobWorkNo: kind === 'LOCAL_JOB' ? (jobWorkNo.trim() || undefined) : undefined,
-        jobWorkDate: kind === 'LOCAL_JOB' ? (jobWorkDate || undefined) : undefined,
-        remarks: remarks.trim() || undefined,
-        items: items.map(i => ({
-          description: i.description.trim(),
-          quantity: Number(i.quantity),
-          unit: i.unit || 'pcs',
-          dispatchedTo: i.dispatchedTo?.trim() || null,
-          itemPurpose: i.itemPurpose?.trim() || null,
-          probableReturnDate: i.probableReturnDate || null,
-          itemPassType: i.itemPassType === 'DELIVERY_CHALLAN' ? 'NON_RETURNABLE' : (i.itemPassType || null),
-          contactPersonDetails: i.contactPersonDetails?.trim() || null,
-        })),
-      });
+      if (isEdit) {
+        await api.put(`/gatepasses/${editId}/edit`, payload);
+      } else {
+        await api.post('/gatepasses', { direction: 'OUTWARD', kind, ...payload });
+      }
       onCreated();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to create gate pass request');
+      setError(err.response?.data?.error || (isEdit ? 'Failed to save changes' : 'Failed to create gate pass request'));
     }
     setSaving(false);
   };
@@ -686,7 +721,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', onClose, onCreated }) 
   const cellInput = "w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700";
 
   return (
-    <Modal isOpen onClose={onClose} title="Gate Pass Request" size="full">
+    <Modal isOpen onClose={onClose} title={isEdit ? `Edit Gate Pass — ${initialData?.passNumber}` : 'Gate Pass Request'} size="full">
       <div className="space-y-6">
         {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
@@ -697,8 +732,9 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', onClose, onCreated }) 
               <button
                 key={k}
                 type="button"
-                onClick={() => setKind(k)}
-                className={`px-4 py-2 rounded-md border text-sm font-medium transition-colors ${
+                onClick={() => !isEdit && setKind(k)}
+                disabled={isEdit}
+                className={`px-4 py-2 rounded-md border text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
                   kind === k
                     ? 'bg-navy-700 text-white border-navy-700'
                     : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
@@ -837,7 +873,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', onClose, onCreated }) 
         <div className="flex justify-end gap-2 pt-3 border-t border-gray-200">
           <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>
-            <Send size={14} /> {saving ? 'Submitting…' : 'Submit to Stores'}
+            <Send size={14} /> {saving ? (isEdit ? 'Saving…' : 'Submitting…') : (isEdit ? 'Save Changes' : 'Submit to Stores')}
           </Button>
         </div>
       </div>

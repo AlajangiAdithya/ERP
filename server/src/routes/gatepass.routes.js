@@ -488,6 +488,106 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
   }
 });
 
+// PUT /api/gatepasses/:id/edit
+// Creator (MANAGER / PLANNING / ADMIN) can edit a gate pass while it is still
+// PENDING_STORE (before Stores has approved it). Replaces all items.
+router.put('/:id/edit', authenticate, authorize('MANAGER', 'ADMIN', 'PLANNING'), async (req, res) => {
+  try {
+    const {
+      passNumber: rawPassNumber,
+      siteName,
+      remarks,
+      items,
+      jobWorkNo: rawJobWorkNo,
+      jobWorkDate: rawJobWorkDate,
+    } = req.body;
+
+    const existing = await prisma.gatePass.findUnique({
+      where: { id: req.params.id },
+      include: { items: { select: { id: true } } },
+    });
+    if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
+    if (existing.status !== 'PENDING_STORE') {
+      return res.status(400).json({ error: 'Gate pass can only be edited while pending stores approval' });
+    }
+    if (existing.direction !== 'OUTWARD') {
+      return res.status(400).json({ error: 'Only outward gate passes can be edited this way' });
+    }
+
+    const passNumber = (rawPassNumber || '').trim();
+    if (!passNumber) return res.status(400).json({ error: 'Gate pass number is required' });
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'At least one item is required' });
+    }
+
+    for (const it of items) {
+      if (!it.description || !it.description.trim()) {
+        return res.status(400).json({ error: 'Each item requires a name/description' });
+      }
+      if (it.quantity == null || isNaN(Number(it.quantity)) || Number(it.quantity) <= 0) {
+        return res.status(400).json({ error: 'Each item requires a positive quantity' });
+      }
+      if (it.itemPassType && !PASS_TYPES.includes(it.itemPassType)) {
+        return res.status(400).json({ error: 'Invalid item pass type' });
+      }
+      if (it.itemPassType === 'RETURNABLE' && !it.probableReturnDate) {
+        return res.status(400).json({ error: 'Returnable items need a probable date of return' });
+      }
+    }
+
+    const dispatchTargets = [...new Set(items.map((i) => i.dispatchedTo?.trim()).filter(Boolean))];
+    const derivedPartyName = dispatchTargets.length
+      ? dispatchTargets.join('; ')
+      : (siteName?.trim() || 'In-house');
+    const primaryType = items.find((i) => i.itemPassType)?.itemPassType || 'RETURNABLE';
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.gatePassItem.deleteMany({ where: { gatePassId: existing.id } });
+      return tx.gatePass.update({
+        where: { id: existing.id },
+        data: {
+          passNumber,
+          siteName: siteName?.trim() || null,
+          partyName: derivedPartyName,
+          passType: primaryType,
+          jobWorkNo: existing.kind === 'LOCAL_JOB' ? (rawJobWorkNo?.trim() || null) : existing.jobWorkNo,
+          jobWorkDate: existing.kind === 'LOCAL_JOB' ? (toDate(rawJobWorkDate) || null) : existing.jobWorkDate,
+          remarks: remarks?.trim() || null,
+          items: {
+            create: items.map((it) => ({
+              description: it.description.trim(),
+              quantity: Number(it.quantity),
+              unit: it.unit || 'pcs',
+              dispatchedTo: it.dispatchedTo?.trim() || null,
+              itemPurpose: it.itemPurpose?.trim() || null,
+              probableReturnDate: toDate(it.probableReturnDate),
+              itemPassType: it.itemPassType === 'DELIVERY_CHALLAN' ? 'NON_RETURNABLE' : (it.itemPassType || null),
+              contactPersonDetails: it.contactPersonDetails?.trim() || null,
+            })),
+          },
+        },
+        include: GATEPASS_INCLUDE,
+      });
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'EDIT',
+        entity: 'GatePass',
+        entityId: updated.id,
+        details: { passNumber: updated.passNumber, itemCount: items.length },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Edit gate pass error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ──────────────────────────────────────────────────────────────────────────────
 // OUTWARD v2 — Local Job / Outside dual flow
 //
