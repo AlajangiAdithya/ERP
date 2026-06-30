@@ -979,36 +979,100 @@ function ItemsTable({ items }) {
 function StoreApproveBox({ g, busy, onSubmit }) {
   const isLegacy = !g.kind;
   const [driverName, setDriverName] = useState(g.driverName || '');
-  const [vehicleNo, setVehicleNo] = useState(g.vehicleNo || '');
-  const [remarks, setRemarks] = useState('');
+  const [vehicleNo,  setVehicleNo]  = useState(g.vehicleNo  || '');
+  const [remarks,    setRemarks]    = useState('');
+
+  // Per-item gate pass details + transportation — pre-populate from existing values
+  const [itemFields, setItemFields] = useState(
+    (g.items || []).map(it => ({
+      id:              it.id,
+      description:     it.description,
+      gatePassDetails: it.gatePassDetails || '',
+      transportation:  it.transportation  || '',
+    }))
+  );
+
+  const updateItem = (idx, key, val) =>
+    setItemFields(prev => prev.map((f, i) => i === idx ? { ...f, [key]: val } : f));
 
   const submit = () => {
     const body = { remarks: remarks.trim() || undefined };
     if (isLegacy) {
       body.driverName = driverName.trim();
-      body.vehicleNo = vehicleNo.trim();
+      body.vehicleNo  = vehicleNo.trim();
     }
+    body.items = itemFields.map(f => ({
+      id:              f.id,
+      gatePassDetails: f.gatePassDetails.trim(),
+      transportation:  f.transportation.trim(),
+    }));
     onSubmit(body);
   };
 
   const disabled = busy || (isLegacy && (!driverName.trim() || !vehicleNo.trim()));
 
   return (
-    <div className="p-3 bg-amber-50 border border-amber-200 rounded space-y-2">
-      <p className="text-xs font-medium text-amber-800">
+    <div className="space-y-3">
+      <div className="p-3 bg-amber-50 border border-amber-200 rounded text-xs font-medium text-amber-800">
         {isLegacy
           ? 'Legacy FIM gate pass — capture driver/vehicle and forward to Accounts'
           : g.kind === 'OUTSIDE'
-            ? 'Approve and forward to Accounts for invoice details'
-            : 'Approve and forward directly to Logistics for dispatch'}
-      </p>
+            ? 'Fill in gate pass details for each item, then approve and forward to Accounts'
+            : 'Fill in gate pass details for each item, then approve and forward to Logistics'}
+      </div>
+
       {isLegacy && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <Input label="Driver name *" value={driverName} onChange={e => setDriverName(e.target.value)} />
-          <Input label="Vehicle number *" value={vehicleNo} onChange={e => setVehicleNo(e.target.value)} />
+          <Input label="Driver name *"    value={driverName} onChange={e => setDriverName(e.target.value)} />
+          <Input label="Vehicle number *" value={vehicleNo}  onChange={e => setVehicleNo(e.target.value)} />
         </div>
       )}
+
+      {/* Per-item gate pass details */}
+      {itemFields.length > 0 && (
+        <div className="border border-gray-200 rounded overflow-hidden">
+          <div className="bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600 border-b border-gray-200">
+            Gate Pass Details per Item
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-gray-500 border-b border-gray-100 bg-gray-50/60">
+                <th className="px-3 py-1.5 w-8">#</th>
+                <th className="px-3 py-1.5">Component</th>
+                <th className="px-3 py-1.5" style={{ minWidth: 160 }}>Gate Pass Details *</th>
+                <th className="px-3 py-1.5" style={{ minWidth: 140 }}>Transportation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {itemFields.map((f, idx) => (
+                <tr key={f.id} className="border-t border-gray-100">
+                  <td className="px-3 py-1.5 text-gray-400">{idx + 1}</td>
+                  <td className="px-3 py-1.5 text-gray-700 font-medium">{f.description}</td>
+                  <td className="px-2 py-1">
+                    <input
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-navy-400"
+                      placeholder="e.g. GP-2024-001"
+                      value={f.gatePassDetails}
+                      onChange={e => updateItem(idx, 'gatePassDetails', e.target.value)}
+                    />
+                  </td>
+                  <td className="px-2 py-1">
+                    <input
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-navy-400"
+                      placeholder="e.g. Company vehicle / courier"
+                      value={f.transportation}
+                      onChange={e => updateItem(idx, 'transportation', e.target.value)}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <Textarea label="Remarks (optional)" value={remarks} onChange={e => setRemarks(e.target.value)} rows={2} />
+
       <div className="flex justify-end">
         <Button disabled={disabled} onClick={submit}>
           <ShieldCheck size={14} /> Approve & Forward

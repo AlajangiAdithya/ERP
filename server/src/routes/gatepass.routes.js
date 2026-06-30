@@ -511,9 +511,12 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
 // Legacy (kind=null) keeps the old behaviour: vehicleNo/driverName required, routes to PENDING_ACCOUNTS.
 router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
-    const { driverName, vehicleNo, remarks } = req.body || {};
+    const { driverName, vehicleNo, remarks, items: itemUpdates } = req.body || {};
 
-    const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.gatePass.findUnique({
+      where: { id: req.params.id },
+      include: { items: { select: { id: true } } },
+    });
     if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
     if (existing.status !== 'PENDING_STORE') {
       return res.status(400).json({ error: 'Gate pass is not awaiting Store Incharge approval' });
@@ -530,6 +533,22 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
       : (existing.kind === 'OUTSIDE' ? 'PENDING_ACCOUNTS' : 'PENDING_LOGISTICS');
 
     const now = new Date();
+
+    // Update per-item gatePassDetails and transportation if provided
+    if (Array.isArray(itemUpdates) && itemUpdates.length > 0) {
+      await Promise.all(
+        itemUpdates.map((iu) =>
+          prisma.gatePassItem.update({
+            where: { id: iu.id },
+            data: {
+              gatePassDetails: iu.gatePassDetails?.trim() || null,
+              transportation:  iu.transportation?.trim()  || null,
+            },
+          })
+        )
+      );
+    }
+
     const updated = await prisma.gatePass.update({
       where: { id: req.params.id },
       data: {
