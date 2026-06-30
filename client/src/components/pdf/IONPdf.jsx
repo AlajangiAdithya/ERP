@@ -107,12 +107,6 @@ export default function IONPdf({ data }) {
           { label: 'Collected by', value: n.collectedBy?.name ? `${n.collectedBy.name} • ${formatDateTime(n.collectedAt)}` : null },
         ]} />
 
-        <View style={styles.sigRow}>
-          <View style={styles.sigBox}><Text>Raised By (Manager)</Text></View>
-          <View style={styles.sigBox}><Text>Lab In-Charge</Text></View>
-          <View style={styles.sigBox}><Text>Collected By</Text></View>
-        </View>
-
         <Text style={styles.footer} fixed>
           Generated {formatDateTime(new Date())}   RAPS ERP   {n.ionNumber || ''}
         </Text>

@@ -120,20 +120,6 @@ export default function QCVerificationCertificatePdf({ data }) {
           { label: 'QC Verified', value: w.qcVerifiedBy?.name ? `${w.qcVerifiedBy.name} • ${formatDateTime(w.qcVerifiedAt)}` : null },
         ]} />
 
-        <View style={[styles.sigRow, { marginTop: 24 }]}>
-          <View style={styles.sigBox}>
-            <Text>UNIT INCHARGE</Text>
-            <Text style={{ fontSize: 7, color: '#555', marginTop: 2 }}>{w.unitDocsSubmittedBy?.name || ''}</Text>
-          </View>
-          <View style={styles.sigBox}>
-            <Text>QC VERIFIER</Text>
-            <Text style={{ fontSize: 7, color: '#555', marginTop: 2 }}>{w.qcVerifiedBy?.name || ''}</Text>
-          </View>
-          <View style={styles.sigBox}>
-            <Text>QC HEAD</Text>
-          </View>
-        </View>
-
         <Text style={styles.footer} fixed>
           Generated {formatDateTime(new Date())}  •  RAPS ERP  •  {w.qcCertificateNumber || ''}
         </Text>

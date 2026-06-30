@@ -109,19 +109,6 @@ export default function InvoicePdf({ data }) {
           { label: 'Payment Received', value: c.paymentReceivedBy?.name ? `${c.paymentReceivedBy.name} • ${formatDateTime(c.paymentReceivedAt)}` : null },
         ]} />
 
-        <View style={[styles.sigRow, { marginTop: 24 }]}>
-          <View style={styles.sigBox}>
-            <Text>FINANCE</Text>
-            <Text style={{ fontSize: 7, color: '#555', marginTop: 2 }}>{c.invoiceSentBy?.name || ''}</Text>
-          </View>
-          <View style={styles.sigBox}>
-            <Text>FOR RAPS</Text>
-          </View>
-          <View style={styles.sigBox}>
-            <Text>CUSTOMER ACK.</Text>
-          </View>
-        </View>
-
         <Text style={styles.footer} fixed>
           Generated {formatDateTime(new Date())}  •  RAPS ERP  •  {c.invoiceNumber || ''}
         </Text>

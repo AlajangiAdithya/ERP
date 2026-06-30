@@ -99,12 +99,6 @@ export default function InwardPdf({ data }) {
           { label: 'PR Reference', value: prNumber || null },
         ]} />
 
-        <View style={styles.sigRow}>
-          <View style={styles.sigBox}><Text>Received By (Stores)</Text></View>
-          <View style={styles.sigBox}><Text>Checked By (QC)</Text></View>
-          <View style={styles.sigBox}><Text>Approved By</Text></View>
-        </View>
-
         <Text style={styles.footer} fixed>
           Generated {formatDateTime(new Date())}  RAPS ERP  MIV {mivNumber || ''}
         </Text>

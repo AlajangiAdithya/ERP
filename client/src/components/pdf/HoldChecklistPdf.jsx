@@ -68,17 +68,6 @@ export default function HoldChecklistPdf({ data }) {
           { label: 'Resolved By Unit', value: h.resolvedBy?.name ? `${h.resolvedBy.name} • ${formatDateTime(h.resolvedAt)}` : null },
         ]} />
 
-        <View style={[styles.sigRow, { marginTop: 24 }]}>
-          <View style={styles.sigBox}>
-            <Text>FINANCE</Text>
-            <Text style={{ fontSize: 7, color: '#555', marginTop: 2 }}>{h.raisedBy?.name || ''}</Text>
-          </View>
-          <View style={styles.sigBox}>
-            <Text>UNIT INCHARGE</Text>
-            <Text style={{ fontSize: 7, color: '#555', marginTop: 2 }}>{h.resolvedBy?.name || ''}</Text>
-          </View>
-        </View>
-
         <Text style={styles.footer} fixed>
           Generated {formatDateTime(new Date())}  •  RAPS ERP  •  Hold for {wo.workOrderNumber || ''}
         </Text>

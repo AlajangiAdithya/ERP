@@ -51,7 +51,7 @@ export function IirTitleBlock({ docTypeLines }) {
   );
 }
 
-const W = { sno: '8%', label: '34%', value: '43%', details: '77%', noSign: '85%', sign: '15%' };
+const W = { sno: '8%', label: '34%', value: '58%', details: '92%' };
 
 function DataRow({ sno, label, value }) {
   return (
@@ -59,7 +59,6 @@ function DataRow({ sno, label, value }) {
       <Cell w={W.sno} center>{sno}</Cell>
       <Cell w={W.label} noLeft>{label}</Cell>
       <Cell w={W.value} noLeft>: {value || ''}</Cell>
-      <Cell w={W.sign} noLeft />
     </View>
   );
 }
@@ -67,8 +66,7 @@ function DataRow({ sno, label, value }) {
 function SectionRow({ title }) {
   return (
     <View style={{ flexDirection: 'row' }}>
-      <Cell w={W.noSign} section>{title}</Cell>
-      <Cell w={W.sign} noLeft />
+      <Cell w="100%" section>{title}</Cell>
     </View>
   );
 }
@@ -86,9 +84,6 @@ export function RequestFormPage({ row, form }) {
   const docGp = r.docType === 'GATE_PASS' ? (r.docNumber || '') : '';
   const val = (key, fallback = '') => (f[key] != null && f[key] !== '' ? f[key] : fallback);
 
-  const indenterLine = [r.indenterName, r.issuedToLabel || r.issuedToDept].filter(Boolean).join(' · ');
-  const qcOutcome = r.qcResult === 'FAILED' ? 'Not OK' : (r.qcResult ? 'OK' : '');
-
   return (
     <Page size="A4" style={{ padding: 24, fontFamily: 'Helvetica', color: '#111' }}>
       <IirTitleBlock docTypeLines={'INWARD INSPECTION\nREQUEST FORM'} />
@@ -100,7 +95,6 @@ export function RequestFormPage({ row, form }) {
       <View style={{ flexDirection: 'row' }}>
         <Cell w={W.sno} header bold center>S.no</Cell>
         <Cell w={W.details} header bold center noLeft>Details (To be filled by Purchase &amp; stores)</Cell>
-        <Cell w={W.sign} header bold center noLeft>Store Supervisor sign</Cell>
       </View>
 
       <SectionRow title="Purchase Requisition details" />
@@ -131,21 +125,6 @@ export function RequestFormPage({ row, form }) {
         <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold' }}>
           Requesting QA/QC Group to inspect the particulars mentioned above and inspect the material as per Material specification/Scope of PO
         </Text>
-      </View>
-
-      <View style={{ flexDirection: 'row' }}>
-        <Cell w="50%" header bold center>Stores/Purchase/Indenter</Cell>
-        <Cell w="50%" header bold center noLeft>Quality group</Cell>
-      </View>
-      <View style={{ flexDirection: 'row' }}>
-        <View style={{ width: '50%', borderWidth: 1, borderTopWidth: 0, borderColor: BORDER, padding: 4, minHeight: 80 }}>
-          <Text style={{ fontSize: 8 }}>{indenterLine}</Text>
-        </View>
-        <View style={{ width: '50%', borderWidth: 1, borderTopWidth: 0, borderLeftWidth: 0, borderColor: BORDER, padding: 4, minHeight: 80 }}>
-          <Text style={{ fontSize: 8, marginBottom: 8 }}>Particulars mentioned above review</Text>
-          <Text style={{ fontSize: 8, marginBottom: 8 }}>Found OK / Not OK{qcOutcome ? `  →  ${qcOutcome}` : ''}</Text>
-          <Text style={{ fontSize: 8 }}>Sign of QA/QC Group: {r.qcReviewer?.name || ''}</Text>
-        </View>
       </View>
 
       <Text style={{ position: 'absolute', bottom: 16, right: 24, fontSize: 8 }} fixed>Page 1 of 2</Text>

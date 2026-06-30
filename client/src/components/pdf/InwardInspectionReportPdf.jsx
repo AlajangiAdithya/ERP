@@ -9,9 +9,6 @@ const fmtQty = (n) => (n == null || n === '' ? '' : Number(n).toLocaleString('en
 
 // Spell out the reviewer's role on the sign-off so the report records whether
 // full Quality Control or the inward-only Inward QC operator performed it.
-const QC_ROLE_LABELS = { QC: 'Quality Control', INWARD_QC: 'Inward QC', ADMIN: 'Admin' };
-const signerLabel = (u) => (u ? `${u.name || ''}${u.role ? ` (${QC_ROLE_LABELS[u.role] || u.role})` : ''}` : '');
-
 function Box({ checked }) {
   return (
     <View style={{ width: 9, height: 9, borderWidth: 1, borderColor: BORDER, alignItems: 'center', justifyContent: 'center' }}>
@@ -113,22 +110,8 @@ export function ReportPage({ row }) {
       <Line bold>Reason for Rejection/Non confirmity: {rep.rejectionReason || ''}</Line>
       <Line bold>Remarks: {r.qcReportRemark || ''}</Line>
 
-      {/* Sign-off */}
       <View style={{ flexDirection: 'row' }}>
-        <Cell w="50%" header bold center noTop>Stores group</Cell>
-        <Cell w="50%" header bold center noTop noLeft>Quality group</Cell>
-      </View>
-      <View style={{ flexDirection: 'row' }}>
-        <View style={{ width: '50%', borderWidth: 1, borderTopWidth: 0, borderColor: BORDER, padding: 4, minHeight: 46 }}>
-          <Text style={{ fontSize: 8 }}>{r.qcRequestedBy?.name || r.createdBy?.name || ''}</Text>
-        </View>
-        <View style={{ width: '50%', borderWidth: 1, borderTopWidth: 0, borderLeftWidth: 0, borderColor: BORDER, padding: 4, minHeight: 46 }}>
-          <Text style={{ fontSize: 8 }}>{signerLabel(r.qcReviewer)}{r.qcResult ? `   ·   ${r.qcResult}` : ''}</Text>
-        </View>
-      </View>
-      <View style={{ flexDirection: 'row' }}>
-        <Cell w="50%" center noTop>MIR No. (Store to be filled): {r.mirNo || ''}</Cell>
-        <Cell w="50%" noTop noLeft />
+        <Cell w="100%" center noTop>MIR No.: {r.mirNo || ''}</Cell>
       </View>
 
       <Text style={{ position: 'absolute', bottom: 16, right: 24, fontSize: 8 }} fixed>Page 2 of 2</Text>

@@ -107,13 +107,6 @@ export const styles = StyleSheet.create({
     paddingTop: 4,
   },
 
-  // Signatures
-  sigRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 20,
-  },
-  sigBox: { width: '30%', borderTopWidth: 1, borderTopColor: '#444', paddingTop: 4, fontSize: 8, textAlign: 'center' },
 });
 
 export const CompanyHeader = ({ docType, docNumber, docSubtitle }) => (
