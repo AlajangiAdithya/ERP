@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect } from 'react';
-import { Plus, Trash2, FlaskConical, Send, CheckCircle2, Users, Atom, Ruler } from 'lucide-react';
+import { Plus, Trash2, FlaskConical, Send, CheckCircle2 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { useAutoRefresh } from '../context/NotificationContext';
@@ -9,7 +9,7 @@ import Button from '../components/ui/Button';
 import Input, { Select, Textarea } from '../components/ui/Input';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
-import { formatDate, formatDateTime } from '../utils/formatters';
+import { formatDate } from '../utils/formatters';
 import IONPdf from '../components/pdf/IONPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import PageHero from '../components/shared/PageHero';
@@ -29,15 +29,8 @@ const CREATOR_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'];
 
 const isNdtIon = (n) => n?.recipientRole === 'NDT' || n?.assignedTo?.role === 'NDT';
 
-const blankStandardItem = () => ({
+const blankItem = () => ({
   jobIdentification: '', activityRequired: '', materialComposition: '', drawingNo: '', specification: '',
-});
-const blankNdtItem = () => ({
-  nameOfJob: '', jobIdentification: '', materialComposition: '', qty: '', activityRequired: '', itemRemarks: '',
-  ndtDetails: {
-    method: '', gridSize: '', gridPoints: '', stage: '', acceptanceLimit: '',
-    shotType: '', shotCount: '', acceptanceCriteria: '',
-  },
 });
 
 export default function InterOfficeNote() {
@@ -46,7 +39,6 @@ export default function InterOfficeNote() {
   const isRecipient = RECIPIENT_ROLES.includes(user?.role);
   const canCreate = CREATOR_ROLES.includes(user?.role);
 
-  // Determine if a row is incoming for the current user (so we can show action affordances)
   const incomingForMe = (n) => {
     if (isRecipient) {
       return (
@@ -85,7 +77,7 @@ export default function InterOfficeNote() {
       <PageHero
         title="Inter Office Note"
         subtitle={canCreate
-          ? 'Raise lab / metrology / NDT / R&D work orders, or send machining requests to managers in other units.'
+          ? 'Raise lab / metrology / NDT / R&D work orders.'
           : 'Incoming work orders from production.'}
         eyebrow="Work Orders"
         icon={FlaskConical}
@@ -141,6 +133,7 @@ export default function InterOfficeNote() {
                 {ions.map((n, i) => {
                   const roleBucket = n.recipientRole === 'METROLOGY' ? 'Metrology'
                     : n.recipientRole === 'NDT' ? 'NDT'
+                    : n.recipientRole === 'RND' ? 'R&D'
                     : n.recipientRole ? n.recipientRole.charAt(0) + n.recipientRole.slice(1).toLowerCase()
                     : 'Lab';
                   const recipientLabel = n.assignedTo
@@ -199,12 +192,9 @@ export default function InterOfficeNote() {
 }
 
 function CreateIONModal({ onClose, onCreated }) {
-  const [recipientType, setRecipientType] = useState('LAB'); // 'LAB' | 'METROLOGY' | 'NDT' | 'MANAGER'
-  const [recipientManagerId, setRecipientManagerId] = useState('');
-  const [managerOptions, setManagerOptions] = useState([]);
+  const [recipientType, setRecipientType] = useState('LAB');
+  const [workOrders, setWorkOrders] = useState([]);
   const [form, setForm] = useState({
-    userReferenceNo: '',
-    section: '',
     projectName: '',
     supplyOrderNo: '',
     referenceDocQA: '',
@@ -215,28 +205,17 @@ function CreateIONModal({ onClose, onCreated }) {
     externalQAWitness: '',
     qcContactDetails: '',
     otherInformation: '',
-    reportNoAndDate: '',
     remarks: '',
   });
-  const [items, setItems] = useState([blankStandardItem()]);
+  const [items, setItems] = useState([blankItem()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const isNdt = recipientType === 'NDT';
-
-  // When switching format, reset items to the appropriate shape so the user
-  // doesn't get half-filled fields that don't apply to the new format.
   useEffect(() => {
-    setItems(isNdt ? [blankNdtItem()] : [blankStandardItem()]);
-  }, [isNdt]);
-
-  useEffect(() => {
-    if (recipientType === 'MANAGER' && managerOptions.length === 0) {
-      api.get('/users/managers')
-        .then(({ data }) => setManagerOptions(data || []))
-        .catch(() => setManagerOptions([]));
-    }
-  }, [recipientType, managerOptions.length]);
+    api.get('/work-orders/assignable')
+      .then(({ data }) => setWorkOrders(data.workOrders || []))
+      .catch(() => setWorkOrders([]));
+  }, []);
 
   const update = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
   const updateItem = (idx, k, v) => {
@@ -244,25 +223,17 @@ function CreateIONModal({ onClose, onCreated }) {
     copy[idx] = { ...copy[idx], [k]: v };
     setItems(copy);
   };
-  const updateNdtDetail = (idx, k, v) => {
-    const copy = [...items];
-    copy[idx] = { ...copy[idx], ndtDetails: { ...(copy[idx].ndtDetails || {}), [k]: v } };
-    setItems(copy);
-  };
-  const addItem = () => setItems([...items, isNdt ? blankNdtItem() : blankStandardItem()]);
+  const addItem = () => setItems([...items, blankItem()]);
   const removeItem = (idx) => setItems(items.length === 1 ? items : items.filter((_, i) => i !== idx));
 
   const submit = async () => {
     setError('');
     if (items.some(i => !String(i.jobIdentification || '').trim())) return setError('Each item needs a Job Identification');
-    if (recipientType === 'MANAGER' && !recipientManagerId) return setError('Pick the manager you are sending this to');
     setSaving(true);
     try {
       const payload = {
         recipientType,
-        assignedToId: recipientType === 'MANAGER' ? recipientManagerId : null,
-        userReferenceNo: form.userReferenceNo,
-        section: form.section,
+        assignedToId: null,
         projectName: form.projectName,
         supplyOrderNo: form.supplyOrderNo,
         referenceDocQA: form.referenceDocQA,
@@ -272,29 +243,16 @@ function CreateIONModal({ onClose, onCreated }) {
         qcContactDetails: form.qcContactDetails,
         otherInformation: form.otherInformation,
         remarks: form.remarks,
+        sampleRequired: form.sampleRequired,
+        reportGeneration: form.reportGeneration,
+        items: items.map(i => ({
+          jobIdentification: String(i.jobIdentification).trim(),
+          activityRequired: i.activityRequired || null,
+          materialComposition: i.materialComposition || null,
+          drawingNo: i.drawingNo || null,
+          specification: i.specification || null,
+        })),
       };
-      if (isNdt) {
-        payload.reportNoAndDate = form.reportNoAndDate;
-        payload.items = items.map(i => ({
-          jobIdentification: String(i.jobIdentification).trim(),
-          nameOfJob:           i.nameOfJob || null,
-          materialComposition: i.materialComposition || null,
-          qty:                 i.qty || null,
-          activityRequired:    i.activityRequired || null,
-          itemRemarks:         i.itemRemarks || null,
-          ndtDetails:          i.ndtDetails && Object.values(i.ndtDetails).some(v => v) ? i.ndtDetails : null,
-        }));
-      } else {
-        payload.sampleRequired = form.sampleRequired;
-        payload.reportGeneration = form.reportGeneration;
-        payload.items = items.map(i => ({
-          jobIdentification: String(i.jobIdentification).trim(),
-          activityRequired:    i.activityRequired || null,
-          materialComposition: i.materialComposition || null,
-          drawingNo:           i.drawingNo || null,
-          specification:       i.specification || null,
-        }));
-      }
       await api.post('/ion', payload);
       onCreated();
     } catch (err) {
@@ -303,66 +261,43 @@ function CreateIONModal({ onClose, onCreated }) {
     setSaving(false);
   };
 
+  const recipientLabel = recipientType === 'NDT' ? 'NDT'
+    : recipientType === 'RND' ? 'R&D'
+    : recipientType.charAt(0) + recipientType.slice(1).toLowerCase();
+
   return (
     <Modal isOpen onClose={onClose} title="New Inter Office Note" size="full">
       <div className="space-y-4">
         {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
         <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 rounded">
-          {isNdt
-            ? 'Doc No: RAPS/ION-7 — Inter Office Note for NDT (VT / UT / RT)'
-            : 'Doc No: RAMS/ION/00 — Work Order / Inter Office Note'}
+          Doc No: RAMS/ION/00 — Work Order / Inter Office Note
         </div>
 
-        {/* Recipient picker */}
         <div className="bg-navy-50 border border-navy-200 rounded-md p-3 space-y-3">
           <h4 className="text-sm font-semibold text-navy-800 flex items-center gap-2">
             <Send size={14} /> Send to
           </h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {[
-              { v: 'LAB', icon: <FlaskConical size={14} />, label: 'Lab (testing/QC)', help: 'For sample tests, reports, and inspections.' },
-              { v: 'METROLOGY', icon: <Ruler size={14} />, label: 'Metrology', help: 'For dimensional/metrology checks and reports.' },
-              { v: 'NDT', icon: <Atom size={14} />, label: 'NDT (VT / UT / RT)', help: 'Non-destructive testing — uses RAPS/ION-7 form.' },
-              { v: 'RND', icon: <FlaskConical size={14} />, label: 'R&D', help: 'For research, development trials, and product investigation.' },
-              { v: 'MANAGER', icon: <Users size={14} />, label: 'Manager (another unit)', help: 'For machining or production work in another unit.' },
-            ].map(opt => (
-              <label key={opt.v} className={`flex items-start gap-3 p-3 border rounded-md cursor-pointer transition-colors ${recipientType === opt.v ? 'border-navy-400 bg-white shadow-sm' : 'border-gray-200 bg-white hover:border-navy-300'}`}>
-                <input type="radio" name="recipientType" value={opt.v} checked={recipientType === opt.v} onChange={() => setRecipientType(opt.v)} className="mt-1" />
-                <div>
-                  <div className="font-medium text-gray-800 flex items-center gap-2">{opt.icon} {opt.label}</div>
-                  <div className="text-xs text-gray-500">{opt.help}</div>
-                </div>
-              </label>
-            ))}
-          </div>
-          {recipientType === 'MANAGER' && (
-            <Select label="Pick the receiving manager" value={recipientManagerId} onChange={(e) => setRecipientManagerId(e.target.value)}>
-              <option value="">— Select manager —</option>
-              {managerOptions.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.name}{m.unit?.name ? ` — ${m.unit.name}` : ''}
-                </option>
-              ))}
-            </Select>
-          )}
+          <Select label="Select department" value={recipientType} onChange={e => setRecipientType(e.target.value)}>
+            <option value="LAB">Lab</option>
+            <option value="METROLOGY">Metrology</option>
+            <option value="NDT">NDT</option>
+            <option value="RND">R&D</option>
+          </Select>
         </div>
 
-        {isNdt ? (
-          <NdtFormFields form={form} update={update} items={items}
-            updateItem={updateItem} updateNdtDetail={updateNdtDetail}
-            addItem={addItem} removeItem={removeItem} />
-        ) : (
-          <StandardFormFields form={form} update={update} items={items}
-            updateItem={updateItem} addItem={addItem} removeItem={removeItem} />
-        )}
+        <FormFields
+          form={form} update={update} items={items}
+          updateItem={updateItem} addItem={addItem} removeItem={removeItem}
+          workOrders={workOrders}
+        />
 
         <Textarea label="Remarks" value={form.remarks} onChange={e => update('remarks', e.target.value)} rows={2} />
 
         <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
           <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>
-            {saving ? 'Sending…' : recipientType === 'MANAGER' ? 'Send to Manager' : `Send to ${recipientType === 'NDT' ? 'NDT' : (recipientType.charAt(0) + recipientType.slice(1).toLowerCase())}`}
+            {saving ? 'Sending…' : `Send to ${recipientLabel}`}
           </Button>
         </div>
       </div>
@@ -370,34 +305,36 @@ function CreateIONModal({ onClose, onCreated }) {
   );
 }
 
-function StandardFormFields({ form, update, items, updateItem, addItem, removeItem }) {
+function FormFields({ form, update, items, updateItem, addItem, removeItem, workOrders = [] }) {
   return (
     <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Input label="User Ref No." value={form.userReferenceNo} onChange={e => update('userReferenceNo', e.target.value)} />
-        <Input label="Work Required at Section" value={form.section} onChange={e => update('section', e.target.value)} placeholder="e.g. Welding bay" />
         <Input label="Project Name" value={form.projectName} onChange={e => update('projectName', e.target.value)} />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Input label="Supply Order No." value={form.supplyOrderNo} onChange={e => update('supplyOrderNo', e.target.value)} />
+        <Select label="Work Order No." value={form.supplyOrderNo} onChange={e => update('supplyOrderNo', e.target.value)}>
+          <option value="">— Select work order —</option>
+          {workOrders.map(wo => (
+            <option key={wo.id} value={wo.workOrderNumber}>
+              {wo.workOrderNumber}{wo.nomenclature ? ` — ${wo.nomenclature}` : wo.customerName ? ` — ${wo.customerName}` : ''}
+            </option>
+          ))}
+        </Select>
         <Input label="Ref Doc / QA Plan" value={form.referenceDocQA} onChange={e => update('referenceDocQA', e.target.value)} />
-        <Input type="date" label="Material Supply Date" value={form.materialSupplyDate} onChange={e => update('materialSupplyDate', e.target.value)} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Input type="date" label="Material Supply Date" value={form.materialSupplyDate} onChange={e => update('materialSupplyDate', e.target.value)} />
         <Input type="date" label="Required By Date" value={form.requiredByDate} onChange={e => update('requiredByDate', e.target.value)} />
         <Select label="Sample Requirement" value={form.sampleRequired ? 'yes' : 'no'} onChange={e => update('sampleRequired', e.target.value === 'yes')}>
           <option value="no">No</option>
           <option value="yes">Yes</option>
         </Select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Select label="Report Generation" value={form.reportGeneration ? 'yes' : 'no'} onChange={e => update('reportGeneration', e.target.value === 'yes')}>
           <option value="no">No</option>
           <option value="yes">Yes</option>
         </Select>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Input label="External QA/QC Witness" value={form.externalQAWitness} onChange={e => update('externalQAWitness', e.target.value)} placeholder="SSQAG / ANSP / R&QA / Others" />
         <Input label="QC Contact Details" value={form.qcContactDetails} onChange={e => update('qcContactDetails', e.target.value)} placeholder="Phone / email" />
       </div>
@@ -415,8 +352,8 @@ function StandardFormFields({ form, update, items, updateItem, addItem, removeIt
                 <th className="px-2 py-1.5">Job Identification</th>
                 <th className="px-2 py-1.5">Activity Required</th>
                 <th className="px-2 py-1.5">Material Composition</th>
-                <th className="px-2 py-1.5">Drawing No / QAP</th>
-                <th className="px-2 py-1.5">Specification</th>
+                <th className="px-2 py-1.5">Drawing No</th>
+                <th className="px-2 py-1.5">QAP No.</th>
                 <th className="px-2 py-1.5 w-10"></th>
               </tr>
             </thead>
@@ -442,97 +379,6 @@ function StandardFormFields({ form, update, items, updateItem, addItem, removeIt
       </div>
 
       <Textarea label="Other Information" value={form.otherInformation} onChange={e => update('otherInformation', e.target.value)} rows={2} />
-    </>
-  );
-}
-
-function NdtFormFields({ form, update, items, updateItem, updateNdtDetail, addItem, removeItem }) {
-  return (
-    <>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Input label="User Reference No." value={form.userReferenceNo} onChange={e => update('userReferenceNo', e.target.value)} />
-        <Input label="Work Section" value={form.section} onChange={e => update('section', e.target.value)} />
-        <Input label="Project" value={form.projectName} onChange={e => update('projectName', e.target.value)} />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Input label="SO / ION No." value={form.supplyOrderNo} onChange={e => update('supplyOrderNo', e.target.value)} />
-        <Input label="QAP No." value={form.referenceDocQA} onChange={e => update('referenceDocQA', e.target.value)} />
-        <Input type="date" label="Material Supply Date" value={form.materialSupplyDate} onChange={e => update('materialSupplyDate', e.target.value)} />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Input type="date" label="Required By Date" value={form.requiredByDate} onChange={e => update('requiredByDate', e.target.value)} />
-        <Input label="External QA/QC Witness" value={form.externalQAWitness} onChange={e => update('externalQAWitness', e.target.value)} placeholder="SSQAG / R&QA / MSQAA / Others" />
-        <Input label="Report No & Date" value={form.reportNoAndDate} onChange={e => update('reportNoAndDate', e.target.value)} />
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="font-medium text-gray-800">NDT Job Items (VT / UT / RT)</h4>
-          <Button variant="secondary" size="sm" onClick={addItem}><Plus size={14} /> Add item</Button>
-        </div>
-        <div className="space-y-3">
-          {items.map((it, idx) => {
-            const activity = String(it.activityRequired || '').toUpperCase();
-            const showUt = activity.includes('UT');
-            const showRt = activity.includes('RT');
-            return (
-              <div key={idx} className="border border-gray-200 rounded-md p-3 bg-white">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-gray-600">Item {idx + 1}</span>
-                  <button onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 disabled:opacity-30" disabled={items.length === 1}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <Input label="Name of the Job" value={it.nameOfJob} onChange={e => updateItem(idx, 'nameOfJob', e.target.value)} />
-                  <Input label="Job Identification" value={it.jobIdentification} onChange={e => updateItem(idx, 'jobIdentification', e.target.value)} />
-                  <Input label="Material Composition" value={it.materialComposition} onChange={e => updateItem(idx, 'materialComposition', e.target.value)} />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
-                  <Input label="Qty" value={it.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
-                  <Select label="Activity Required" value={it.activityRequired} onChange={e => updateItem(idx, 'activityRequired', e.target.value)}>
-                    <option value="">— Select —</option>
-                    <option value="VT">VT (Visual)</option>
-                    <option value="UT">UT (Ultrasonic)</option>
-                    <option value="RT">RT (Radiographic)</option>
-                    <option value="UT,RT">UT + RT</option>
-                    <option value="VT,UT">VT + UT</option>
-                    <option value="VT,UT,RT">VT + UT + RT</option>
-                  </Select>
-                  <Input label="Remarks" value={it.itemRemarks} onChange={e => updateItem(idx, 'itemRemarks', e.target.value)} />
-                </div>
-
-                {(showUt || showRt) && (
-                  <div className="mt-3 pt-3 border-t border-dashed border-gray-200 space-y-3">
-                    {showUt && (
-                      <div>
-                        <div className="text-xs font-semibold text-navy-700 mb-1.5">UT — required details per QAP</div>
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-                          <Input label="Method" value={it.ndtDetails?.method || ''} onChange={e => updateNdtDetail(idx, 'method', e.target.value)} />
-                          <Input label="Grid Size" value={it.ndtDetails?.gridSize || ''} onChange={e => updateNdtDetail(idx, 'gridSize', e.target.value)} />
-                          <Input label="Grid Points" value={it.ndtDetails?.gridPoints || ''} onChange={e => updateNdtDetail(idx, 'gridPoints', e.target.value)} />
-                          <Input label="Stage of Inspection" value={it.ndtDetails?.stage || ''} onChange={e => updateNdtDetail(idx, 'stage', e.target.value)} />
-                          <Input label="Acceptance Limit" value={it.ndtDetails?.acceptanceLimit || ''} onChange={e => updateNdtDetail(idx, 'acceptanceLimit', e.target.value)} />
-                        </div>
-                      </div>
-                    )}
-                    {showRt && (
-                      <div>
-                        <div className="text-xs font-semibold text-navy-700 mb-1.5">RT — required details per QAP</div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                          <Input label="Type of Shot" value={it.ndtDetails?.shotType || ''} onChange={e => updateNdtDetail(idx, 'shotType', e.target.value)} />
-                          <Input label="Total No. of Shots" value={it.ndtDetails?.shotCount || ''} onChange={e => updateNdtDetail(idx, 'shotCount', e.target.value)} />
-                          <Input label="Acceptance Criteria" value={it.ndtDetails?.acceptanceCriteria || ''} onChange={e => updateNdtDetail(idx, 'acceptanceCriteria', e.target.value)} />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </>
   );
 }
@@ -579,9 +425,7 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Badge color={statusColor(n.status)}>{statusLabel(n.status)}</Badge>
-            <span className="text-xs text-amber-600">
-              {ndt ? 'Doc No: RAPS/ION-7' : 'Doc No: RAMS/ION/00'}
-            </span>
+            <span className="text-xs text-amber-600">Doc No: RAMS/ION/00</span>
           </div>
           <DownloadPdfButton
             document={<IONPdf data={n} />}
@@ -592,23 +436,21 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
           <Field label="Date" value={formatDate(n.createdAt)} />
-          <Field label="User Ref No." value={n.userReferenceNo} />
-          <Field label={ndt ? 'Work Section' : 'Section'} value={n.section} />
-          <Field label={ndt ? 'Project' : 'Project Name'} value={n.projectName} />
-          <Field label={ndt ? 'SO / ION No.' : 'Supply Order No.'} value={n.supplyOrderNo} />
-          <Field label={ndt ? 'QAP No.' : 'Ref Doc / QA Plan'} value={n.referenceDocQA} />
+          <Field label="Project Name" value={n.projectName} />
+          <Field label="Work Order No." value={n.supplyOrderNo} />
+          <Field label="Ref Doc / QA Plan" value={n.referenceDocQA} />
           <Field label="Material Supply Date" value={n.materialSupplyDate ? formatDate(n.materialSupplyDate) : '—'} />
           <Field label="Required By" value={n.requiredByDate ? formatDate(n.requiredByDate) : '—'} />
           <Field label="Completed Date" value={n.completedDate ? formatDate(n.completedDate) : '—'} />
-          {!ndt && <Field label="Sample Required" value={n.sampleRequired ? 'Yes' : 'No'} />}
-          {!ndt && <Field label="Report Generation" value={n.reportGeneration ? 'Yes' : 'No'} />}
+          <Field label="Sample Required" value={n.sampleRequired ? 'Yes' : 'No'} />
+          <Field label="Report Generation" value={n.reportGeneration ? 'Yes' : 'No'} />
           <Field label="External QA Witness" value={n.externalQAWitness} />
-          {!ndt && <Field label="QC Contact" value={n.qcContactDetails} />}
-          {ndt && <Field label="Report No & Date" value={n.reportNoAndDate} />}
+          <Field label="QC Contact" value={n.qcContactDetails} />
+          {ndt && n.reportNoAndDate && <Field label="Report No & Date" value={n.reportNoAndDate} />}
           <Field label="Raised By" value={`${n.createdBy?.name || '—'}${n.createdBy?.unit?.name ? ' — ' + n.createdBy.unit.name : ''}`} />
           <Field label="Sent To" value={n.assignedTo
             ? `${n.assignedTo.name}${n.assignedTo.unit?.name ? ' — ' + n.assignedTo.unit.name : ''} (${n.assignedTo.role})`
-            : `${n.recipientRole || 'LAB'} (any available)`} />
+            : `${n.recipientRole === 'RND' ? 'R&D' : n.recipientRole || 'Lab'} (any available)`} />
         </div>
 
         <div>
@@ -616,7 +458,7 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
           <div className="border border-gray-200 rounded overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
-                {ndt ? (
+                {ndt && n.items?.some(i => i.nameOfJob || i.qty) ? (
                   <tr className="text-left text-gray-600 text-xs">
                     <th className="px-3 py-1.5">#</th>
                     <th className="px-3 py-1.5">Name of Job</th>
@@ -633,12 +475,12 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
                     <th className="px-3 py-1.5">Activity</th>
                     <th className="px-3 py-1.5">Material</th>
                     <th className="px-3 py-1.5">Drawing No</th>
-                    <th className="px-3 py-1.5">Specification</th>
+                    <th className="px-3 py-1.5">QAP No.</th>
                   </tr>
                 )}
               </thead>
               <tbody>
-                {(n.items || []).map((it, idx) => ndt ? (
+                {(n.items || []).map((it, idx) => ndt && (it.nameOfJob || it.qty) ? (
                   <Fragment key={it.id || idx}>
                     <tr className="border-t border-gray-100">
                       <td className="px-3 py-1.5">{idx + 1}</td>
@@ -673,7 +515,7 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
           </div>
         </div>
 
-        {!ndt && n.otherInformation && (
+        {n.otherInformation && (
           <div>
             <h4 className="font-medium text-gray-800 mb-1">Other Information</h4>
             <p className="text-sm text-gray-700 whitespace-pre-wrap">{n.otherInformation}</p>
