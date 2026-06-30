@@ -136,8 +136,8 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
     } else if (OWN_ONLY_ROLES.includes(req.user.role)) {
       where.managerId = req.user.id;
     } else if (req.user.role === 'PURCHASE_OFFICER') {
-      // PO sees approved and beyond
-      where.status = { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE'] };
+      // PO sees approved and beyond (including cash purchase PRs they converted)
+      where.status = { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'CASH_PURCHASE', 'COMPLETED'] };
     }
     // ADMIN, STORE_MANAGER, ACCOUNTING and FINANCE see all — accounts/finance are
     // full read-only observers, so they get every PR in every status (including
@@ -1545,6 +1545,85 @@ router.post('/:id/close', authenticate, authorize('ADMIN', ...REQUESTER_ROLES), 
     res.json(updated);
   } catch (error) {
     console.error('Close purchase request error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/purchase-requests/:id/convert-to-cash-purchase
+// Purchase Officer converts an APPROVED PR to a cash purchase, bypassing the
+// normal quotation / PO / QC chain. The PR status flips to CASH_PURCHASE so
+// Stores can receive against it via the InwardEntry cash-purchase flow.
+router.put('/:id/convert-to-cash-purchase', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), async (req, res) => {
+  try {
+    const request = await prisma.purchaseRequest.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: { select: { id: true, itemQuotationStatus: true } },
+        manager: { select: { name: true } },
+        unit: { select: { name: true } },
+      },
+    });
+
+    if (!request) return res.status(404).json({ error: 'Purchase request not found' });
+    if (request.status !== 'APPROVED') {
+      return res.status(400).json({ error: 'Only APPROVED purchase requests can be converted to cash purchase' });
+    }
+
+    const liveItemIds = request.items
+      .filter((i) => i.itemQuotationStatus !== 'CANCELLED')
+      .map((i) => i.id);
+
+    await prisma.$transaction(async (tx) => {
+      if (liveItemIds.length > 0) {
+        await cancelLeftoverPRItems(tx, liveItemIds, 'Converted to cash purchase');
+      }
+      await tx.purchaseRequest.update({
+        where: { id: request.id },
+        data: { status: 'CASH_PURCHASE' },
+      });
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'CONVERT_TO_CASH_PURCHASE',
+        entity: 'PurchaseRequest',
+        entityId: request.id,
+        details: { requestNumber: request.requestNumber },
+        ipAddress: req.ip,
+      },
+    });
+
+    await prisma.notification.createMany({
+      data: [
+        {
+          type: 'PURCHASE_REQUEST_APPROVED',
+          title: `PR ${request.requestNumber} converted to Cash Purchase`,
+          message: `Purchase request ${request.requestNumber} has been converted to a cash purchase by ${req.user.name}. Stores will receive the material directly.`,
+          targetUserId: request.managerId,
+          sentById: req.user.id,
+        },
+        {
+          type: 'PURCHASE_REQUEST_APPROVED',
+          title: `PR ${request.requestNumber} — Cash Purchase`,
+          message: `PR ${request.requestNumber} from ${request.manager?.name || 'requester'}${request.unit ? ` (${request.unit.name})` : ''} has been converted to a cash purchase. Awaiting store receipt.`,
+          targetRole: 'STORE_MANAGER',
+          sentById: req.user.id,
+        },
+      ],
+    });
+
+    const updated = await prisma.purchaseRequest.findUnique({
+      where: { id: request.id },
+      include: {
+        manager: { select: { id: true, name: true } },
+        unit: { select: { id: true, name: true, code: true } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+      },
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('Convert to cash purchase error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

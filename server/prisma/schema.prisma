@@ -519,6 +519,7 @@ model PurchaseRequest {
   purchaseOrders       PurchaseOrder[]
   quotationSources     QuotationSource[]
   purchaseOrderSources PurchaseOrderSource[]
+  cashPurchaseInwards  MaterialInwardRegister[] @relation("CashPurchasePR")
 
   @@index([workOrderId])
 }
@@ -573,6 +574,7 @@ enum PurchaseRequestStatus {
   COMPLETED
   REJECTED
   IN_PROGRESS
+  CASH_PURCHASE
 }
 
 // Per-PR-item quotation progress. Independent of `itemStatus` (which mirrors
@@ -2847,6 +2849,11 @@ model MaterialInwardRegister {
   // row. [{ at, byId, byName, byRole, changes: [{ field, label, from, to }] }]
   editHistory Json?
 
+  // Cash purchase PR link — set when a cash inward is recorded against a
+  // CASH_PURCHASE PR (i.e. a PR the purchase officer converted to cash purchase).
+  cashPurchaseRequestId String?
+  cashPurchaseRequest   PurchaseRequest? @relation("CashPurchasePR", fields: [cashPurchaseRequestId], references: [id])
+
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -2856,6 +2863,7 @@ model MaterialInwardRegister {
   @@index([productId])
   @@index([batchNo])
   @@index([mirNo])
+  @@index([cashPurchaseRequestId])
 }
 
 enum InwardDocType {

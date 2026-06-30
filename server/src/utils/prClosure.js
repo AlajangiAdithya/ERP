@@ -148,6 +148,7 @@ async function syncPRStatusAfterChange(tx, prId) {
   if ([
     'PENDING_QC', 'PENDING_ADMIN', 'REJECTED',
     'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED',
+    'CASH_PURCHASE',
   ].includes(pr.status)) return;
 
   const live = pr.items.filter(i => i.itemQuotationStatus !== 'CANCELLED');

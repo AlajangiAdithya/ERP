@@ -28,6 +28,7 @@ const statusColor = (s) => ({
   IN_PROGRESS: 'navy',
   COMPLETED: 'green',
   REJECTED: 'red',
+  CASH_PURCHASE: 'orange',
 }[s] || 'gray');
 
 const statusLabel = (s) => ({
@@ -43,6 +44,7 @@ const statusLabel = (s) => ({
   IN_PROGRESS: 'In Progress',
   COMPLETED: 'Completed',
   REJECTED: 'Rejected',
+  CASH_PURCHASE: 'Cash Purchase',
 }[s] || s);
 
 const itemStatusColor = (s) => ({
@@ -1183,6 +1185,20 @@ function ProcurementJourney({ request }) {
   }
   const effectiveIndex = request.status === 'REJECTED' ? -1 : currentIndex;
 
+  if (request.status === 'CASH_PURCHASE') {
+    return (
+      <div>
+        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-1">
+          <TrendingUp size={14} /> Procurement Journey
+        </h4>
+        <div className="bg-orange-50 border border-orange-200 rounded-md p-3 text-sm text-orange-900">
+          <span className="font-semibold">Cash Purchase</span> — This PR was converted to a cash purchase by the Purchase Officer.
+          The normal quotation and PO process has been bypassed. Stores will receive the material directly.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-1">
@@ -1229,6 +1245,21 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [closeReason, setCloseReason] = useState('');
   const [closing, setClosing] = useState(false);
+  const [cashConvertOpen, setCashConvertOpen] = useState(false);
+  const [converting, setConverting] = useState(false);
+
+  const submitCashConvert = async () => {
+    setConverting(true);
+    try {
+      await api.put(`/purchase-requests/${request.id}/convert-to-cash-purchase`);
+      setCashConvertOpen(false);
+      onReload?.();
+      onClose?.();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to convert');
+    }
+    setConverting(false);
+  };
 
   const canCloseThisPR =
     request &&
@@ -1538,6 +1569,11 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
               <XCircle size={16} className="mr-1" /> Close PR
             </Button>
           )}
+          {isPO && request.status === 'APPROVED' && (
+            <Button variant="secondary" onClick={() => setCashConvertOpen(true)}>
+              Convert to Cash Purchase
+            </Button>
+          )}
           <DownloadPdfButton
             document={<PRPdf request={request} />}
             fileName={`PR-${request.requestNumber}.pdf`}
@@ -1587,6 +1623,31 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
               </Button>
               <Button variant="danger" onClick={submitClose} disabled={closing}>
                 <XCircle size={16} className="mr-1" /> {closing ? 'Closing…' : 'Close PR'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {cashConvertOpen && (
+        <Modal
+          isOpen
+          onClose={() => { if (!converting) setCashConvertOpen(false); }}
+          title="Convert to Cash Purchase?"
+          size="md"
+        >
+          <div className="space-y-4">
+            <div className="bg-orange-50 border-l-4 border-orange-400 rounded-md p-3 text-sm text-orange-900">
+              Converting this PR to a cash purchase will bypass the normal quotation and PO process.
+              Stores will receive the material directly and link it to this PR.
+              Any pending quotation items will be cancelled.
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="secondary" onClick={() => setCashConvertOpen(false)} disabled={converting}>
+                Cancel
+              </Button>
+              <Button onClick={submitCashConvert} disabled={converting}>
+                {converting ? 'Converting…' : 'Convert to Cash Purchase'}
               </Button>
             </div>
           </div>
@@ -1800,7 +1861,7 @@ export default function PurchaseRequests() {
   };
 
   const tabs = isPO
-    ? ['ALL', 'APPROVED', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED']
+    ? ['ALL', 'APPROVED', 'CASH_PURCHASE', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED']
     : isAccounting
     ? ['ALL', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'COMPLETED']
     : isQC

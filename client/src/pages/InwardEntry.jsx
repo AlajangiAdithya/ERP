@@ -669,6 +669,8 @@ const newCashItem = () => ({
 function NewInwardModal({ editRow, onClose, onSaved }) {
   const isEdit = !!editRow;
   const [pos, setPos] = useState([]);
+  const [cashPrs, setCashPrs] = useState([]);
+  const [cashPrId, setCashPrId] = useState('');
   const [products, setProducts] = useState([]);
   const [units, setUnits] = useState([]);
   // Direct / cash entries: where Stores assigns the material. Encoded as
@@ -733,6 +735,12 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     if (isEdit) return;
     api.get('/material-inward/active-pos').then(({ data }) => setPos(data.orders || [])).catch(() => setPos([]));
   }, [isEdit]);
+
+  // Cash purchase PRs — load when Cash Purchase is selected.
+  useEffect(() => {
+    if (isEdit || !isCash) return;
+    api.get('/material-inward/cash-purchase-prs').then(({ data }) => setCashPrs(data.prs || [])).catch(() => setCashPrs([]));
+  }, [isCash, isEdit]);
 
   // Products for cash / manual-PO product linking.
   useEffect(() => {
@@ -861,6 +869,8 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           // Stores-chosen assignment (unit / owner dept / general pool), shared.
           issuedToUnitId,
           issuedToDept,
+          // Link to a cash purchase PR if selected.
+          cashPurchaseRequestId: isCash && cashPrId ? cashPrId : null,
           items: items.map((it) => ({
             productId: it.productId || null,
             itemDescription: it.itemDescription,
@@ -891,7 +901,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
         {!isEdit && (
           <FormBlock title="Source">
             <Select label="RAPS Purchase Order *" value={poId}
-              onChange={(e) => { const v = e.target.value; setPoId(v); setSel({}); set('docType', v === 'CASH' ? 'CASH_PURCHASE' : 'INVOICE'); }}>
+              onChange={(e) => { const v = e.target.value; setPoId(v); setSel({}); setCashPrId(''); set('docType', v === 'CASH' ? 'CASH_PURCHASE' : 'INVOICE'); }}>
               <option value="">Select…</option>
               <option value="CASH">Cash Purchase</option>
               <option value="MANUAL_PO">Existing PO — not in the system (enter manually)</option>
@@ -956,6 +966,63 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                 new item. A manual PO additionally records the typed PO number. */}
             {isCashLike && (
               <div className="space-y-4 pt-1">
+                {/* Cash Purchase PR selector — shown only for pure cash purchases. */}
+                {isCash && (
+                  <div className="space-y-2">
+                    <Select
+                      label="Against a Cash Purchase PR (optional)"
+                      value={cashPrId}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setCashPrId(v);
+                        if (v) {
+                          const pr = cashPrs.find((p) => p.id === v);
+                          if (pr?.unit?.id) setAssignTo(`unit:${pr.unit.id}`);
+                        }
+                      }}
+                    >
+                      <option value="">— No linked PR (unplanned cash purchase) —</option>
+                      {cashPrs.map((pr) => (
+                        <option key={pr.id} value={pr.id}>
+                          {pr.requestNumber} — {pr.manager?.name}{pr.unit ? ` (${pr.unit.code || pr.unit.name})` : ''} — {pr.items?.length} item{pr.items?.length !== 1 ? 's' : ''}
+                        </option>
+                      ))}
+                    </Select>
+                    {cashPrId && (() => {
+                      const pr = cashPrs.find((p) => p.id === cashPrId);
+                      if (!pr) return null;
+                      return (
+                        <div className="text-[11px] bg-orange-50 border border-orange-200 rounded-md p-2 space-y-1">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            <div><span className="text-gray-500">PR #:</span> <span className="font-medium">{pr.requestNumber}</span></div>
+                            <div><span className="text-gray-500">Requester:</span> {pr.manager?.name}</div>
+                            {pr.unit && <div><span className="text-gray-500">Unit:</span> {pr.unit.name}</div>}
+                          </div>
+                          <div className="mt-1">
+                            <div className="text-gray-500 font-medium mb-0.5">Materials:</div>
+                            <table className="w-full text-[11px]">
+                              <thead><tr className="border-b border-orange-200">
+                                <th className="text-left py-0.5 font-medium text-gray-600">Item</th>
+                                <th className="text-left py-0.5 font-medium text-gray-600">Qty</th>
+                              </tr></thead>
+                              <tbody>
+                                {pr.items?.map((it) => (
+                                  <tr key={it.id} className="border-b border-orange-100 last:border-0">
+                                    <td className="py-0.5 pr-2">{it.productName}</td>
+                                    <td className="py-0.5">{it.adminApprovedQty ?? it.requestedQty} {it.productUnit}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {cashPrs.length === 0 && (
+                      <p className="text-[11px] text-gray-400">No pending cash purchase PRs found.</p>
+                    )}
+                  </div>
+                )}
                 {isManualPo && (
                   <div className="space-y-2">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

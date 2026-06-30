@@ -468,6 +468,39 @@ const compareMirForList = (a, b) => {
   return (a.lotNo || 0) - (b.lotNo || 0);                             // cash sub-items in order
 };
 
+// ── GET /api/material-inward/cash-purchase-prs ───────────────────────
+// PRs converted to cash purchase (status = CASH_PURCHASE) that are awaiting
+// store receipt. Used by the InwardEntry dropdown so Stores can link a cash
+// inward entry to the originating PR.
+router.get('/cash-purchase-prs', authenticate, requireInwardWrite, async (req, res) => {
+  try {
+    const prs = await prisma.purchaseRequest.findMany({
+      where: { status: 'CASH_PURCHASE' },
+      include: {
+        manager: { select: { id: true, name: true } },
+        unit: { select: { id: true, name: true, code: true } },
+        items: {
+          select: {
+            id: true,
+            productName: true,
+            productUnit: true,
+            requestedQty: true,
+            adminApprovedQty: true,
+            materialType: true,
+            materialSpecification: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    res.json({ prs });
+  } catch (err) {
+    console.error('cash-purchase-prs error:', err);
+    res.status(500).json({ error: 'Failed to load cash purchase PRs' });
+  }
+});
+
 // ── GET /api/material-inward/active-pos ───────────────────────────────
 // Active POs the stores person can attach an inward row to. Each entry carries
 // just enough to auto-fill the register: supplier, PR no(s), items, issued-to.
@@ -862,6 +895,20 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
     const issuedTo = {};
     await resolveDirectIssuedTo(issuedTo, b);
 
+    // Validate the linked cash purchase PR if provided.
+    const cashPrId = b.cashPurchaseRequestId?.trim() || null;
+    let cashPr = null;
+    if (cashPrId) {
+      cashPr = await prisma.purchaseRequest.findUnique({
+        where: { id: cashPrId },
+        select: { id: true, status: true, requestNumber: true, managerId: true, unitId: true },
+      });
+      if (!cashPr) return res.status(400).json({ error: 'Cash purchase PR not found' });
+      if (cashPr.status !== 'CASH_PURCHASE') {
+        return res.status(400).json({ error: 'Selected PR is not in CASH_PURCHASE status' });
+      }
+    }
+
     const header = {
       inwardDate: b.inwardDate ? new Date(b.inwardDate) : new Date(),
       vehicleDetails: b.vehicleDetails?.trim() || null,
@@ -877,6 +924,7 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
       issuedToUnitId: issuedTo.issuedToUnitId,
       issuedToDept: issuedTo.issuedToDept,
       issuedToLabel: issuedTo.issuedToLabel,
+      cashPurchaseRequestId: cashPrId,
     };
 
     // One MIR number shared across every item in this cash purchase. mirNo is not
@@ -910,6 +958,23 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
         },
       });
       created.push(row);
+    }
+
+    // When linked to a CASH_PURCHASE PR, close the PR now that goods are received.
+    if (cashPr) {
+      await prisma.purchaseRequest.update({
+        where: { id: cashPr.id },
+        data: { status: 'COMPLETED' },
+      });
+      await prisma.notification.create({
+        data: {
+          type: 'PURCHASE_REQUEST_APPROVED',
+          title: `Cash Purchase PR received — ${cashPr.requestNumber}`,
+          message: `Material for PR ${cashPr.requestNumber} has been received at stores (MIR: ${mirNo}). PR is now closed.`,
+          targetUserId: cashPr.managerId,
+          sentById: req.user.id,
+        },
+      });
     }
 
     res.status(201).json({ rows: created, count: created.length, mirNo });
