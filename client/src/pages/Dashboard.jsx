@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock, Truck, DoorOpen, MapPin, Send, ShieldCheck, ScrollText, Inbox, ArrowRight, Calendar, Eye, FileSearch, CreditCard, BarChart3, ArrowLeftRight, FlaskConical, History, GraduationCap, Users, UserCheck, BookOpen, ChevronDown, BellRing } from 'lucide-react';
+import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock, Truck, DoorOpen, MapPin, Send, ShieldCheck, ScrollText, Inbox, ArrowRight, Calendar, Eye, FileSearch, CreditCard, BarChart3, ArrowLeftRight, FlaskConical, History, GraduationCap, Users, UserCheck, BookOpen, ChevronDown, BellRing, Wrench, Gauge } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -558,6 +558,59 @@ function AdminDashboard() {
   );
 }
 
+// Compact machine-occupation summary for unit managers — surfaces today's
+// allocation load at the top of the dashboard and links into the Machinery hub.
+// Fails silently (renders nothing) if the feed errors, like the PDC radar.
+function ManagerMachineryStrip() {
+  const navigate = useNavigate();
+  const [feed, setFeed] = useState(null);
+  const [kpi, setKpi] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.allSettled([
+      api.get('/machine-allocations/day'),
+      api.get('/machine-allocations/kpi'),
+    ]).then(([dayRes, kpiRes]) => {
+      if (cancelled) return;
+      if (dayRes.status === 'fulfilled') setFeed(dayRes.value.data);
+      if (kpiRes.status === 'fulfilled') setKpi(kpiRes.value.data);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!feed) return null;
+  const machines = feed.machines?.length || 0;
+  const allocations = feed.allocations?.length || 0;
+  const busyMachines = new Set((feed.allocations || []).map((a) => a.machineryId)).size;
+  const downCount = feed.downtimes?.length || 0;
+
+  const Block = ({ icon: Icon, label, value, tone = 'text-navy-800' }) => (
+    <div className="flex-1 min-w-[130px] rounded-xl border border-navy-100 bg-white px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-gray-500 mb-0.5"><Icon size={12} /> {label}</div>
+      <div className={`text-xl font-bold ${tone}`}>{value}</div>
+    </div>
+  );
+
+  return (
+    <Card className="!p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-navy-800 flex items-center gap-2"><Wrench size={15} className="text-navy-600" /> Machinery — Today</h3>
+        <button onClick={() => navigate('/machinery')} className="text-xs font-semibold text-navy-600 hover:text-navy-800 inline-flex items-center gap-1">
+          Open allocation <ArrowRight size={13} />
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-3">
+        <Block icon={Wrench} label="Machines" value={machines} />
+        <Block icon={Activity} label="Busy today" value={`${busyMachines}/${machines}`} tone={busyMachines > 0 ? 'text-emerald-700' : 'text-gray-400'} />
+        <Block icon={ClipboardList} label="Allocations" value={allocations} />
+        <Block icon={AlertTriangle} label="Downtime" value={downCount} tone={downCount > 0 ? 'text-red-600' : 'text-gray-400'} />
+        <Block icon={Gauge} label="Utilisation (mo)" value={kpi ? `${kpi.overallUtilizationPercent}%` : '—'} tone={kpi && kpi.overallUtilizationPercent >= 70 ? 'text-emerald-700' : 'text-amber-700'} />
+      </div>
+    </Card>
+  );
+}
+
 function ManagerDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -669,6 +722,9 @@ function ManagerDashboard() {
           onClick={() => navigate('/purchase-orders')}
         />
       </div>
+
+      {/* Machine occupation summary — unit managers own machinery allocation. */}
+      {user?.role === 'MANAGER' && <ManagerMachineryStrip />}
 
       {/* PDC radar + Team Chat for this unit's managers — they must file the
           3-month remark, so surface the countdown (and the chat) on their dashboard. */}

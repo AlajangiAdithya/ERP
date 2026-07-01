@@ -272,6 +272,18 @@ router.put('/:id/status', authenticate, authorize(...ION_ROLES), async (req, res
     if (status === 'WORK_DONE' && existing.status !== 'WAITING')  return res.status(400).json({ error: 'Can only move In Progress → Work Done' });
     if (status === 'COLLECTED' && existing.status !== 'WORK_DONE') return res.status(400).json({ error: 'Can only move Work Done → Collected' });
 
+    // Machining gate: an ION handled by a unit MANAGER can only start (go
+    // In Progress) once a machine has been allocated to it. Lab/Metrology/NDT
+    // recipients are unaffected — they have no machine-allocation step.
+    if (status === 'WAITING' && req.user.role === 'MANAGER') {
+      const allocCount = await prisma.machineAllocation.count({
+        where: { ionId: existing.id, status: { not: 'CANCELLED' } },
+      });
+      if (allocCount === 0) {
+        return res.status(400).json({ error: 'Allocate a machine to this ION (in Machinery → Allocation) before starting work.' });
+      }
+    }
+
     if (status === 'WORK_DONE' && !reportNoAndDate?.trim()) {
       return res.status(400).json({ error: 'Report number is required to mark work done' });
     }

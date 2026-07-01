@@ -56,7 +56,7 @@ const buildAllItems = () => {
     // Machinery register — view-only for everyone, edit for SAFETY + Unit-5 (gated server-side).
     // Hidden from Supply Chain — not part of their workflow. ACCOUNTING + FINANCE
     // get read-only visibility.
-    { to: '/machinery', icon: Wrench, label: 'Machinery Register', roles: ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN') },
+    { to: '/machinery', icon: Wrench, label: 'Machinery', roles: ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN') },
     // HR hub — employees, skill matrix, annual training plan, training records.
     // HR + ADMIN edit; Managers can append training items for their unit; all view.
     // Hidden from Metrology — not part of their workflow.

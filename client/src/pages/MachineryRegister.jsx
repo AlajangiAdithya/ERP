@@ -34,7 +34,7 @@ const isDueSoon = (d) => {
   return days >= 0 && days <= 30;
 };
 
-export default function MachineryRegister() {
+export default function MachineryRegister({ embedded = false }) {
   const [canWrite, setCanWrite] = useState(false);
 
   const [machinery, setMachinery] = useState([]);
@@ -89,17 +89,26 @@ export default function MachineryRegister() {
 
   return (
     <div className="space-y-5">
-      <PageHero
-        title="Machinery Register"
-        eyebrow="Safety / HSE"
-        subtitle="Master list of shop-floor machinery with AMC status. Editable by Safety and Unit-5; others view-only."
-        icon={Wrench}
-        actions={canWrite && (
+      {!embedded && (
+        <PageHero
+          title="Machinery Register"
+          eyebrow="Safety / HSE"
+          subtitle="Master list of shop-floor machinery with AMC status. Editable by Safety and Unit-5; others view-only."
+          icon={Wrench}
+          actions={canWrite && (
+            <Button onClick={() => { setEditMachinery(null); setShowMachineryModal(true); }}>
+              <Plus size={16} /> Add Machine
+            </Button>
+          )}
+        />
+      )}
+      {embedded && canWrite && (
+        <div className="flex justify-end">
           <Button onClick={() => { setEditMachinery(null); setShowMachineryModal(true); }}>
             <Plus size={16} /> Add Machine
           </Button>
-        )}
-      />
+        </div>
+      )}
 
       <Card>
         <div className="flex flex-col sm:flex-row gap-3 mb-4">

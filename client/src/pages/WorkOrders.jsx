@@ -2090,7 +2090,9 @@ function OverviewTab({ wo }) {
       <Row label="Other Information" value={wo.otherInformation} />
       <Row label="Created by" value={wo.createdBy ? `${wo.createdBy.name} (${formatDate(wo.createdAt)})` : null} />
       <Row label="Admin acceptance" value={wo.adminAcceptedBy ? `${wo.adminAcceptedBy.name} (${formatDate(wo.adminAcceptedAt)})${wo.adminAcceptanceNote ? `\n${wo.adminAcceptanceNote}` : ''}` : null} />
+      {wo.adminDelayRemark && <Row label="⚠ Admin delay remark" value={wo.adminDelayRemark} />}
       <Row label="Unit acceptance" value={wo.unitAcceptedBy ? `${wo.unitAcceptedBy.name} (${formatDate(wo.unitAcceptedAt)})${wo.unitAcceptanceNote ? `\n${wo.unitAcceptanceNote}` : ''}` : null} />
+      {wo.unitDelayRemark && <Row label="⚠ Unit delay remark" value={wo.unitDelayRemark} />}
       {wo.completedAt && <Row label="Delivered (all lots) at" value={formatDate(wo.completedAt)} />}
       {wo.status === 'COMPLETED' && (
         <Row label="Closure status" value="Delivered — Pending Accounts. Work order stays open until full payment of every lot is received." />
@@ -2459,11 +2461,11 @@ function buildWoTimeline(wo, alarms) {
   });
   if (wo.adminAcceptedAt) push(wo.adminAcceptedAt, {
     color: 'blue', Icon: ShieldCheck, title: 'Admin verified & accepted', actor: nm(wo.adminAcceptedBy),
-    body: wo.adminAcceptanceNote || null,
+    body: [wo.adminAcceptanceNote, wo.adminDelayRemark ? `⚠ Delay remark: ${wo.adminDelayRemark}` : null].filter(Boolean).join('\n') || null,
   });
   if (wo.unitAcceptedAt) push(wo.unitAcceptedAt, {
     color: 'indigo', Icon: UserCheck, title: 'Unit manager accepted', actor: nm(wo.unitAcceptedBy),
-    body: wo.unitAcceptanceNote || null,
+    body: [wo.unitAcceptanceNote, wo.unitDelayRemark ? `⚠ Delay remark: ${wo.unitDelayRemark}` : null].filter(Boolean).join('\n') || null,
   });
   if (wo.status === 'ON_HOLD' && wo.unitAcceptanceNote && !wo.unitAcceptedAt) push(wo.updatedAt, {
     color: 'red', Icon: PauseCircle, title: 'Unit rejected — on hold for reassignment', actor: nm(wo.unitAcceptedBy),

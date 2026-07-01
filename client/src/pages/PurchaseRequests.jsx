@@ -885,6 +885,14 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
           )}
         </div>
 
+        {/* Saved SLA delay remark — shown once approved so everyone sees why it was late */}
+        {!isPending && request.adminDelayRemark && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <p className="text-xs font-semibold text-amber-800 mb-0.5">⚠ Approval delayed beyond 48h — remark</p>
+            <p className="text-sm text-gray-700">{request.adminDelayRemark}</p>
+          </div>
+        )}
+
         {/* SLA delay remark — shown when PR has been pending more than 48h */}
         {isPending && isDelayed && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">

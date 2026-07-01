@@ -99,6 +99,10 @@ model User {
   machineryCreated         Machinery[]        @relation("MachineryCreator")
   fireExtinguishersCreated FireExtinguisher[] @relation("FireExtinguisherCreator")
 
+  // ── Machine allocation (unit managers schedule WO/ION work onto machines) ──
+  machineAllocations MachineAllocation[] @relation("MachineAllocator")
+  machineDowntimes   MachineDowntime[]   @relation("MachineDowntimeCreator")
+
   // HR / Training domain ownership
   employeesCreated         Employee[]         @relation("EmployeeCreator")
   employeeProfile          Employee?          @relation("EmployeeAccount")
@@ -195,6 +199,8 @@ model Unit {
   trainingPlanItems          TrainingPlanItem[]          @relation("TrainingPlanItemUnit")
   attendanceEmployees        AttendanceEmployee[]
   attendanceMonthSubmissions AttendanceMonthSubmission[]
+  machineAllocations         MachineAllocation[]
+  machineDowntimes           MachineDowntime[]
 }
 
 // ──── AUDIT LOG ────
@@ -1443,6 +1449,7 @@ model InterOfficeNote {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   items              IONItem[]
+  machineAllocations MachineAllocation[] @relation("IONAllocations")
 }
 
 model IONItem {
@@ -1463,6 +1470,9 @@ model IONItem {
 
 enum IONStatus {
   SENT
+  // Displayed as "In Progress". For IONs assigned to a unit manager (cross-unit
+  // machining flow) this state can only be reached once a MachineAllocation
+  // exists — allocating a machine auto-advances SENT → WAITING.
   WAITING
   WORK_DONE
   COLLECTED
@@ -1753,6 +1763,7 @@ model WorkOrder {
   // PurchaseRequest.workOrderId / ProductRequest.workOrderId).
   purchaseRequests PurchaseRequest[] @relation("PurchaseRequestWorkOrder")
   productRequests  ProductRequest[]  @relation("ProductRequestWorkOrder")
+  machineAllocations MachineAllocation[] @relation("WorkOrderAllocations")
 
   @@index([assignedUnitId])
   @@index([status])
@@ -2338,9 +2349,82 @@ model Machinery {
   updatedAt       DateTime  @updatedAt
   createdById     String?
   createdBy       User?     @relation("MachineryCreator", fields: [createdById], references: [id])
+  allocations     MachineAllocation[]
+  downtimes       MachineDowntime[]
 
   @@index([serialNumber])
   @@index([place])
+}
+
+// ──────────────────────────────────────────────────────────────
+// Machine allocation / occupation — unit managers schedule Work Order
+// or ION (Inter-Office Note) work onto a specific machine for a time
+// window on a given day. Drives the daily timeline calendar and the
+// monthly utilisation KPI (working window 09:00–19:00 = 600 min/day).
+// Allocating an ION also flips that ION to IN_PROGRESS.
+// ──────────────────────────────────────────────────────────────
+enum MachineAllocationSource {
+  WORK_ORDER
+  ION
+}
+
+enum MachineAllocationStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model MachineAllocation {
+  id            String                  @id @default(uuid())
+  machineryId   String
+  machinery     Machinery               @relation(fields: [machineryId], references: [id], onDelete: Cascade)
+  sourceType    MachineAllocationSource
+  workOrderId   String?
+  workOrder     WorkOrder?              @relation("WorkOrderAllocations", fields: [workOrderId], references: [id], onDelete: SetNull)
+  ionId         String?
+  ion           InterOfficeNote?        @relation("IONAllocations", fields: [ionId], references: [id], onDelete: SetNull)
+  title         String? // short label for the calendar block (auto-derived if blank)
+  scheduledDate DateTime // calendar day at 00:00 local
+  startAt       DateTime // full timestamp of block start
+  endAt         DateTime // full timestamp of block end
+  status        MachineAllocationStatus @default(SCHEDULED)
+  workNote      String? // unit manager's own record of the work performed
+  unitId        String?
+  unit          Unit?                   @relation(fields: [unitId], references: [id])
+  allocatedById String
+  allocatedBy   User                    @relation("MachineAllocator", fields: [allocatedById], references: [id])
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  @@index([machineryId, scheduledDate])
+  @@index([scheduledDate])
+  @@index([unitId])
+}
+
+enum MachineDowntimeReason {
+  MAINTENANCE
+  BREAKDOWN
+  OTHER
+}
+
+model MachineDowntime {
+  id            String                @id @default(uuid())
+  machineryId   String
+  machinery     Machinery             @relation(fields: [machineryId], references: [id], onDelete: Cascade)
+  scheduledDate DateTime
+  startAt       DateTime
+  endAt         DateTime
+  reason        MachineDowntimeReason @default(MAINTENANCE)
+  note          String?
+  unitId        String?
+  unit          Unit?                 @relation(fields: [unitId], references: [id])
+  createdById   String
+  createdBy     User                  @relation("MachineDowntimeCreator", fields: [createdById], references: [id])
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@index([machineryId, scheduledDate])
 }
 
 // ──────────────────────────────────────────────────────────────

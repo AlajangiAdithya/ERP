@@ -804,6 +804,7 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
     const SLA_4D  =  4 * 24 * 60 * 60 * 1000;
 
     const score = (onTime, total) => total > 0 ? round1((onTime / total) * 100) : null;
+    const daysLate = (ms) => Math.round((ms / (24 * 60 * 60 * 1000)) * 10) / 10;
 
     // 1. WO Admin approval
     const wosWithAdminAccept = await prisma.workOrder.findMany({
@@ -811,12 +812,18 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
         adminAcceptedAt: { not: null },
         ...(dateFilter ? { createdAt: dateFilter } : {}),
       },
-      select: { createdAt: true, adminAcceptedAt: true },
+      select: { workOrderNumber: true, createdAt: true, adminAcceptedAt: true, adminDelayRemark: true },
     });
     const woAdminTotal  = wosWithAdminAccept.length;
-    const woAdminOnTime = wosWithAdminAccept.filter(w =>
-      (new Date(w.adminAcceptedAt) - new Date(w.createdAt)) <= SLA_48H
-    ).length;
+    const woAdminDelayedList = [];
+    const woAdminOnTime = wosWithAdminAccept.filter(w => {
+      const gap = new Date(w.adminAcceptedAt) - new Date(w.createdAt);
+      if (gap > SLA_48H) {
+        woAdminDelayedList.push({ ref: w.workOrderNumber, daysLate: daysLate(gap - SLA_48H), remark: w.adminDelayRemark || null });
+        return false;
+      }
+      return true;
+    }).length;
 
     // 2. WO Unit approval
     const wosWithUnitAccept = await prisma.workOrder.findMany({
@@ -825,12 +832,18 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
         adminAcceptedAt: { not: null },
         ...(dateFilter ? { createdAt: dateFilter } : {}),
       },
-      select: { adminAcceptedAt: true, unitAcceptedAt: true },
+      select: { workOrderNumber: true, adminAcceptedAt: true, unitAcceptedAt: true, unitDelayRemark: true },
     });
     const woUnitTotal  = wosWithUnitAccept.length;
-    const woUnitOnTime = wosWithUnitAccept.filter(w =>
-      (new Date(w.unitAcceptedAt) - new Date(w.adminAcceptedAt)) <= SLA_48H
-    ).length;
+    const woUnitDelayedList = [];
+    const woUnitOnTime = wosWithUnitAccept.filter(w => {
+      const gap = new Date(w.unitAcceptedAt) - new Date(w.adminAcceptedAt);
+      if (gap > SLA_48H) {
+        woUnitDelayedList.push({ ref: w.workOrderNumber, daysLate: daysLate(gap - SLA_48H), remark: w.unitDelayRemark || null });
+        return false;
+      }
+      return true;
+    }).length;
 
     // 3. PR Admin approval
     const prsApproved = await prisma.purchaseRequest.findMany({
@@ -838,12 +851,18 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
         adminApprovedAt: { not: null },
         ...(dateFilter ? { createdAt: dateFilter } : {}),
       },
-      select: { createdAt: true, qcApprovedAt: true, adminApprovedAt: true },
+      select: { requestNumber: true, createdAt: true, qcApprovedAt: true, adminApprovedAt: true, adminDelayRemark: true },
     });
     const prAdminTotal  = prsApproved.length;
+    const prAdminDelayedList = [];
     const prAdminOnTime = prsApproved.filter(p => {
       const start = p.qcApprovedAt ? new Date(p.qcApprovedAt) : new Date(p.createdAt);
-      return (new Date(p.adminApprovedAt) - start) <= SLA_48H;
+      const gap = new Date(p.adminApprovedAt) - start;
+      if (gap > SLA_48H) {
+        prAdminDelayedList.push({ ref: p.requestNumber, daysLate: daysLate(gap - SLA_48H), remark: p.adminDelayRemark || null });
+        return false;
+      }
+      return true;
     }).length;
 
     // 4. PR → PO conversion (4 days from PR adminApprovedAt to PO createdAt)
@@ -853,7 +872,7 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
         ...(dateFilter ? { createdAt: dateFilter } : {}),
       },
       select: {
-        createdAt: true,
+        orderNumber: true, createdAt: true, poCreationDelayRemark: true,
         purchaseRequest: { select: { adminApprovedAt: true } },
       },
     });
@@ -864,7 +883,7 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
         ...(dateFilter ? { createdAt: dateFilter } : {}),
       },
       select: {
-        createdAt: true,
+        orderNumber: true, createdAt: true, poCreationDelayRemark: true,
         sourceRequests: { select: { purchaseRequest: { select: { adminApprovedAt: true } } } },
       },
     });
@@ -872,20 +891,26 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
     const poEntries = [
       ...posWithPR
         .filter(p => p.purchaseRequest?.adminApprovedAt)
-        .map(p => ({ poCreatedAt: p.createdAt, prApprovedAt: p.purchaseRequest.adminApprovedAt })),
+        .map(p => ({ ref: p.orderNumber, remark: p.poCreationDelayRemark, poCreatedAt: p.createdAt, prApprovedAt: p.purchaseRequest.adminApprovedAt })),
       ...unionPos.map(p => {
         const dates = p.sourceRequests
           .map(s => s.purchaseRequest?.adminApprovedAt)
           .filter(Boolean)
           .map(d => new Date(d));
-        return dates.length ? { poCreatedAt: p.createdAt, prApprovedAt: new Date(Math.min(...dates)) } : null;
+        return dates.length ? { ref: p.orderNumber, remark: p.poCreationDelayRemark, poCreatedAt: p.createdAt, prApprovedAt: new Date(Math.min(...dates)) } : null;
       }).filter(Boolean),
     ];
 
     const poConvTotal  = poEntries.length;
-    const poConvOnTime = poEntries.filter(e =>
-      (new Date(e.poCreatedAt) - new Date(e.prApprovedAt)) <= SLA_4D
-    ).length;
+    const poConvDelayedList = [];
+    const poConvOnTime = poEntries.filter(e => {
+      const gap = new Date(e.poCreatedAt) - new Date(e.prApprovedAt);
+      if (gap > SLA_4D) {
+        poConvDelayedList.push({ ref: e.ref, daysLate: daysLate(gap - SLA_4D), remark: e.remark || null });
+        return false;
+      }
+      return true;
+    }).length;
 
     const scores = [
       score(woAdminOnTime, woAdminTotal),
@@ -900,10 +925,10 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
 
     res.json({
       fy: req.query.fy || null,
-      woAdminApproval:  { total: woAdminTotal,  onTime: woAdminOnTime,  delayed: woAdminTotal - woAdminOnTime,  score: score(woAdminOnTime, woAdminTotal),  slaDays: 2 },
-      woUnitApproval:   { total: woUnitTotal,   onTime: woUnitOnTime,   delayed: woUnitTotal - woUnitOnTime,   score: score(woUnitOnTime, woUnitTotal),   slaDays: 2 },
-      prAdminApproval:  { total: prAdminTotal,  onTime: prAdminOnTime,  delayed: prAdminTotal - prAdminOnTime,  score: score(prAdminOnTime, prAdminTotal),  slaDays: 2 },
-      poConversion:     { total: poConvTotal,   onTime: poConvOnTime,   delayed: poConvTotal - poConvOnTime,   score: score(poConvOnTime, poConvTotal),   slaDays: 4 },
+      woAdminApproval:  { total: woAdminTotal,  onTime: woAdminOnTime,  delayed: woAdminTotal - woAdminOnTime,  score: score(woAdminOnTime, woAdminTotal),  slaDays: 2, delayedItems: woAdminDelayedList },
+      woUnitApproval:   { total: woUnitTotal,   onTime: woUnitOnTime,   delayed: woUnitTotal - woUnitOnTime,   score: score(woUnitOnTime, woUnitTotal),   slaDays: 2, delayedItems: woUnitDelayedList },
+      prAdminApproval:  { total: prAdminTotal,  onTime: prAdminOnTime,  delayed: prAdminTotal - prAdminOnTime,  score: score(prAdminOnTime, prAdminTotal),  slaDays: 2, delayedItems: prAdminDelayedList },
+      poConversion:     { total: poConvTotal,   onTime: poConvOnTime,   delayed: poConvTotal - poConvOnTime,   score: score(poConvOnTime, poConvTotal),   slaDays: 4, delayedItems: poConvDelayedList },
       overallScore,
     });
   } catch (error) {

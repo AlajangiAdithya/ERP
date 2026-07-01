@@ -49,7 +49,7 @@ import MetrologyInstruments from './pages/metrology/MetrologyInstruments';
 import MMR from './pages/metrology/MMR';
 import MetrologyCategoryView from './pages/metrology/CategoryView';
 import FireExtinguishers from './pages/metrology/FireExtinguishers';
-import MachineryRegister from './pages/MachineryRegister';
+import Machinery from './pages/Machinery';
 import HumanResources from './pages/HumanResources';
 import HrEmployees from './pages/hr/Employees';
 import HrSkillMatrix from './pages/hr/SkillMatrix';
@@ -312,9 +312,10 @@ export default function App() {
                 <PrivateRoute><FireExtinguishers /></PrivateRoute>
               } />
 
-              {/* Safety / HSE — Machinery register (everyone views, SAFETY + Unit-5 edit) */}
+              {/* Safety / HSE + Production — Machinery hub: register (everyone views,
+                  SAFETY + Unit-5 edit) + allocation timeline + monthly KPI (unit managers) */}
               <Route path="/machinery" element={
-                <PrivateRoute><MachineryRegister /></PrivateRoute>
+                <PrivateRoute><Machinery /></PrivateRoute>
               } />
 
               {/* QMS hub — SOPs, Work Instructions, KPIs.

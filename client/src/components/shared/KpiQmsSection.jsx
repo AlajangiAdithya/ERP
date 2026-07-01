@@ -23,6 +23,45 @@ const fmtNum = (v) => {
   return Number.isInteger(n) ? n.toString() : n.toFixed(2);
 };
 
+// One SLA turnaround card with an expandable list of delayed items + their remarks.
+function SlaCard({ label, sla, d }) {
+  const [open, setOpen] = useState(false);
+  const score = d.score;
+  const color = score == null ? 'text-gray-400' : score >= 85 ? 'text-green-700' : score >= 60 ? 'text-amber-700' : 'text-red-600';
+  const bgColor = score == null ? 'bg-gray-50 border-gray-200' : score >= 85 ? 'bg-green-50 border-green-200' : score >= 60 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+  const delayedItems = d.delayedItems || [];
+  return (
+    <div className={`rounded-xl border p-3 ${bgColor}`}>
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
+      <p className="text-xs text-gray-400 mb-2">SLA: {sla}</p>
+      <p className={`text-2xl font-bold ${color}`}>{score != null ? `${score}%` : '—'}</p>
+      <dl className="mt-2 space-y-0.5 text-xs text-gray-600">
+        <div className="flex justify-between"><dt>Total</dt><dd className="font-semibold">{d.total}</dd></div>
+        <div className="flex justify-between"><dt>On time</dt><dd className="font-semibold text-green-700">{d.onTime}</dd></div>
+        <div className="flex justify-between"><dt>Delayed</dt><dd className={`font-semibold ${d.delayed > 0 ? 'text-red-600' : 'text-gray-400'}`}>{d.delayed}</dd></div>
+      </dl>
+      {delayedItems.length > 0 && (
+        <button onClick={() => setOpen((o) => !o)} className="mt-2 text-[11px] font-semibold text-navy-600 hover:text-navy-800">
+          {open ? 'Hide' : 'Why delayed?'} ({delayedItems.length})
+        </button>
+      )}
+      {open && (
+        <ul className="mt-1.5 space-y-1.5 border-t border-black/5 pt-1.5">
+          {delayedItems.map((it, i) => (
+            <li key={i} className="text-[11px] leading-snug">
+              <span className="font-semibold text-navy-700">{it.ref}</span>
+              <span className="text-red-600"> · +{it.daysLate}d late</span>
+              <div className={it.remark ? 'text-gray-600' : 'text-gray-400 italic'}>
+                {it.remark || 'No remark provided'}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 const EMPTY_CERT_FORM = { title: '', certificateNo: '', issuedBy: '', validFrom: '', validTill: '', notes: '' };
 const dateInputValue = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
 
@@ -585,25 +624,9 @@ export default function KpiQmsSection() {
               { key: 'woUnitApproval',   label: 'WO Unit Approval',   sla: '48 h',  d: slaData.woUnitApproval },
               { key: 'prAdminApproval',  label: 'PR Admin Approval',  sla: '48 h',  d: slaData.prAdminApproval },
               { key: 'poConversion',     label: 'PR → PO Conversion', sla: '4 days', d: slaData.poConversion },
-            ].map(({ key, label, sla, d }) => {
-              const score = d.score;
-              const color = score == null ? 'text-gray-400' : score >= 85 ? 'text-green-700' : score >= 60 ? 'text-amber-700' : 'text-red-600';
-              const bgColor = score == null ? 'bg-gray-50 border-gray-200' : score >= 85 ? 'bg-green-50 border-green-200' : score >= 60 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
-              return (
-                <div key={key} className={`rounded-xl border p-3 ${bgColor}`}>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
-                  <p className="text-xs text-gray-400 mb-2">SLA: {sla}</p>
-                  <p className={`text-2xl font-bold ${color}`}>
-                    {score != null ? `${score}%` : '—'}
-                  </p>
-                  <dl className="mt-2 space-y-0.5 text-xs text-gray-600">
-                    <div className="flex justify-between"><dt>Total</dt><dd className="font-semibold">{d.total}</dd></div>
-                    <div className="flex justify-between"><dt>On time</dt><dd className="font-semibold text-green-700">{d.onTime}</dd></div>
-                    <div className="flex justify-between"><dt>Delayed</dt><dd className={`font-semibold ${d.delayed > 0 ? 'text-red-600' : 'text-gray-400'}`}>{d.delayed}</dd></div>
-                  </dl>
-                </div>
-              );
-            })}
+            ].map(({ key, label, sla, d }) => (
+              <SlaCard key={key} label={label} sla={sla} d={d} />
+            ))}
           </div>
         </Card>
       )}
