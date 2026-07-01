@@ -1160,10 +1160,12 @@ router.put('/:id/qc-reject', authenticate, authorize('QC'), async (req, res) => 
   }
 });
 
+const SLA_48H_PR = 48 * 60 * 60 * 1000;
+
 // PUT /api/purchase-requests/:id/admin-approve — Admin approves (can change qty + add notes)
 router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
-    const { adminNotes, items } = req.body;
+    const { adminNotes, items, adminDelayRemark } = req.body;
 
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: req.params.id },
@@ -1173,6 +1175,12 @@ router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, r
     if (!request) return res.status(404).json({ error: 'Purchase request not found' });
     if (request.status !== 'PENDING_ADMIN') {
       return res.status(400).json({ error: 'Only pending requests can be approved' });
+    }
+
+    // SLA gate: 48h from QC approval (if QC-gated) or PR creation
+    const slaStart = request.qcApprovedAt ? new Date(request.qcApprovedAt) : new Date(request.createdAt);
+    if ((new Date() - slaStart) > SLA_48H_PR && !adminDelayRemark?.trim()) {
+      return res.status(400).json({ error: 'This approval is past the 48-hour SLA. Please provide a delay remark explaining why.' });
     }
 
     // Update approved quantities
@@ -1198,6 +1206,7 @@ router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, r
       data: {
         status: 'APPROVED',
         adminNotes: adminNotes || null,
+        adminDelayRemark: adminDelayRemark?.trim() || null,
         adminApprovedById: req.user.id,
         adminApprovedAt: new Date(),
       },

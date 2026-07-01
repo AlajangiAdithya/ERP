@@ -82,6 +82,7 @@ const ORDER_INCLUDE = {
   purchaseRequest: {
     select: {
       id: true, requestNumber: true, status: true, managerId: true, createdAt: true,
+      adminApprovedAt: true,
       manager: { select: { id: true, name: true, role: true } },
       unit: { select: { id: true, name: true, code: true } },
       items: {
@@ -99,6 +100,7 @@ const ORDER_INCLUDE = {
       purchaseRequest: {
         select: {
           id: true, requestNumber: true, status: true, managerId: true,
+          adminApprovedAt: true,
           manager: { select: { id: true, name: true, role: true } },
           unit: { select: { id: true, name: true, code: true } },
           items: {
@@ -1691,6 +1693,26 @@ router.post('/:id/close', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), 
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
     }
     console.error('Close PO error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/purchase-orders/:id/po-creation-delay-remark — PO officer submits remark for SLA-delayed PO creation
+router.put('/:id/po-creation-delay-remark', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
+  try {
+    const { remark } = req.body;
+    if (!remark?.trim()) return res.status(400).json({ error: 'Remark is required' });
+
+    const order = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id } });
+    if (!order) return res.status(404).json({ error: 'Purchase order not found' });
+
+    const updated = await prisma.purchaseOrder.update({
+      where: { id: req.params.id },
+      data: { poCreationDelayRemark: remark.trim() },
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('PO creation delay remark error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

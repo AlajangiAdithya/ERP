@@ -1957,8 +1957,9 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
           )}
           {isUnitManager && wo.status === 'ADMIN_ACCEPTED' && (
             <UnitAcceptControl
+              wo={wo}
               busy={busy}
-              onAccept={(note) => handleAction(() => api.post(`/work-orders/${wo.id}/unit-accept`, { accept: true, note }))}
+              onAccept={(payload) => handleAction(() => api.post(`/work-orders/${wo.id}/unit-accept`, { accept: true, ...payload }))}
               onReject={(note) => handleAction(() => api.post(`/work-orders/${wo.id}/unit-accept`, { accept: false, note }))}
             />
           )}
@@ -2954,27 +2955,59 @@ function AlarmCard({ wo, alarm, canManage, busy, onAck, onResolve, onAddNote }) 
 function AdminAcceptControls({ wo, units, busy, onAccept, onReject }) {
   const [note, setNote] = useState('');
   const [assignedUnitId, setAssignedUnitId] = useState(wo.assignedUnitId || '');
+  const [adminDelayRemark, setAdminDelayRemark] = useState('');
+
+  const isDelayed = wo.createdAt && (Date.now() - new Date(wo.createdAt).getTime()) > 48 * 60 * 60 * 1000;
+
   return (
     <div className="w-full space-y-2 border-t pt-3">
       <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Admin Acceptance</p>
+      {isDelayed && (
+        <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+          <span className="font-bold">⚠ SLA overdue</span> — This WO has been pending admin acceptance for more than 48 hours.
+        </div>
+      )}
       <Select label="Assign to Unit *" value={assignedUnitId} onChange={(e) => setAssignedUnitId(e.target.value)}>
         <option value="">Select unit...</option>
         {units.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.code})</option>)}
       </Select>
       <Textarea label="Acceptance note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+      {isDelayed && (
+        <Textarea
+          label="Delay remark * (required — SLA exceeded)"
+          rows={2}
+          value={adminDelayRemark}
+          onChange={(e) => setAdminDelayRemark(e.target.value)}
+          placeholder="Explain why the admin acceptance was delayed beyond 48 hours…"
+        />
+      )}
       <div className="flex justify-end gap-2">
         <Button variant="danger" disabled={busy} onClick={() => onReject({ note })}>Reject</Button>
-        <Button disabled={busy || !assignedUnitId} onClick={() => onAccept({ note, assignedUnitId })}>Accept &amp; Assign</Button>
+        <Button
+          disabled={busy || !assignedUnitId || (isDelayed && !adminDelayRemark.trim())}
+          onClick={() => onAccept({ note, assignedUnitId, adminDelayRemark: adminDelayRemark.trim() || undefined })}
+        >
+          Accept &amp; Assign
+        </Button>
       </div>
     </div>
   );
 }
 
-function UnitAcceptControl({ busy, onAccept, onReject }) {
+function UnitAcceptControl({ wo, busy, onAccept, onReject }) {
   const [note, setNote] = useState('');
+  const [unitDelayRemark, setUnitDelayRemark] = useState('');
+
+  const isDelayed = wo?.adminAcceptedAt && (Date.now() - new Date(wo.adminAcceptedAt).getTime()) > 48 * 60 * 60 * 1000;
+
   return (
     <div className="w-full space-y-2 border-t pt-3">
       <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Unit Decision</p>
+      {isDelayed && (
+        <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+          <span className="font-bold">⚠ SLA overdue</span> — More than 48 hours have passed since admin acceptance.
+        </div>
+      )}
       <Textarea
         label="Note (required when rejecting)"
         rows={2}
@@ -2982,11 +3015,25 @@ function UnitAcceptControl({ busy, onAccept, onReject }) {
         onChange={(e) => setNote(e.target.value)}
         placeholder="Reason for rejection or remarks on acceptance"
       />
+      {isDelayed && (
+        <Textarea
+          label="Delay remark * (required — SLA exceeded)"
+          rows={2}
+          value={unitDelayRemark}
+          onChange={(e) => setUnitDelayRemark(e.target.value)}
+          placeholder="Explain why the unit acceptance was delayed beyond 48 hours…"
+        />
+      )}
       <div className="flex justify-end gap-2">
         <Button variant="danger" disabled={busy || !note.trim()} onClick={() => onReject(note)}>
           Reject
         </Button>
-        <Button disabled={busy} onClick={() => onAccept(note)}>Accept</Button>
+        <Button
+          disabled={busy || (isDelayed && !unitDelayRemark.trim())}
+          onClick={() => onAccept({ note, unitDelayRemark: unitDelayRemark.trim() || undefined })}
+        >
+          Accept
+        </Button>
       </div>
       <p className="text-xs text-navy-500">
         Rejecting puts this WO on hold. Supply Chain or Admin can reassign it to another unit.

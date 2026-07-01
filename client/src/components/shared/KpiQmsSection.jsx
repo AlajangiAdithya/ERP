@@ -249,12 +249,17 @@ export default function KpiQmsSection() {
   const [fy, setFy] = useState('');
   const [certModal, setCertModal] = useState(null); // null | { cert: null | cert }
   const [perfModalOpen, setPerfModalOpen] = useState(false);
+  const [slaData, setSlaData] = useState(null);
 
   const load = useCallback(async (selectedFy) => {
     try {
-      const { data } = await api.get('/kpi-qms', { params: selectedFy ? { fy: selectedFy } : {} });
-      setData(data);
-      setFy(data.fy);
+      const [main, sla] = await Promise.all([
+        api.get('/kpi-qms', { params: selectedFy ? { fy: selectedFy } : {} }),
+        api.get('/kpi-qms/sla-metrics', { params: selectedFy ? { fy: selectedFy } : {} }),
+      ]);
+      setData(main.data);
+      setFy(main.data.fy);
+      setSlaData(sla.data);
     } catch (err) {
       console.error('KPI-QMS load error:', err);
     } finally {
@@ -562,6 +567,46 @@ export default function KpiQmsSection() {
           </div>
         )}
       </Card>
+
+      {/* ── SLA / Approval Turnaround KPIs ── */}
+      {slaData && (
+        <Card>
+          <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+            <Target size={15} className="text-navy-600" /> Approval &amp; Conversion SLA KPIs
+            {slaData.overallScore != null && (
+              <span className={`ml-auto text-sm font-bold px-2 py-0.5 rounded-full ${slaData.overallScore >= 85 ? 'bg-green-100 text-green-800' : slaData.overallScore >= 60 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'}`}>
+                Overall: {slaData.overallScore}%
+              </span>
+            )}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { key: 'woAdminApproval',  label: 'WO Admin Approval',  sla: '48 h',  d: slaData.woAdminApproval },
+              { key: 'woUnitApproval',   label: 'WO Unit Approval',   sla: '48 h',  d: slaData.woUnitApproval },
+              { key: 'prAdminApproval',  label: 'PR Admin Approval',  sla: '48 h',  d: slaData.prAdminApproval },
+              { key: 'poConversion',     label: 'PR → PO Conversion', sla: '4 days', d: slaData.poConversion },
+            ].map(({ key, label, sla, d }) => {
+              const score = d.score;
+              const color = score == null ? 'text-gray-400' : score >= 85 ? 'text-green-700' : score >= 60 ? 'text-amber-700' : 'text-red-600';
+              const bgColor = score == null ? 'bg-gray-50 border-gray-200' : score >= 85 ? 'bg-green-50 border-green-200' : score >= 60 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+              return (
+                <div key={key} className={`rounded-xl border p-3 ${bgColor}`}>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
+                  <p className="text-xs text-gray-400 mb-2">SLA: {sla}</p>
+                  <p className={`text-2xl font-bold ${color}`}>
+                    {score != null ? `${score}%` : '—'}
+                  </p>
+                  <dl className="mt-2 space-y-0.5 text-xs text-gray-600">
+                    <div className="flex justify-between"><dt>Total</dt><dd className="font-semibold">{d.total}</dd></div>
+                    <div className="flex justify-between"><dt>On time</dt><dd className="font-semibold text-green-700">{d.onTime}</dd></div>
+                    <div className="flex justify-between"><dt>Delayed</dt><dd className={`font-semibold ${d.delayed > 0 ? 'text-red-600' : 'text-gray-400'}`}>{d.delayed}</dd></div>
+                  </dl>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       <CertificationModal
         open={!!certModal}

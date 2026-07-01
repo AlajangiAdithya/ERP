@@ -324,9 +324,9 @@ export default function TeamChat({ heightClass = 'h-80' } = {}) {
               value={input}
               onChange={(e) => { setInput(e.target.value); if (error) setError(''); }}
               onKeyDown={onKeyDown}
-              rows={1}
+              rows={4}
               placeholder="@everyone or @username — then your message…"
-              className="flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 focus:border-navy-400 max-h-28"
+              className="flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 focus:border-navy-400 max-h-40"
             />
             <button
               type="submit"

@@ -693,12 +693,17 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
 // ─── Admin: Review Modal ───
 function AdminReviewModal({ request, onClose, onUpdated }) {
   const [adminNotes, setAdminNotes] = useState(request?.adminNotes || '');
+  const [adminDelayRemark, setAdminDelayRemark] = useState('');
   const [adjustedItems, setAdjustedItems] = useState([]);
   const [processing, setProcessing] = useState(false);
+
+  const slaStart = request?.qcApprovedAt ? new Date(request.qcApprovedAt) : request ? new Date(request.createdAt) : null;
+  const isDelayed = slaStart && (Date.now() - slaStart.getTime()) > 48 * 60 * 60 * 1000;
 
   useEffect(() => {
     if (request) {
       setAdminNotes(request.adminNotes || '');
+      setAdminDelayRemark('');
       setAdjustedItems(request.items.map(i => ({
         id: i.id,
         adminApprovedQty: i.adminApprovedQty != null ? i.adminApprovedQty : i.requestedQty,
@@ -707,10 +712,14 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
   }, [request]);
 
   const approve = async () => {
+    if (isDelayed && !adminDelayRemark.trim()) {
+      return alert('This PR has exceeded the 48-hour SLA. Please provide a delay remark before approving.');
+    }
     setProcessing(true);
     try {
       await api.put(`/purchase-requests/${request.id}/admin-approve`, {
         adminNotes: adminNotes || undefined,
+        adminDelayRemark: adminDelayRemark.trim() || undefined,
         items: adjustedItems,
       });
       onClose();
@@ -876,6 +885,22 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
           )}
         </div>
 
+        {/* SLA delay remark — shown when PR has been pending more than 48h */}
+        {isPending && isDelayed && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
+            <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
+              ⚠ SLA overdue — This PR has been awaiting admin approval for more than 48 hours.
+            </p>
+            <textarea
+              value={adminDelayRemark}
+              onChange={(e) => setAdminDelayRemark(e.target.value)}
+              className="w-full px-3 py-2 border border-amber-300 rounded-md text-sm focus:ring-2 focus:ring-amber-500 bg-white"
+              rows={2}
+              placeholder="Delay remark (required) — explain why approval exceeded 48 hours…"
+            />
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="flex justify-between items-center pt-2 gap-3">
           <DownloadPdfButton
@@ -889,7 +914,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
               <Button variant="danger" onClick={reject} disabled={processing}>
                 <XCircle size={16} className="mr-1" /> Reject
               </Button>
-              <Button onClick={approve} disabled={processing}>
+              <Button onClick={approve} disabled={processing || (isDelayed && !adminDelayRemark.trim())}>
                 <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Approve'}
               </Button>
             </div>

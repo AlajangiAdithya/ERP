@@ -734,6 +734,8 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [paymentNotes, setPaymentNotes] = useState('');
   const [delayAcknowledged, setDelayAcknowledged] = useState(false);
   const [delayNote, setDelayNote] = useState('');
+  const [poCreationDelayRemark, setPoCreationDelayRemark] = useState('');
+  const [savingPoRemark, setSavingPoRemark] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [inwardItems, setInwardItems] = useState([]);
   const [prQuotations, setPrQuotations] = useState([]);
@@ -862,6 +864,29 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     ? Math.floor((Date.now() - new Date(prCreatedAt).getTime()) / (1000 * 60 * 60 * 24))
     : 0;
   const isDelayed = daysSincePr >= 3;
+
+  // SLA: PO creation should happen within 4 days of PR admin approval
+  const prAdminApprovedAt = order?.purchaseRequest?.adminApprovedAt
+    || order?.sourceRequests?.map(s => s.purchaseRequest?.adminApprovedAt).filter(Boolean)
+        .sort()[0]; // earliest among union sources
+  const poCreationSlaMs = 4 * 24 * 60 * 60 * 1000;
+  const isPoCreationDelayed = prAdminApprovedAt && order?.createdAt
+    && (new Date(order.createdAt) - new Date(prAdminApprovedAt)) > poCreationSlaMs;
+  const poCreationDaysLate = isPoCreationDelayed
+    ? Math.ceil((new Date(order.createdAt) - new Date(prAdminApprovedAt)) / (1000 * 60 * 60 * 24)) - 4
+    : 0;
+
+  const savePoCreationRemark = async () => {
+    if (!poCreationDelayRemark.trim()) return;
+    setSavingPoRemark(true);
+    try {
+      await api.put(`/purchase-orders/${order.id}/po-creation-delay-remark`, { remark: poCreationDelayRemark });
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save remark');
+    }
+    setSavingPoRemark(false);
+  };
 
   const placeOrder = async () => {
     if (!paymentAmount || parseFloat(paymentAmount) <= 0) return alert('Enter the payment amount.');
@@ -1259,6 +1284,39 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
           <div className="bg-orange-50 border border-orange-200 rounded-md p-3 text-sm">
             <div className="text-xs font-semibold text-orange-900 uppercase tracking-wide mb-1">Order Placement Delay Note</div>
             <div className="text-gray-700">{order.delayNote}</div>
+          </div>
+        )}
+
+        {/* PO Creation SLA (4 days from PR admin approval) */}
+        {isPoCreationDelayed && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
+            <p className="text-xs font-semibold text-amber-800">
+              ⚠ PR → PO SLA exceeded by {poCreationDaysLate} day{poCreationDaysLate !== 1 ? 's' : ''} — PO was created more than 4 days after PR admin approval.
+            </p>
+            {order.poCreationDelayRemark ? (
+              <p className="text-sm text-gray-700 bg-white rounded px-2 py-1 border border-amber-200">
+                <span className="font-semibold text-amber-900">Delay remark: </span>{order.poCreationDelayRemark}
+              </p>
+            ) : userRole === 'PURCHASE_OFFICER' ? (
+              <div className="space-y-1.5">
+                <textarea
+                  value={poCreationDelayRemark}
+                  onChange={(e) => setPoCreationDelayRemark(e.target.value)}
+                  className="w-full px-3 py-2 border border-amber-300 rounded-md text-sm focus:ring-2 focus:ring-amber-500 bg-white"
+                  rows={2}
+                  placeholder="Explain why this PO was created more than 4 days after PR approval…"
+                />
+                <button
+                  onClick={savePoCreationRemark}
+                  disabled={savingPoRemark || !poCreationDelayRemark.trim()}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40"
+                >
+                  {savingPoRemark ? 'Saving…' : 'Save Delay Remark'}
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-amber-700 italic">Delay remark not yet provided by Purchase Officer.</p>
+            )}
           </div>
         )}
         {order.mirNo && (

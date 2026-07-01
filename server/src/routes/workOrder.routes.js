@@ -965,9 +965,11 @@ router.post('/:id/insurance-entries', authenticate, authorize(...BG_INS_ROLES), 
 });
 
 // ── POST /api/work-orders/:id/admin-accept — ADMIN ────────────
+const SLA_48H = 48 * 60 * 60 * 1000;
+
 router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
-    const { accept = true, note, assignedUnitId } = req.body || {};
+    const { accept = true, note, assignedUnitId, adminDelayRemark } = req.body || {};
     const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
     if (existing.status !== 'PENDING_ADMIN') {
@@ -990,6 +992,11 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
     const autoAccept = accept && isAutoAcceptUnit(unit);
     const now = new Date();
 
+    // SLA gate: admin must provide a delay remark if accepting past 48h
+    if (accept && (now - new Date(existing.createdAt)) > SLA_48H && !adminDelayRemark?.trim()) {
+      return res.status(400).json({ error: 'This acceptance is past the 48-hour SLA. Please provide a delay remark explaining why.' });
+    }
+
     const updated = await prisma.workOrder.update({
       where: { id: req.params.id },
       data: {
@@ -997,6 +1004,7 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
         adminAcceptedAt: accept ? now : null,
         adminAcceptedById: accept ? req.user.id : null,
         adminAcceptanceNote: note || null,
+        adminDelayRemark: accept ? (adminDelayRemark?.trim() || null) : null,
         assignedUnitId: accept ? unitId : existing.assignedUnitId,
         ...(autoAccept
           ? {
@@ -1048,7 +1056,7 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
 // ── POST /api/work-orders/:id/unit-accept — MANAGER of assigned unit ──
 router.post('/:id/unit-accept', authenticate, authorize('MANAGER'), async (req, res) => {
   try {
-    const { accept = true, note } = req.body || {};
+    const { accept = true, note, unitDelayRemark } = req.body || {};
     const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
     if (existing.status !== 'ADMIN_ACCEPTED') {
@@ -1058,14 +1066,21 @@ router.post('/:id/unit-accept', authenticate, authorize('MANAGER'), async (req, 
       return res.status(403).json({ error: 'Not your unit' });
     }
 
+    const now = new Date();
+    // SLA gate: unit manager must provide a delay remark if accepting past 48h from admin acceptance
+    if (accept && existing.adminAcceptedAt && (now - new Date(existing.adminAcceptedAt)) > SLA_48H && !unitDelayRemark?.trim()) {
+      return res.status(400).json({ error: 'This acceptance is past the 48-hour SLA. Please provide a delay remark explaining why.' });
+    }
+
     const updated = await prisma.workOrder.update({
       where: { id: req.params.id },
       data: accept
         ? {
             status: 'UNIT_ACCEPTED',
-            unitAcceptedAt: new Date(),
+            unitAcceptedAt: now,
             unitAcceptedById: req.user.id,
             unitAcceptanceNote: note || null,
+            unitDelayRemark: unitDelayRemark?.trim() || null,
           }
         : {
             status: 'ON_HOLD',

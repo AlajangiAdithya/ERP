@@ -144,6 +144,7 @@ export default function PdcStatusBoard({ showAllClear = true }) {
               <tr className="border-b bg-gray-50/60">
                 <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">WO #</th>
                 <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Customer</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Work Description</th>
                 <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Unit</th>
                 <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">PDC</th>
                 <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Countdown</th>
@@ -165,7 +166,21 @@ export default function PdcStatusBoard({ showAllClear = true }) {
                     <td className="px-3 py-2.5 font-mono text-xs font-semibold text-navy-700 group-hover:underline">
                       <span className="underline decoration-navy-200 underline-offset-2 hover:decoration-navy-500">{w.workOrderNumber}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-gray-600 max-w-[180px] truncate">{w.customerName || '—'}</td>
+                    <td className="px-3 py-2.5 text-gray-600 max-w-[150px] truncate">{w.customerName || '—'}</td>
+                    <td className="px-3 py-2.5 max-w-[200px]">
+                      {w.supplyOrderNo && (
+                        <div className="text-[10px] font-mono text-navy-500 mb-0.5">SO: {w.supplyOrderNo}</div>
+                      )}
+                      {(w.items || []).slice(0, 2).map((it, idx) => (
+                        <div key={idx} className="text-xs text-gray-600 truncate" title={it.description}>
+                          {it.description}
+                        </div>
+                      ))}
+                      {(w.items || []).length > 2 && (
+                        <div className="text-[10px] text-gray-400">+{w.items.length - 2} more</div>
+                      )}
+                      {!(w.items || []).length && <span className="text-xs text-gray-400">—</span>}
+                    </td>
                     <td className="px-3 py-2.5">
                       {w.assignedUnit
                         ? <Badge color="blue">{w.assignedUnit.code || w.assignedUnit.name}</Badge>

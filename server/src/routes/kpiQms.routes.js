@@ -788,4 +788,128 @@ router.delete('/certifications/:id', authenticate, requireCertWrite, async (req,
   }
 });
 
+// ── GET /api/kpi-qms/sla-metrics — Approval & conversion SLA KPIs ──────────
+// Computes on-time vs delayed counts for:
+//   1. WO Admin approval     (48h from WO createdAt to adminAcceptedAt)
+//   2. WO Unit approval      (48h from adminAcceptedAt to unitAcceptedAt)
+//   3. PR Admin approval     (48h from PR createdAt (or qcApprovedAt) to adminApprovedAt)
+//   4. PR → PO conversion    (4 days from PR adminApprovedAt to PO createdAt)
+// Score = (onTime / total) * 100, overall = avg of all four scores.
+router.get('/sla-metrics', authenticate, async (req, res) => {
+  try {
+    const range = req.query.fy ? fyRange(req.query.fy) : null;
+    const dateFilter = range ? { gte: range.from, lt: range.to } : undefined;
+
+    const SLA_48H = 48 * 60 * 60 * 1000;
+    const SLA_4D  =  4 * 24 * 60 * 60 * 1000;
+
+    const score = (onTime, total) => total > 0 ? round1((onTime / total) * 100) : null;
+
+    // 1. WO Admin approval
+    const wosWithAdminAccept = await prisma.workOrder.findMany({
+      where: {
+        adminAcceptedAt: { not: null },
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
+      },
+      select: { createdAt: true, adminAcceptedAt: true },
+    });
+    const woAdminTotal  = wosWithAdminAccept.length;
+    const woAdminOnTime = wosWithAdminAccept.filter(w =>
+      (new Date(w.adminAcceptedAt) - new Date(w.createdAt)) <= SLA_48H
+    ).length;
+
+    // 2. WO Unit approval
+    const wosWithUnitAccept = await prisma.workOrder.findMany({
+      where: {
+        unitAcceptedAt: { not: null },
+        adminAcceptedAt: { not: null },
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
+      },
+      select: { adminAcceptedAt: true, unitAcceptedAt: true },
+    });
+    const woUnitTotal  = wosWithUnitAccept.length;
+    const woUnitOnTime = wosWithUnitAccept.filter(w =>
+      (new Date(w.unitAcceptedAt) - new Date(w.adminAcceptedAt)) <= SLA_48H
+    ).length;
+
+    // 3. PR Admin approval
+    const prsApproved = await prisma.purchaseRequest.findMany({
+      where: {
+        adminApprovedAt: { not: null },
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
+      },
+      select: { createdAt: true, qcApprovedAt: true, adminApprovedAt: true },
+    });
+    const prAdminTotal  = prsApproved.length;
+    const prAdminOnTime = prsApproved.filter(p => {
+      const start = p.qcApprovedAt ? new Date(p.qcApprovedAt) : new Date(p.createdAt);
+      return (new Date(p.adminApprovedAt) - start) <= SLA_48H;
+    }).length;
+
+    // 4. PR → PO conversion (4 days from PR adminApprovedAt to PO createdAt)
+    const posWithPR = await prisma.purchaseOrder.findMany({
+      where: {
+        purchaseRequest: { adminApprovedAt: { not: null } },
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
+      },
+      select: {
+        createdAt: true,
+        purchaseRequest: { select: { adminApprovedAt: true } },
+      },
+    });
+    // Also include union POs via sourceRequests (use earliest adminApprovedAt among source PRs)
+    const unionPos = await prisma.purchaseOrder.findMany({
+      where: {
+        isUnion: true,
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
+      },
+      select: {
+        createdAt: true,
+        sourceRequests: { select: { purchaseRequest: { select: { adminApprovedAt: true } } } },
+      },
+    });
+
+    const poEntries = [
+      ...posWithPR
+        .filter(p => p.purchaseRequest?.adminApprovedAt)
+        .map(p => ({ poCreatedAt: p.createdAt, prApprovedAt: p.purchaseRequest.adminApprovedAt })),
+      ...unionPos.map(p => {
+        const dates = p.sourceRequests
+          .map(s => s.purchaseRequest?.adminApprovedAt)
+          .filter(Boolean)
+          .map(d => new Date(d));
+        return dates.length ? { poCreatedAt: p.createdAt, prApprovedAt: new Date(Math.min(...dates)) } : null;
+      }).filter(Boolean),
+    ];
+
+    const poConvTotal  = poEntries.length;
+    const poConvOnTime = poEntries.filter(e =>
+      (new Date(e.poCreatedAt) - new Date(e.prApprovedAt)) <= SLA_4D
+    ).length;
+
+    const scores = [
+      score(woAdminOnTime, woAdminTotal),
+      score(woUnitOnTime, woUnitTotal),
+      score(prAdminOnTime, prAdminTotal),
+      score(poConvOnTime, poConvTotal),
+    ];
+    const validScores = scores.filter(s => s !== null);
+    const overallScore = validScores.length > 0
+      ? round1(validScores.reduce((a, b) => a + b, 0) / validScores.length)
+      : null;
+
+    res.json({
+      fy: req.query.fy || null,
+      woAdminApproval:  { total: woAdminTotal,  onTime: woAdminOnTime,  delayed: woAdminTotal - woAdminOnTime,  score: score(woAdminOnTime, woAdminTotal),  slaDays: 2 },
+      woUnitApproval:   { total: woUnitTotal,   onTime: woUnitOnTime,   delayed: woUnitTotal - woUnitOnTime,   score: score(woUnitOnTime, woUnitTotal),   slaDays: 2 },
+      prAdminApproval:  { total: prAdminTotal,  onTime: prAdminOnTime,  delayed: prAdminTotal - prAdminOnTime,  score: score(prAdminOnTime, prAdminTotal),  slaDays: 2 },
+      poConversion:     { total: poConvTotal,   onTime: poConvOnTime,   delayed: poConvTotal - poConvOnTime,   score: score(poConvOnTime, poConvTotal),   slaDays: 4 },
+      overallScore,
+    });
+  } catch (error) {
+    console.error('SLA metrics error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;
