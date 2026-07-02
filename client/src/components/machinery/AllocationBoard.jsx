@@ -43,12 +43,21 @@ export default function AllocationBoard() {
   const [allocOpen, setAllocOpen] = useState(false);
   const [downtimeOpen, setDowntimeOpen] = useState(false);
   const [detail, setDetail] = useState(null); // clicked allocation
+  // 'mine' = only the user's own unit (default for unit people); 'all' = every unit.
+  const [scope, setScope] = useState(null);
 
   const load = useCallback(async (d) => {
     setLoading(true);
     try {
       const res = await api.get('/machine-allocations/day', { params: { date: d } });
       setData(res.data);
+      // First load: land on "My Unit" when the user actually has one on the board.
+      setScope((prev) => {
+        if (prev) return prev;
+        const keys = res.data?.myUnitKeys?.length ? res.data.myUnitKeys : [res.data?.myUnitKey].filter(Boolean);
+        const hasOwn = (res.data?.machines || []).some((m) => m.canEdit || (m.unitKey && keys.includes(m.unitKey)));
+        return hasOwn ? 'mine' : 'all';
+      });
     } catch (err) {
       console.error('Load allocation board error', err);
     } finally {
@@ -77,12 +86,23 @@ export default function AllocationBoard() {
   }, [data]);
 
   const myUnitKey = data?.myUnitKey || null;
+  const myUnitKeys = useMemo(
+    () => (data?.myUnitKeys?.length ? data.myUnitKeys : [myUnitKey].filter(Boolean)),
+    [data, myUnitKey],
+  );
+  const isMine = useCallback(
+    (m) => m.canEdit || (m.unitKey && myUnitKeys.includes(m.unitKey)),
+    [myUnitKeys],
+  );
+  const hasOwnUnit = useMemo(() => (data?.machines || []).some(isMine), [data, isMine]);
 
-  // Group machines by their unit. The backend already sorts machines so the
-  // user's own unit comes first, so Map insertion order gives us that grouping.
+  // Group machines by their unit, honouring the scope toggle. The backend
+  // already sorts machines so the user's own unit comes first, so Map
+  // insertion order gives us that grouping.
   const groups = useMemo(() => {
+    const machines = (data?.machines || []).filter((m) => (scope === 'mine' ? isMine(m) : true));
     const map = new Map();
-    (data?.machines || []).forEach((m) => {
+    machines.forEach((m) => {
       const key = m.unitKey || 'UNASSIGNED';
       if (!map.has(key)) {
         map.set(key, { key, label: m.unitKey ? `Unit ${m.unitKey}` : 'Unassigned', machines: [] });
@@ -90,7 +110,7 @@ export default function AllocationBoard() {
       map.get(key).machines.push(m);
     });
     return Array.from(map.values());
-  }, [data]);
+  }, [data, scope, isMine]);
 
   // Machines this user may allocate/edit — the only ones offered in the modals.
   const editableMachines = useMemo(
@@ -115,6 +135,23 @@ export default function AllocationBoard() {
             />
           </div>
         </div>
+        {/* Own unit first; "All Units" shows what is going on everywhere (view-only). */}
+        {hasOwnUnit && (
+          <div className="flex rounded-lg border border-navy-200 overflow-hidden">
+            {[['mine', 'My Unit'], ['all', 'All Units']].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setScope(key)}
+                className={`px-3.5 py-2 text-sm font-medium transition-colors ${
+                  scope === key ? 'bg-navy-700 text-white' : 'bg-white text-navy-700 hover:bg-navy-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex-1" />
         {canAllocate && (
           <div className="flex gap-2">
@@ -164,7 +201,7 @@ export default function AllocationBoard() {
 
             {/* Machine rows, grouped by unit */}
             {groups.map((group) => {
-              const mine = group.key === myUnitKey;
+              const mine = myUnitKeys.includes(group.key);
               const editable = group.machines.some((m) => m.canEdit);
               return (
                 <div key={group.key}>

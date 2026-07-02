@@ -8,12 +8,10 @@
 //   • the auto-generated per-machine monthly report.
 //
 // Access model (unit-scoped):
-//   • View: MANAGER, ADMIN, PLANNING, SUPERADMIN, SAFETY see every unit's board.
+//   • View: every authenticated user sees every unit's board (read-only).
 //   • Allocate / edit / delete: a MANAGER may only touch machines that sit in
 //     their own unit (matched via the machine's `place`, e.g. a Unit-5 manager
 //     edits "Unit-5" machines and sees the rest read-only). SUPERADMIN edits all.
-// LAB / METROLOGY / NDT do not use this — machining allocation is a unit-manager
-// concern only.
 //
 // Allocating a manager-assigned ION auto-advances it to WAITING (= "In Progress"),
 // and a manager-assigned ION cannot be started without a machine allocated.
@@ -21,11 +19,8 @@
 const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
-const { authorize } = require('../middleware/rbac');
 
 const router = express.Router();
-
-const VIEW_ROLES = ['MANAGER', 'ADMIN', 'PLANNING', 'SUPERADMIN', 'SAFETY'];
 
 // Working window: 09:00–19:00 = 600 minutes/day.
 const WORK_START_MIN = 9 * 60;   // 540
@@ -36,20 +31,46 @@ const canAllocate = (user) => !!user && (user.role === 'MANAGER' || user.role ==
 
 // ── Unit scoping ──────────────────────────────────────────────
 // Machines carry a free-text `place` ("Unit-5", "Unit-1A", "Unit-2 QC Lab",
-// "Unit-1 (NDT)"). Reduce it to a comparable unit key so allocation can be
-// scoped per unit: a MANAGER only allocates/edits machines in their own unit,
-// everyone else (incl. other-unit managers) sees them read-only. SUPERADMIN
-// edits every unit.
+// "Unit-1 (NDT)") while Unit records spell themselves differently ("Unit 5",
+// code "5" or "U5"…). Reduce every spelling to one comparable key ("5", "1A")
+// so allocation can be scoped per unit: a MANAGER only allocates/edits
+// machines in their own unit, everyone else (incl. other-unit managers) sees
+// them read-only. SUPERADMIN edits every unit.
+// Units are also spelled with roman numerals in places ("Unit V", "UNIT-V").
+const ROMAN_UNIT = { I: '1', II: '2', III: '3', IV: '4', V: '5', VI: '6', VII: '7', VIII: '8', IX: '9', X: '10' };
+
 const unitKeyFromLabel = (label) => {
-  const m = /unit[\s\-_]*([0-9]+[a-z]?)/i.exec(label || '');
-  return m ? m[1].toUpperCase() : null;
+  const s = String(label || '').trim();
+  if (!s) return null;
+  // "Unit-5", "Unit 5", "unit_1a", "UNIT5 QC Lab" …
+  const m = /unit[\s\-_.]*([0-9]+[a-z]?)/i.exec(s);
+  if (m) return m[1].toUpperCase();
+  // "Unit V", "UNIT-IV" …
+  const rom = /unit[\s\-_.]*([ivx]+)\b/i.exec(s);
+  if (rom && ROMAN_UNIT[rom[1].toUpperCase()]) return ROMAN_UNIT[rom[1].toUpperCase()];
+  // bare code forms: "5", "1A", "U5", "U-5", "V"
+  const bare = /^u?[\s\-_.]*([0-9]+[a-z]?)$/i.exec(s);
+  if (bare) return bare[1].toUpperCase();
+  const bareRom = /^([ivx]+)$/i.exec(s);
+  return bareRom && ROMAN_UNIT[bareRom[1].toUpperCase()] ? ROMAN_UNIT[bareRom[1].toUpperCase()] : null;
 };
 
-// The unit key of the logged-in user (prefers the unit code, e.g. "5" / "1A").
+// Every unit key the logged-in user can claim (code, unit name, username —
+// any spelling). Matching against the set survives mismatched formats like
+// unit name "Unit 5" vs machine place "Unit-5".
+const userUnitKeys = (user) => {
+  const keys = new Set();
+  for (const raw of [user?.unit?.code, user?.unit?.name, user?.username]) {
+    const k = unitKeyFromLabel(raw);
+    if (k) keys.add(k);
+  }
+  return keys;
+};
+
+// Primary key used for "own unit first" sorting / display.
 const userUnitKey = (user) => {
-  const code = (user?.unit?.code || '').toString().trim().toUpperCase();
-  if (code) return code;
-  return unitKeyFromLabel(user?.unit?.name || user?.username || '');
+  const [first] = userUnitKeys(user);
+  return first || null;
 };
 
 // Can this user allocate / edit work on a machine sitting in `place`?
@@ -57,9 +78,8 @@ const canEditMachine = (user, place) => {
   if (!user) return false;
   if (user.role === 'SUPERADMIN') return true;
   if (user.role !== 'MANAGER') return false;
-  const uk = userUnitKey(user);
   const pk = unitKeyFromLabel(place);
-  return !!uk && !!pk && uk === pk;
+  return !!pk && userUnitKeys(user).has(pk);
 };
 
 const USER_SEL = { select: { id: true, name: true, role: true, unit: { select: { id: true, name: true, code: true } } } };
@@ -104,7 +124,7 @@ router.get('/permissions', authenticate, (req, res) => {
 
 // ── GET /api/machine-allocations/allocatable ──
 // Work Orders + IONs the current manager can put on a machine.
-router.get('/allocatable', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
+router.get('/allocatable', authenticate, async (req, res) => {
   try {
     const isMgr = req.user.role === 'MANAGER';
 
@@ -138,7 +158,8 @@ router.get('/allocatable', authenticate, authorize(...VIEW_ROLES), async (req, r
 
 // ── GET /api/machine-allocations/day?date=YYYY-MM-DD ──
 // Machines + their allocations + downtime blocks for one calendar day.
-router.get('/day', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
+// View is open to every authenticated user; editing stays unit-scoped.
+router.get('/day', authenticate, async (req, res) => {
   try {
     const from = dayStart(req.query.date);
     const to = nextDay(from);
@@ -160,6 +181,7 @@ router.get('/day', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       }),
     ]);
 
+    const myKeys = userUnitKeys(req.user);
     const myUnitKey = userUnitKey(req.user);
     // Tag each machine with its unit + whether this user may edit it, and sort
     // so the user's own unit comes first (then by unit key, then serial).
@@ -170,8 +192,8 @@ router.get('/day', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
         canEdit: canEditMachine(req.user, m.place),
       }))
       .sort((a, b) => {
-        const aMine = a.unitKey && a.unitKey === myUnitKey ? 0 : 1;
-        const bMine = b.unitKey && b.unitKey === myUnitKey ? 0 : 1;
+        const aMine = a.unitKey && myKeys.has(a.unitKey) ? 0 : 1;
+        const bMine = b.unitKey && myKeys.has(b.unitKey) ? 0 : 1;
         if (aMine !== bMine) return aMine - bMine;
         const ak = a.unitKey || '~'; const bk = b.unitKey || '~';
         if (ak !== bk) return ak.localeCompare(bk, undefined, { numeric: true });
@@ -185,6 +207,7 @@ router.get('/day', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       allocations,
       downtimes,
       myUnitKey,
+      myUnitKeys: Array.from(myKeys),
       // "Can this user allocate anything?" — true only if they own an editable machine.
       canAllocate: taggedMachines.some((m) => m.canEdit),
     });
@@ -527,7 +550,7 @@ const computeKpi = async (from, to) => {
 };
 
 // ── GET /api/machine-allocations/kpi?month=YYYY-MM ──
-router.get('/kpi', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
+router.get('/kpi', authenticate, async (req, res) => {
   try {
     const { from, to, label } = monthRange(req.query.month);
     const kpi = await computeKpi(from, to);
@@ -540,7 +563,7 @@ router.get('/kpi', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
 
 // ── GET /api/machine-allocations/report?machineryId=&month=YYYY-MM ──
 // Auto-generated monthly report for one machine (or all if machineryId omitted).
-router.get('/report', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
+router.get('/report', authenticate, async (req, res) => {
   try {
     const { from, to, label } = monthRange(req.query.month);
     const kpi = await computeKpi(from, to);
