@@ -84,10 +84,26 @@ const canEditMachine = (user, place) => {
 
 const USER_SEL = { select: { id: true, name: true, role: true, unit: { select: { id: true, name: true, code: true } } } };
 
+// Basic WO/ION details carried alongside every allocation so a unit manager can
+// tell at a glance *what* work sits on a machine (nomenclature, customer, supply
+// order, delivery date, quantity) without opening the source record.
 const ALLOC_INCLUDE = {
   machinery:   { select: { id: true, name: true, rapsId: true, place: true } },
-  workOrder:   { select: { id: true, workOrderNumber: true, customerName: true, supplyOrderNo: true, pdcDate: true } },
-  ion:         { select: { id: true, ionNumber: true, projectName: true, status: true } },
+  workOrder:   {
+    select: {
+      id: true, workOrderNumber: true, ionNumber: true, customerName: true,
+      nomenclature: true, supplyOrderNo: true, supplyOrderDate: true,
+      orderQuantity: true, orderUnit: true, pdcDate: true, deliveryClause: true,
+      assignedUnitName: true,
+    },
+  },
+  ion:         {
+    select: {
+      id: true, ionNumber: true, projectName: true, section: true, status: true,
+      supplyOrderNo: true, userReferenceNo: true, requiredByDate: true,
+      items: { select: { id: true, jobIdentification: true, activityRequired: true, qty: true } },
+    },
+  },
   allocatedBy: USER_SEL,
   unit:        { select: { id: true, name: true, code: true } },
 };
@@ -139,7 +155,15 @@ router.get('/allocatable', authenticate, async (req, res) => {
         status: { in: ['UNIT_ACCEPTED', 'IN_PROGRESS'] },
         ...(isMgr ? { assignedUnitId: req.user.unitId } : {}),
       },
-      select: { id: true, workOrderNumber: true, customerName: true, supplyOrderNo: true, pdcDate: true, assignedUnitId: true },
+      // Basic details shown in the allocation picker so the manager knows exactly
+      // what job (nomenclature, customer, SO, qty, delivery date) they are putting
+      // on the machine.
+      select: {
+        id: true, workOrderNumber: true, ionNumber: true, customerName: true,
+        nomenclature: true, supplyOrderNo: true, supplyOrderDate: true,
+        orderQuantity: true, orderUnit: true, pdcDate: true, deliveryClause: true,
+        assignedUnitId: true, assignedUnitName: true,
+      },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
@@ -150,7 +174,11 @@ router.get('/allocatable', authenticate, async (req, res) => {
         status: { in: ['SENT', 'WAITING'] },
         ...(isMgr ? { assignedToId: req.user.id } : {}),
       },
-      select: { id: true, ionNumber: true, projectName: true, status: true, supplyOrderNo: true, requiredByDate: true },
+      select: {
+        id: true, ionNumber: true, projectName: true, section: true, status: true,
+        supplyOrderNo: true, userReferenceNo: true, requiredByDate: true,
+        items: { select: { id: true, jobIdentification: true, activityRequired: true, qty: true } },
+      },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });

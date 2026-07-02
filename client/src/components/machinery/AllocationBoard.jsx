@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Wrench, Clock, Trash2, CalendarDays, AlertTriangle } from 'lucide-react';
+import { Plus, Wrench, Clock, Trash2, CalendarDays, AlertTriangle, FileText, Package } from 'lucide-react';
 import api from '../../api/axios';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
 import Input, { Select, Textarea } from '../ui/Input';
 import Badge from '../ui/Badge';
+import { formatDate } from '../../utils/formatters';
 
 // Daily machine-occupation timeline. Working window 09:00–19:00 (600 min).
 // Unit managers allocate Work Order / ION work onto machines and log downtime.
@@ -293,6 +294,75 @@ export default function AllocationBoard() {
   );
 }
 
+// ── Basic-detail panels ──
+// Shown wherever a manager is about to (or has) put a Work Order / ION onto a
+// machine, so it is obvious *what* job the machine is running — the nomenclature
+// and the key order facts — without leaving the board.
+function DetailField({ label, value, className = '' }) {
+  if (value == null || value === '') return null;
+  return (
+    <div className={className}>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{label}</div>
+      <div className="text-sm text-navy-800 break-words">{value}</div>
+    </div>
+  );
+}
+
+function WorkOrderSummary({ wo }) {
+  if (!wo) return null;
+  const qty = wo.orderQuantity != null ? `${wo.orderQuantity} ${wo.orderUnit || ''}`.trim() : null;
+  const unit = wo.assignedUnitName || null;
+  return (
+    <div className="rounded-lg border border-navy-100 bg-navy-50/40 p-3">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-navy-700 mb-2">
+        <FileText size={13} /> Work Order details
+      </div>
+      {/* Nomenclature is the headline — what is being made. */}
+      <div className="mb-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Nomenclature</div>
+        <div className="text-sm font-medium text-navy-900 break-words">{wo.nomenclature || '—'}</div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+        <DetailField label="Work Order" value={wo.workOrderNumber} />
+        <DetailField label="Customer" value={wo.customerName} />
+        <DetailField label="Supply Order" value={wo.supplyOrderNo} />
+        <DetailField label="SO Date" value={wo.supplyOrderDate ? formatDate(wo.supplyOrderDate) : null} />
+        <DetailField label="Quantity" value={qty} />
+        <DetailField label="Delivery (PDC)" value={wo.pdcDate ? formatDate(wo.pdcDate) : (wo.deliveryClause || null)} />
+        <DetailField label="Unit" value={unit} />
+      </div>
+    </div>
+  );
+}
+
+function IonSummary({ ion }) {
+  if (!ion) return null;
+  const jobs = (ion.items || []).map((it) => it.jobIdentification).filter(Boolean);
+  return (
+    <div className="rounded-lg border border-navy-100 bg-navy-50/40 p-3">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-navy-700 mb-2">
+        <Package size={13} /> ION details
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+        <DetailField label="ION No" value={ion.ionNumber} />
+        <DetailField label="Project" value={ion.projectName} />
+        <DetailField label="Section" value={ion.section} />
+        <DetailField label="Supply Order" value={ion.supplyOrderNo} />
+        <DetailField label="Reference No" value={ion.userReferenceNo} />
+        <DetailField label="Required by" value={ion.requiredByDate ? formatDate(ion.requiredByDate) : null} />
+      </div>
+      {jobs.length > 0 && (
+        <div className="mt-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-0.5">Jobs</div>
+          <ul className="list-disc pl-4 text-sm text-navy-800 space-y-0.5">
+            {jobs.map((j, i) => <li key={i} className="break-words">{j}</li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Allocate a WO / ION to a machine ──
 function AllocateModal({ date, machines, onClose, onSaved }) {
   const [sourceType, setSourceType] = useState('WORK_ORDER');
@@ -306,6 +376,15 @@ function AllocateModal({ date, machines, onClose, onSaved }) {
   const [options, setOptions] = useState({ workOrders: [], ions: [] });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const selectedWo = useMemo(
+    () => options.workOrders.find((w) => w.id === workOrderId) || null,
+    [options.workOrders, workOrderId],
+  );
+  const selectedIon = useMemo(
+    () => options.ions.find((i) => i.id === ionId) || null,
+    [options.ions, ionId],
+  );
 
   useEffect(() => {
     api.get('/machine-allocations/allocatable')
@@ -363,12 +442,18 @@ function AllocateModal({ date, machines, onClose, onSaved }) {
         </div>
 
         {sourceType === 'WORK_ORDER' ? (
-          <Select label="Work Order *" value={workOrderId} onChange={(e) => setWorkOrderId(e.target.value)}>
-            <option value="">Select work order…</option>
-            {options.workOrders.map((w) => (
-              <option key={w.id} value={w.id}>{w.workOrderNumber} — {w.customerName}</option>
-            ))}
-          </Select>
+          <>
+            <Select label="Work Order *" value={workOrderId} onChange={(e) => setWorkOrderId(e.target.value)}>
+              <option value="">Select work order…</option>
+              {options.workOrders.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.workOrderNumber} — {w.nomenclature || w.customerName}
+                </option>
+              ))}
+            </Select>
+            {/* Basic details of the picked WO so the manager sees what job goes on the machine. */}
+            <WorkOrderSummary wo={selectedWo} />
+          </>
         ) : (
           <>
             <Select label="ION *" value={ionId} onChange={(e) => setIonId(e.target.value)}>
@@ -377,6 +462,7 @@ function AllocateModal({ date, machines, onClose, onSaved }) {
                 <option key={i.id} value={i.id}>{i.ionNumber}{i.projectName ? ` — ${i.projectName}` : ''}</option>
               ))}
             </Select>
+            <IonSummary ion={selectedIon} />
             {options.ions.length === 0 && (
               <p className="text-xs text-gray-500">No IONs assigned to you are awaiting a machine. Allocating one starts it (In Progress).</p>
             )}
@@ -483,16 +569,13 @@ function AllocationDetailModal({ allocation, canWrite, onClose, onChanged }) {
     }
   };
 
-  const source = a.sourceType === 'WORK_ORDER'
-    ? { label: 'Work Order', value: a.workOrder ? `${a.workOrder.workOrderNumber} — ${a.workOrder.customerName}` : '—' }
-    : { label: 'ION', value: a.ion ? `${a.ion.ionNumber}${a.ion.projectName ? ` — ${a.ion.projectName}` : ''}` : '—' };
-
   return (
     <Modal isOpen onClose={onClose} title={`${a.machinery?.name || 'Machine'} · ${hhmm(a.startAt)}–${hhmm(a.endAt)}`} size="md">
       <div className="space-y-3">
         {error && <p className="text-sm text-brand-red">{error}</p>}
+        {/* What job is running on this machine — basic details + nomenclature. */}
+        {a.sourceType === 'WORK_ORDER' ? <WorkOrderSummary wo={a.workOrder} /> : <IonSummary ion={a.ion} />}
         <div className="grid grid-cols-2 gap-3 text-sm">
-          <div><span className="text-gray-500">{source.label}:</span> <span className="font-medium">{source.value}</span></div>
           <div><span className="text-gray-500">Allocated by:</span> <span>{a.allocatedBy?.name || '—'}</span></div>
           <div className="flex items-center gap-1.5"><Clock size={13} className="text-gray-400" /> {hhmm(a.startAt)}–{hhmm(a.endAt)}</div>
           <div><span className="text-gray-500">Machine:</span> <span className="font-mono text-xs">{a.machinery?.rapsId}</span></div>
