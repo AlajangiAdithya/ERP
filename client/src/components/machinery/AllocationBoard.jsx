@@ -76,6 +76,28 @@ export default function AllocationBoard() {
     return map;
   }, [data]);
 
+  const myUnitKey = data?.myUnitKey || null;
+
+  // Group machines by their unit. The backend already sorts machines so the
+  // user's own unit comes first, so Map insertion order gives us that grouping.
+  const groups = useMemo(() => {
+    const map = new Map();
+    (data?.machines || []).forEach((m) => {
+      const key = m.unitKey || 'UNASSIGNED';
+      if (!map.has(key)) {
+        map.set(key, { key, label: m.unitKey ? `Unit ${m.unitKey}` : 'Unassigned', machines: [] });
+      }
+      map.get(key).machines.push(m);
+    });
+    return Array.from(map.values());
+  }, [data]);
+
+  // Machines this user may allocate/edit — the only ones offered in the modals.
+  const editableMachines = useMemo(
+    () => (data?.machines || []).filter((m) => m.canEdit),
+    [data],
+  );
+
   const canAllocate = data?.canAllocate;
 
   return (
@@ -140,70 +162,88 @@ export default function AllocationBoard() {
               </div>
             </div>
 
-            {/* Machine rows */}
-            <div className="divide-y divide-gray-100">
-              {data.machines.map((m) => {
-                const allocs = allocByMachine.get(m.id) || [];
-                const downs = downByMachine.get(m.id) || [];
-                return (
-                  <div key={m.id} className="flex items-center py-2">
-                    <div className="w-48 shrink-0 px-2">
-                      <div className="text-sm font-medium text-navy-800 truncate" title={m.name}>{m.name}</div>
-                      <div className="text-[10px] font-mono text-gray-400">{m.rapsId}{m.place ? ` · ${m.place}` : ''}</div>
-                    </div>
-                    <div className="relative flex-1 h-9 rounded bg-gray-50 ring-1 ring-gray-100">
-                      {/* hour gridlines */}
-                      {HOUR_TICKS.slice(1, -1).map((h) => (
-                        <div key={h} className="absolute top-0 bottom-0 w-px bg-gray-200/70"
-                          style={{ left: `${((h * 60 - WORK_START_MIN) / WINDOW) * 100}%` }} />
-                      ))}
-                      {/* downtime blocks (behind) */}
-                      {downs.map((d) => {
-                        const g = blockGeom(d.startAt, d.endAt);
-                        if (g.width <= 0) return null;
-                        return (
-                          <div key={d.id} title={`${d.reason} ${hhmm(d.startAt)}–${hhmm(d.endAt)}${d.note ? ` · ${d.note}` : ''}`}
-                            className="absolute top-0 bottom-0 rounded bg-red-400/70 border border-red-500/40"
-                            style={{ left: `${g.left}%`, width: `${g.width}%` }} />
-                        );
-                      })}
-                      {/* allocation blocks */}
-                      {allocs.map((a) => {
-                        const g = blockGeom(a.startAt, a.endAt);
-                        if (g.width <= 0) return null;
-                        const label = a.title || a.workOrder?.workOrderNumber || a.ion?.ionNumber || 'Job';
-                        return (
-                          <button
-                            key={a.id}
-                            onClick={() => setDetail(a)}
-                            title={`${label} · ${hhmm(a.startAt)}–${hhmm(a.endAt)}`}
-                            className={`absolute top-0.5 bottom-0.5 rounded px-1.5 text-[10px] font-medium text-white truncate hover:brightness-110 ${STATUS_TONE[a.status] || 'bg-blue-500'}`}
-                            style={{ left: `${g.left}%`, width: `${g.width}%` }}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                      {allocs.length === 0 && downs.length === 0 && (
-                        <span className="absolute inset-0 flex items-center justify-center text-[10px] text-gray-300">idle</span>
-                      )}
-                    </div>
+            {/* Machine rows, grouped by unit */}
+            {groups.map((group) => {
+              const mine = group.key === myUnitKey;
+              const editable = group.machines.some((m) => m.canEdit);
+              return (
+                <div key={group.key}>
+                  {/* Unit header */}
+                  <div className="flex items-center gap-2 pt-3 pb-1.5 px-2 border-b border-gray-100">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-navy-700">{group.label}</span>
+                    {editable ? (
+                      <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-2 py-0.5 text-[10px] font-medium">{mine ? 'Your unit · editable' : 'Editable'}</span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full bg-gray-50 text-gray-500 ring-1 ring-gray-200 px-2 py-0.5 text-[10px] font-medium">View only</span>
+                    )}
                   </div>
-                );
-              })}
-            </div>
+
+                  <div className="divide-y divide-gray-100">
+                    {group.machines.map((m) => {
+                      const allocs = allocByMachine.get(m.id) || [];
+                      const downs = downByMachine.get(m.id) || [];
+                      return (
+                        <div key={m.id} className={`flex items-center py-2 ${editable ? '' : 'opacity-90'}`}>
+                          <div className="w-48 shrink-0 px-2">
+                            <div className="text-sm font-medium text-navy-800 truncate" title={m.name}>{m.name}</div>
+                            <div className="text-[10px] font-mono text-gray-400">{m.rapsId}{m.place ? ` · ${m.place}` : ''}</div>
+                          </div>
+                          <div className="relative flex-1 h-9 rounded bg-gray-50 ring-1 ring-gray-100">
+                            {/* hour gridlines */}
+                            {HOUR_TICKS.slice(1, -1).map((h) => (
+                              <div key={h} className="absolute top-0 bottom-0 w-px bg-gray-200/70"
+                                style={{ left: `${((h * 60 - WORK_START_MIN) / WINDOW) * 100}%` }} />
+                            ))}
+                            {/* downtime blocks (behind) */}
+                            {downs.map((d) => {
+                              const g = blockGeom(d.startAt, d.endAt);
+                              if (g.width <= 0) return null;
+                              return (
+                                <div key={d.id} title={`${d.reason} ${hhmm(d.startAt)}–${hhmm(d.endAt)}${d.note ? ` · ${d.note}` : ''}`}
+                                  className="absolute top-0 bottom-0 rounded bg-red-400/70 border border-red-500/40"
+                                  style={{ left: `${g.left}%`, width: `${g.width}%` }} />
+                              );
+                            })}
+                            {/* allocation blocks */}
+                            {allocs.map((a) => {
+                              const g = blockGeom(a.startAt, a.endAt);
+                              if (g.width <= 0) return null;
+                              const label = a.title || a.workOrder?.workOrderNumber || a.ion?.ionNumber || 'Job';
+                              return (
+                                <button
+                                  key={a.id}
+                                  onClick={() => setDetail({ ...a, _canEdit: m.canEdit })}
+                                  title={`${label} · ${hhmm(a.startAt)}–${hhmm(a.endAt)}`}
+                                  className={`absolute top-0.5 bottom-0.5 rounded px-1.5 text-[10px] font-medium text-white truncate hover:brightness-110 ${STATUS_TONE[a.status] || 'bg-blue-500'}`}
+                                  style={{ left: `${g.left}%`, width: `${g.width}%` }}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                            {allocs.length === 0 && downs.length === 0 && (
+                              <span className="absolute inset-0 flex items-center justify-center text-[10px] text-gray-300">idle</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </Card>
 
       {allocOpen && (
-        <AllocateModal date={date} machines={data?.machines || []} onClose={() => setAllocOpen(false)} onSaved={() => { setAllocOpen(false); load(date); }} />
+        <AllocateModal date={date} machines={editableMachines} onClose={() => setAllocOpen(false)} onSaved={() => { setAllocOpen(false); load(date); }} />
       )}
       {downtimeOpen && (
-        <DowntimeModal date={date} machines={data?.machines || []} onClose={() => setDowntimeOpen(false)} onSaved={() => { setDowntimeOpen(false); load(date); }} />
+        <DowntimeModal date={date} machines={editableMachines} onClose={() => setDowntimeOpen(false)} onSaved={() => { setDowntimeOpen(false); load(date); }} />
       )}
       {detail && (
-        <AllocationDetailModal allocation={detail} canWrite={canAllocate} onClose={() => setDetail(null)} onChanged={() => { setDetail(null); load(date); }} />
+        <AllocationDetailModal allocation={detail} canWrite={detail._canEdit} onClose={() => setDetail(null)} onChanged={() => { setDetail(null); load(date); }} />
       )}
     </div>
   );

@@ -7,9 +7,11 @@
 //   • the monthly utilisation KPI (busy / idle / maintenance / down),
 //   • the auto-generated per-machine monthly report.
 //
-// Access model:
-//   • Allocate / edit / delete: MANAGER (own unit) + SUPERADMIN.
-//   • View: MANAGER, ADMIN, PLANNING, SUPERADMIN, SAFETY (register owner).
+// Access model (unit-scoped):
+//   • View: MANAGER, ADMIN, PLANNING, SUPERADMIN, SAFETY see every unit's board.
+//   • Allocate / edit / delete: a MANAGER may only touch machines that sit in
+//     their own unit (matched via the machine's `place`, e.g. a Unit-5 manager
+//     edits "Unit-5" machines and sees the rest read-only). SUPERADMIN edits all.
 // LAB / METROLOGY / NDT do not use this — machining allocation is a unit-manager
 // concern only.
 //
@@ -31,6 +33,34 @@ const WORK_END_MIN = 19 * 60;    // 1140
 const WORK_DAY_MIN = WORK_END_MIN - WORK_START_MIN; // 600
 
 const canAllocate = (user) => !!user && (user.role === 'MANAGER' || user.role === 'SUPERADMIN');
+
+// ── Unit scoping ──────────────────────────────────────────────
+// Machines carry a free-text `place` ("Unit-5", "Unit-1A", "Unit-2 QC Lab",
+// "Unit-1 (NDT)"). Reduce it to a comparable unit key so allocation can be
+// scoped per unit: a MANAGER only allocates/edits machines in their own unit,
+// everyone else (incl. other-unit managers) sees them read-only. SUPERADMIN
+// edits every unit.
+const unitKeyFromLabel = (label) => {
+  const m = /unit[\s\-_]*([0-9]+[a-z]?)/i.exec(label || '');
+  return m ? m[1].toUpperCase() : null;
+};
+
+// The unit key of the logged-in user (prefers the unit code, e.g. "5" / "1A").
+const userUnitKey = (user) => {
+  const code = (user?.unit?.code || '').toString().trim().toUpperCase();
+  if (code) return code;
+  return unitKeyFromLabel(user?.unit?.name || user?.username || '');
+};
+
+// Can this user allocate / edit work on a machine sitting in `place`?
+const canEditMachine = (user, place) => {
+  if (!user) return false;
+  if (user.role === 'SUPERADMIN') return true;
+  if (user.role !== 'MANAGER') return false;
+  const uk = userUnitKey(user);
+  const pk = unitKeyFromLabel(place);
+  return !!uk && !!pk && uk === pk;
+};
 
 const USER_SEL = { select: { id: true, name: true, role: true, unit: { select: { id: true, name: true, code: true } } } };
 
@@ -130,13 +160,33 @@ router.get('/day', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       }),
     ]);
 
+    const myUnitKey = userUnitKey(req.user);
+    // Tag each machine with its unit + whether this user may edit it, and sort
+    // so the user's own unit comes first (then by unit key, then serial).
+    const taggedMachines = machines
+      .map((m) => ({
+        ...m,
+        unitKey: unitKeyFromLabel(m.place),
+        canEdit: canEditMachine(req.user, m.place),
+      }))
+      .sort((a, b) => {
+        const aMine = a.unitKey && a.unitKey === myUnitKey ? 0 : 1;
+        const bMine = b.unitKey && b.unitKey === myUnitKey ? 0 : 1;
+        if (aMine !== bMine) return aMine - bMine;
+        const ak = a.unitKey || '~'; const bk = b.unitKey || '~';
+        if (ak !== bk) return ak.localeCompare(bk, undefined, { numeric: true });
+        return 0;
+      });
+
     res.json({
       date: from.toISOString().slice(0, 10),
       workingWindow: { startMin: WORK_START_MIN, endMin: WORK_END_MIN },
-      machines,
+      machines: taggedMachines,
       allocations,
       downtimes,
-      canAllocate: canAllocate(req.user),
+      myUnitKey,
+      // "Can this user allocate anything?" — true only if they own an editable machine.
+      canAllocate: taggedMachines.some((m) => m.canEdit),
     });
   } catch (error) {
     console.error('Allocation day feed error:', error);
@@ -172,6 +222,9 @@ router.post('/', authenticate, async (req, res) => {
 
     const machine = await prisma.machinery.findUnique({ where: { id: machineryId } });
     if (!machine) return res.status(400).json({ error: 'Machine not found' });
+    if (!canEditMachine(req.user, machine.place)) {
+      return res.status(403).json({ error: 'You can only allocate machines in your own unit' });
+    }
 
     const day = dayStart(date);
     const startAt = atTime(day, startTime);
@@ -261,10 +314,13 @@ router.put('/:id', authenticate, async (req, res) => {
   try {
     if (!canAllocate(req.user)) return res.status(403).json({ error: 'Only unit managers can edit allocations' });
 
-    const existing = await prisma.machineAllocation.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.machineAllocation.findUnique({
+      where: { id: req.params.id },
+      include: { machinery: { select: { place: true } } },
+    });
     if (!existing) return res.status(404).json({ error: 'Allocation not found' });
-    if (req.user.role === 'MANAGER' && existing.allocatedById !== req.user.id && existing.unitId !== req.user.unitId) {
-      return res.status(403).json({ error: 'Not your allocation' });
+    if (!canEditMachine(req.user, existing.machinery?.place)) {
+      return res.status(403).json({ error: 'You can only edit allocations for machines in your own unit' });
     }
 
     const { date, startTime, endTime, status, workNote, title } = req.body || {};
@@ -301,10 +357,13 @@ router.put('/:id', authenticate, async (req, res) => {
 router.delete('/:id', authenticate, async (req, res) => {
   try {
     if (!canAllocate(req.user)) return res.status(403).json({ error: 'Only unit managers can delete allocations' });
-    const existing = await prisma.machineAllocation.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.machineAllocation.findUnique({
+      where: { id: req.params.id },
+      include: { machinery: { select: { place: true } } },
+    });
     if (!existing) return res.status(404).json({ error: 'Allocation not found' });
-    if (req.user.role === 'MANAGER' && existing.allocatedById !== req.user.id && existing.unitId !== req.user.unitId) {
-      return res.status(403).json({ error: 'Not your allocation' });
+    if (!canEditMachine(req.user, existing.machinery?.place)) {
+      return res.status(403).json({ error: 'You can only delete allocations for machines in your own unit' });
     }
     await prisma.machineAllocation.delete({ where: { id: req.params.id } });
     res.json({ ok: true });
@@ -324,6 +383,9 @@ router.post('/downtime', authenticate, async (req, res) => {
     }
     const machine = await prisma.machinery.findUnique({ where: { id: machineryId } });
     if (!machine) return res.status(400).json({ error: 'Machine not found' });
+    if (!canEditMachine(req.user, machine.place)) {
+      return res.status(403).json({ error: 'You can only log downtime for machines in your own unit' });
+    }
 
     const day = dayStart(date);
     const startAt = atTime(day, startTime);
@@ -354,8 +416,14 @@ router.post('/downtime', authenticate, async (req, res) => {
 router.delete('/downtime/:id', authenticate, async (req, res) => {
   try {
     if (!canAllocate(req.user)) return res.status(403).json({ error: 'Only unit managers can delete downtime' });
-    const existing = await prisma.machineDowntime.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.machineDowntime.findUnique({
+      where: { id: req.params.id },
+      include: { machinery: { select: { place: true } } },
+    });
     if (!existing) return res.status(404).json({ error: 'Downtime not found' });
+    if (!canEditMachine(req.user, existing.machinery?.place)) {
+      return res.status(403).json({ error: 'You can only delete downtime for machines in your own unit' });
+    }
     await prisma.machineDowntime.delete({ where: { id: req.params.id } });
     res.json({ ok: true });
   } catch (error) {

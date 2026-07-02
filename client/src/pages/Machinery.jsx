@@ -7,8 +7,8 @@ import AllocationBoard from '../components/machinery/AllocationBoard';
 import MachineKpiPanel from '../components/machinery/MachineKpiPanel';
 
 // Machinery hub — tabbed page (mirrors the procurement-style single page):
-//   • Register   — machine master list + AMC (everyone views; Safety/Unit-5 edit)
 //   • Allocation — daily occupation timeline; unit managers schedule WO/ION work
+//   • Register   — machine master list + AMC (everyone views; Safety/Unit-5 edit)
 //   • Monthly KPI — utilisation KPI + auto per-machine monthly report
 // Allocation + KPI tabs are for unit managers and oversight roles; Lab/Metrology/
 // NDT and other requester roles only see the Register.
@@ -17,12 +17,15 @@ const ALLOCATION_ROLES = ['MANAGER', 'ADMIN', 'PLANNING', 'SUPERADMIN', 'SAFETY'
 export default function Machinery() {
   const { user } = useAuth();
   const showAllocation = ALLOCATION_ROLES.includes(user?.role);
-  const [tab, setTab] = useState('register');
+  // Default to Allocation for those who have it; requester roles land on Register.
+  const [tab, setTab] = useState(showAllocation ? 'allocation' : 'register');
 
   const tabs = [
-    { key: 'register', label: 'Register', icon: Wrench },
     ...(showAllocation ? [
       { key: 'allocation', label: 'Allocation', icon: CalendarRange },
+    ] : []),
+    { key: 'register', label: 'Register', icon: Wrench },
+    ...(showAllocation ? [
       { key: 'kpi', label: 'Monthly KPI & Reports', icon: Gauge },
     ] : []),
   ];
@@ -54,8 +57,8 @@ export default function Machinery() {
         })}
       </div>
 
-      {tab === 'register' && <MachineryRegister embedded />}
       {tab === 'allocation' && showAllocation && <AllocationBoard />}
+      {tab === 'register' && <MachineryRegister embedded />}
       {tab === 'kpi' && showAllocation && <MachineKpiPanel />}
     </div>
   );
