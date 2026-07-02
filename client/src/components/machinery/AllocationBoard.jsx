@@ -15,10 +15,17 @@ const WORK_END_MIN = 19 * 60;    // 1140
 const WINDOW = WORK_END_MIN - WORK_START_MIN; // 600
 const HOUR_TICKS = Array.from({ length: (WORK_END_MIN - WORK_START_MIN) / 60 + 1 }, (_, i) => 9 + i);
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
-const minutesOfDay = (iso) => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };
+// Allocation timestamps are wall-clock values stored verbatim in UTC (the
+// server composes them with UTC setters regardless of its own timezone), so
+// they must be read back with UTC getters — local getHours() would shift
+// blocks by the viewer's UTC offset.
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const minutesOfDay = (iso) => { const d = new Date(iso); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
 const clampPct = (v) => Math.max(0, Math.min(100, v));
-const hhmm = (iso) => new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+const hhmm = (iso) => new Date(iso).toISOString().slice(11, 16);
 
 // Position a [start,end) block within the 9–19 window as left/width %.
 const blockGeom = (startAt, endAt) => {

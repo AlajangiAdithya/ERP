@@ -568,8 +568,11 @@ function ManagerMachineryStrip() {
 
   useEffect(() => {
     let cancelled = false;
+    // Send the browser's local date — the server's own "today" may differ (UTC).
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     Promise.allSettled([
-      api.get('/machine-allocations/day'),
+      api.get('/machine-allocations/day', { params: { date: today } }),
       api.get('/machine-allocations/kpi'),
     ]).then(([dayRes, kpiRes]) => {
       if (cancelled) return;

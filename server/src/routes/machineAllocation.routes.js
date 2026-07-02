@@ -92,23 +92,29 @@ const ALLOC_INCLUDE = {
   unit:        { select: { id: true, name: true, code: true } },
 };
 
-// Parse "YYYY-MM-DD" → Date at local midnight. Falls back to today.
+// All allocation times are wall-clock values ("09:00 on 2026-07-02") stored in
+// UTC fields verbatim, independent of the server's own timezone. The deployed
+// server may run in UTC while users are in IST — composing timestamps with
+// local setHours() would shift every block by the offset (log 09:00, block
+// lands at 14:30). So: compose with UTC setters, read back with UTC getters,
+// and the client renders UTC parts too.
+
+// Parse "YYYY-MM-DD" → Date at UTC midnight. Falls back to today.
 const dayStart = (s) => {
-  const d = s ? new Date(`${s}T00:00:00`) : new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+  const str = /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) ? s : new Date().toISOString().slice(0, 10);
+  return new Date(`${str}T00:00:00Z`);
 };
-const nextDay = (d) => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; };
+const nextDay = (d) => { const n = new Date(d); n.setUTCDate(n.getUTCDate() + 1); return n; };
 
 // Compose a full timestamp from a day + "HH:MM".
 const atTime = (day, hhmm) => {
   const [h, m] = String(hhmm || '').split(':').map((x) => parseInt(x, 10));
   const d = new Date(day);
-  d.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+  d.setUTCHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
   return d;
 };
 
-const minutesOfDay = (dt) => new Date(dt).getHours() * 60 + new Date(dt).getMinutes();
+const minutesOfDay = (dt) => new Date(dt).getUTCHours() * 60 + new Date(dt).getUTCMinutes();
 
 // Overlap of [aStart,aEnd) with the working window, in minutes (clamped ≥ 0).
 const workingMinutes = (startAt, endAt) => {
@@ -219,7 +225,7 @@ router.get('/day', authenticate, async (req, res) => {
 
 // Reject a new/updated block that overlaps an existing one on the same machine.
 const findOverlap = async (machineryId, startAt, endAt, excludeId) => {
-  const from = new Date(startAt); from.setHours(0, 0, 0, 0);
+  const from = new Date(startAt); from.setUTCHours(0, 0, 0, 0);
   const to = nextDay(from);
   const sameDay = await prisma.machineAllocation.findMany({
     where: {
@@ -455,18 +461,18 @@ router.delete('/downtime/:id', authenticate, async (req, res) => {
   }
 });
 
-// Month range helpers. month = "YYYY-MM".
+// Month range helpers. month = "YYYY-MM". UTC boundaries to match stored dates.
 const monthRange = (month) => {
   const now = new Date();
-  let y = now.getFullYear();
-  let m = now.getMonth();
+  let y = now.getUTCFullYear();
+  let m = now.getUTCMonth();
   if (/^\d{4}-\d{2}$/.test(month || '')) {
     const [yy, mm] = month.split('-').map((x) => parseInt(x, 10));
     y = yy; m = mm - 1;
   }
-  const from = new Date(y, m, 1);
-  const to = new Date(y, m + 1, 1);
-  return { from, to, label: `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}` };
+  const from = new Date(Date.UTC(y, m, 1));
+  const to = new Date(Date.UTC(y, m + 1, 1));
+  return { from, to, label: `${from.getUTCFullYear()}-${String(from.getUTCMonth() + 1).padStart(2, '0')}` };
 };
 
 // Working days in a month = all days except Sundays (Mon–Sat factory week).
@@ -474,8 +480,8 @@ const workingDaysInMonth = (from, to) => {
   let count = 0;
   const d = new Date(from);
   while (d < to) {
-    if (d.getDay() !== 0) count += 1; // 0 = Sunday
-    d.setDate(d.getDate() + 1);
+    if (d.getUTCDay() !== 0) count += 1; // 0 = Sunday
+    d.setUTCDate(d.getUTCDate() + 1);
   }
   return count;
 };

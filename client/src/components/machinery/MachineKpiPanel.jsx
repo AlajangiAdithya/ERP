@@ -133,8 +133,9 @@ function ReportModal({ month, machine, onClose }) {
       .finally(() => setLoading(false));
   }, [month, machine.machineryId]);
 
-  const hhmm = (iso) => new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
-  const dstr = (iso) => new Date(iso).toLocaleDateString('en-IN');
+  // Times are wall-clock values stored verbatim in UTC — render UTC parts.
+  const hhmm = (iso) => new Date(iso).toISOString().slice(11, 16);
+  const dstr = (iso) => new Date(iso).toLocaleDateString('en-IN', { timeZone: 'UTC' });
   const kpi = data?.kpi?.[0];
 
   return (
