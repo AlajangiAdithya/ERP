@@ -305,6 +305,15 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
       'PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PLACED', 'ADVANCE_PAID',
       'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'INWARD_DONE',
     ];
+    // "Awaiting Inward" — goods have physically arrived at the gate (or are in
+    // QC) but have not yet been received into stores (INWARD_DONE). This is the
+    // real receiving bottleneck on the in-progress board.
+    const poAwaitingInwardStatuses = ['GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED'];
+
+    // Dashboard "In Progress" modal asks for an org-wide view (scope=all) so a
+    // unit manager can see every unit's pending PRs/POs, not just their own.
+    // The floating badge omits scope, keeping its per-user role scoping.
+    const wantsAllUnits = req.query.scope === 'all';
 
     // Role-scoped visibility for the In-Progress modal, mirroring the rules on
     // the main PR/PO lists:
@@ -317,7 +326,9 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
     // so they will not surface on any unit-bound dashboard view.
     // QC sees their own PRs plus PRs from LAB / METROLOGY / NDT (department oversight).
     const prRoleFilter =
-      req.user.role === 'QC'
+      wantsAllUnits
+        ? {}
+        : req.user.role === 'QC'
         ? {
             OR: [
               { managerId: req.user.id },
@@ -330,7 +341,9 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
     // POs inherit PR scope via either the direct purchaseRequest link or the
     // sourceRequests pivot (multi-PR purchase orders).
     const poRoleFilter =
-      req.user.role === 'QC'
+      wantsAllUnits
+        ? {}
+        : req.user.role === 'QC'
         ? {
             OR: [
               { purchaseRequest: { managerId: req.user.id } },
@@ -351,19 +364,16 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
     const [
       prCount, prTotal,
       poCount, poTotal,
-      qcPendingCount,
-      poAmountAgg,
+      awaitingInwardCount,
+      qcFailedCount,
       prSamples, poSamples,
     ] = await Promise.all([
       prisma.purchaseRequest.count({ where: { status: { in: prInProgressStatuses }, ...prRoleFilter } }),
       prisma.purchaseRequest.count({ where: prRoleFilter }),
       prisma.purchaseOrder.count({ where: { status: { in: poInProgressStatuses }, ...poRoleFilter } }),
       prisma.purchaseOrder.count({ where: poRoleFilter }),
-      prisma.purchaseOrder.count({ where: { status: 'QC_PENDING', ...poRoleFilter } }),
-      prisma.purchaseOrder.aggregate({
-        _sum: { totalAmount: true },
-        where: { status: { in: poInProgressStatuses }, ...poRoleFilter },
-      }),
+      prisma.purchaseOrder.count({ where: { status: { in: poAwaitingInwardStatuses }, ...poRoleFilter } }),
+      prisma.purchaseOrder.count({ where: { status: 'QC_FAILED', ...poRoleFilter } }),
       prisma.purchaseRequest.findMany({
         where: { status: { in: prInProgressStatuses }, ...prRoleFilter },
         select: {
@@ -411,13 +421,11 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
       return { ...rest, earliestRequiredBy: earliest, requiredFor };
     });
 
-    const totalAmountInProgress = poAmountAgg?._sum?.totalAmount || 0;
-
     res.json({
       prCount, prTotal,
       poCount, poTotal,
-      qcPendingCount,
-      totalAmountInProgress,
+      awaitingInwardCount,
+      qcFailedCount,
       prSamples: prSamplesEnriched,
       poSamples,
     });
@@ -434,10 +442,27 @@ router.get('/unit-dashboard', authenticate, async (req, res) => {
     if (!unitId) {
       return res.json({
         miv: { total: 0, pending: 0, approved: 0, active: 0 },
-        pr: { total: 0, pending: 0, active: 0, completed: 0 },
+        pr: { total: 0, pending: 0, active: 0, completed: 0, open: 0, converted: 0 },
         po: { total: 0, active: 0, completed: 0 },
       });
     }
+
+    // A PR is "converted to PO" once at least one purchase order references it —
+    // either directly (purchaseOrders) or through a union PO (purchaseOrderSources).
+    const prConvertedWhere = {
+      unitId,
+      OR: [
+        { purchaseOrders: { some: {} } },
+        { purchaseOrderSources: { some: {} } },
+      ],
+    };
+    // "Open" = still moving through the PR pipeline with no PO created yet.
+    const prOpenWhere = {
+      unitId,
+      status: { in: ['PENDING_QC', 'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS'] },
+      purchaseOrders: { none: {} },
+      purchaseOrderSources: { none: {} },
+    };
 
     const poUnitWhere = {
       OR: [
@@ -448,7 +473,7 @@ router.get('/unit-dashboard', authenticate, async (req, res) => {
 
     const [
       mivTotal, mivPending, mivApproved,
-      prTotal, prPending, prCompleted, prRejected,
+      prTotal, prPending, prCompleted, prRejected, prOpen, prConverted,
       poTotal, poCompleted,
     ] = await Promise.all([
       prisma.productRequest.count({ where: { unitId } }),
@@ -458,6 +483,8 @@ router.get('/unit-dashboard', authenticate, async (req, res) => {
       prisma.purchaseRequest.count({ where: { unitId, status: 'PENDING_ADMIN' } }),
       prisma.purchaseRequest.count({ where: { unitId, status: 'COMPLETED' } }),
       prisma.purchaseRequest.count({ where: { unitId, status: 'REJECTED' } }),
+      prisma.purchaseRequest.count({ where: prOpenWhere }),
+      prisma.purchaseRequest.count({ where: prConvertedWhere }),
       prisma.purchaseOrder.count({ where: poUnitWhere }),
       prisma.purchaseOrder.count({ where: { ...poUnitWhere, status: 'COMPLETED' } }),
     ]);
@@ -474,6 +501,8 @@ router.get('/unit-dashboard', authenticate, async (req, res) => {
         pending: prPending,
         active: Math.max(0, prTotal - prCompleted - prRejected),
         completed: prCompleted,
+        open: prOpen,
+        converted: prConverted,
       },
       po: {
         total: poTotal,

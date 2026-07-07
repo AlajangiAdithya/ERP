@@ -33,7 +33,8 @@ function InProgressButton() {
     setOpen(true);
     setLoading(true);
     try {
-      const { data } = await api.get('/purchase-requests/in-progress-summary');
+      // scope=all → org-wide view: every unit's pending PRs & POs, not just the viewer's own.
+      const { data } = await api.get('/purchase-requests/in-progress-summary', { params: { scope: 'all' } });
       setSummary(data);
     } catch {
       setSummary(null);
@@ -46,7 +47,7 @@ function InProgressButton() {
       <Button variant="secondary" onClick={openModal}>
         <Activity size={16} className="mr-1 animate-pulse text-amber-500" /> In Progress
       </Button>
-      <Modal isOpen={open} onClose={() => setOpen(false)} title="In Progress — PRs & POs" size="lg">
+      <Modal isOpen={open} onClose={() => setOpen(false)} title="In Progress — PRs & POs (All Units)" size="lg">
         {loading ? (
           <div className="flex justify-center py-8">
             <div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" />
@@ -74,20 +75,21 @@ function InProgressButton() {
               </div>
               <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
                 <div className="flex items-center gap-2 text-amber-700">
-                  <ClipboardCheck size={16} /> <span className="text-xs uppercase font-semibold">QC Pending</span>
+                  <Truck size={16} /> <span className="text-xs uppercase font-semibold">Awaiting Inward</span>
                 </div>
                 <div className="text-2xl font-bold text-amber-700 mt-1">
-                  {summary.qcPendingCount || 0}<span className="text-sm text-amber-400 font-medium">/{summary.poTotal || 0}</span>
+                  {summary.awaitingInwardCount || 0}<span className="text-sm text-amber-400 font-medium">/{summary.poCount || 0}</span>
                 </div>
+                <div className="text-[10px] text-amber-600 mt-0.5">goods arrived, not received</div>
               </div>
-              <div className="p-3 rounded-lg bg-purple-50 border border-purple-200">
-                <div className="flex items-center gap-2 text-purple-700">
-                  <IndianRupee size={16} /> <span className="text-xs uppercase font-semibold">Total Value</span>
+              <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+                <div className="flex items-center gap-2 text-red-700">
+                  <AlertTriangle size={16} /> <span className="text-xs uppercase font-semibold">QC Failed</span>
                 </div>
-                <div className="text-xl font-bold text-purple-700 mt-1">
-                  ₹{Number(summary.totalAmountInProgress || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                <div className="text-2xl font-bold text-red-700 mt-1">
+                  {summary.qcFailedCount || 0}<span className="text-sm text-red-400 font-medium">/{summary.poCount || 0}</span>
                 </div>
-                <div className="text-[10px] text-purple-500 mt-0.5">across all units</div>
+                <div className="text-[10px] text-red-500 mt-0.5">rejected at inspection</div>
               </div>
             </div>
 
@@ -624,7 +626,7 @@ function ManagerDashboard() {
   const [purchaseRequests, setPurchaseRequests] = useState([]);
   const [unitStats, setUnitStats] = useState({
     miv: { total: 0, pending: 0, approved: 0, active: 0 },
-    pr: { total: 0, pending: 0, active: 0, completed: 0 },
+    pr: { total: 0, pending: 0, active: 0, completed: 0, open: 0, converted: 0 },
     po: { total: 0, active: 0, completed: 0 },
   });
   const [ions, setIons] = useState([]);
@@ -709,9 +711,9 @@ function ManagerDashboard() {
           onClick={() => navigate('/my-requests')}
         />
         <StatsCard
-          title="PR Pending (My Unit)"
-          value={`${unitStats.pr.active} / ${unitStats.pr.total}`}
-          subtitle="Pending / Total"
+          title="Purchase Requests (My Unit)"
+          value={`${unitStats.pr.open} / ${unitStats.pr.converted}`}
+          subtitle="Open / Converted to PO"
           icon={ShoppingCart}
           color="blue"
           onClick={() => navigate('/purchase-requests')}

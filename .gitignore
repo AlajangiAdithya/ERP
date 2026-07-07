@@ -7,6 +7,14 @@ node_modules/
 **/.env
 !**/.env.example
 
+# Secrets / private keys — NEVER commit
+*.pem
+*.key
+*.p12
+*.pfx
+raps-key.pem
+deploy/*.pem
+
 # Build output
 client/dist/
 **/dist/

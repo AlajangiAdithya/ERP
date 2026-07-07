@@ -1,4 +1,21 @@
 require('dotenv').config();
+
+// Fail fast if auth secrets are missing or still the placeholder — a blank or
+// well-known JWT_SECRET makes every issued token forgeable, so refuse to boot.
+// (Short-but-real secrets only warn, so this can't break an existing deploy.)
+for (const name of ['JWT_SECRET', 'JWT_REFRESH_SECRET']) {
+  const val = process.env[name];
+  if (!val || /change-me|your-secret|secret-key|placeholder/i.test(val)) {
+    console.error(`FATAL: ${name} is missing or still a placeholder value. ` +
+      'Generate one with `openssl rand -hex 64` and set it in the environment.');
+    process.exit(1);
+  }
+  if (val.length < 32) {
+    console.warn(`WARNING: ${name} is only ${val.length} chars. Use at least 32 ` +
+      '(e.g. `openssl rand -hex 64`) for a strong signing key.');
+  }
+}
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -48,6 +65,10 @@ const materialInwardRoutes = require('./routes/materialInward.routes');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+// Behind nginx (one hop). Lets express-rate-limit key on the real client IP
+// and makes req.ip in the audit log the actual user, not 127.0.0.1.
+app.set('trust proxy', 1);
+
 // Security
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -70,10 +91,14 @@ app.use(cors({
   credentials: true,
 }));
 
-// Rate limiting on auth routes
+// Rate limiting on auth routes — brute-force guard on login/refresh.
+// Keyed per-IP (see trust proxy above). 20 attempts/min is plenty for a real
+// user fat-fingering a password while stopping credential-stuffing bots.
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { error: 'Too many requests, please try again later' },
 });
 
