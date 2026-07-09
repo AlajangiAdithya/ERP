@@ -632,6 +632,23 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
     const unit = await prisma.unit.findUnique({ where: { id: assignedUnitId } });
     if (!unit) return res.status(400).json({ error: 'Assigned unit not found' });
 
+    // The ION header number is user-entered and UNIQUE. A reused number would
+    // fail the create with an opaque unique-constraint error — and withDocRetry
+    // can't fix it (it only re-rolls the auto workOrderNumber, never the ION).
+    // Catch a clash up-front with a clear message so SC's submit never 500s.
+    const ionNumber = body.ionNumber ? String(body.ionNumber).trim() : null;
+    if (ionNumber) {
+      const clash = await prisma.workOrder.findFirst({
+        where: { ionNumber },
+        select: { workOrderNumber: true },
+      });
+      if (clash) {
+        return res.status(400).json({
+          error: `ION number "${ionNumber}" is already used on ${clash.workOrderNumber}. Enter a unique ION number or leave it blank.`,
+        });
+      }
+    }
+
     const pdcDate = new Date(body.pdcDate);
     // BG date ALWAYS auto-defaults to PDC + 2 months when not supplied — it is
     // editable (form pre-fills it; SC can overwrite, and it can be changed
@@ -640,12 +657,19 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
       ? new Date(body.bankGuaranteeDate)
       : addDays(pdcDate, DEFAULT_BG_OFFSET_DAYS);
 
+    // No admin gate: Supply Chain's assignment goes STRAIGHT to the unit manager
+    // to accept or reject (rejection → ON_HOLD → SC reassigns). Auto-accept units
+    // (e.g. SHAR — no unit manager) are accepted the moment they're assigned and
+    // skip the acceptance step entirely.
+    const autoAccept = isAutoAcceptUnit(unit);
+    const now = new Date();
+
     const created = await withDocRetry(async () => {
       const workOrderNumber = await generateSequentialNumber(prisma, 'WO');
       return prisma.workOrder.create({
         data: {
           workOrderNumber,
-          ionNumber: body.ionNumber || null,
+          ionNumber,
           supplyOrderNo: String(body.supplyOrderNo).trim(),
           supplyOrderDate: new Date(body.supplyOrderDate),
           supplyOrderDescription: body.supplyOrderDescription || null,
@@ -676,7 +700,14 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
           insuranceNo: body.insuranceNo || null,
           insuranceDate: body.insuranceDate ? new Date(body.insuranceDate) : null,
           assignedUnitId,
-          status: 'PENDING_ADMIN',
+          status: autoAccept ? 'UNIT_ACCEPTED' : 'ADMIN_ACCEPTED',
+          ...(autoAccept
+            ? {
+                unitAcceptedAt: now,
+                unitAcceptedById: req.user.id,
+                unitAcceptanceNote: `Auto-accepted (${unit.code || unit.name})`,
+              }
+            : {}),
           createdById: req.user.id,
         },
         include: WO_INCLUDE,
@@ -707,16 +738,35 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
     }
     if (seedRows.length) await Promise.all(seedRows);
 
-    // Notify ADMIN that a new WO is awaiting acceptance.
-    await prisma.notification.create({
-      data: {
-        type: 'WORK_ORDER_PENDING_ADMIN',
-        title: `Work Order ${created.workOrderNumber} awaiting acceptance`,
-        message: `${req.user.name} logged supply order ${created.supplyOrderNo} for ${created.customerName} (Qty ${created.orderQuantity} ${created.orderUnit}, PDC ${new Date(created.pdcDate).toLocaleDateString()}). Please review and accept.`,
-        targetRole: 'ADMIN',
-        sentById: req.user.id,
-      },
-    });
+    // Assignment goes straight to the unit's managers to accept/reject — unless
+    // the unit auto-accepts (no manager), in which case just confirm to the SC.
+    if (autoAccept) {
+      await prisma.notification.create({
+        data: {
+          type: 'WORK_ORDER_UNIT_ACCEPTED',
+          title: `WO ${created.workOrderNumber} auto-accepted`,
+          message: `${created.workOrderNumber} for ${created.customerName} was auto-accepted for ${unit.code || unit.name} (no unit-manager acceptance needed).`,
+          targetUserId: req.user.id,
+          sentById: req.user.id,
+        },
+      });
+    } else {
+      const unitManagers = await prisma.user.findMany({
+        where: { role: 'MANAGER', unitId: assignedUnitId, isActive: true },
+        select: { id: true },
+      });
+      if (unitManagers.length) {
+        await prisma.notification.createMany({
+          data: unitManagers.map((m) => ({
+            type: 'WORK_ORDER_ASSIGNED_TO_UNIT',
+            title: `Work Order ${created.workOrderNumber} assigned to your unit`,
+            message: `${req.user.name} assigned WO ${created.workOrderNumber} (Customer: ${created.customerName}, Qty ${created.orderQuantity} ${created.orderUnit}, PDC ${new Date(created.pdcDate).toLocaleDateString()}). Please review and accept or reject.`,
+            targetUserId: m.id,
+            sentById: req.user.id,
+          })),
+        });
+      }
+    }
 
     // Re-fetch to include the newly created BG/Insurance entries.
     const full = await prisma.workOrder.findUnique({ where: { id: created.id }, include: WO_INCLUDE });
@@ -724,6 +774,12 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
     refreshAlarms(created.id);
   } catch (error) {
     console.error('Create work order error:', error);
+    // Surface unique-constraint clashes as a clear 400 instead of a blank 500.
+    if (error?.code === 'P2002') {
+      const target = Array.isArray(error?.meta?.target) ? error.meta.target.join(', ') : error?.meta?.target;
+      const label = /ion/i.test(String(target)) ? 'ION number' : (target || 'value');
+      return res.status(400).json({ error: `That ${label} is already in use. Please change it and submit again.` });
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1298,6 +1354,74 @@ router.put('/:id/delivery-details', authenticate, authorize('SUPPLY_CHAIN', 'ADM
     res.json(decorate(updated, req.user));
   } catch (error) {
     console.error('Update delivery details error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── PATCH /api/work-orders/:id/delivered-qty — manual delivered-qty override ──
+// Escape hatch for orders delivered outside the lot cycle (legacy / off-system
+// dispatch). SUPPLY_CHAIN / ADMIN / PLANNING can hand-set the delivered qty; when
+// it reaches the ordered qty the WO auto-marks COMPLETED (delivered) — which stops
+// the recurring PDC-overdue alarm and the "Overdue" flag and moves it into the
+// "Orders Closed" view. Every change is written to the Edit History.
+router.patch('/:id/delivered-qty', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'), async (req, res) => {
+  try {
+    const existing = await prisma.workOrder.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Work order not found' });
+
+    // Only meaningful once the unit has taken the WO on; and never on a dead one.
+    if (!['UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED'].includes(existing.status)) {
+      return res.status(400).json({
+        error: `Delivered qty can only be set once the WO is accepted and running (current status: ${existing.status}).`,
+      });
+    }
+
+    const qty = Number(req.body?.deliveredQty);
+    if (!Number.isFinite(qty) || qty < 0) {
+      return res.status(400).json({ error: 'deliveredQty must be a number ≥ 0' });
+    }
+    if (qty > existing.orderQuantity) {
+      return res.status(400).json({
+        error: `Delivered qty cannot exceed the ordered qty (${existing.orderQuantity} ${existing.orderUnit}).`,
+      });
+    }
+    const reason = req.body?.reason ? String(req.body.reason).trim() : null;
+    const fullyDone = qty >= existing.orderQuantity;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.workOrder.update({
+        where: { id: req.params.id },
+        data: {
+          deliveredQty: qty,
+          status: fullyDone ? 'COMPLETED' : (qty > 0 ? 'IN_PROGRESS' : 'UNIT_ACCEPTED'),
+          deliveryStatus: fullyDone ? 'DELIVERED' : (qty > 0 ? 'PARTIAL' : 'NOT_STARTED'),
+          completedAt: fullyDone ? (existing.completedAt || new Date()) : null,
+          ...(reason
+            ? { remarks: `${existing.remarks ? existing.remarks + '\n' : ''}Delivered qty set to ${qty}/${existing.orderQuantity} ${existing.orderUnit} by ${req.user.name || req.user.role}: ${reason}` }
+            : {}),
+        },
+      });
+      // Audit the change on the Edit History timeline.
+      await tx.workOrderEditHistory.create({
+        data: {
+          workOrderId: req.params.id,
+          changedById: req.user.id,
+          changedByName: req.user.name || null,
+          changedByRole: req.user.role || null,
+          changes: [{
+            field: 'deliveredQty',
+            label: 'Delivered Qty',
+            from: `${existing.deliveredQty} ${existing.orderUnit}`,
+            to: `${qty} ${existing.orderUnit}${fullyDone ? ' (order fully delivered)' : ''}`,
+          }],
+        },
+      });
+      return tx.workOrder.findUnique({ where: { id: req.params.id }, include: WO_INCLUDE });
+    });
+    res.json(decorate(updated, req.user));
+    refreshAlarms(req.params.id); // clears the stale PDC-overdue alarm once completed
+  } catch (error) {
+    console.error('Set delivered qty error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

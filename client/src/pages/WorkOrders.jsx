@@ -23,13 +23,14 @@ import PageHero from '../components/shared/PageHero';
 import SearchBar from '../components/shared/SearchBar';
 import { formatDate, formatDateTime } from '../utils/formatters';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import WorkOrderPdf from '../components/pdf/WorkOrderPdf';
 import InvoicePdf from '../components/pdf/InvoicePdf';
 import QCVerificationCertificatePdf from '../components/pdf/QCVerificationCertificatePdf';
 import HoldChecklistPdf from '../components/pdf/HoldChecklistPdf';
 
 const STATUS_META = {
-  PENDING_ADMIN:  { color: 'yellow', label: 'Awaiting Admin',   Icon: Clock },
-  ADMIN_ACCEPTED: { color: 'blue',   label: 'Admin Accepted',   Icon: ShieldCheck },
+  PENDING_ADMIN:  { color: 'yellow', label: 'Awaiting Admin',       Icon: Clock },
+  ADMIN_ACCEPTED: { color: 'blue',   label: 'Awaiting Unit Accept', Icon: ShieldCheck },
   UNIT_ACCEPTED:  { color: 'blue',   label: 'Unit Accepted',    Icon: CheckCircle2 },
   IN_PROGRESS:    { color: 'yellow', label: 'In Progress',      Icon: Clock },
   COMPLETED:      { color: 'amber',  label: 'Pending Accounts', Icon: Wallet },
@@ -39,10 +40,15 @@ const STATUS_META = {
   ON_HOLD:        { color: 'red',    label: 'On Hold',          Icon: PauseCircle },
 };
 
+// 'CLOSED_ORDERS' is a virtual tab: one "Orders Closed" bucket that gathers both
+// COMPLETED (delivered, payment pending) and CLOSED (fully paid) orders, shown as
+// two labelled groups in the list.
 const STATUS_TABS = [
   'ALL', 'PENDING_ADMIN', 'ADMIN_ACCEPTED', 'ON_HOLD',
-  'UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'CLOSED', 'CANCELLED', 'REJECTED',
+  'UNIT_ACCEPTED', 'IN_PROGRESS', 'CLOSED_ORDERS', 'CANCELLED', 'REJECTED',
 ];
+// Statuses folded into the virtual "Orders Closed" tab.
+const CLOSED_ORDER_STATUSES = ['COMPLETED', 'CLOSED'];
 
 // Lot (closure cycle) stage display. Finance-side stages are only shown to
 // admins / FINANCE / ACCOUNTING (server sanitises them for MANAGER/QC).
@@ -219,7 +225,11 @@ export default function WorkOrders() {
     const from = fromDate ? new Date(fromDate) : null;
     const to = toDate ? new Date(`${toDate}T23:59:59`) : null;
     return workOrders.filter((w) => {
-      if (activeTab !== 'ALL' && w.status !== activeTab) return false;
+      if (activeTab === 'CLOSED_ORDERS') {
+        if (!CLOSED_ORDER_STATUSES.includes(w.status)) return false;
+      } else if (activeTab !== 'ALL' && w.status !== activeTab) {
+        return false;
+      }
       if (customer !== 'ALL' && w.customerName !== customer) return false;
       if (unitId !== 'ALL') {
         if (unitId === 'NONE') { if (w.assignedUnit || w.assignedUnitName) return false; }
@@ -546,7 +556,9 @@ export default function WorkOrders() {
         {/* Status tabs with live counts */}
         <div className="flex flex-wrap gap-2">
           {STATUS_TABS.map((tab) => {
-            const count = statusCounts[tab] || 0;
+            const count = tab === 'CLOSED_ORDERS'
+              ? CLOSED_ORDER_STATUSES.reduce((s, st) => s + (statusCounts[st] || 0), 0)
+              : (statusCounts[tab] || 0);
             const on = activeTab === tab;
             return (
               <button
@@ -556,7 +568,7 @@ export default function WorkOrders() {
                   on ? 'bg-navy-800 text-white shadow-sm' : 'bg-navy-50 text-navy-700 hover:bg-navy-100'
                 }`}
               >
-                {tab === 'ALL' ? 'All' : STATUS_META[tab]?.label || tab}
+                {tab === 'ALL' ? 'All' : tab === 'CLOSED_ORDERS' ? 'Orders Closed' : STATUS_META[tab]?.label || tab}
                 <span className={`tnum rounded-full px-1.5 py-0.5 text-[10px] leading-none ${on ? 'bg-white/20 text-white' : 'bg-white text-navy-500'}`}>
                   {count}
                 </span>
@@ -654,6 +666,8 @@ export default function WorkOrders() {
             </Button>
           </div>
         </Card>
+      ) : activeTab === 'CLOSED_ORDERS' ? (
+        <ClosedOrdersGroups workOrders={sorted} view={view} onOpen={setDetail} />
       ) : view === 'table' ? (
         <DashboardTable workOrders={sorted} onOpen={setDetail} />
       ) : (
@@ -709,6 +723,47 @@ const ALARM_SEVERITY_META = {
     label:   'Info',
   },
 };
+
+// "Orders Closed" tab body — one bucket, two labelled groups: delivered-but-
+// unpaid (COMPLETED) on top, then fully-paid (CLOSED). Each group reuses the same
+// row/sheet renderer as the main list so cards look identical everywhere.
+function ClosedOrdersGroups({ workOrders, view, onOpen }) {
+  const pending = workOrders.filter((w) => w.status === 'COMPLETED');
+  const paid = workOrders.filter((w) => w.status === 'CLOSED');
+  const List = view === 'table' ? DashboardTable : WorkOrderSheet;
+
+  const Group = ({ title, subtitle, tone, items }) => (
+    <div className="space-y-2">
+      <div className={`flex items-center gap-2 rounded-lg border-l-4 px-3 py-2 ${tone}`}>
+        <span className="text-sm font-bold">{title}</span>
+        <span className="text-xs text-navy-500">{subtitle}</span>
+        <span className="ml-auto tnum rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-navy-600">{items.length}</span>
+      </div>
+      {items.length ? (
+        <List workOrders={items} onOpen={onOpen} />
+      ) : (
+        <p className="px-3 py-4 text-sm text-navy-400">None.</p>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <Group
+        title="Delivered — Payment Pending"
+        subtitle="All items delivered; awaiting full payment"
+        tone="border-l-amber-500 bg-amber-50/60"
+        items={pending}
+      />
+      <Group
+        title="Fully Paid — Closed"
+        subtitle="Delivered and completely paid"
+        tone="border-l-green-500 bg-green-50/60"
+        items={paid}
+      />
+    </div>
+  );
+}
 
 function DashboardTable({ workOrders, onOpen }) {
   const lastExt = (w) => (w.extensions?.length ? w.extensions[w.extensions.length - 1] : null);
@@ -1249,7 +1304,7 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
   };
 
   return (
-    <Modal isOpen onClose={onClose} title="Log Supply Order (→ Awaiting Admin)" size="xl">
+    <Modal isOpen onClose={onClose} title="Log Supply Order (→ Assign to Unit Manager)" size="xl">
       <form onSubmit={submit} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
@@ -1361,7 +1416,7 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
           <Textarea label="Remarks" rows={2} value={form.remarks} onChange={(e) => setField('remarks', e.target.value)} />
         </Section>
 
-        <Section title="Unit Assignment (admin can change it while verifying)">
+        <Section title="Unit Assignment (goes straight to this unit's manager to accept / reject)">
           <Select label="Assign Unit Manager *" value={form.assignedUnitId} onChange={(e) => setField('assignedUnitId', e.target.value)} required>
             <option value="">Select unit...</option>
             {units.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.code})</option>)}
@@ -1370,7 +1425,7 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
 
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={submitting}>{submitting ? 'Submitting...' : 'Submit to Admin'}</Button>
+          <Button type="submit" disabled={submitting}>{submitting ? 'Submitting...' : 'Assign to Unit Manager'}</Button>
         </div>
       </form>
     </Modal>
@@ -1852,16 +1907,23 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
               <ShieldCheck size={11} /> PDC remark (unit): {wo.pdc3MonthMgrAckBy.name}
             </span>
           )}
-          {canEditDetails && (
-            <button
-              type="button"
-              onClick={() => setShowEdit(true)}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-navy-200 bg-white px-3 py-1.5 text-xs font-semibold text-navy-700 shadow-sm transition hover:bg-navy-50"
-              title="Edit work order details — fill in / correct scope info received after release. Every change is logged."
-            >
-              <Pencil size={14} /> Edit Details
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            <DownloadPdfButton
+              document={<WorkOrderPdf data={wo} />}
+              fileName={`${wo.workOrderNumber?.replace(/\//g, '-') || 'work-order'}.pdf`}
+              label="Download PDF"
+            />
+            {canEditDetails && (
+              <button
+                type="button"
+                onClick={() => setShowEdit(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-navy-200 bg-white px-3 py-1.5 text-xs font-semibold text-navy-700 shadow-sm transition hover:bg-navy-50"
+                title="Edit work order details — fill in / correct scope info received after release. Every change is logged."
+              >
+                <Pencil size={14} /> Edit Details
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="border-b flex gap-2 flex-wrap">
@@ -1890,7 +1952,14 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
           })}
         </div>
 
-        {section === 'overview' && <OverviewTab wo={wo} />}
+        {section === 'overview' && (
+          <OverviewTab
+            wo={wo}
+            currentUser={currentUser}
+            busy={busy}
+            onSetDelivered={(payload) => handleAction(() => api.patch(`/work-orders/${wo.id}/delivered-qty`, payload))}
+          />
+        )}
         {section === 'bg-insurance' && (
           <BgInsuranceTab
             wo={wo}
@@ -2015,7 +2084,72 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
   );
 }
 
-function OverviewTab({ wo }) {
+// Inline "set delivered qty" editor. Bumping delivered to the ordered qty
+// auto-completes the WO (clears the overdue flag + recurring PDC alarm and moves
+// it to the Orders Closed view). Visible to SC / Admin / Planning only.
+function SetDeliveredControl({ wo, busy, onSetDelivered }) {
+  const [open, setOpen] = useState(false);
+  const [qty, setQty] = useState(String(wo.deliveredQty ?? 0));
+  const [reason, setReason] = useState('');
+
+  const submit = () => {
+    const n = Number(qty);
+    if (!Number.isFinite(n) || n < 0 || n > wo.orderQuantity) return;
+    onSetDelivered({ deliveredQty: n, reason: reason.trim() || undefined });
+    setOpen(false);
+    setReason('');
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => { setQty(String(wo.deliveredQty ?? 0)); setOpen(true); }}
+        className="ml-3 inline-flex items-center gap-1 text-xs font-semibold text-navy-600 hover:text-navy-800"
+        title="Record the delivered quantity. Setting it equal to the ordered qty closes the order."
+      >
+        <Pencil size={12} /> Set delivered qty
+      </button>
+    );
+  }
+
+  const n = Number(qty);
+  const willComplete = Number.isFinite(n) && n >= wo.orderQuantity;
+  const invalid = !Number.isFinite(n) || n < 0 || n > wo.orderQuantity;
+
+  return (
+    <div className="mt-2 p-2 rounded-md border border-navy-200 bg-navy-50/50 space-y-2">
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min="0"
+          max={wo.orderQuantity}
+          step="any"
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          className="w-24 rounded border border-navy-200 px-2 py-1 text-sm"
+        />
+        <span className="text-xs text-navy-500">of {wo.orderQuantity} {wo.orderUnit}</span>
+      </div>
+      <input
+        type="text"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Reason / note (optional)"
+        className="w-full rounded border border-navy-200 px-2 py-1 text-sm"
+      />
+      {willComplete && (
+        <p className="text-[11px] text-green-700">✓ This marks the order fully delivered and closes it.</p>
+      )}
+      <div className="flex items-center gap-2">
+        <Button disabled={busy || invalid} onClick={submit}>{busy ? 'Saving…' : 'Save'}</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
+function OverviewTab({ wo, currentUser, busy, onSetDelivered }) {
   const Row = ({ label, value }) => (
     <div className="grid grid-cols-3 gap-2 text-sm py-1.5 border-b border-navy-50">
       <div className="text-navy-500">{label}</div>
@@ -2024,6 +2158,11 @@ function OverviewTab({ wo }) {
   );
 
   const delivered = deliveredByItem(wo);
+  // SC / Admin / Planning may hand-set the delivered qty (escape hatch for work
+  // delivered outside the lot cycle). Only while the WO is live and accepted.
+  const canSetDelivered = ['SUPPLY_CHAIN', 'ADMIN', 'PLANNING'].includes(currentUser?.role)
+    && ['UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED'].includes(wo.status)
+    && typeof onSetDelivered === 'function';
 
   return (
     <div className="space-y-1">
@@ -2074,7 +2213,15 @@ function OverviewTab({ wo }) {
       <Row label="PDC (effective)" value={`${formatDate(wo.effectivePdcDate)}${wo.extensions.length ? ` (after ${wo.extensions.length} extension${wo.extensions.length > 1 ? 's' : ''})` : ''}`} />
       <Row label="Original PDC" value={formatDate(wo.pdcDate)} />
       <Row label="Delivery Clause" value={wo.deliveryClause} />
-      <Row label="Delivered (across lots)" value={`${wo.deliveredQty} / ${wo.orderQuantity} ${wo.orderUnit}`} />
+      <div className="grid grid-cols-3 gap-2 text-sm py-1.5 border-b border-navy-50">
+        <div className="text-navy-500">Delivered (total)</div>
+        <div className="col-span-2 text-navy-800">
+          <span className={wo.deliveredQty >= wo.orderQuantity ? 'text-green-700 font-semibold' : ''}>
+            {wo.deliveredQty} / {wo.orderQuantity} {wo.orderUnit}
+          </span>
+          {canSetDelivered && <SetDeliveredControl wo={wo} busy={busy} onSetDelivered={onSetDelivered} />}
+        </div>
+      </div>
       <Row label="Assigned Unit" value={wo.assignedUnit ? `${wo.assignedUnit.name} (${wo.assignedUnit.code})` : wo.assignedUnitName ? `${wo.assignedUnitName} (as per order sheet)` : null} />
       <Row label="FIM Details" value={wo.fimDetails} />
       <Row label="Inspection Agency" value={wo.inspectionAgency} />
