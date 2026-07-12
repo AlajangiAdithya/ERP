@@ -58,21 +58,32 @@ CREATE TABLE IF NOT EXISTS "MachineDowntime" (
 
 CREATE INDEX IF NOT EXISTS "MachineDowntime_machineryId_scheduledDate_idx" ON "MachineDowntime"("machineryId", "scheduledDate");
 
--- Foreign keys
+-- Foreign keys — idempotent (drop-if-exists then add) so re-applying over a DB
+-- where these tables were created out-of-band (prisma db push during dev) does
+-- not error with "constraint already exists". Matches the IF NOT EXISTS guards
+-- used for the tables/indexes/enums above.
+ALTER TABLE "MachineAllocation" DROP CONSTRAINT IF EXISTS "MachineAllocation_machineryId_fkey";
 ALTER TABLE "MachineAllocation" ADD CONSTRAINT "MachineAllocation_machineryId_fkey"
   FOREIGN KEY ("machineryId") REFERENCES "Machinery"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "MachineAllocation" DROP CONSTRAINT IF EXISTS "MachineAllocation_workOrderId_fkey";
 ALTER TABLE "MachineAllocation" ADD CONSTRAINT "MachineAllocation_workOrderId_fkey"
   FOREIGN KEY ("workOrderId") REFERENCES "WorkOrder"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "MachineAllocation" DROP CONSTRAINT IF EXISTS "MachineAllocation_ionId_fkey";
 ALTER TABLE "MachineAllocation" ADD CONSTRAINT "MachineAllocation_ionId_fkey"
   FOREIGN KEY ("ionId") REFERENCES "InterOfficeNote"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "MachineAllocation" DROP CONSTRAINT IF EXISTS "MachineAllocation_unitId_fkey";
 ALTER TABLE "MachineAllocation" ADD CONSTRAINT "MachineAllocation_unitId_fkey"
   FOREIGN KEY ("unitId") REFERENCES "Unit"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "MachineAllocation" DROP CONSTRAINT IF EXISTS "MachineAllocation_allocatedById_fkey";
 ALTER TABLE "MachineAllocation" ADD CONSTRAINT "MachineAllocation_allocatedById_fkey"
   FOREIGN KEY ("allocatedById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+ALTER TABLE "MachineDowntime" DROP CONSTRAINT IF EXISTS "MachineDowntime_machineryId_fkey";
 ALTER TABLE "MachineDowntime" ADD CONSTRAINT "MachineDowntime_machineryId_fkey"
   FOREIGN KEY ("machineryId") REFERENCES "Machinery"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "MachineDowntime" DROP CONSTRAINT IF EXISTS "MachineDowntime_unitId_fkey";
 ALTER TABLE "MachineDowntime" ADD CONSTRAINT "MachineDowntime_unitId_fkey"
   FOREIGN KEY ("unitId") REFERENCES "Unit"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "MachineDowntime" DROP CONSTRAINT IF EXISTS "MachineDowntime_createdById_fkey";
 ALTER TABLE "MachineDowntime" ADD CONSTRAINT "MachineDowntime_createdById_fkey"
   FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
