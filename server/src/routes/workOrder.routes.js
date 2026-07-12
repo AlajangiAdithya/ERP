@@ -550,25 +550,26 @@ router.get(
 );
 
 // ── GET /api/work-orders/assignable — WOs a requester can attach a PR/MIV to ──
-// Lean list of the work orders assigned to the caller's unit (any stage except
-// cancelled/rejected) so the PR / MIV forms can offer a "which work order is
-// this for?" dropdown. Roles without a unit get an empty list. MUST stay above
-// the `/:id` route so "assignable" is not parsed as an id.
+// Lean list of EVERY live work order (any stage except cancelled/rejected),
+// regardless of which unit it is assigned to, so the PR / MIV forms can offer a
+// "which work order is this for?" dropdown across all orders. The assigned unit
+// travels with each row so the requester can see which unit each WO belongs to.
+// MUST stay above the `/:id` route so "assignable" is not parsed as an id.
 const ASSIGNABLE_WO_ROLES = [
   'MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER',
   'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING', 'ADMIN',
 ];
 router.get('/assignable', authenticate, authorize(...ASSIGNABLE_WO_ROLES), async (req, res) => {
   try {
-    if (!req.user.unitId) return res.json({ workOrders: [] });
     const workOrders = await prisma.workOrder.findMany({
       where: {
-        assignedUnitId: req.user.unitId,
         status: { notIn: ['CANCELLED', 'REJECTED'] },
       },
       select: {
         id: true, workOrderNumber: true, supplyOrderNo: true,
         customerName: true, nomenclature: true, status: true,
+        assignedUnitName: true,
+        assignedUnit: { select: { id: true, name: true, code: true } },
       },
       orderBy: { createdAt: 'desc' },
     });

@@ -43,35 +43,85 @@ const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'QC', 'LAB', 'METROL
 // first-level approval before flowing on to ADMIN.
 const QC_MANAGED_ROLES = ['LAB', 'METROLOGY', 'NDT'];
 
-// Accumulates an item's chosen/uploaded spec PDF into the product's reusable
-// spec library (ProductSpec), de-duped by URL so re-selecting an existing spec
-// doesn't create a duplicate. No-op when the item has no product or no spec.
-async function persistItemSpecToLibrary(client, item, user) {
-  if (!item?.productId || !item?.specAttachmentUrl) return;
-  const existing = await client.productSpec.findFirst({
-    where: { productId: item.productId, url: item.specAttachmentUrl },
-    select: { id: true },
-  });
-  if (existing) return;
-  await client.productSpec.create({
-    data: {
-      productId: item.productId,
-      url: item.specAttachmentUrl,
-      name: item.specAttachmentName || 'spec.pdf',
+// Normalises an item's attachment list from the request payload. Accepts the new
+// multi-file `attachments` array and falls back to the legacy single
+// specAttachmentUrl/Name so older clients keep working. Returns [{url,name,mimeType}].
+function itemAttachments(item) {
+  if (Array.isArray(item?.attachments) && item.attachments.length) {
+    return item.attachments
+      .filter((a) => a && a.url)
+      .map((a) => ({ url: a.url, name: a.name || 'spec', mimeType: a.mimeType || null }));
+  }
+  if (item?.specAttachmentUrl) {
+    return [{ url: item.specAttachmentUrl, name: item.specAttachmentName || 'spec.pdf', mimeType: null }];
+  }
+  return [];
+}
+
+// Nested-create rows for a PR line's attachments, stamped with the uploader.
+const attachmentCreateRows = (item, user) =>
+  itemAttachments(item).map((a) => ({
+    url: a.url,
+    name: a.name,
+    mimeType: a.mimeType,
+    uploadedById: user?.id || null,
+    uploadedByName: user?.name || null,
+  }));
+
+// Nested-create rows for the PR's header-level "note" attachments.
+const noteAttachmentCreateRows = (data, user) =>
+  (Array.isArray(data?.noteAttachments) ? data.noteAttachments : [])
+    .filter((a) => a && a.url)
+    .map((a) => ({
+      url: a.url,
+      name: a.name || 'attachment',
+      mimeType: a.mimeType || null,
       uploadedById: user?.id || null,
       uploadedByName: user?.name || null,
-    },
-  });
+    }));
+
+// Accumulates each of an item's chosen/uploaded spec files into the product's
+// reusable spec library (ProductSpec), de-duped by URL so re-selecting an
+// existing spec doesn't create a duplicate. No-op when the item has no product.
+async function persistItemSpecToLibrary(client, item, user) {
+  if (!item?.productId) return;
+  for (const a of itemAttachments(item)) {
+    const existing = await client.productSpec.findFirst({
+      where: { productId: item.productId, url: a.url },
+      select: { id: true },
+    });
+    if (existing) continue;
+    await client.productSpec.create({
+      data: {
+        productId: item.productId,
+        url: a.url,
+        name: a.name || 'spec',
+        uploadedById: user?.id || null,
+        uploadedByName: user?.name || null,
+      },
+    });
+  }
 }
+
+// A single uploaded file reference (returned by POST /upload-spec, echoed back on submit).
+const attachmentSchema = z.object({
+  url: z.string().min(1),
+  name: z.string().optional().nullable(),
+  mimeType: z.string().optional().nullable(),
+});
 
 const createSchema = z.object({
   notes: z.string().optional(),
+  // Header-level "note" attachments — files tied to the PR as a whole.
+  noteAttachments: z.array(attachmentSchema).optional(),
   // Optional — global-role requesters (STORE_MANAGER, DESIGNS, PLANNING) must
   // specify which unit they are filing the PR for; unit-bound roles ignore this.
   unitId: z.string().uuid().optional().nullable(),
   // Optional header-level link to the Work Order this PR is raised for.
   // null / omitted = "No work order".
   workOrderId: z.string().uuid().optional().nullable(),
+  // True when "R & D (product research)" is chosen instead of a Work Order.
+  isRnd: z.boolean().optional(),
   items: z.array(z.object({
     productName: z.string().min(1),
     productUnit: z.string().min(1).default('pcs'),
@@ -80,13 +130,13 @@ const createSchema = z.object({
     // PRF form fields
     materialType: z.string().optional(),
     materialSpecification: z.string().optional(),
-    // Confidential per-item spec PDF uploaded via POST /upload-spec before submit.
+    // Per-line spec files uploaded via POST /upload-spec before submit. `attachments`
+    // is the current multi-file field; specAttachmentUrl/Name kept for old clients.
+    attachments: z.array(attachmentSchema).optional(),
     specAttachmentUrl: z.string().optional().nullable(),
     specAttachmentName: z.string().optional().nullable(),
     qapNo: z.string().optional(),
     drawingNo: z.string().optional(),
-    materialRequiredFor: z.string().optional(),
-    internalWorkOrder: z.string().optional(),
     purpose: z.string().optional(),
     sourceOfSupply: z.string().optional(),
     scopeOfWork: z.string().optional(),
@@ -96,21 +146,27 @@ const createSchema = z.object({
   })).min(1),
 });
 
-// POST /api/purchase-requests/upload-spec — uploads a confidential material-spec
-// PDF and returns { url, name } so the create form can attach it to the item
-// before submitting the PR. Only requester roles (and admin) can upload.
+// POST /api/purchase-requests/upload-spec — uploads one or more material-spec /
+// note files (any common format) and returns { files: [{url,name,mimeType}] } so
+// the create form can attach them to a line (or the PR note) before submitting.
+// Accepts a single file under `file` (legacy) or many under `files`. Returns the
+// first file's url/name at the top level too so older single-file callers work.
+// Only requester roles (and admin) can upload.
 router.post(
   '/upload-spec',
   authenticate,
   authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'),
   (req, res) => {
-    prSpecsUpload.single('file')(req, res, (err) => {
+    prSpecsUpload.fields([{ name: 'files', maxCount: 10 }, { name: 'file', maxCount: 1 }])(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
-      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-      res.json({
-        url: publicUrlFor('pr-specs', req.file.filename),
-        name: req.file.originalname,
-      });
+      const uploaded = [...(req.files?.files || []), ...(req.files?.file || [])];
+      if (uploaded.length === 0) return res.status(400).json({ error: 'No file uploaded' });
+      const files = uploaded.map((f) => ({
+        url: publicUrlFor('pr-specs', f.filename),
+        name: f.originalname,
+        mimeType: f.mimetype || null,
+      }));
+      res.json({ files, url: files[0].url, name: files[0].name });
     });
   },
 );
@@ -156,9 +212,11 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
           workOrder: { select: { id: true, workOrderNumber: true, supplyOrderNo: true } },
           qcApprovedBy: { select: { id: true, name: true } },
           adminApprovedBy: { select: { id: true, name: true } },
+          noteAttachments: { orderBy: { createdAt: 'asc' } },
           items: {
             include: {
               product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
+              attachments: { orderBy: { createdAt: 'asc' } },
               materialPoolMembership: {
                 include: {
                   pool: {
@@ -381,7 +439,7 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
           notes: true,
           manager: { select: { name: true, username: true, role: true } },
           unit: { select: { name: true, code: true } },
-          items: { select: { requiredByDate: true, materialRequiredFor: true } },
+          items: { select: { requiredByDate: true } },
         },
         orderBy: { createdAt: 'desc' },
         take: 15,
@@ -415,10 +473,9 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
     const prSamplesEnriched = prSamples.map(pr => {
       const dates = (pr.items || []).map(i => i.requiredByDate).filter(Boolean).map(d => new Date(d));
       const earliest = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : null;
-      const requiredFor = (pr.items || []).map(i => i.materialRequiredFor).filter(Boolean)[0] || null;
       // Strip items array from the response — only the derived fields are needed by the UI
       const { items, ...rest } = pr; // eslint-disable-line no-unused-vars
-      return { ...rest, earliestRequiredBy: earliest, requiredFor };
+      return { ...rest, earliestRequiredBy: earliest };
     });
 
     res.json({
@@ -578,9 +635,11 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
         workOrder: { select: { id: true, workOrderNumber: true, supplyOrderNo: true } },
         qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
+        noteAttachments: { orderBy: { createdAt: 'asc' } },
         items: {
           include: {
             product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
+            attachments: { orderBy: { createdAt: 'asc' } },
             // Pool membership lets the PR detail UI show "Pooled with PR-N · X items"
             // badges and the Unpool button on each item row.
             materialPoolMembership: {
@@ -742,11 +801,13 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
       }
     }
 
-    // Optional Work Order link. Must be a live WO; for unit-bound requesters it
-    // must belong to their own unit. null = "No work order".
+    // Optional Work Order link. Must be a live WO, but any unit's WO is linkable.
+    // null = "No work order".
     const woLink = await validateWorkOrderLink(prisma, data.workOrderId, unitId);
     if (!woLink.ok) return res.status(400).json({ error: woLink.error });
-    const workOrderId = woLink.workOrderId;
+    // R&D and a Work Order are mutually exclusive — R&D always clears the WO link.
+    const isRnd = !!data.isRnd;
+    const workOrderId = isRnd ? null : woLink.workOrderId;
 
     // Resolve productId for each item BEFORE the transactional create:
     //   - if productId given, use it
@@ -808,8 +869,10 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
             managerId: req.user.id,
             unitId,
             workOrderId,
+            isRnd,
             status: initialStatus,
             notes: data.notes || null,
+            noteAttachments: { create: noteAttachmentCreateRows(data, req.user) },
             items: {
               create: itemsResolved.map(item => ({
                 productName: item.productName,
@@ -818,12 +881,13 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
                 requestedQty: item.requestedQty,
                 materialType: item.materialType,
                 materialSpecification: item.materialSpecification || null,
-                specAttachmentUrl: item.specAttachmentUrl || null,
-                specAttachmentName: item.specAttachmentName || null,
+                // Legacy single column mirrors the first file; the full multi-file
+                // list lives in the attachments relation created alongside it.
+                specAttachmentUrl: itemAttachments(item)[0]?.url || null,
+                specAttachmentName: itemAttachments(item)[0]?.name || null,
+                attachments: { create: attachmentCreateRows(item, req.user) },
                 qapNo: item.qapNo || null,
                 drawingNo: item.drawingNo || null,
-                materialRequiredFor: item.materialRequiredFor || null,
-                internalWorkOrder: item.internalWorkOrder || null,
                 purpose: item.purpose || null,
                 sourceOfSupply: item.sourceOfSupply || null,
                 scopeOfWork: item.scopeOfWork || null,
@@ -836,8 +900,12 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
           include: {
             manager: { select: { id: true, name: true } },
             unit: { select: { id: true, name: true, code: true } },
+            noteAttachments: { orderBy: { createdAt: 'asc' } },
             items: {
-              include: { product: { select: { id: true, name: true, sku: true, unit: true, category: true } } },
+              include: {
+                product: { select: { id: true, name: true, sku: true, unit: true, category: true } },
+                attachments: { orderBy: { createdAt: 'asc' } },
+              },
             },
           },
         });
@@ -916,9 +984,11 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
       return res.status(400).json({ error: 'Only pending requests can be edited' });
     }
 
-    // Re-validate the optional Work Order link against the PR's own unit.
+    // Re-validate the optional Work Order link (any live WO, any unit).
     const woLink = await validateWorkOrderLink(prisma, data.workOrderId, request.unitId);
     if (!woLink.ok) return res.status(400).json({ error: woLink.error });
+    // R&D and a Work Order are mutually exclusive — R&D always clears the WO link.
+    const isRnd = !!data.isRnd;
 
     // Re-resolve each item's productId — same rules as create so new rows are
     // linked to a Product (existing match by name, else NRE product created).
@@ -964,11 +1034,15 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
     // have no quotations, POs or pool memberships referencing their items yet.
     await prisma.$transaction(async (tx) => {
       await tx.purchaseRequestItem.deleteMany({ where: { requestId: request.id } });
+      // Header-level note attachments are fully replaced too (like items).
+      await tx.purchaseRequestAttachment.deleteMany({ where: { requestId: request.id } });
       await tx.purchaseRequest.update({
         where: { id: request.id },
         data: {
           notes: data.notes || null,
-          workOrderId: woLink.workOrderId,
+          workOrderId: isRnd ? null : woLink.workOrderId,
+          isRnd,
+          noteAttachments: { create: noteAttachmentCreateRows(data, req.user) },
           items: {
             create: itemsResolved.map(item => ({
               productName: item.productName,
@@ -977,12 +1051,12 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
               requestedQty: item.requestedQty,
               materialType: item.materialType,
               materialSpecification: item.materialSpecification || null,
-              specAttachmentUrl: item.specAttachmentUrl || null,
-              specAttachmentName: item.specAttachmentName || null,
+              // Legacy single column mirrors the first file; full list in the relation.
+              specAttachmentUrl: itemAttachments(item)[0]?.url || null,
+              specAttachmentName: itemAttachments(item)[0]?.name || null,
+              attachments: { create: attachmentCreateRows(item, req.user) },
               qapNo: item.qapNo || null,
               drawingNo: item.drawingNo || null,
-              materialRequiredFor: item.materialRequiredFor || null,
-              internalWorkOrder: item.internalWorkOrder || null,
               purpose: item.purpose || null,
               sourceOfSupply: item.sourceOfSupply || null,
               scopeOfWork: item.scopeOfWork || null,
@@ -1005,7 +1079,13 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
-        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true, category: true } } } },
+        noteAttachments: { orderBy: { createdAt: 'asc' } },
+        items: {
+          include: {
+            product: { select: { id: true, name: true, sku: true, unit: true, category: true } },
+            attachments: { orderBy: { createdAt: 'asc' } },
+          },
+        },
       },
     });
 

@@ -311,7 +311,7 @@ export default function MyRequests() {
               <option value="">— Select a work order —</option>
               {workOrders.map(wo => (
                 <option key={wo.id} value={wo.id}>
-                  {wo.workOrderNumber} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''}
+                  {wo.workOrderNumber} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
                 </option>
               ))}
             </select>
@@ -413,6 +413,7 @@ export default function MyRequests() {
               <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(showDetail.status)}>{showDetail.status}</Badge></div>
               <div><span className="text-gray-500">Unit:</span> <span className="font-medium">{showDetail.unit?.name}</span></div>
               {showDetail.workOrder && <div><span className="text-gray-500">Work Order:</span> <span className="font-medium">{showDetail.workOrder.workOrderNumber}</span></div>}
+              {showDetail.workOrder && <div><span className="text-gray-500">WO Assigned Unit:</span> <span className="font-medium">{showDetail.workOrder.assignedUnit?.name || showDetail.workOrder.assignedUnitName || 'Unassigned'}</span></div>}
               <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(showDetail.createdAt)}</span></div>
               {showDetail.referenceNo && <div><span className="text-gray-500">Reference No:</span> <span className="font-medium">{showDetail.referenceNo}</span></div>}
               {showDetail.mirNo && <div><span className="text-gray-500">MIR No:</span> <span className="font-medium">{showDetail.mirNo}</span></div>}

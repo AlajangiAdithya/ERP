@@ -70,10 +70,11 @@ const PASS_TYPE_LABEL = {
   RETURNABLE: 'Returnable',
   NON_RETURNABLE: 'Non-Returnable',
   DELIVERY_CHALLAN: 'Delivery Challan',
+  INVOICE: 'Invoice',
 };
 
 const blankItem = () => ({
-  description: '', quantity: 1, unit: 'pcs',
+  description: '', quantity: 1, unit: 'pcs', workOrderId: '',
   dispatchedTo: '', itemPurpose: '', probableReturnDate: '',
   itemPassType: 'RETURNABLE',
   contactPersonDetails: '',
@@ -421,6 +422,9 @@ function GatePassSheet({ rows, view, role, canCreate, onView, onEdit, onAction }
                     <button onClick={() => onView(g)} className="font-mono text-[11px] font-semibold text-navy-800 hover:text-navy-600 hover:underline">
                       {g.passNumber}
                     </button>
+                    {g.createdBy?.unit?.name && (
+                      <div className="text-[10px] text-gray-500">{g.createdBy.unit.name}</div>
+                    )}
                     <div className="mt-1 flex items-center gap-1 flex-wrap">
                       {g.kind
                         ? <Pill tone={g.kind === 'LOCAL_JOB' ? 'purple' : 'blue'}>{KIND_META[g.kind]?.label}</Pill>
@@ -645,6 +649,8 @@ function ActionModal({ gatePass, type, onClose, onDone }) {
 
 function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, editId = null, onClose, onCreated }) {
   const isEdit = !!editId;
+  const { user } = useAuth();
+  const [workOrders, setWorkOrders] = useState([]);
   const [kind, setKind] = useState(initialData?.kind ?? (defaultKind === 'OUTSIDE' ? 'OUTSIDE' : 'LOCAL_JOB'));
   const [passNumber, setPassNumber] = useState(initialData?.passNumber ?? '');
   const [siteName, setSiteName] = useState(initialData?.siteName ?? '');
@@ -659,6 +665,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
           description: it.description || '',
           quantity: it.quantity ?? 1,
           unit: it.unit || 'pcs',
+          workOrderId: it.workOrderId || '',
           dispatchedTo: it.dispatchedTo || '',
           itemPurpose: it.itemPurpose || '',
           probableReturnDate: it.probableReturnDate ? it.probableReturnDate.slice(0, 10) : '',
@@ -669,6 +676,14 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // All live work orders (any unit) so each dispatched line can be tagged to the
+  // WO it goes out / to machining against.
+  useEffect(() => {
+    api.get('/work-orders/assignable')
+      .then(({ data }) => setWorkOrders(data.workOrders || []))
+      .catch(() => setWorkOrders([]));
+  }, []);
 
   const updateItem = (idx, k, v) => {
     const copy = [...items];
@@ -698,10 +713,11 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
         description: i.description.trim(),
         quantity: Number(i.quantity),
         unit: i.unit || 'pcs',
+        workOrderId: i.workOrderId || null,
         dispatchedTo: i.dispatchedTo?.trim() || null,
         itemPurpose: i.itemPurpose?.trim() || null,
         probableReturnDate: i.probableReturnDate || null,
-        itemPassType: i.itemPassType === 'DELIVERY_CHALLAN' ? 'NON_RETURNABLE' : (i.itemPassType || null),
+        itemPassType: i.itemPassType || null,
         contactPersonDetails: i.contactPersonDetails?.trim() || null,
       })),
     };
@@ -752,6 +768,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <Input label="Gate Pass No. *" value={passNumber} onChange={e => setPassNumber(e.target.value)} placeholder="Enter the gate pass number" />
+          <Input label="Requesting Unit" value={user?.unit?.name || '— (Global)'} readOnly disabled />
           <Input label="Site / Unit" value={siteName} onChange={e => setSiteName(e.target.value)} placeholder="Site or unit" />
           {kind === 'LOCAL_JOB' && (
             <>
@@ -782,12 +799,13 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
           </div>
 
           <div className="border border-gray-200 rounded-md overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: 1040 }}>
+            <table className="w-full text-sm" style={{ minWidth: 1240 }}>
               <colgroup>
                 <col style={{ width: '36px' }} />
                 <col style={{ width: '200px' }} />
                 <col style={{ width: '80px' }} />
                 <col style={{ width: '80px' }} />
+                <col style={{ width: '200px' }} />
                 <col style={{ width: '160px' }} />
                 <col style={{ width: '160px' }} />
                 <col style={{ width: '150px' }} />
@@ -801,6 +819,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
                   <th className="px-3 py-2.5 font-medium">Name of component</th>
                   <th className="px-3 py-2.5 text-center font-medium">Qty</th>
                   <th className="px-3 py-2.5 text-center font-medium">UOM</th>
+                  <th className="px-3 py-2.5 font-medium">Work Order</th>
                   <th className="px-3 py-2.5 font-medium">Dispatched to</th>
                   <th className="px-3 py-2.5 font-medium">Purpose</th>
                   <th className="px-3 py-2.5 font-medium">Probable return</th>
@@ -828,6 +847,17 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
                       </select>
                     </td>
                     <td className="px-2 py-2">
+                      <select className={cellInput}
+                        value={it.workOrderId} onChange={e => updateItem(idx, 'workOrderId', e.target.value)}>
+                        <option value="">— No work order —</option>
+                        {workOrders.map((wo) => (
+                          <option key={wo.id} value={wo.id}>
+                            {wo.workOrderNumber} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-2 py-2">
                       <input className={cellInput}
                         value={it.dispatchedTo} onChange={e => updateItem(idx, 'dispatchedTo', e.target.value)} />
                     </td>
@@ -845,6 +875,8 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
                         value={it.itemPassType} onChange={e => updateItem(idx, 'itemPassType', e.target.value)}>
                         <option value="RETURNABLE">Returnable</option>
                         <option value="NON_RETURNABLE">Non-Returnable</option>
+                        <option value="DELIVERY_CHALLAN">Delivery Challan</option>
+                        <option value="INVOICE">Invoice</option>
                       </select>
                     </td>
                     <td className="px-2 py-2">
@@ -925,6 +957,7 @@ function DetailModal({ gatePass: g, onClose }) {
           {g.reachedDate && <Field label="Reached On" value={formatDate(g.reachedDate)} />}
           {g.actualReturnDate && <Field label="Actual Return" value={formatDate(g.actualReturnDate)} />}
           <Field label="Raised By" value={g.createdBy?.name} />
+          {g.createdBy?.unit?.name && <Field label="Requesting Unit" value={g.createdBy.unit.name} />}
           <Field label="Raised At" value={formatDateTime(g.createdAt)} />
         </div>
 
@@ -980,6 +1013,7 @@ function ItemsTable({ items }) {
               <th className="px-2 py-1.5">Component</th>
               <th className="px-2 py-1.5">Qty</th>
               <th className="px-2 py-1.5">UOM</th>
+              <th className="px-2 py-1.5">Work Order</th>
               <th className="px-2 py-1.5">Type</th>
               <th className="px-2 py-1.5">Dispatched to</th>
               <th className="px-2 py-1.5">Purpose</th>
@@ -996,6 +1030,11 @@ function ItemsTable({ items }) {
                 <td className="px-2 py-1.5">{it.description}</td>
                 <td className="px-2 py-1.5">{it.quantity}</td>
                 <td className="px-2 py-1.5">{it.unit}</td>
+                <td className="px-2 py-1.5 text-gray-600">
+                  {it.workOrder
+                    ? `${it.workOrder.workOrderNumber}${it.workOrder.assignedUnit?.name || it.workOrder.assignedUnitName ? ` · ${it.workOrder.assignedUnit?.name || it.workOrder.assignedUnitName}` : ''}`
+                    : '—'}
+                </td>
                 <td className="px-2 py-1.5 text-gray-600">{it.itemPassType ? PASS_TYPE_LABEL[it.itemPassType] : '—'}</td>
                 <td className="px-2 py-1.5 text-gray-600">{it.dispatchedTo || '—'}</td>
                 <td className="px-2 py-1.5 text-gray-600">{it.itemPurpose || '—'}</td>

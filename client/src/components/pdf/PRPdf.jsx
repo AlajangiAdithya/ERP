@@ -60,8 +60,6 @@ export default function PRPdf({ request }) {
         {row('UOM', it => it.productUnit)}
         {row('Drawing No.', it => it.drawingNo)}
         {row('QAP No.', it => it.qapNo)}
-        {row('Required For', it => it.materialRequiredFor)}
-        {row('Internal Work Order', it => it.internalWorkOrder)}
         {row('Purpose', it => it.purpose)}
         {row('Source of Supply', it => it.sourceOfSupply)}
         {row('Reports Required / Scope of Work', it => it.scopeOfWork)}

@@ -25,6 +25,7 @@ const PR_SPEC_SELECT = {
   createdAt: true,
   manager: { select: { id: true, name: true } },
   unit: { select: { id: true, name: true, code: true } },
+  noteAttachments: { select: { id: true, url: true, name: true, mimeType: true } },
   items: {
     select: {
       id: true,
@@ -36,10 +37,9 @@ const PR_SPEC_SELECT = {
       materialSpecification: true,
       specAttachmentUrl: true,
       specAttachmentName: true,
+      attachments: { select: { id: true, url: true, name: true, mimeType: true } },
       qapNo: true,
       drawingNo: true,
-      materialRequiredFor: true,
-      internalWorkOrder: true,
       purpose: true,
       sourceOfSupply: true,
       scopeOfWork: true,

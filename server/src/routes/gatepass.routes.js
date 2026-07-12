@@ -37,7 +37,9 @@ const VEHICLE_SELECT = {
   },
 };
 const GATEPASS_INCLUDE = {
-  createdBy: USER_SELECT,
+  // createdBy carries the requester's unit so the UI can show the gate pass
+  // number "with respective unit".
+  createdBy: { select: { id: true, name: true, role: true, unit: UNIT_SELECT } },
   siteIncharge: USER_SELECT,
   storeIncharge: USER_SELECT,
   accountsApprover: USER_SELECT,
@@ -54,6 +56,13 @@ const GATEPASS_INCLUDE = {
   localReturnedBy: USER_SELECT,
   items: {
     include: {
+      workOrder: {
+        select: {
+          id: true, workOrderNumber: true, customerName: true, nomenclature: true,
+          assignedUnitName: true,
+          assignedUnit: { select: { id: true, name: true, code: true } },
+        },
+      },
       sourceInwardGatePassItem: {
         include: { gatePass: { select: { id: true, passNumber: true, customerName: true, customerGatePassNo: true } } },
       },
@@ -72,8 +81,8 @@ const GATEPASS_INCLUDE = {
   },
 };
 
-const PASS_TYPES = ['RETURNABLE', 'NON_RETURNABLE', 'DELIVERY_CHALLAN'];
-const INWARD_PASS_TYPES = ['RETURNABLE', 'NON_RETURNABLE']; // DC is outward-only
+const PASS_TYPES = ['RETURNABLE', 'NON_RETURNABLE', 'DELIVERY_CHALLAN', 'INVOICE'];
+const INWARD_PASS_TYPES = ['RETURNABLE', 'NON_RETURNABLE']; // DC / Invoice are outward-only
 const DIRECTIONS = ['INWARD', 'OUTWARD'];
 const INWARD_KINDS = ['STORES', 'DIRECT_TO_UNIT'];
 const ALL_STATUSES = [
@@ -247,6 +256,18 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
       }
     }
 
+    // Validate any per-line Work Order links — must be a live WO (any unit).
+    const woIds = [...new Set(items.map((i) => i.workOrderId).filter(Boolean))];
+    if (woIds.length) {
+      const foundWos = await prisma.workOrder.findMany({
+        where: { id: { in: woIds }, status: { notIn: ['CANCELLED', 'REJECTED'] } },
+        select: { id: true },
+      });
+      if (foundWos.length !== woIds.length) {
+        return res.status(400).json({ error: 'One or more selected work orders are invalid' });
+      }
+    }
+
     // For OUTWARD delivery-challan items linking back to an inward FIM item, verify
     // the source exists, is an inward item, and belongs to a non-rejected gate pass.
     if (!isInward) {
@@ -337,6 +358,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
               itemPurpose: it.itemPurpose?.trim() || null,
               probableReturnDate: toDate(it.probableReturnDate),
               itemPassType: it.itemPassType || null,
+              workOrderId: it.workOrderId || null,
               gatePassDetails: it.gatePassDetails?.trim() || null,
               transportation: it.transportation?.trim() || null,
               contactPersonDetails: it.contactPersonDetails?.trim() || null,
@@ -535,6 +557,18 @@ router.put('/:id/edit', authenticate, authorize('MANAGER', 'ADMIN', 'PLANNING'),
       }
     }
 
+    // Validate any per-line Work Order links — must be a live WO (any unit).
+    const woIds = [...new Set(items.map((i) => i.workOrderId).filter(Boolean))];
+    if (woIds.length) {
+      const foundWos = await prisma.workOrder.findMany({
+        where: { id: { in: woIds }, status: { notIn: ['CANCELLED', 'REJECTED'] } },
+        select: { id: true },
+      });
+      if (foundWos.length !== woIds.length) {
+        return res.status(400).json({ error: 'One or more selected work orders are invalid' });
+      }
+    }
+
     const dispatchTargets = [...new Set(items.map((i) => i.dispatchedTo?.trim()).filter(Boolean))];
     const derivedPartyName = dispatchTargets.length
       ? dispatchTargets.join('; ')
@@ -561,7 +595,8 @@ router.put('/:id/edit', authenticate, authorize('MANAGER', 'ADMIN', 'PLANNING'),
               dispatchedTo: it.dispatchedTo?.trim() || null,
               itemPurpose: it.itemPurpose?.trim() || null,
               probableReturnDate: toDate(it.probableReturnDate),
-              itemPassType: it.itemPassType === 'DELIVERY_CHALLAN' ? 'NON_RETURNABLE' : (it.itemPassType || null),
+              itemPassType: it.itemPassType || null,
+              workOrderId: it.workOrderId || null,
               contactPersonDetails: it.contactPersonDetails?.trim() || null,
             })),
           },

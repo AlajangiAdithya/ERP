@@ -53,12 +53,32 @@ const closureMimeAllowList = (_req, file, cb) => {
   cb(new Error('Unsupported file type. Allowed: PDF, PNG, JPG, DWG, DOC, DOCX'), false);
 };
 
-// Material spec attachments — accept PDF and image scans (JPG/PNG) so users can
-// snap a photo of a paper spec. Shared by the PR form and the product spec library.
+// Material spec / PR note attachments — accept any common document or drawing
+// format: PDF, image scans (JPG/PNG), DWG drawings, DOC/DOCX, XLS/XLSX and zip
+// bundles. Mime types for DWG/office/zip vary across browsers/OSes, so we accept
+// a broad mime list plus an extension fallback. Shared by the PR form (per-line
+// specs + header note files) and the product spec library.
+const prSpecMimeAllowList = (_req, file, cb) => {
+  const ok = [
+    'application/pdf',
+    'image/png', 'image/jpeg', 'image/jpg',
+    'application/acad', 'image/vnd.dwg', 'application/dwg', 'application/x-dwg', 'drawing/dwg',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/zip', 'application/x-zip-compressed', 'multipart/x-zip',
+    'application/octet-stream',
+  ];
+  const extOk = /\.(pdf|png|jpe?g|dwg|docx?|xlsx?|zip)$/i.test(file.originalname || '');
+  if (extOk || ok.includes(file.mimetype)) return cb(null, true);
+  cb(new Error('Unsupported file type. Allowed: PDF, PNG, JPG, DWG, DOC, DOCX, XLS, XLSX, ZIP'), false);
+};
+
 const prSpecsUpload = multer({
   storage: makeStorage('pr-specs'),
-  fileFilter: pdfOrImage,
-  limits: { fileSize: SIZE_PDF },
+  fileFilter: prSpecMimeAllowList,
+  limits: { fileSize: SIZE_DOC },
 });
 
 const quotationUpload = multer({

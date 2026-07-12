@@ -15,6 +15,45 @@ import PRPdf from '../components/pdf/PRPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import MaterialSpecPicker from '../components/shared/MaterialSpecPicker';
 
+// Allowed spec / note attachment formats — any common document or drawing type.
+// Validated by extension (DWG/office/zip mime types vary across browsers).
+const ATT_ACCEPT = '.pdf,.jpg,.jpeg,.png,.dwg,.doc,.docx,.xls,.xlsx,.zip';
+const ATT_EXT_RE = /\.(pdf|png|jpe?g|dwg|docx?|xlsx?|zip)$/i;
+const ATT_MAX_MB = 15;
+
+// Normalise any PR item/note attachment list coming from the API (new multi-file
+// `attachments` array; falls back to the legacy single specAttachment* fields).
+const itemAttachmentList = (i) => {
+  if (Array.isArray(i?.attachments) && i.attachments.length) {
+    return i.attachments.map((a) => ({ url: a.url, name: a.name }));
+  }
+  if (i?.specAttachmentUrl) return [{ url: i.specAttachmentUrl, name: i.specAttachmentName || 'spec.pdf' }];
+  return [];
+};
+
+// Read-only wrapped list of attachment links — used across every PR detail view.
+function AttachmentLinks({ items, label }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div>
+      {label && <span className="font-medium text-gray-600">{label}</span>}{' '}
+      <span className="inline-flex flex-wrap gap-x-3 gap-y-0.5 align-top">
+        {items.map((a, i) => (
+          <a
+            key={a.id || a.url || i}
+            href={a.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-navy-700 hover:underline"
+          >
+            <Paperclip size={10} /> {a.name || 'View'}
+          </a>
+        ))}
+      </span>
+    </div>
+  );
+}
+
 const statusColor = (s) => ({
   PENDING_QC: 'yellow',
   PENDING_ADMIN: 'yellow',
@@ -90,11 +129,10 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     productId: null,
     productName: '', productUnit: 'kg', requestedQty: '',
     materialType: '', materialSpecification: '', qapNo: '', drawingNo: '',
-    materialRequiredFor: '', internalWorkOrder: '',
     purpose: '', sourceOfSupply: '', scopeOfWork: '',
     inspectionType: '', requiredByDate: '', itemRemarks: '',
-    // Optional confidential spec PDF — uploaded ahead of submit; URL/name carried here.
-    specAttachmentUrl: '', specAttachmentName: '',
+    // Per-line spec files (multi-file, any format) — uploaded ahead of submit.
+    attachments: [],
   };
   const itemFromExisting = (i) => ({
     productId: i.productId || null,
@@ -105,19 +143,19 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     materialSpecification: i.materialSpecification || '',
     qapNo: i.qapNo || '',
     drawingNo: i.drawingNo || '',
-    materialRequiredFor: i.materialRequiredFor || '',
-    internalWorkOrder: i.internalWorkOrder || '',
     purpose: i.purpose || '',
     sourceOfSupply: i.sourceOfSupply || '',
     scopeOfWork: i.scopeOfWork || '',
     inspectionType: i.inspectionType || '',
     requiredByDate: i.requiredByDate ? new Date(i.requiredByDate).toISOString().split('T')[0] : '',
     itemRemarks: i.itemRemarks || '',
-    specAttachmentUrl: i.specAttachmentUrl || '',
-    specAttachmentName: i.specAttachmentName || '',
+    attachments: itemAttachmentList(i),
   });
   const [items, setItems] = useState([{ ...emptyItem }]);
   const [notes, setNotes] = useState('');
+  // Header-level "note" attachments (multi-file) + their upload progress/error.
+  const [noteAttachments, setNoteAttachments] = useState([]);
+  const [noteUpload, setNoteUpload] = useState({ uploading: false, error: '' });
   const [saving, setSaving] = useState(false);
   // Work orders assigned to this requester's unit — header-level dropdown so the
   // PR can be tied to the WO it's raised for ("" = No work order).
@@ -150,8 +188,10 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
         setItems([{ ...emptyItem }]);
         setNotes(prefillNotes || '');
       }
-      setWorkOrderId(isEdit ? (requestToEdit.workOrderId || '') : '');
+      setWorkOrderId(isEdit ? (requestToEdit.isRnd ? 'RND' : (requestToEdit.workOrderId || '')) : '');
       setSpecUpload({});
+      setNoteAttachments(isEdit ? (requestToEdit.noteAttachments || []).map((a) => ({ url: a.url, name: a.name })) : []);
+      setNoteUpload({ uploading: false, error: '' });
     }
   }, [isOpen, prefillItems, prefillNotes, requestToEdit]);
 
@@ -172,44 +212,69 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     setItems(items.filter((_, i) => i !== idx));
   };
 
-  // Upload a confidential spec PDF for a single material row. The server stores
-  // it under /uploads/pr-specs/ and returns the public URL — we stash both URL
-  // and original filename on that item so it travels with the PR payload.
-  const SPEC_OK_TYPES = ['application/pdf', 'image/jpeg', 'image/jpg'];
-  const uploadSpec = async (idx, file) => {
-    if (!file) return;
-    if (!SPEC_OK_TYPES.includes(file.type)) {
-      setSpecUpload((s) => ({ ...s, [idx]: { uploading: false, error: 'PDF or JPG only' } }));
-      return;
+  // Validate a picked FileList against the allowed extensions + per-file size cap.
+  const validateFiles = (fileList) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return { ok: false, error: '' };
+    for (const f of files) {
+      if (!ATT_EXT_RE.test(f.name)) return { ok: false, error: 'Allowed: PDF, JPG, PNG, DWG, DOC, XLS, ZIP' };
+      if (f.size > ATT_MAX_MB * 1024 * 1024) return { ok: false, error: `Max ${ATT_MAX_MB} MB per file` };
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setSpecUpload((s) => ({ ...s, [idx]: { uploading: false, error: 'Max 10 MB' } }));
-      return;
-    }
+    return { ok: true, files };
+  };
+
+  // Upload one or more files to the shared spec/note endpoint. The server stores
+  // them under /uploads/pr-specs/ and returns [{url,name,mimeType}] which we stash
+  // on the item (or the note) so they travel with the PR payload.
+  const uploadFiles = async (files) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append('files', f));
+    const { data } = await api.post('/purchase-requests/upload-spec', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data.files || (data.url ? [{ url: data.url, name: data.name }] : []);
+  };
+
+  // Append newly-uploaded spec files to a material row (multi-file, any format).
+  const uploadSpec = async (idx, fileList) => {
+    const v = validateFiles(fileList);
+    if (!v.ok) { if (v.error) setSpecUpload((s) => ({ ...s, [idx]: { uploading: false, error: v.error } })); return; }
     setSpecUpload((s) => ({ ...s, [idx]: { uploading: true, error: '' } }));
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const { data } = await api.post('/purchase-requests/upload-spec', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      const uploaded = await uploadFiles(v.files);
+      setItems((prev) => {
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], attachments: [...(updated[idx].attachments || []), ...uploaded] };
+        return updated;
       });
-      const updated = [...items];
-      updated[idx] = { ...updated[idx], specAttachmentUrl: data.url, specAttachmentName: data.name };
-      setItems(updated);
       setSpecUpload((s) => ({ ...s, [idx]: { uploading: false, error: '' } }));
     } catch (err) {
-      setSpecUpload((s) => ({
-        ...s,
-        [idx]: { uploading: false, error: err.response?.data?.error || 'Upload failed' },
-      }));
+      setSpecUpload((s) => ({ ...s, [idx]: { uploading: false, error: err.response?.data?.error || 'Upload failed' } }));
     }
   };
-  const clearSpec = (idx) => {
-    const updated = [...items];
-    updated[idx] = { ...updated[idx], specAttachmentUrl: '', specAttachmentName: '' };
-    setItems(updated);
-    setSpecUpload((s) => ({ ...s, [idx]: { uploading: false, error: '' } }));
+  // Remove a single spec file from a row.
+  const removeSpec = (idx, fileIdx) => {
+    setItems((prev) => {
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], attachments: (updated[idx].attachments || []).filter((_, i) => i !== fileIdx) };
+      return updated;
+    });
   };
+
+  // Header-level note files — same rules, stored on the PR itself.
+  const uploadNoteFiles = async (fileList) => {
+    const v = validateFiles(fileList);
+    if (!v.ok) { if (v.error) setNoteUpload({ uploading: false, error: v.error }); return; }
+    setNoteUpload({ uploading: true, error: '' });
+    try {
+      const uploaded = await uploadFiles(v.files);
+      setNoteAttachments((prev) => [...prev, ...uploaded]);
+      setNoteUpload({ uploading: false, error: '' });
+    } catch (err) {
+      setNoteUpload({ uploading: false, error: err.response?.data?.error || 'Upload failed' });
+    }
+  };
+  const removeNote = (fileIdx) => setNoteAttachments((prev) => prev.filter((_, i) => i !== fileIdx));
   const updateItem = (idx, field, value) => {
     const updated = [...items];
     updated[idx] = { ...updated[idx], [field]: value };
@@ -232,8 +297,12 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     if (payload.productName !== undefined) row.productName = payload.productName;
     row.productId = payload.productId ?? null;
     if (payload.productUnit) row.productUnit = payload.productUnit;
-    row.specAttachmentUrl = payload.specAttachmentUrl || '';
-    row.specAttachmentName = payload.specAttachmentName || '';
+    // Merge the picker's chosen/uploaded specs into whatever the row already has,
+    // de-duped by URL so re-opening the picker never drops files added directly.
+    const picked = Array.isArray(payload.attachments) ? payload.attachments : [];
+    const existing = row.attachments || [];
+    const seen = new Set(existing.map((a) => a.url));
+    row.attachments = [...existing, ...picked.filter((a) => a.url && !seen.has(a.url))];
     updated[idx] = row;
     setItems(updated);
   };
@@ -245,8 +314,11 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     try {
       const payload = {
         notes: notes || undefined,
+        noteAttachments: noteAttachments.map(a => ({ url: a.url, name: a.name, mimeType: a.mimeType })),
         unitId: undefined,
-        workOrderId: workOrderId || null,
+        // "RND" is the sentinel for the R&D dropdown choice — it clears the WO link.
+        workOrderId: workOrderId === 'RND' ? null : (workOrderId || null),
+        isRnd: workOrderId === 'RND',
         items: validItems.map(i => ({
           productName: i.productName.trim(),
           productUnit: i.productUnit || 'pcs',
@@ -256,16 +328,13 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
           materialSpecification: i.materialSpecification || undefined,
           qapNo: i.qapNo || undefined,
           drawingNo: i.drawingNo || undefined,
-          materialRequiredFor: i.materialRequiredFor || undefined,
-          internalWorkOrder: i.internalWorkOrder || undefined,
           purpose: i.purpose || undefined,
           sourceOfSupply: i.sourceOfSupply || undefined,
           scopeOfWork: i.scopeOfWork || undefined,
           inspectionType: i.inspectionType || undefined,
           requiredByDate: i.requiredByDate || undefined,
           itemRemarks: i.itemRemarks || undefined,
-          specAttachmentUrl: i.specAttachmentUrl || undefined,
-          specAttachmentName: i.specAttachmentName || undefined,
+          attachments: (i.attachments || []).map(a => ({ url: a.url, name: a.name, mimeType: a.mimeType })),
         })),
       };
       if (isEdit) {
@@ -359,9 +428,10 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                   className={cellSelect}
                 >
                   <option value="">— No work order —</option>
+                  <option value="RND">R &amp; D — Product research (not a work order)</option>
                   {workOrders.map(wo => (
                     <option key={wo.id} value={wo.id}>
-                      {wo.workOrderNumber} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''}
+                      {wo.workOrderNumber} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
                     </option>
                   ))}
                 </select>
@@ -474,52 +544,52 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
               <tr>
                 <td className={labelCell}>
                   <div className="flex flex-col">
-                    <span>Spec Attachment (PDF/JPG)</span>
-                    <span className="text-[10px] font-normal text-gray-500 italic mt-0.5 flex items-center gap-1">
-                      <Lock size={9} /> Confidential — share via mail
+                    <span>Spec Attachments</span>
+                    <span className="text-[10px] font-normal text-gray-500 italic mt-0.5">
+                      Multiple files · any format (PDF, image, DWG, DOC, XLS, ZIP)
                     </span>
                   </div>
                 </td>
                 {items.map((item, idx) => {
                   const st = specUpload[idx] || {};
-                  const hasFile = !!item.specAttachmentUrl;
+                  const files = item.attachments || [];
                   return (
                     <td key={idx} className={dataCell}>
-                      <div className="px-1.5 py-1 flex items-center gap-1.5">
-                        {hasFile ? (
-                          <>
+                      <div className="px-1.5 py-1 space-y-1">
+                        {files.map((f, fi) => (
+                          <div key={f.url || fi} className="flex items-center gap-1.5">
                             <a
-                              href={item.specAttachmentUrl}
+                              href={f.url}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] text-navy-700 hover:underline truncate max-w-[140px]"
-                              title={item.specAttachmentName}
+                              className="inline-flex items-center gap-1 text-[11px] text-navy-700 hover:underline truncate max-w-[150px]"
+                              title={f.name}
                             >
-                              <Paperclip size={10} /> {item.specAttachmentName || 'spec.pdf'}
+                              <Paperclip size={10} /> {f.name || 'file'}
                             </a>
                             <button
                               type="button"
-                              onClick={() => clearSpec(idx)}
+                              onClick={() => removeSpec(idx, fi)}
                               className="text-gray-400 hover:text-red-600"
                               title="Remove"
                             >
                               <X size={12} />
                             </button>
-                          </>
-                        ) : (
-                          <label className="inline-flex items-center gap-1 cursor-pointer text-[11px] text-gray-600 hover:text-navy-700">
-                            <Upload size={11} />
-                            {st.uploading ? 'Uploading…' : 'Upload PDF/JPG'}
-                            <input
-                              type="file"
-                              accept=".pdf,.jpg,.jpeg,application/pdf,image/jpeg"
-                              className="hidden"
-                              disabled={st.uploading}
-                              onChange={(e) => uploadSpec(idx, e.target.files?.[0])}
-                            />
-                          </label>
-                        )}
-                        {st.error && <span className="text-[10px] text-red-600">{st.error}</span>}
+                          </div>
+                        ))}
+                        <label className="inline-flex items-center gap-1 cursor-pointer text-[11px] text-gray-600 hover:text-navy-700">
+                          <Upload size={11} />
+                          {st.uploading ? 'Uploading…' : (files.length ? 'Add more' : 'Upload files')}
+                          <input
+                            type="file"
+                            multiple
+                            accept={ATT_ACCEPT}
+                            className="hidden"
+                            disabled={st.uploading}
+                            onChange={(e) => { uploadSpec(idx, e.target.files); e.target.value = ''; }}
+                          />
+                        </label>
+                        {st.error && <div className="text-[10px] text-red-600">{st.error}</div>}
                       </div>
                     </td>
                   );
@@ -563,26 +633,6 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                   <td key={idx} className={dataCell}>
                     <input type="text" value={item.qapNo}
                       onChange={(e) => updateItem(idx, 'qapNo', e.target.value)}
-                      className={cellInput} />
-                  </td>
-                ))}
-              </tr>
-              <tr>
-                <td className={labelCell}>Required For (SO/R&D)</td>
-                {items.map((item, idx) => (
-                  <td key={idx} className={dataCell}>
-                    <input type="text" value={item.materialRequiredFor}
-                      onChange={(e) => updateItem(idx, 'materialRequiredFor', e.target.value)}
-                      className={cellInput} />
-                  </td>
-                ))}
-              </tr>
-              <tr>
-                <td className={labelCell}>Internal Work Order</td>
-                {items.map((item, idx) => (
-                  <td key={idx} className={dataCell}>
-                    <input type="text" value={item.internalWorkOrder}
-                      onChange={(e) => updateItem(idx, 'internalWorkOrder', e.target.value)}
                       className={cellInput} />
                   </td>
                 ))}
@@ -663,6 +713,38 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
             className="w-full px-2 py-1.5 border border-gray-400 text-xs focus:outline-none focus:bg-yellow-50"
             rows={2} placeholder="Reason for purchase request..."
           />
+          {/* Header-level note attachments — multiple files, any format. */}
+          <div className="mt-1.5 border border-gray-300 rounded p-2 space-y-1 bg-gray-50">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-gray-600">Note attachments</span>
+              <label className="inline-flex items-center gap-1 cursor-pointer text-[11px] text-navy-700 hover:underline">
+                <Upload size={11} />
+                {noteUpload.uploading ? 'Uploading…' : (noteAttachments.length ? 'Add more' : 'Attach files')}
+                <input
+                  type="file"
+                  multiple
+                  accept={ATT_ACCEPT}
+                  className="hidden"
+                  disabled={noteUpload.uploading}
+                  onChange={(e) => { uploadNoteFiles(e.target.files); e.target.value = ''; }}
+                />
+              </label>
+            </div>
+            {noteAttachments.length > 0 && (
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {noteAttachments.map((f, fi) => (
+                  <span key={f.url || fi} className="inline-flex items-center gap-1 text-[11px]">
+                    <a href={f.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-navy-700 hover:underline truncate max-w-[180px]" title={f.name}>
+                      <Paperclip size={10} /> {f.name || 'file'}
+                    </a>
+                    <button type="button" onClick={() => removeNote(fi)} className="text-gray-400 hover:text-red-600" title="Remove"><X size={11} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {noteUpload.error && <div className="text-[10px] text-red-600">{noteUpload.error}</div>}
+            <div className="text-[10px] text-gray-400">Any format (PDF, image, DWG, DOC, XLS, ZIP), up to {ATT_MAX_MB} MB each.</div>
+          </div>
         </div>
 
         <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
@@ -781,9 +863,10 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
           </div>
         )}
 
-        {request.notes && (
-          <div className="bg-yellow-50 rounded-md p-3 text-sm">
-            <span className="text-yellow-700 font-medium">Manager's Note:</span> <span>{request.notes}</span>
+        {(request.notes || (request.noteAttachments || []).length > 0) && (
+          <div className="bg-yellow-50 rounded-md p-3 text-sm space-y-1">
+            {request.notes && (<div><span className="text-yellow-700 font-medium">Manager's Note:</span> <span>{request.notes}</span></div>)}
+            <AttachmentLinks label="Note attachments:" items={request.noteAttachments} />
           </div>
         )}
 
@@ -914,9 +997,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
           <DownloadPdfButton
             document={<PRPdf request={request} />}
             fileName={`PR-${request.requestNumber}.pdf`}
-            label="View PR PDF"
-            appendPdfs={(request.items || []).map(i => i.specAttachmentUrl).filter(Boolean)}
-          />
+            label="View PR PDF"          />
           {isPending && (
             <div className="flex gap-3">
               <Button variant="danger" onClick={reject} disabled={processing}>
@@ -987,9 +1068,10 @@ function QcReviewModal({ request, onClose, onUpdated }) {
           )}
         </div>
 
-        {request.notes && (
-          <div className="bg-yellow-50 rounded-md p-3 text-sm">
-            <span className="text-yellow-700 font-medium">Requester's Note:</span> <span>{request.notes}</span>
+        {(request.notes || (request.noteAttachments || []).length > 0) && (
+          <div className="bg-yellow-50 rounded-md p-3 text-sm space-y-1">
+            {request.notes && (<div><span className="text-yellow-700 font-medium">Requester's Note:</span> <span>{request.notes}</span></div>)}
+            <AttachmentLinks label="Note attachments:" items={request.noteAttachments} />
           </div>
         )}
 
@@ -1010,7 +1092,7 @@ function QcReviewModal({ request, onClose, onUpdated }) {
                   <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
                   <td className="px-3 py-2 text-gray-500">{item.product?.category || item.materialType || '—'}</td>
                   <td className="px-3 py-2 text-gray-700">{item.requestedQty} {item.productUnit}</td>
-                  <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || item.materialRequiredFor || '—'}</td>
+                  <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -1034,9 +1116,7 @@ function QcReviewModal({ request, onClose, onUpdated }) {
           <DownloadPdfButton
             document={<PRPdf request={request} />}
             fileName={`PR-${request.requestNumber}.pdf`}
-            label="View PR PDF"
-            appendPdfs={(request.items || []).map(i => i.specAttachmentUrl).filter(Boolean)}
-          />
+            label="View PR PDF"          />
           {isPending && (
             <div className="flex gap-3">
               <Button variant="danger" onClick={reject} disabled={processing}>
@@ -1102,6 +1182,9 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
           {request.notes && (
             <div className="mt-1"><span className="text-blue-700 font-medium">Note:</span> {request.notes}</div>
           )}
+          {(request.noteAttachments || []).length > 0 && (
+            <div className="mt-1"><AttachmentLinks label="Attachments:" items={request.noteAttachments} /></div>
+          )}
         </div>
 
         <table className="w-full text-sm">
@@ -1118,7 +1201,7 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
               <tr key={item.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 align-top`}>
                 <td className="px-3 py-2 font-medium text-gray-700">
                   <div>{item.productName}</div>
-                  {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo || item.specAttachmentUrl) && (
+                  {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo || itemAttachmentList(item).length > 0) && (
                     <div className="mt-1 text-xs text-gray-500 space-y-0.5">
                       {item.materialType && (
                         <div><span className="font-medium text-gray-600">Type:</span> {item.materialType}</div>
@@ -1132,19 +1215,7 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
                       {item.qapNo && (
                         <div><span className="font-medium text-gray-600">QAP #:</span> {item.qapNo}</div>
                       )}
-                      {item.specAttachmentUrl && (
-                        <div>
-                          <span className="font-medium text-gray-600">Spec PDF:</span>{' '}
-                          <a
-                            href={item.specAttachmentUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-navy-700 hover:underline"
-                          >
-                            <Paperclip size={10} /> {item.specAttachmentName || 'View'}
-                          </a>
-                        </div>
-                      )}
+                      <AttachmentLinks label="Spec files:" items={itemAttachmentList(item)} />
                     </div>
                   )}
                 </td>
@@ -1381,7 +1452,9 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(request.status)}>{statusLabel(request.status)}</Badge></div>
           <div><span className="text-gray-500">Requester:</span> <span className="font-medium">{request.manager?.name}</span></div>
           <div><span className="text-gray-500">Unit:</span> <Badge color="blue">{request.unit?.name}</Badge></div>
-          {request.workOrder && (
+          {request.isRnd ? (
+            <div><span className="text-gray-500">Work Order:</span> <span className="font-medium">R &amp; D (Product research)</span></div>
+          ) : request.workOrder && (
             <div><span className="text-gray-500">Work Order:</span> <span className="font-medium">{request.workOrder.workOrderNumber}</span></div>
           )}
           <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(request.createdAt)}</span></div>
@@ -1411,9 +1484,10 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           )}
         </div>
 
-        {request.notes && (
-          <div className="bg-yellow-50 rounded-md p-3 text-sm">
-            <span className="text-yellow-700 font-medium">Your Note:</span> <span>{request.notes}</span>
+        {(request.notes || (request.noteAttachments || []).length > 0) && (
+          <div className="bg-yellow-50 rounded-md p-3 text-sm space-y-1">
+            {request.notes && (<div><span className="text-yellow-700 font-medium">Your Note:</span> <span>{request.notes}</span></div>)}
+            <AttachmentLinks label="Note attachments:" items={request.noteAttachments} />
           </div>
         )}
         {request.adminNotes && (
@@ -1540,7 +1614,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                           </div>
                         </div>
                       )}
-                      {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo || item.specAttachmentUrl) && (
+                      {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo || itemAttachmentList(item).length > 0) && (
                         <div className="mt-1 text-xs text-gray-500 space-y-0.5">
                           {item.materialType && (
                             <div><span className="font-medium text-gray-600">Type:</span> {item.materialType}</div>
@@ -1554,19 +1628,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                           {item.qapNo && (
                             <div><span className="font-medium text-gray-600">QAP #:</span> {item.qapNo}</div>
                           )}
-                          {item.specAttachmentUrl && (
-                            <div>
-                              <span className="font-medium text-gray-600">Spec PDF:</span>{' '}
-                              <a
-                                href={item.specAttachmentUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-navy-700 hover:underline"
-                              >
-                                <Paperclip size={10} /> {item.specAttachmentName || 'View'}
-                              </a>
-                            </div>
-                          )}
+                          <AttachmentLinks label="Spec files:" items={itemAttachmentList(item)} />
                         </div>
                       )}
                     </td>
@@ -1610,9 +1672,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           <DownloadPdfButton
             document={<PRPdf request={request} />}
             fileName={`PR-${request.requestNumber}.pdf`}
-            label="View PR PDF"
-            appendPdfs={(request.items || []).map(i => i.specAttachmentUrl).filter(Boolean)}
-          />
+            label="View PR PDF"          />
         </div>
       </div>
 

@@ -789,147 +789,231 @@ router.delete('/certifications/:id', authenticate, requireCertWrite, async (req,
 });
 
 // ── GET /api/kpi-qms/sla-metrics — Approval & conversion SLA KPIs ──────────
-// Computes on-time vs delayed counts for:
+// Four turnaround factors, all computed from real timestamps on every record:
 //   1. WO Admin approval     (48h from WO createdAt to adminAcceptedAt)
 //   2. WO Unit approval      (48h from adminAcceptedAt to unitAcceptedAt)
 //   3. PR Admin approval     (48h from PR createdAt (or qcApprovedAt) to adminApprovedAt)
 //   4. PR → PO conversion    (4 days from PR adminApprovedAt to PO createdAt)
-// Score = (onTime / total) * 100, overall = avg of all four scores.
+// Score = (onTime / total) × 100, overall = avg of the four. Each factor is also
+// sliced three ways: by month (trend), by owning unit, and per-entity (every
+// record with its exact turnaround, on-time flag and delay remark).
+const DAY_MS = 24 * 60 * 60 * 1000;
+const monthKeyOf = (d) => {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`;
+};
+
+// Turn a list of normalized records into the full factor payload. Each record:
+//   { ref, bucketDate, gapMs, unit, approver, remark }
+// bucketDate = the entity's own createdAt (same field the FY filter uses).
+const buildFactor = (label, slaMs, records) => {
+  const onTimeOf = (r) => r.gapMs <= slaMs;
+  const scoreOf = (onTime, total) => (total > 0 ? Math.round((onTime / total) * 1000) / 10 : null);
+  const daysLate = (ms) => Math.round((ms / DAY_MS) * 10) / 10;
+
+  const items = records
+    .map((r) => {
+      const late = !onTimeOf(r);
+      return {
+        ref: r.ref,
+        unit: r.unit,
+        approver: r.approver,
+        date: r.bucketDate,
+        turnaroundDays: daysLate(r.gapMs),
+        onTime: !late,
+        daysLate: late ? daysLate(r.gapMs - slaMs) : 0,
+        remark: r.remark || null,
+      };
+    })
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const total = records.length;
+  const onTime = records.filter(onTimeOf).length;
+  const delayedItems = items.filter((i) => !i.onTime).map((i) => ({ ref: i.ref, daysLate: i.daysLate, remark: i.remark }));
+
+  // By month
+  const byMonthMap = {};
+  records.forEach((r) => {
+    const k = monthKeyOf(r.bucketDate);
+    (byMonthMap[k] || (byMonthMap[k] = { onTime: 0, total: 0 })).total++;
+    if (onTimeOf(r)) byMonthMap[k].onTime++;
+  });
+
+  // By owning unit / grouping factor
+  const byUnitMap = {};
+  records.forEach((r) => {
+    const k = r.unit || 'Unassigned';
+    (byUnitMap[k] || (byUnitMap[k] = { onTime: 0, total: 0 })).total++;
+    if (onTimeOf(r)) byUnitMap[k].onTime++;
+  });
+  const byUnit = Object.entries(byUnitMap)
+    .map(([unit, v]) => ({ unit, total: v.total, onTime: v.onTime, delayed: v.total - v.onTime, score: scoreOf(v.onTime, v.total) }))
+    .sort((a, b) => b.total - a.total || a.unit.localeCompare(b.unit));
+
+  return {
+    label,
+    slaDays: Math.round((slaMs / DAY_MS) * 10) / 10,
+    total,
+    onTime,
+    delayed: total - onTime,
+    score: scoreOf(onTime, total),
+    delayedItems,   // legacy shape — kept for backward compatibility
+    items,          // per-entity detail (all records, not just delayed)
+    byMonth: byMonthMap,
+    byUnit,
+  };
+};
+
 router.get('/sla-metrics', authenticate, async (req, res) => {
   try {
-    const range = req.query.fy ? fyRange(req.query.fy) : null;
-    const dateFilter = range ? { gte: range.from, lt: range.to } : undefined;
+    // Default to the current FY (mirrors GET /kpi-qms) so the panel and its month
+    // axis are always scoped to one financial year unless another is selected.
+    const fy = trimOrNull(req.query.fy) || getFinancialYear();
+    const range = fyRange(fy);
+    if (!range) return res.status(400).json({ error: 'Invalid financial year' });
+    const dateFilter = { gte: range.from, lt: range.to };
 
     const SLA_48H = 48 * 60 * 60 * 1000;
     const SLA_4D  =  4 * 24 * 60 * 60 * 1000;
 
     const score = (onTime, total) => total > 0 ? round1((onTime / total) * 100) : null;
-    const daysLate = (ms) => Math.round((ms / (24 * 60 * 60 * 1000)) * 10) / 10;
+    const unitLabelOf = (u, fallback) => u?.name || u?.code || fallback || 'Unassigned';
 
-    // 1. WO Admin approval
-    const wosWithAdminAccept = await prisma.workOrder.findMany({
-      where: {
-        adminAcceptedAt: { not: null },
-        ...(dateFilter ? { createdAt: dateFilter } : {}),
+    // 1. WO Admin approval — WO created → admin accepted.
+    const woAdminRows = await prisma.workOrder.findMany({
+      where: { adminAcceptedAt: { not: null }, ...(dateFilter ? { createdAt: dateFilter } : {}) },
+      select: {
+        workOrderNumber: true, createdAt: true, adminAcceptedAt: true, adminDelayRemark: true,
+        assignedUnit: { select: { name: true, code: true } }, assignedUnitName: true,
+        adminAcceptedBy: { select: { name: true } },
       },
-      select: { workOrderNumber: true, createdAt: true, adminAcceptedAt: true, adminDelayRemark: true },
     });
-    const woAdminTotal  = wosWithAdminAccept.length;
-    const woAdminDelayedList = [];
-    const woAdminOnTime = wosWithAdminAccept.filter(w => {
-      const gap = new Date(w.adminAcceptedAt) - new Date(w.createdAt);
-      if (gap > SLA_48H) {
-        woAdminDelayedList.push({ ref: w.workOrderNumber, daysLate: daysLate(gap - SLA_48H), remark: w.adminDelayRemark || null });
-        return false;
-      }
-      return true;
-    }).length;
+    const woAdminApproval = buildFactor('WO Admin Approval', SLA_48H, woAdminRows.map((w) => ({
+      ref: w.workOrderNumber,
+      bucketDate: w.createdAt,
+      gapMs: new Date(w.adminAcceptedAt) - new Date(w.createdAt),
+      unit: unitLabelOf(w.assignedUnit, w.assignedUnitName),
+      approver: w.adminAcceptedBy?.name || '—',
+      remark: w.adminDelayRemark,
+    })));
 
-    // 2. WO Unit approval
-    const wosWithUnitAccept = await prisma.workOrder.findMany({
-      where: {
-        unitAcceptedAt: { not: null },
-        adminAcceptedAt: { not: null },
-        ...(dateFilter ? { createdAt: dateFilter } : {}),
+    // 2. WO Unit approval — admin accepted → unit accepted.
+    const woUnitRows = await prisma.workOrder.findMany({
+      where: { unitAcceptedAt: { not: null }, adminAcceptedAt: { not: null }, ...(dateFilter ? { createdAt: dateFilter } : {}) },
+      select: {
+        workOrderNumber: true, createdAt: true, adminAcceptedAt: true, unitAcceptedAt: true, unitDelayRemark: true,
+        assignedUnit: { select: { name: true, code: true } }, assignedUnitName: true,
+        unitAcceptedBy: { select: { name: true } },
       },
-      select: { workOrderNumber: true, adminAcceptedAt: true, unitAcceptedAt: true, unitDelayRemark: true },
     });
-    const woUnitTotal  = wosWithUnitAccept.length;
-    const woUnitDelayedList = [];
-    const woUnitOnTime = wosWithUnitAccept.filter(w => {
-      const gap = new Date(w.unitAcceptedAt) - new Date(w.adminAcceptedAt);
-      if (gap > SLA_48H) {
-        woUnitDelayedList.push({ ref: w.workOrderNumber, daysLate: daysLate(gap - SLA_48H), remark: w.unitDelayRemark || null });
-        return false;
-      }
-      return true;
-    }).length;
+    const woUnitApproval = buildFactor('WO Unit Approval', SLA_48H, woUnitRows.map((w) => ({
+      ref: w.workOrderNumber,
+      bucketDate: w.createdAt,
+      gapMs: new Date(w.unitAcceptedAt) - new Date(w.adminAcceptedAt),
+      unit: unitLabelOf(w.assignedUnit, w.assignedUnitName),
+      approver: w.unitAcceptedBy?.name || '—',
+      remark: w.unitDelayRemark,
+    })));
 
-    // 3. PR Admin approval
-    const prsApproved = await prisma.purchaseRequest.findMany({
-      where: {
-        adminApprovedAt: { not: null },
-        ...(dateFilter ? { createdAt: dateFilter } : {}),
+    // 3. PR Admin approval — PR created (or QC-approved) → admin approved.
+    const prRows = await prisma.purchaseRequest.findMany({
+      where: { adminApprovedAt: { not: null }, ...(dateFilter ? { createdAt: dateFilter } : {}) },
+      select: {
+        requestNumber: true, createdAt: true, qcApprovedAt: true, adminApprovedAt: true, adminDelayRemark: true,
+        unit: { select: { name: true, code: true } }, manager: { select: { role: true } },
+        adminApprovedBy: { select: { name: true } },
       },
-      select: { requestNumber: true, createdAt: true, qcApprovedAt: true, adminApprovedAt: true, adminDelayRemark: true },
     });
-    const prAdminTotal  = prsApproved.length;
-    const prAdminDelayedList = [];
-    const prAdminOnTime = prsApproved.filter(p => {
+    const prAdminApproval = buildFactor('PR Admin Approval', SLA_48H, prRows.map((p) => {
       const start = p.qcApprovedAt ? new Date(p.qcApprovedAt) : new Date(p.createdAt);
-      const gap = new Date(p.adminApprovedAt) - start;
-      if (gap > SLA_48H) {
-        prAdminDelayedList.push({ ref: p.requestNumber, daysLate: daysLate(gap - SLA_48H), remark: p.adminDelayRemark || null });
-        return false;
-      }
-      return true;
-    }).length;
+      return {
+        ref: p.requestNumber,
+        bucketDate: p.createdAt,
+        gapMs: new Date(p.adminApprovedAt) - start,
+        unit: unitLabelOf(p.unit, p.manager?.role),
+        approver: p.adminApprovedBy?.name || '—',
+        remark: p.adminDelayRemark,
+      };
+    }));
 
-    // 4. PR → PO conversion (4 days from PR adminApprovedAt to PO createdAt)
-    const posWithPR = await prisma.purchaseOrder.findMany({
-      where: {
-        purchaseRequest: { adminApprovedAt: { not: null } },
-        ...(dateFilter ? { createdAt: dateFilter } : {}),
-      },
+    // 4. PR → PO conversion — PR admin approved → PO created (union PO uses the
+    // earliest source-PR approval). isUnion:false on the direct query so a union
+    // PO can never be counted twice.
+    const posDirect = await prisma.purchaseOrder.findMany({
+      where: { isUnion: false, purchaseRequest: { adminApprovedAt: { not: null } }, ...(dateFilter ? { createdAt: dateFilter } : {}) },
       select: {
         orderNumber: true, createdAt: true, poCreationDelayRemark: true,
-        purchaseRequest: { select: { adminApprovedAt: true } },
+        purchaseRequest: { select: { adminApprovedAt: true, unit: { select: { name: true, code: true } } } },
       },
     });
-    // Also include union POs via sourceRequests (use earliest adminApprovedAt among source PRs)
-    const unionPos = await prisma.purchaseOrder.findMany({
-      where: {
-        isUnion: true,
-        ...(dateFilter ? { createdAt: dateFilter } : {}),
-      },
+    const posUnion = await prisma.purchaseOrder.findMany({
+      where: { isUnion: true, ...(dateFilter ? { createdAt: dateFilter } : {}) },
       select: {
         orderNumber: true, createdAt: true, poCreationDelayRemark: true,
-        sourceRequests: { select: { purchaseRequest: { select: { adminApprovedAt: true } } } },
+        sourceRequests: { select: { purchaseRequest: { select: { adminApprovedAt: true, unit: { select: { name: true, code: true } } } } } },
       },
     });
-
-    const poEntries = [
-      ...posWithPR
-        .filter(p => p.purchaseRequest?.adminApprovedAt)
-        .map(p => ({ ref: p.orderNumber, remark: p.poCreationDelayRemark, poCreatedAt: p.createdAt, prApprovedAt: p.purchaseRequest.adminApprovedAt })),
-      ...unionPos.map(p => {
-        const dates = p.sourceRequests
-          .map(s => s.purchaseRequest?.adminApprovedAt)
-          .filter(Boolean)
-          .map(d => new Date(d));
-        return dates.length ? { ref: p.orderNumber, remark: p.poCreationDelayRemark, poCreatedAt: p.createdAt, prApprovedAt: new Date(Math.min(...dates)) } : null;
+    const poRecords = [
+      ...posDirect.filter((p) => p.purchaseRequest?.adminApprovedAt).map((p) => ({
+        ref: p.orderNumber,
+        bucketDate: p.createdAt,
+        gapMs: new Date(p.createdAt) - new Date(p.purchaseRequest.adminApprovedAt),
+        unit: unitLabelOf(p.purchaseRequest.unit, null),
+        approver: '—',
+        remark: p.poCreationDelayRemark,
+      })),
+      ...posUnion.map((p) => {
+        const prs = p.sourceRequests.map((s) => s.purchaseRequest).filter((pr) => pr?.adminApprovedAt);
+        if (!prs.length) return null;
+        const earliest = new Date(Math.min(...prs.map((pr) => new Date(pr.adminApprovedAt).getTime())));
+        return {
+          ref: p.orderNumber,
+          bucketDate: p.createdAt,
+          gapMs: new Date(p.createdAt) - earliest,
+          unit: unitLabelOf(prs[0].unit, 'Union'),
+          approver: '—',
+          remark: p.poCreationDelayRemark,
+        };
       }).filter(Boolean),
     ];
+    const poConversion = buildFactor('PR → PO Conversion', SLA_4D, poRecords);
 
-    const poConvTotal  = poEntries.length;
-    const poConvDelayedList = [];
-    const poConvOnTime = poEntries.filter(e => {
-      const gap = new Date(e.poCreatedAt) - new Date(e.prApprovedAt);
-      if (gap > SLA_4D) {
-        poConvDelayedList.push({ ref: e.ref, daysLate: daysLate(gap - SLA_4D), remark: e.remark || null });
-        return false;
+    const factors = { woAdminApproval, woUnitApproval, prAdminApproval, poConversion };
+    const validScores = Object.values(factors).map((f) => f.score).filter((s) => s !== null);
+    const overallScore = validScores.length ? round1(validScores.reduce((a, b) => a + b, 0) / validScores.length) : null;
+
+    // Month axis: the 12 FY months in order when an FY is given, else every month
+    // that appears in the data (sorted).
+    let months = [];
+    if (range) {
+      for (let i = 0; i < 12; i++) {
+        months.push(monthKeyOf(new Date(range.from.getFullYear(), range.from.getMonth() + i, 1)));
       }
-      return true;
-    }).length;
+    } else {
+      const set = new Set();
+      Object.values(factors).forEach((f) => Object.keys(f.byMonth).forEach((k) => set.add(k)));
+      months = [...set].sort();
+    }
 
-    const scores = [
-      score(woAdminOnTime, woAdminTotal),
-      score(woUnitOnTime, woUnitTotal),
-      score(prAdminOnTime, prAdminTotal),
-      score(poConvOnTime, poConvTotal),
-    ];
-    const validScores = scores.filter(s => s !== null);
-    const overallScore = validScores.length > 0
-      ? round1(validScores.reduce((a, b) => a + b, 0) / validScores.length)
-      : null;
+    // Overall trend: per month, average of whichever factor scores have data.
+    const monthlyOverall = months.map((mk) => {
+      const per = Object.values(factors)
+        .map((f) => f.byMonth[mk])
+        .filter((b) => b && b.total > 0)
+        .map((b) => ({ score: score(b.onTime, b.total), total: b.total }));
+      return {
+        month: mk,
+        score: per.length ? round1(per.reduce((a, x) => a + x.score, 0) / per.length) : null,
+        count: per.reduce((a, x) => a + x.total, 0),
+      };
+    });
 
     res.json({
-      fy: req.query.fy || null,
-      woAdminApproval:  { total: woAdminTotal,  onTime: woAdminOnTime,  delayed: woAdminTotal - woAdminOnTime,  score: score(woAdminOnTime, woAdminTotal),  slaDays: 2, delayedItems: woAdminDelayedList },
-      woUnitApproval:   { total: woUnitTotal,   onTime: woUnitOnTime,   delayed: woUnitTotal - woUnitOnTime,   score: score(woUnitOnTime, woUnitTotal),   slaDays: 2, delayedItems: woUnitDelayedList },
-      prAdminApproval:  { total: prAdminTotal,  onTime: prAdminOnTime,  delayed: prAdminTotal - prAdminOnTime,  score: score(prAdminOnTime, prAdminTotal),  slaDays: 2, delayedItems: prAdminDelayedList },
-      poConversion:     { total: poConvTotal,   onTime: poConvOnTime,   delayed: poConvTotal - poConvOnTime,   score: score(poConvOnTime, poConvTotal),   slaDays: 4, delayedItems: poConvDelayedList },
+      fy,
+      ...factors,
       overallScore,
+      months,
+      monthlyOverall,
     });
   } catch (error) {
     console.error('SLA metrics error:', error);

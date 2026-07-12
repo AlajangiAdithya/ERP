@@ -62,6 +62,165 @@ function SlaCard({ label, sla, d }) {
   );
 }
 
+// The four approval/conversion turnaround factors, in display order.
+const FACTOR_DEFS = [
+  { key: 'woAdminApproval', label: 'WO Admin' },
+  { key: 'woUnitApproval',  label: 'WO Unit' },
+  { key: 'prAdminApproval', label: 'PR Admin' },
+  { key: 'poConversion',    label: 'PR → PO' },
+];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmtMonth = (mk) => { const [y, m] = String(mk).split('-'); return `${MONTH_NAMES[(parseInt(m, 10) || 1) - 1]} '${y.slice(2)}`; };
+const pctOf = (b) => (b && b.total > 0 ? Math.round((b.onTime / b.total) * 1000) / 10 : null);
+const scoreText = (s) => (s == null ? 'text-gray-300' : s >= 85 ? 'text-green-700' : s >= 60 ? 'text-amber-700' : 'text-red-600');
+
+// Month / by-unit / per-item breakdowns of the four SLA factors. All figures come
+// straight from the server (computed off real record timestamps).
+function SlaBreakdown({ sla }) {
+  const [view, setView] = useState('monthly');
+  const [metricKey, setMetricKey] = useState('woAdminApproval');
+  const months = sla.months || [];
+  const metric = sla[metricKey] || {};
+
+  const tabBtn = (key, label) => (
+    <button
+      type="button"
+      onClick={() => setView(key)}
+      className={`px-3 py-1 text-xs font-medium rounded-md ${view === key ? 'bg-navy-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+    >
+      {label}
+    </button>
+  );
+  const metricBtn = (f) => (
+    <button
+      key={f.key}
+      type="button"
+      onClick={() => setMetricKey(f.key)}
+      className={`px-2.5 py-1 text-[11px] font-medium rounded ${metricKey === f.key ? 'bg-navy-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+    >
+      {f.label}
+    </button>
+  );
+
+  return (
+    <div className="mt-4 border-t border-gray-100 pt-3">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <span className="text-xs font-semibold text-gray-500 mr-1">Breakdown:</span>
+        {tabBtn('monthly', 'Monthly trend')}
+        {tabBtn('unit', 'By unit')}
+        {tabBtn('items', 'Per item')}
+      </div>
+
+      {view === 'monthly' && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="px-2 py-1.5 text-left font-medium text-gray-500 border-b">Month</th>
+                {FACTOR_DEFS.map((f) => <th key={f.key} className="px-2 py-1.5 text-center font-medium text-gray-500 border-b">{f.label}</th>)}
+                <th className="px-2 py-1.5 text-center font-semibold text-gray-600 border-b">Overall</th>
+              </tr>
+            </thead>
+            <tbody>
+              {months.map((mk) => {
+                const ov = (sla.monthlyOverall || []).find((m) => m.month === mk);
+                return (
+                  <tr key={mk} className="border-b border-gray-50 hover:bg-navy-50/40">
+                    <td className="px-2 py-1.5 text-gray-700 font-medium whitespace-nowrap">{fmtMonth(mk)}</td>
+                    {FACTOR_DEFS.map((f) => {
+                      const b = sla[f.key]?.byMonth?.[mk];
+                      const s = pctOf(b);
+                      return (
+                        <td key={f.key} className={`px-2 py-1.5 text-center font-semibold ${scoreText(s)}`}>
+                          {s == null ? '—' : `${s}%`}{b?.total ? <span className="text-gray-400 font-normal"> ({b.total})</span> : null}
+                        </td>
+                      );
+                    })}
+                    <td className={`px-2 py-1.5 text-center font-bold ${scoreText(ov?.score ?? null)}`}>{ov?.score == null ? '—' : `${ov.score}%`}</td>
+                  </tr>
+                );
+              })}
+              {!months.length && <tr><td colSpan={FACTOR_DEFS.length + 2} className="px-2 py-3 text-center text-gray-400">No data.</td></tr>}
+            </tbody>
+          </table>
+          <p className="text-[10px] text-gray-400 mt-1">Cell = on-time %; (n) = records that month. Colour: green ≥ 85, amber ≥ 60, red below.</p>
+        </div>
+      )}
+
+      {view === 'unit' && (
+        <div>
+          <div className="flex flex-wrap gap-1.5 mb-2">{FACTOR_DEFS.map(metricBtn)}</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-500 border-b">Unit</th>
+                  <th className="px-2 py-1.5 text-center font-medium text-gray-500 border-b">Total</th>
+                  <th className="px-2 py-1.5 text-center font-medium text-gray-500 border-b">On time</th>
+                  <th className="px-2 py-1.5 text-center font-medium text-gray-500 border-b">Delayed</th>
+                  <th className="px-2 py-1.5 text-center font-medium text-gray-500 border-b">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(metric.byUnit || []).map((u) => (
+                  <tr key={u.unit} className="border-b border-gray-50 hover:bg-navy-50/40">
+                    <td className="px-2 py-1.5 text-gray-700">{u.unit}</td>
+                    <td className="px-2 py-1.5 text-center text-gray-600">{u.total}</td>
+                    <td className="px-2 py-1.5 text-center text-green-700">{u.onTime}</td>
+                    <td className={`px-2 py-1.5 text-center ${u.delayed > 0 ? 'text-red-600' : 'text-gray-400'}`}>{u.delayed}</td>
+                    <td className={`px-2 py-1.5 text-center font-semibold ${scoreText(u.score)}`}>{u.score == null ? '—' : `${u.score}%`}</td>
+                  </tr>
+                ))}
+                {!(metric.byUnit || []).length && <tr><td colSpan={5} className="px-2 py-3 text-center text-gray-400">No data for this factor.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {view === 'items' && (
+        <div>
+          <div className="flex flex-wrap gap-1.5 mb-2">{FACTOR_DEFS.map(metricBtn)}</div>
+          <div className="overflow-x-auto max-h-96 overflow-y-auto border border-gray-100 rounded">
+            <table className="w-full text-xs border-collapse">
+              <thead className="sticky top-0 bg-gray-50">
+                <tr>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-500 border-b">Ref</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-500 border-b">Unit</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-500 border-b">Approver</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-500 border-b">Date</th>
+                  <th className="px-2 py-1.5 text-center font-medium text-gray-500 border-b">Turnaround</th>
+                  <th className="px-2 py-1.5 text-center font-medium text-gray-500 border-b">Status</th>
+                  <th className="px-2 py-1.5 text-left font-medium text-gray-500 border-b">Remark</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(metric.items || []).map((it, i) => (
+                  <tr key={`${it.ref}-${i}`} className="border-b border-gray-50 hover:bg-navy-50/40">
+                    <td className="px-2 py-1.5 font-medium text-navy-700 whitespace-nowrap">{it.ref}</td>
+                    <td className="px-2 py-1.5 text-gray-600">{it.unit}</td>
+                    <td className="px-2 py-1.5 text-gray-600">{it.approver}</td>
+                    <td className="px-2 py-1.5 text-gray-500 whitespace-nowrap">{formatDate(it.date)}</td>
+                    <td className="px-2 py-1.5 text-center text-gray-700">{it.turnaroundDays}d</td>
+                    <td className="px-2 py-1.5 text-center whitespace-nowrap">
+                      {it.onTime
+                        ? <span className="text-green-700 font-medium">On time</span>
+                        : <span className="text-red-600 font-medium">+{it.daysLate}d late</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-gray-500">{it.remark || (!it.onTime ? <span className="italic text-gray-400">No remark</span> : '')}</td>
+                  </tr>
+                ))}
+                {!(metric.items || []).length && <tr><td colSpan={7} className="px-2 py-3 text-center text-gray-400">No records for this factor.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1">{(metric.items || []).length} record(s) · turnaround = actual time from the start event to approval/creation.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const EMPTY_CERT_FORM = { title: '', certificateNo: '', issuedBy: '', validFrom: '', validTill: '', notes: '' };
 const dateInputValue = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
 
@@ -628,6 +787,7 @@ export default function KpiQmsSection() {
               <SlaCard key={key} label={label} sla={sla} d={d} />
             ))}
           </div>
+          <SlaBreakdown sla={slaData} />
         </Card>
       )}
 

@@ -17,6 +17,7 @@ const PASS_TYPE_LABEL = {
   RETURNABLE: 'Returnable',
   NON_RETURNABLE: 'Non-Returnable',
   DELIVERY_CHALLAN: 'Delivery Challan',
+  INVOICE: 'Invoice',
 };
 
 const ROWS_PER_PAGE = 10;

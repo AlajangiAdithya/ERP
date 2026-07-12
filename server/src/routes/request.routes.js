@@ -189,7 +189,13 @@ router.get('/', authenticate, async (req, res) => {
         include: {
           manager: { select: { id: true, name: true, username: true, role: true } },
           unit: { select: { id: true, name: true, code: true, isOffsite: true } },
-          workOrder: { select: { id: true, workOrderNumber: true, supplyOrderNo: true } },
+          workOrder: {
+          select: {
+            id: true, workOrderNumber: true, supplyOrderNo: true,
+            assignedUnitName: true,
+            assignedUnit: { select: { id: true, name: true, code: true } },
+          },
+        },
           items: {
             include: {
               product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } },
@@ -230,7 +236,13 @@ router.get('/:id', authenticate, async (req, res) => {
       include: {
         manager: { select: { id: true, name: true, username: true, role: true, unit: { select: { name: true, code: true } } } },
         unit: { select: { id: true, name: true, code: true, isOffsite: true } },
-        workOrder: { select: { id: true, workOrderNumber: true, supplyOrderNo: true } },
+        workOrder: {
+          select: {
+            id: true, workOrderNumber: true, supplyOrderNo: true,
+            assignedUnitName: true,
+            assignedUnit: { select: { id: true, name: true, code: true } },
+          },
+        },
         items: {
           include: {
             product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
@@ -263,8 +275,8 @@ router.post('/', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
       return res.status(400).json({ error: 'You must be assigned to a unit to create requests' });
     }
 
-    // Optional Work Order link. null = "No work order". Unit requesters may only
-    // link a WO assigned to their own unit.
+    // Optional Work Order link. null = "No work order". Any live WO is linkable,
+    // regardless of which unit it is assigned to.
     const woLink = await validateWorkOrderLink(prisma, data.workOrderId, req.user.unitId || null);
     if (!woLink.ok) return res.status(400).json({ error: woLink.error });
 
@@ -298,7 +310,13 @@ router.post('/', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
-        workOrder: { select: { id: true, workOrderNumber: true, supplyOrderNo: true } },
+        workOrder: {
+          select: {
+            id: true, workOrderNumber: true, supplyOrderNo: true,
+            assignedUnitName: true,
+            assignedUnit: { select: { id: true, name: true, code: true } },
+          },
+        },
         items: {
           include: { product: { select: { id: true, name: true, sku: true, unit: true } } },
         },
@@ -363,7 +381,7 @@ router.put('/:id/edit', authenticate, authorize(...MANAGE_ROLES), async (req, re
       return res.status(400).json({ error: 'Only pending requests can be edited' });
     }
 
-    // Re-validate the optional Work Order link against the MIV's own unit.
+    // Re-validate the optional Work Order link (any live WO, any unit).
     const woLink = await validateWorkOrderLink(prisma, data.workOrderId, request.unitId);
     if (!woLink.ok) return res.status(400).json({ error: woLink.error });
 

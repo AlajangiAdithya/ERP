@@ -85,11 +85,13 @@ const ORDER_INCLUDE = {
       adminApprovedAt: true,
       manager: { select: { id: true, name: true, role: true } },
       unit: { select: { id: true, name: true, code: true } },
+      noteAttachments: { select: { id: true, url: true, name: true, mimeType: true } },
       items: {
         select: {
           id: true, productName: true, productUnit: true, requestedQty: true,
           materialType: true,
           materialSpecification: true, specAttachmentUrl: true, specAttachmentName: true,
+          attachments: { select: { id: true, url: true, name: true, mimeType: true } },
           drawingNo: true, qapNo: true, itemRemarks: true,
         },
       },
@@ -103,11 +105,13 @@ const ORDER_INCLUDE = {
           adminApprovedAt: true,
           manager: { select: { id: true, name: true, role: true } },
           unit: { select: { id: true, name: true, code: true } },
+          noteAttachments: { select: { id: true, url: true, name: true, mimeType: true } },
           items: {
             select: {
               id: true, productName: true, productUnit: true, requestedQty: true,
               materialType: true,
               materialSpecification: true, specAttachmentUrl: true, specAttachmentName: true,
+              attachments: { select: { id: true, url: true, name: true, mimeType: true } },
               drawingNo: true, qapNo: true, itemRemarks: true,
             },
           },

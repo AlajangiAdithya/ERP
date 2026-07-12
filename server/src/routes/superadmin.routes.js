@@ -211,7 +211,10 @@ router.delete('/table/:name/row/:id', async (req, res) => {
 const FILE_FIELDS = {
   Product: [{ field: 'msdsUrl', label: 'MSDS' }],
   PurchaseRequest: [{ field: 'materialSpecsPdfUrl', label: 'Material Specs PDF' }],
-  PurchaseRequestItem: [{ field: 'specAttachmentUrl', label: 'Item Spec Attachment' }],
+  // Multi-file PR attachments live as one row per file — "deleting" drops the row
+  // (the url column is non-nullable), handled specially in the delete route below.
+  PurchaseRequestItemAttachment: [{ field: 'url', label: 'Item Spec Attachment' }],
+  PurchaseRequestAttachment: [{ field: 'url', label: 'PR Note Attachment' }],
   Supplier: [
     { field: 'vendorEvaluationPdfUrl', label: 'Vendor Evaluation PDF', uploadedAtField: 'vendorEvaluationUploadedAt' },
     { field: 'supplierAssessmentPdfUrl', label: 'Supplier Assessment PDF', uploadedAtField: 'assessmentUploadedAt' },
@@ -361,20 +364,34 @@ router.get('/uploads', async (req, res) => {
       url: q.lotReportFileUrl, uploadedAt: q.createdAt, uploadedBy: null,
     }));
 
-    // 7. PurchaseRequestItem.specAttachmentUrl
-    const prItems = await prisma.purchaseRequestItem.findMany({
-      where: { specAttachmentUrl: { not: null } },
+    // 7. PurchaseRequestItemAttachment — per-line material spec files (multi-file).
+    const prItemAtts = await prisma.purchaseRequestItemAttachment.findMany({
       select: {
-        id: true, specAttachmentUrl: true, specAttachmentName: true, productName: true,
-        request: { select: { requestNumber: true, createdAt: true, manager: { select: { name: true } } } },
+        id: true, url: true, name: true, createdAt: true, uploadedByName: true,
+        item: { select: { productName: true, request: { select: { requestNumber: true, manager: { select: { name: true } } } } } },
       },
     });
-    prItems.forEach((p) => uploads.push({
-      table: 'PurchaseRequestItem', recordId: p.id, field: 'specAttachmentUrl',
-      label: `Item Spec: ${p.specAttachmentName || p.productName || 'file'}`,
-      recordLabel: `${p.request?.requestNumber || ''} · ${p.productName || ''}`.trim(),
-      url: p.specAttachmentUrl, uploadedAt: p.request?.createdAt || null,
-      uploadedBy: p.request?.manager?.name || null,
+    prItemAtts.forEach((a) => uploads.push({
+      table: 'PurchaseRequestItemAttachment', recordId: a.id, field: 'url',
+      label: `Item Spec: ${a.name || a.item?.productName || 'file'}`,
+      recordLabel: `${a.item?.request?.requestNumber || ''} · ${a.item?.productName || ''}`.trim(),
+      url: a.url, uploadedAt: a.createdAt,
+      uploadedBy: a.uploadedByName || a.item?.request?.manager?.name || null,
+    }));
+
+    // 7b. PurchaseRequestAttachment — header-level PR note files (multi-file).
+    const prNoteAtts = await prisma.purchaseRequestAttachment.findMany({
+      select: {
+        id: true, url: true, name: true, createdAt: true, uploadedByName: true,
+        request: { select: { requestNumber: true, manager: { select: { name: true } } } },
+      },
+    });
+    prNoteAtts.forEach((a) => uploads.push({
+      table: 'PurchaseRequestAttachment', recordId: a.id, field: 'url',
+      label: `PR Note: ${a.name || 'file'}`,
+      recordLabel: a.request?.requestNumber || a.id,
+      url: a.url, uploadedAt: a.createdAt,
+      uploadedBy: a.uploadedByName || a.request?.manager?.name || null,
     }));
 
     // 8. SupplierAssessmentForm.isoCertificateUrl
@@ -818,10 +835,15 @@ router.delete('/uploads', async (req, res) => {
     if (!current) return res.status(404).json({ error: 'Record not found' });
     const url = current[field];
 
-    // WorkOrderClosureDoc.fileUrl/fileName are non-nullable in the schema, so
+    // A few models store one file per ROW with a non-nullable url column, so
     // "clearing" the reference is meaningless — drop the whole row instead.
-    if (table === 'WorkOrderClosureDoc' && field === 'fileUrl') {
-      await prisma.workOrderClosureDoc.delete({ where: { id: recordId } });
+    const ROW_PER_FILE = {
+      WorkOrderClosureDoc: 'fileUrl',
+      PurchaseRequestItemAttachment: 'url',
+      PurchaseRequestAttachment: 'url',
+    };
+    if (ROW_PER_FILE[table] === field) {
+      await prisma[key].delete({ where: { id: recordId } });
     } else {
       await prisma[key].update({ where: { id: recordId }, data: { [field]: null } });
     }

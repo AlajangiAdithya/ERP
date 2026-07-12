@@ -224,21 +224,20 @@ const isAutoAcceptUnit = (unit) => {
 
 // Validate an optional Work Order link supplied when raising a PR / MIV.
 // Returns { ok: true, workOrderId } (workOrderId is null when none was chosen)
-// or { ok: false, error } so the caller can respond with 400. A unit-bound
-// requester may only link a WO assigned to their own unit; cancelled/rejected
-// WOs are never linkable.
-const validateWorkOrderLink = async (prisma, rawWorkOrderId, requesterUnitId) => {
+// or { ok: false, error } so the caller can respond with 400. A requester may
+// link ANY live work order regardless of the unit it is assigned to — the forms
+// list every order and show its assigned unit — so we only reject
+// missing/cancelled/rejected WOs. `requesterUnitId` is retained in the signature
+// for callers but is no longer used to gate the link.
+const validateWorkOrderLink = async (prisma, rawWorkOrderId, requesterUnitId) => { // eslint-disable-line no-unused-vars
   const workOrderId = rawWorkOrderId || null;
   if (!workOrderId) return { ok: true, workOrderId: null };
   const wo = await prisma.workOrder.findUnique({
     where: { id: workOrderId },
-    select: { id: true, assignedUnitId: true, status: true },
+    select: { id: true, status: true },
   });
   if (!wo || ['CANCELLED', 'REJECTED'].includes(wo.status)) {
     return { ok: false, error: 'Selected work order is not valid' };
-  }
-  if (requesterUnitId && wo.assignedUnitId !== requesterUnitId) {
-    return { ok: false, error: 'Selected work order is not assigned to your unit' };
   }
   return { ok: true, workOrderId: wo.id };
 };

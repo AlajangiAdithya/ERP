@@ -4,14 +4,20 @@ import api from '../../api/axios';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 
+// Allowed spec formats — any common document/drawing type. Validated by extension
+// (DWG/office/zip mime types vary across browsers). Mirrors the PR form's rules.
+const ATT_ACCEPT = '.pdf,.jpg,.jpeg,.png,.dwg,.doc,.docx,.xls,.xlsx,.zip';
+const ATT_EXT_RE = /\.(pdf|png|jpe?g|dwg|docx?|xlsx?|zip)$/i;
+const ATT_MAX_MB = 15;
+
 // ─── Material picker for the Purchase Requisition form ───
 // Two modes, toggled at the top:
-//   • Existing — search the product catalogue, pick a material, then choose one of
-//     its previously-stored spec PDFs (or upload a new one). The new spec is added
-//     to that product's library on PR submit so it's reusable next time.
+//   • Existing — search the product catalogue, pick a material, then tick one or
+//     more of its previously-stored spec files (or upload new ones). New uploads
+//     are added to that product's library on PR submit so they're reusable next time.
 //   • New     — type a brand-new material description and (optionally) upload its
-//     first spec PDF.
-// onApply returns { productId, productName, productUnit, specAttachmentUrl, specAttachmentName }.
+//     first spec file(s).
+// onApply returns { productId, productName, productUnit, attachments: [{url,name}] }.
 // This is purely an input aid — the PR table/PDF never show "existing/new".
 export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial = {}, onClose, onApply }) {
   const [tab, setTab] = useState(mode);
@@ -27,13 +33,19 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
   // New-mode state
   const [newName, setNewName] = useState('');
 
-  // Shared spec-selection + upload state
-  const [specUrl, setSpecUrl] = useState('');
-  const [specName, setSpecName] = useState('');
+  // Shared multi-select + upload state. `selected` is the list of chosen files
+  // ({url,name}); existing specs are ticked by URL, new uploads are appended.
+  const [selected, setSelected] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
 
   const debounceRef = useRef(null);
+
+  const isSelected = (url) => selected.some((s) => s.url === url);
+  const toggle = (file) =>
+    setSelected((prev) => (prev.some((s) => s.url === file.url)
+      ? prev.filter((s) => s.url !== file.url)
+      : [...prev, { url: file.url, name: file.name }]));
 
   // Reset to the requested mode + carry over any existing row values each open.
   useEffect(() => {
@@ -44,8 +56,7 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
     setProduct(initial.productId ? { id: initial.productId, name: initial.productName || '', unit: initial.productUnit || '' } : null);
     setSpecs([]);
     setNewName(initial.productName || '');
-    setSpecUrl(initial.specAttachmentUrl || '');
-    setSpecName(initial.specAttachmentName || '');
+    setSelected(Array.isArray(initial.attachments) ? initial.attachments.map((a) => ({ url: a.url, name: a.name })) : []);
     setUploadError('');
     setUploading(false);
     // If reopening on an already-linked product, preload its spec library.
@@ -88,28 +99,29 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
     setResults([]);
     setSearch('');
     // Clear any spec selection carried from a different product.
-    setSpecUrl('');
-    setSpecName('');
+    setSelected([]);
     loadSpecs(p.id);
   };
 
-  const uploadSpec = async (file) => {
-    if (!file) return;
-    const okTypes = ['application/pdf', 'image/jpeg', 'image/jpg'];
-    if (!okTypes.includes(file.type)) { setUploadError('PDF or JPG only'); return; }
-    if (file.size > 10 * 1024 * 1024) { setUploadError('Max 10 MB'); return; }
+  const uploadSpecs = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    for (const f of files) {
+      if (!ATT_EXT_RE.test(f.name)) { setUploadError('Allowed: PDF, JPG, PNG, DWG, DOC, XLS, ZIP'); return; }
+      if (f.size > ATT_MAX_MB * 1024 * 1024) { setUploadError(`Max ${ATT_MAX_MB} MB per file`); return; }
+    }
     setUploading(true);
     setUploadError('');
     try {
       const fd = new FormData();
-      fd.append('file', file);
+      files.forEach((f) => fd.append('files', f));
       const { data } = await api.post('/purchase-requests/upload-spec', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      // Add to the visible list (existing mode) and select it.
-      setSpecs((prev) => [{ id: `new-${Date.now()}`, url: data.url, name: data.name, _justUploaded: true }, ...prev]);
-      setSpecUrl(data.url);
-      setSpecName(data.name);
+      const uploaded = data.files || (data.url ? [{ url: data.url, name: data.name }] : []);
+      // Show each in the visible list (existing mode) and auto-select it.
+      setSpecs((prev) => [...uploaded.map((u, i) => ({ id: `new-${Date.now()}-${i}`, url: u.url, name: u.name, _justUploaded: true })), ...prev]);
+      setSelected((prev) => [...prev, ...uploaded.map((u) => ({ url: u.url, name: u.name }))]);
     } catch (err) {
       setUploadError(err.response?.data?.error || 'Upload failed');
     }
@@ -125,46 +137,45 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
         productId: product.id,
         productName: product.name,
         productUnit: product.unit || undefined,
-        specAttachmentUrl: specUrl || '',
-        specAttachmentName: specName || '',
+        attachments: selected,
       });
     } else {
       onApply({
         productId: null,
         productName: newName.trim(),
         productUnit: undefined,
-        specAttachmentUrl: specUrl || '',
-        specAttachmentName: specName || '',
+        attachments: selected,
       });
     }
     onClose();
   };
 
-  const tabBtn = (key, label) =>
+  const tabBtn = (key) =>
     `px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
       tab === key ? 'bg-navy-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
     }`;
 
   const SpecUploadBtn = () => (
     <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs text-navy-700 hover:underline">
-      <Upload size={13} /> {uploading ? 'Uploading…' : 'Upload new spec (PDF/JPG)'}
+      <Upload size={13} /> {uploading ? 'Uploading…' : 'Upload new spec files (any format)'}
       <input
         type="file"
-        accept=".pdf,.jpg,.jpeg,application/pdf,image/jpeg"
+        multiple
+        accept={ATT_ACCEPT}
         className="hidden"
         disabled={uploading}
-        onChange={(e) => uploadSpec(e.target.files?.[0])}
+        onChange={(e) => { uploadSpecs(e.target.files); e.target.value = ''; }}
       />
     </label>
   );
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Select material & spec" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title="Select material & specs" size="lg">
       <div className="space-y-4">
         {/* Mode toggle */}
         <div className="flex gap-2">
-          <button type="button" className={tabBtn('existing', 'Existing')} onClick={() => setTab('existing')}>Existing</button>
-          <button type="button" className={tabBtn('new', 'New')} onClick={() => setTab('new')}>New</button>
+          <button type="button" className={tabBtn('existing')} onClick={() => setTab('existing')}>Existing</button>
+          <button type="button" className={tabBtn('new')} onClick={() => setTab('new')}>New</button>
         </div>
 
         {tab === 'existing' ? (
@@ -215,13 +226,13 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
                     <Package size={15} className="text-navy-700 flex-shrink-0" />
                     <span className="text-sm font-semibold text-gray-800 truncate">{product.name}</span>
                   </div>
-                  <button type="button" onClick={() => { setProduct(null); setSpecs([]); setSpecUrl(''); setSpecName(''); }} className="text-xs text-gray-500 hover:text-navy-700">
+                  <button type="button" onClick={() => { setProduct(null); setSpecs([]); setSelected([]); }} className="text-xs text-gray-500 hover:text-navy-700">
                     Change
                   </button>
                 </div>
 
                 <div>
-                  <div className="text-xs font-semibold text-gray-600 mb-1.5">Previous material specs</div>
+                  <div className="text-xs font-semibold text-gray-600 mb-1.5">Previous material specs — tick any to attach</div>
                   {loadingSpecs ? (
                     <div className="text-xs text-gray-400">Loading…</div>
                   ) : specs.length === 0 ? (
@@ -229,19 +240,18 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
                   ) : (
                     <div className="space-y-1">
                       {specs.map((s) => {
-                        const selected = specUrl === s.url;
+                        const sel = isSelected(s.url);
                         return (
                           <label
                             key={s.id}
                             className={`flex items-center gap-2 px-2 py-1.5 rounded border cursor-pointer text-sm ${
-                              selected ? 'border-navy-500 bg-navy-50' : 'border-gray-200 hover:bg-gray-50'
+                              sel ? 'border-navy-500 bg-navy-50' : 'border-gray-200 hover:bg-gray-50'
                             }`}
                           >
                             <input
-                              type="radio"
-                              name="spec"
-                              checked={selected}
-                              onChange={() => { setSpecUrl(s.url); setSpecName(s.name); }}
+                              type="checkbox"
+                              checked={sel}
+                              onChange={() => toggle(s)}
                             />
                             <Paperclip size={12} className="text-gray-400 flex-shrink-0" />
                             <span className="truncate flex-1">{s.name}</span>
@@ -264,9 +274,9 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
 
                 <div className="flex items-center justify-between pt-1 border-t border-gray-100">
                   <SpecUploadBtn />
-                  {specUrl && (
-                    <button type="button" onClick={() => { setSpecUrl(''); setSpecName(''); }} className="text-[11px] text-gray-400 hover:text-red-600 inline-flex items-center gap-1">
-                      <X size={11} /> clear selection
+                  {selected.length > 0 && (
+                    <button type="button" onClick={() => setSelected([])} className="text-[11px] text-gray-400 hover:text-red-600 inline-flex items-center gap-1">
+                      <X size={11} /> clear {selected.length} selected
                     </button>
                   )}
                 </div>
@@ -288,17 +298,20 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
               />
             </div>
             <div className="border border-gray-200 rounded-md p-3 space-y-2">
-              <div className="text-xs font-semibold text-gray-600">Spec PDF/JPG (optional)</div>
-              {specUrl ? (
-                <div className="flex items-center gap-2 text-sm">
-                  <Paperclip size={12} className="text-gray-400" />
-                  <span className="truncate flex-1">{specName || 'spec.pdf'}</span>
-                  <a href={specUrl} target="_blank" rel="noreferrer" className="text-[11px] text-navy-700 hover:underline">view</a>
-                  <button type="button" onClick={() => { setSpecUrl(''); setSpecName(''); }} className="text-gray-400 hover:text-red-600"><X size={13} /></button>
+              <div className="text-xs font-semibold text-gray-600">Spec files (optional, any format)</div>
+              {selected.length > 0 && (
+                <div className="space-y-1">
+                  {selected.map((f, i) => (
+                    <div key={f.url || i} className="flex items-center gap-2 text-sm">
+                      <Paperclip size={12} className="text-gray-400" />
+                      <span className="truncate flex-1">{f.name || 'spec'}</span>
+                      <a href={f.url} target="_blank" rel="noreferrer" className="text-[11px] text-navy-700 hover:underline">view</a>
+                      <button type="button" onClick={() => setSelected((prev) => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-600"><X size={13} /></button>
+                    </div>
+                  ))}
                 </div>
-              ) : (
-                <SpecUploadBtn />
               )}
+              <SpecUploadBtn />
               {uploadError && <div className="text-[11px] text-red-600">{uploadError}</div>}
             </div>
           </div>
@@ -307,7 +320,7 @@ export default function MaterialSpecPicker({ isOpen, mode = 'existing', initial 
         <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={apply} disabled={!canApply}>
-            <Check size={15} className="mr-1" /> Use this material
+            <Check size={15} className="mr-1" /> Use this material{selected.length > 0 ? ` (${selected.length} spec${selected.length === 1 ? '' : 's'})` : ''}
           </Button>
         </div>
       </div>

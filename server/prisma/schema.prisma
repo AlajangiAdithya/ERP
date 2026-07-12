@@ -504,6 +504,9 @@ model PurchaseRequest {
   // "No work order". SetNull so removing a WO never deletes its PRs.
   workOrderId          String?
   workOrder            WorkOrder?            @relation("PurchaseRequestWorkOrder", fields: [workOrderId], references: [id], onDelete: SetNull)
+  // Selected in place of a Work Order when the PR is for product R&D / research
+  // purposes. Mutually exclusive with workOrderId (never both set).
+  isRnd                Boolean               @default(false)
   status               PurchaseRequestStatus @default(PENDING_ADMIN)
   notes                String?
   materialSpecsPdfUrl  String? // Optional material specs PDF attached at PR creation
@@ -522,6 +525,9 @@ model PurchaseRequest {
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   items                PurchaseRequestItem[]
+  // Header-level "note" attachments — files the requester attaches to the PR as a
+  // whole (alongside the free-text notes), independent of any one material line.
+  noteAttachments      PurchaseRequestAttachment[]
   quotations           Quotation[]
   purchaseOrders       PurchaseOrder[]
   quotationSources     QuotationSource[]
@@ -548,15 +554,18 @@ model PurchaseRequestItem {
   // PRF form fields
   materialType           String? // Raw material / Consumable / Hand Tools & Fastners / Tools & Fixtures / Others
   materialSpecification  String? // Material specification data
-  // Optional confidential material-spec PDF attached at PR creation time.
-  // Shown as a "View spec" link in PR views; merged after the PR body in the
-  // downloaded PR PDF; surfaced to QC alongside the source PR.
+  // Legacy single spec attachment — superseded by the `attachments` relation
+  // below (multi-file, any format). Kept populated with the FIRST attachment for
+  // backward compatibility with any reader not yet migrated to the list.
   specAttachmentUrl      String?
   specAttachmentName     String?
   qapNo                  String? // QAP no. & QAP attachment reference
   drawingNo              String? // Drawing no. & detailed drawing reference
-  materialRequiredFor    String? // SO no. / R&D
-  internalWorkOrder      String? // Internal Work Order (free text)
+  // DEPRECATED — removed from the PR form/PDF (2026-07). Columns kept nullable to
+  // preserve historical values; no longer written or displayed. R&D moved to the
+  // PR header-level `PurchaseRequest.isRnd` flag.
+  materialRequiredFor    String? // (was "Required For — SO no. / R&D")
+  internalWorkOrder      String? // (was "Internal Work Order" free text)
   purpose                String? // Purpose
   sourceOfSupply         String? // Source of supply if any
   scopeOfWork            String? // Reports Required / Scope of Work
@@ -565,6 +574,43 @@ model PurchaseRequestItem {
   itemRemarks            String? // Other details/Remarks
   poItemAllocations      PurchaseOrderItemAllocation[]
   materialPoolMembership MaterialPoolItem?
+  // Per-line material-spec attachments — multiple files, any format (PDF, image
+  // scans, DWG drawings, DOC/XLS, zip). Shown as "View spec" links everywhere the
+  // PR line surfaces (PR views, QC inspection, inward reference docs). Each file is
+  // also accumulated into the product's reusable ProductSpec library on submit.
+  attachments            PurchaseRequestItemAttachment[]
+}
+
+// One material-spec file attached to a PR line. Multiple per line. uploadedBy*
+// are snapshots (no back-relation on User). Distinct from ProductSpec (the
+// product-level reusable library) — though each of these is copied there too.
+model PurchaseRequestItemAttachment {
+  id             String              @id @default(uuid())
+  itemId         String
+  item           PurchaseRequestItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  url            String
+  name           String
+  mimeType       String?
+  uploadedById   String?
+  uploadedByName String?
+  createdAt      DateTime            @default(now())
+
+  @@index([itemId])
+}
+
+// One header-level "note" file attached to the PR as a whole (multiple allowed).
+model PurchaseRequestAttachment {
+  id             String          @id @default(uuid())
+  requestId      String
+  request        PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  url            String
+  name           String
+  mimeType       String?
+  uploadedById   String?
+  uploadedByName String?
+  createdAt      DateTime        @default(now())
+
+  @@index([requestId])
 }
 
 enum PurchaseRequestStatus {
@@ -1336,6 +1382,12 @@ model GatePassItem {
   contactPersonDetails String?
   remarks              String? // Legacy
 
+  // Work order this material is dispatched / sent to machining against. Optional
+  // — FIM/returns and ad-hoc dispatches may have no WO. Any live WO is linkable,
+  // regardless of which unit it is assigned to.
+  workOrderId String?
+  workOrder   WorkOrder? @relation("GatePassItemWorkOrder", fields: [workOrderId], references: [id])
+
   // INWARD bookkeeping: how much of this item has been accepted into stores / made into a Product
   inwardedQty Float @default(0)
 
@@ -1353,6 +1405,7 @@ model GatePassItem {
 
   @@index([gatePassId])
   @@index([sourceInwardGatePassItemId])
+  @@index([workOrderId])
 }
 
 // ──── OFFSITE MIV ↔ GATE PASS LINK ────
@@ -1377,6 +1430,7 @@ enum GatePassType {
   RETURNABLE
   NON_RETURNABLE
   DELIVERY_CHALLAN
+  INVOICE
 }
 
 enum GatePassDirection {
@@ -1764,6 +1818,8 @@ model WorkOrder {
   purchaseRequests PurchaseRequest[] @relation("PurchaseRequestWorkOrder")
   productRequests  ProductRequest[]  @relation("ProductRequestWorkOrder")
   machineAllocations MachineAllocation[] @relation("WorkOrderAllocations")
+  // Gate-pass line items dispatched / sent to machining against this WO.
+  gatePassItems    GatePassItem[]    @relation("GatePassItemWorkOrder")
 
   @@index([assignedUnitId])
   @@index([status])

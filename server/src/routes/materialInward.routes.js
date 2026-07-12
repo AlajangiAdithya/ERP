@@ -605,8 +605,8 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
         select: {
           id: true, orderNumber: true, poDocumentUrl: true,
           supplier: { select: { name: true, supplierAssessmentPdfUrl: true, vendorEvaluationPdfUrl: true } },
-          purchaseRequest: { select: { id: true, requestNumber: true, materialSpecsPdfUrl: true, items: { select: { specAttachmentUrl: true, specAttachmentName: true, productName: true } } } },
-          sourceRequests: { select: { purchaseRequest: { select: { id: true, requestNumber: true, materialSpecsPdfUrl: true, items: { select: { specAttachmentUrl: true, specAttachmentName: true, productName: true } } } } } },
+          purchaseRequest: { select: { id: true, requestNumber: true, materialSpecsPdfUrl: true, noteAttachments: { select: { url: true, name: true } }, items: { select: { specAttachmentUrl: true, specAttachmentName: true, productName: true, attachments: { select: { url: true, name: true } } } } } },
+          sourceRequests: { select: { purchaseRequest: { select: { id: true, requestNumber: true, materialSpecsPdfUrl: true, noteAttachments: { select: { url: true, name: true } }, items: { select: { specAttachmentUrl: true, specAttachmentName: true, productName: true, attachments: { select: { url: true, name: true } } } } } } } },
         },
       }) : [],
       poItemIds.size ? prisma.purchaseOrderItem.findMany({ where: { id: { in: [...poItemIds] } }, select: { id: true, quantity: true } }) : [],
@@ -651,7 +651,16 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
         seen.add(pr.id);
         if (pr.materialSpecsPdfUrl) docs.push({ label: `PR ${pr.requestNumber} — Material Specs`, url: pr.materialSpecsPdfUrl });
         (pr.items || []).forEach((it) => {
-          if (it.specAttachmentUrl) docs.push({ label: `PR ${pr.requestNumber} — Spec: ${it.specAttachmentName || it.productName || 'attachment'}`, url: it.specAttachmentUrl });
+          // Prefer the multi-file attachments list; fall back to the legacy single spec.
+          const specs = (it.attachments && it.attachments.length)
+            ? it.attachments
+            : (it.specAttachmentUrl ? [{ url: it.specAttachmentUrl, name: it.specAttachmentName }] : []);
+          specs.forEach((s) => {
+            docs.push({ label: `PR ${pr.requestNumber} — Spec: ${s.name || it.productName || 'attachment'}`, url: s.url });
+          });
+        });
+        (pr.noteAttachments || []).forEach((n) => {
+          docs.push({ label: `PR ${pr.requestNumber} — Note: ${n.name || 'attachment'}`, url: n.url });
         });
       });
       refDocsMap[po.id] = docs;
