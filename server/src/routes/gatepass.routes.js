@@ -4,7 +4,7 @@ const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { fimGpUpload, publicUrlFor } = require('../middleware/upload');
 const {
-  generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation,
+  generateSequentialNumber, generateGatePassNumber, paginate, applyDateFilter, isUniqueViolation,
   withDocRetry, generateProductSku, normalizeMaterialType,
 } = require('../utils/helpers');
 
@@ -214,12 +214,8 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
       return res.status(400).json({ error: 'At least one item is required' });
     }
 
-    // Pass number is entered manually by the stores person (no auto-count).
-    // Required; duplicates are allowed (passNumber is no longer unique).
-    const passNumber = (rawPassNumber || '').trim();
-    if (!passNumber) {
-      return res.status(400).json({ error: 'Gate pass number is required' });
-    }
+    // Pass number is auto-generated per unit as RAPS/GP/<UNIT>/<FY>/<N> (see below).
+    // A manually-typed number is still honoured if one is supplied (override).
 
     const inwardKind = isInward ? (INWARD_KINDS.includes(rawInwardKind) ? rawInwardKind : 'STORES') : null;
 
@@ -309,9 +305,19 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
       ? (inwardKind === 'STORES' ? 'ACCEPTED' : 'PENDING_ACCEPTANCE')
       : 'PENDING_STORE';
 
+    // Which unit's counter this GP belongs to: the destination unit for
+    // direct-to-unit inward, otherwise the creator's own unit. Falls back to 'GEN'.
+    const gpUnitId = (isInward && inwardKind === 'DIRECT_TO_UNIT') ? destinationUnitId : (req.user.unitId || null);
+    let gpUnitCode = 'GEN';
+    if (gpUnitId) {
+      const u = await prisma.unit.findUnique({ where: { id: gpUnitId }, select: { code: true, name: true } });
+      gpUnitCode = u?.code || u?.name || 'GEN';
+    }
+
     let fimNumber = null;
     const gatePass = await withDocRetry(async () => {
-      // passNumber is supplied manually (validated above) — not auto-generated.
+      // Auto per-unit pass number RAPS/GP/<UNIT>/<FY>/<N>; a supplied number overrides.
+      const passNumber = (rawPassNumber || '').trim() || await generateGatePassNumber(prisma, gpUnitCode);
       // FIM/Customer Property Register number — only for INWARD STORES intake.
       if (isInward && inwardKind === 'STORES') {
         fimNumber = await generateSequentialNumber(prisma, 'FIM');
@@ -378,7 +384,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
         action: 'CREATE',
         entity: 'GatePass',
         entityId: gatePass.id,
-        details: { passNumber, partyName: gatePass.partyName, direction },
+        details: { passNumber: gatePass.passNumber, partyName: gatePass.partyName, direction },
         ipAddress: req.ip,
       },
     });
@@ -536,8 +542,9 @@ router.put('/:id/edit', authenticate, authorize('MANAGER', 'ADMIN', 'PLANNING'),
       return res.status(400).json({ error: 'Only outward gate passes can be edited this way' });
     }
 
-    const passNumber = (rawPassNumber || '').trim();
-    if (!passNumber) return res.status(400).json({ error: 'Gate pass number is required' });
+    // Number is fixed once created — keep the existing one (honour an explicit
+    // override if the client still sends the same value).
+    const passNumber = (rawPassNumber || '').trim() || existing.passNumber;
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'At least one item is required' });
     }

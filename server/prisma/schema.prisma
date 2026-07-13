@@ -448,6 +448,9 @@ model ProductRequest {
   // Null = "No work order". SetNull so removing a WO never deletes its MIVs.
   workOrderId    String?
   workOrder      WorkOrder?    @relation("ProductRequestWorkOrder", fields: [workOrderId], references: [id], onDelete: SetNull)
+  // Selected in place of a Work Order when the MIV is for product R&D / research
+  // (mirrors PurchaseRequest.isRnd). Mutually exclusive with workOrderId.
+  isRnd          Boolean       @default(false)
   status         RequestStatus @default(PENDING)
   notes          String?
   remarks        String? // Remarks field from MIV form

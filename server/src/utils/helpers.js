@@ -165,6 +165,19 @@ const generateMirNumber = async (prisma, date = new Date()) => {
   return `${prefix}${next}`;
 };
 
+// Gate pass number counted PER UNIT within the FY: RAPS/GP/<UNIT>/<FY>/<N>.
+// `unitCode` is the raising/owning unit's code (falls back to 'GEN' when the
+// creator has no unit). The unit segment keeps each unit's counter independent
+// and never collides with the old unit-less RAPS/GP/<FY>/<N> numbers.
+const gpUnitSegment = (unitCode) =>
+  ((unitCode || 'GEN').toString().trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'GEN');
+
+const generateGatePassNumber = async (prisma, unitCode, date = new Date()) => {
+  const prefix = `RAPS/GP/${gpUnitSegment(unitCode)}/${getFinancialYear(date)}/`;
+  const next = await nextFyCount(prisma, 'gatePass', 'passNumber', prefix, 0);
+  return `${prefix}${next}`;
+};
+
 // Product ID: a single running serial shared by every product (no category
 // prefix) — 001, 002, 003 … One global counter so the IDs form one continuous
 // series; zero-padded to 3 digits and grows naturally past 999. The legacy
@@ -267,6 +280,7 @@ module.exports = {
   formatDDMMYY,
   getFinancialYear,
   generateMirNumber,
+  generateGatePassNumber,
   generateSequentialNumber,
   generateProductSku,
   isUniqueViolation,

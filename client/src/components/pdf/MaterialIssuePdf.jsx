@@ -37,7 +37,7 @@ export default function MaterialIssuePdf({ data }) {
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Work Order No.</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{r.workOrder?.workOrderNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{r.isRnd ? 'R & D (Product research)' : (r.workOrder?.workOrderNumber || '—')}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Supply Order No.</Text></View>
             <View style={[styles.cell, { width: '30%' }]}><Text>{r.workOrder?.supplyOrderNo || '—'}</Text></View>
           </View>

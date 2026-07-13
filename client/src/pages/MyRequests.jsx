@@ -102,7 +102,7 @@ export default function MyRequests() {
     })));
     setNotes(request.notes || '');
     setRemarks(request.remarks || '');
-    setWorkOrderId(request.workOrderId || '');
+    setWorkOrderId(request.isRnd ? 'RND' : (request.workOrderId || ''));
     setShowDetail(null);
     setShowCreate(true);
   };
@@ -125,14 +125,15 @@ export default function MyRequests() {
   };
 
   const submitRequest = async () => {
-    if (!workOrderId) return alert('Select a Work Order — it is required for an MIV');
     if (cartItems.length === 0) return alert('Add at least one product');
     setSaving(true);
     try {
       const payload = {
         notes: notes || undefined,
         remarks: remarks || undefined,
-        workOrderId,
+        // "RND" is the sentinel for the R&D dropdown choice — it clears the WO link.
+        workOrderId: workOrderId === 'RND' ? null : (workOrderId || null),
+        isRnd: workOrderId === 'RND',
         items: cartItems.map(i => ({
           productId: i.productId,
           quantity: i.quantity,
@@ -301,17 +302,17 @@ export default function MyRequests() {
       <Modal isOpen={showCreate} onClose={() => { setShowCreate(false); setEditingId(null); }} title={editingId ? 'Edit Product Request' : 'New Product Request'} size="lg">
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Work Order <span className="text-red-500">*</span></label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Work Order</label>
             <select
               value={workOrderId}
               onChange={(e) => setWorkOrderId(e.target.value)}
-              required
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
             >
-              <option value="">— Select a work order —</option>
+              <option value="">— No work order —</option>
+              <option value="RND">R &amp; D — Product research (not a work order)</option>
               {workOrders.map(wo => (
                 <option key={wo.id} value={wo.id}>
-                  {wo.workOrderNumber} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
+                  {wo.workOrderNumber}{wo.supplyOrderNo ? ` · SO: ${wo.supplyOrderNo}` : ''} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
                 </option>
               ))}
             </select>
@@ -412,8 +413,11 @@ export default function MyRequests() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(showDetail.status)}>{showDetail.status}</Badge></div>
               <div><span className="text-gray-500">Unit:</span> <span className="font-medium">{showDetail.unit?.name}</span></div>
-              {showDetail.workOrder && <div><span className="text-gray-500">Work Order:</span> <span className="font-medium">{showDetail.workOrder.workOrderNumber}</span></div>}
-              {showDetail.workOrder && <div><span className="text-gray-500">WO Assigned Unit:</span> <span className="font-medium">{showDetail.workOrder.assignedUnit?.name || showDetail.workOrder.assignedUnitName || 'Unassigned'}</span></div>}
+              {showDetail.isRnd
+                ? <div><span className="text-gray-500">Work Order:</span> <span className="font-medium">R &amp; D (Product research)</span></div>
+                : showDetail.workOrder && <div><span className="text-gray-500">Work Order:</span> <span className="font-medium">{showDetail.workOrder.workOrderNumber}</span></div>}
+              {!showDetail.isRnd && showDetail.workOrder?.supplyOrderNo && <div><span className="text-gray-500">Supply Order No:</span> <span className="font-medium">{showDetail.workOrder.supplyOrderNo}</span></div>}
+              {!showDetail.isRnd && showDetail.workOrder && <div><span className="text-gray-500">WO Assigned Unit:</span> <span className="font-medium">{showDetail.workOrder.assignedUnit?.name || showDetail.workOrder.assignedUnitName || 'Unassigned'}</span></div>}
               <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(showDetail.createdAt)}</span></div>
               {showDetail.referenceNo && <div><span className="text-gray-500">Reference No:</span> <span className="font-medium">{showDetail.referenceNo}</span></div>}
               {showDetail.mirNo && <div><span className="text-gray-500">MIR No:</span> <span className="font-medium">{showDetail.mirNo}</span></div>}

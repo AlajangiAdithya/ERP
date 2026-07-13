@@ -431,7 +431,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                   <option value="RND">R &amp; D — Product research (not a work order)</option>
                   {workOrders.map(wo => (
                     <option key={wo.id} value={wo.id}>
-                      {wo.workOrderNumber} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
+                      {wo.workOrderNumber}{wo.supplyOrderNo ? ` · SO: ${wo.supplyOrderNo}` : ''} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
                     </option>
                   ))}
                 </select>
@@ -1455,7 +1455,12 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           {request.isRnd ? (
             <div><span className="text-gray-500">Work Order:</span> <span className="font-medium">R &amp; D (Product research)</span></div>
           ) : request.workOrder && (
-            <div><span className="text-gray-500">Work Order:</span> <span className="font-medium">{request.workOrder.workOrderNumber}</span></div>
+            <>
+              <div><span className="text-gray-500">Work Order:</span> <span className="font-medium">{request.workOrder.workOrderNumber}</span></div>
+              {request.workOrder.supplyOrderNo && (
+                <div><span className="text-gray-500">Supply Order No:</span> <span className="font-medium">{request.workOrder.supplyOrderNo}</span></div>
+              )}
+            </>
           )}
           <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(request.createdAt)}</span></div>
           {request.qcApprovedBy && (

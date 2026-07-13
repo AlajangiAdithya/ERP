@@ -695,7 +695,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
 
   const submit = async () => {
     setError('');
-    if (!passNumber.trim()) return setError('Gate pass number is required');
+    // Number is auto-generated per unit on the server — no manual entry needed.
     if (items.some(i => !i.description.trim())) return setError('Each item needs a name/description');
     if (items.some(i => !i.quantity || Number(i.quantity) <= 0)) return setError('Each item needs a positive quantity');
     if (items.some(i => i.itemPassType === 'RETURNABLE' && !i.probableReturnDate)) {
@@ -767,7 +767,12 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <Input label="Gate Pass No. *" value={passNumber} onChange={e => setPassNumber(e.target.value)} placeholder="Enter the gate pass number" />
+          <Input
+            label="Gate Pass No."
+            value={isEdit ? passNumber : 'Auto-generated per unit on save'}
+            readOnly
+            disabled
+          />
           <Input label="Requesting Unit" value={user?.unit?.name || '— (Global)'} readOnly disabled />
           <Input label="Site / Unit" value={siteName} onChange={e => setSiteName(e.target.value)} placeholder="Site or unit" />
           {kind === 'LOCAL_JOB' && (
@@ -866,13 +871,23 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
                         value={it.itemPurpose} onChange={e => updateItem(idx, 'itemPurpose', e.target.value)} />
                     </td>
                     <td className="px-2 py-2">
-                      <input type="date" className={cellInput}
-                        value={it.probableReturnDate} onChange={e => updateItem(idx, 'probableReturnDate', e.target.value)}
-                        disabled={it.itemPassType !== 'RETURNABLE'} />
+                      {it.itemPassType === 'RETURNABLE' ? (
+                        <input type="date" className={cellInput}
+                          value={it.probableReturnDate} onChange={e => updateItem(idx, 'probableReturnDate', e.target.value)} />
+                      ) : (
+                        <span className="text-xs text-gray-400 italic">N/A — delivery item</span>
+                      )}
                     </td>
                     <td className="px-2 py-2">
                       <select className={cellInput}
-                        value={it.itemPassType} onChange={e => updateItem(idx, 'itemPassType', e.target.value)}>
+                        value={it.itemPassType} onChange={e => {
+                          const v = e.target.value;
+                          // Set the type and clear any return date for delivery/
+                          // non-returnable items — one atomic update (avoids stale state).
+                          setItems(prev => prev.map((row, i) => i === idx
+                            ? { ...row, itemPassType: v, probableReturnDate: v === 'RETURNABLE' ? row.probableReturnDate : '' }
+                            : row));
+                        }}>
                         <option value="RETURNABLE">Returnable</option>
                         <option value="NON_RETURNABLE">Non-Returnable</option>
                         <option value="DELIVERY_CHALLAN">Delivery Challan</option>
