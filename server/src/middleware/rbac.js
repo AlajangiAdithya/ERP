@@ -72,6 +72,13 @@ const authorizeMinRole = (minRole) => {
 // is loaded by the auth middleware.
 const PRODUCT_MASTER_UNIT_CODES = ['1', '2', '3', '4', '5'];
 
+// The Unit 1–5 managers are the main managers here and log in with these
+// usernames. They own master data regardless of how their unit link is set up,
+// so match on username too (not just unit.code above). Normalised so "Unit 1",
+// "unit1" and "unit 1" all resolve to the same key.
+const PRODUCT_MASTER_USERNAMES = ['unit1', 'unit2', 'unit3', 'unit4', 'unit5'];
+const normalizeUsername = (u) => (u || '').toLowerCase().replace(/\s+/g, '');
+
 // Is this user a product master-data owner (Unit 1–5 manager, plus ADMIN/
 // SUPERADMIN override)? Reused by the guard and the edit route to decide whether
 // saving a product also finalises its master-data gate.
@@ -79,6 +86,7 @@ const isProductMasterRole = (user) => {
   if (!user) return false;
   const { role } = user;
   if (role === 'SUPERADMIN' || role === 'ADMIN') return true;
+  if (PRODUCT_MASTER_USERNAMES.includes(normalizeUsername(user.username))) return true;
   return role === 'MANAGER' && PRODUCT_MASTER_UNIT_CODES.includes(user.unit?.code);
 };
 

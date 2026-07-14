@@ -5,10 +5,18 @@
 // `isProductMasterRole` / `authorizeProductMaster` in server/src/middleware/rbac.js.
 const PRODUCT_MASTER_UNIT_CODES = ['1', '2', '3', '4', '5'];
 
+// The Unit 1–5 managers are the main managers here and log in with these
+// usernames. They own master data regardless of how their unit link is set up,
+// so match on username too. Normalised so "Unit 1", "unit1" and "unit 1" all
+// resolve to the same key. Mirrors PRODUCT_MASTER_USERNAMES in server rbac.js.
+const PRODUCT_MASTER_USERNAMES = ['unit1', 'unit2', 'unit3', 'unit4', 'unit5'];
+const normalizeUsername = (u) => (u || '').toLowerCase().replace(/\s+/g, '');
+
 export function isProductMasterEditor(user) {
   if (!user) return false;
   const { role } = user;
   if (role === 'SUPERADMIN' || role === 'ADMIN') return true;
+  if (PRODUCT_MASTER_USERNAMES.includes(normalizeUsername(user.username))) return true;
   return role === 'MANAGER' && PRODUCT_MASTER_UNIT_CODES.includes(user.unit?.code);
 }
 
