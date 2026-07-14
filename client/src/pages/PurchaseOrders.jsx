@@ -14,6 +14,8 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
+import { reasonError } from '../utils/reasonValidation';
+import TatBadge from '../components/shared/TatBadge';
 import PageHero from '../components/shared/PageHero';
 
 const formatCurrency = (amt) => `₹${Number(amt || 0).toLocaleString('en-IN')}`;
@@ -876,8 +878,12 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     ? Math.ceil((new Date(order.createdAt) - new Date(prAdminApprovedAt)) / (1000 * 60 * 60 * 24)) - 4
     : 0;
 
+  const poRemarkErr = reasonError(poCreationDelayRemark, { fieldLabel: 'delay remark' });
+  const delayNoteErr = reasonError(delayNote, { fieldLabel: 'reason for delay' });
+
   const savePoCreationRemark = async () => {
     if (!poCreationDelayRemark.trim()) return;
+    if (poRemarkErr) return alert(poRemarkErr);
     setSavingPoRemark(true);
     try {
       await api.put(`/purchase-orders/${order.id}/po-creation-delay-remark`, { remark: poCreationDelayRemark });
@@ -893,6 +899,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
     if (isDelayed && delayAcknowledged && !delayNote.trim()) {
       return alert('Please write a brief reason for the delay before placing the order.');
     }
+    if (delayNote.trim() && delayNoteErr) return alert(delayNoteErr);
     if (!confirm(`Send ${paymentType} payment request of ₹${parseFloat(paymentAmount).toLocaleString('en-IN')} to Accounting?`)) return;
     setProcessing(true);
     try {
@@ -1302,13 +1309,14 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                 <textarea
                   value={poCreationDelayRemark}
                   onChange={(e) => setPoCreationDelayRemark(e.target.value)}
-                  className="w-full px-3 py-2 border border-amber-300 rounded-md text-sm focus:ring-2 focus:ring-amber-500 bg-white"
+                  className={`w-full px-3 py-2 border rounded-md text-sm focus:ring-2 bg-white ${poRemarkErr ? 'border-red-400 focus:ring-red-400' : 'border-amber-300 focus:ring-amber-500'}`}
                   rows={2}
                   placeholder="Explain why this PO was created more than 4 days after PR approval…"
                 />
+                {poRemarkErr && <p className="text-xs font-medium text-brand-red">{poRemarkErr}</p>}
                 <button
                   onClick={savePoCreationRemark}
-                  disabled={savingPoRemark || !poCreationDelayRemark.trim()}
+                  disabled={savingPoRemark || !poCreationDelayRemark.trim() || !!poRemarkErr}
                   className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40"
                 >
                   {savingPoRemark ? 'Saving…' : 'Save Delay Remark'}
@@ -1777,19 +1785,24 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                         </label>
                       </div>
                       {delayAcknowledged && (
-                        <textarea
-                          value={delayNote}
-                          onChange={(e) => setDelayNote(e.target.value)}
-                          placeholder="Reason for delay in placing the order…"
-                          rows={2}
-                          className="w-full px-3 py-2 border rounded-md text-sm"
-                        />
+                        <>
+                          <textarea
+                            value={delayNote}
+                            onChange={(e) => setDelayNote(e.target.value)}
+                            placeholder="Reason for delay in placing the order…"
+                            rows={2}
+                            className={`w-full px-3 py-2 border rounded-md text-sm ${delayNote.trim() && delayNoteErr ? 'border-red-400 focus:ring-red-400' : ''}`}
+                          />
+                          {delayNote.trim() && delayNoteErr && (
+                            <p className="text-xs font-medium text-brand-red">{delayNoteErr}</p>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
 
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={placeOrder} disabled={processing}>{processing ? 'Placing...' : 'Place Order & Request Payment'}</Button>
+                    <Button size="sm" onClick={placeOrder} disabled={processing || (delayAcknowledged && !!delayNote.trim() && !!delayNoteErr)}>{processing ? 'Placing...' : 'Place Order & Request Payment'}</Button>
                     <Button size="sm" variant="secondary" onClick={() => setShowPaymentForm(false)}>Cancel</Button>
                   </div>
                 </div>
@@ -2005,6 +2018,7 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
                       {o.orderNumber}
                     </button>
                     <Badge color={statusColor(o.status)}>{statusLabel(o.status)}</Badge>
+                    {o.status === 'PENDING_ACCOUNTING' && <TatBadge since={o.createdAt} label="awaiting placement" />}
                     {lotCount > 0 && (
                       <span className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
                         {lotCount} lot{lotCount > 1 ? 's' : ''}

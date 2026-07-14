@@ -11,6 +11,9 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
 import { UOM_OPTIONS } from '../utils/units';
+import { reasonError } from '../utils/reasonValidation';
+import TatBadge from '../components/shared/TatBadge';
+import { tatStatus, tatRowClass } from '../utils/tat';
 import PRPdf from '../components/pdf/PRPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import MaterialSpecPicker from '../components/shared/MaterialSpecPicker';
@@ -53,6 +56,13 @@ function AttachmentLinks({ items, label }) {
     </div>
   );
 }
+
+// When a PR is waiting for a decision, this is when the wait started — drives
+// the turnaround ageing badge (yellow ≥24h, red ≥48h) in the list.
+const prPendingSince = (r) =>
+  r?.status === 'PENDING_QC' ? r.createdAt
+    : r?.status === 'PENDING_ADMIN' ? (r.qcApprovedAt || r.createdAt)
+      : null;
 
 const statusColor = (s) => ({
   PENDING_QC: 'yellow',
@@ -793,10 +803,14 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
     }
   }, [request]);
 
+  const delayErr = isDelayed ? reasonError(adminDelayRemark, { fieldLabel: 'delay remark' }) : '';
+  const rejectErr = reasonError(adminNotes, { fieldLabel: 'reason for rejection' });
+
   const approve = async () => {
     if (isDelayed && !adminDelayRemark.trim()) {
       return alert('This PR has exceeded the 48-hour SLA. Please provide a delay remark before approving.');
     }
+    if (delayErr) return alert(delayErr);
     setProcessing(true);
     try {
       await api.put(`/purchase-requests/${request.id}/admin-approve`, {
@@ -814,6 +828,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
 
   const reject = async () => {
     if (!adminNotes.trim()) return alert('Please provide a reason for rejection');
+    if (rejectErr) return alert(rejectErr);
     setProcessing(true);
     try {
       await api.put(`/purchase-requests/${request.id}/admin-reject`, { adminNotes });
@@ -961,8 +976,11 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
           <textarea
             value={adminNotes} onChange={(e) => setAdminNotes(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
-            rows={3} placeholder="Internal admin notes..."
+            rows={3} placeholder="Internal admin notes / reason for rejection..."
           />
+          {isPending && adminNotes.trim() && rejectErr && (
+            <p className="mt-1 text-xs font-medium text-brand-red">{rejectErr} <span className="text-gray-400">(required to reject)</span></p>
+          )}
           {!isPending && (
             <Button size="sm" variant="secondary" className="mt-1" onClick={saveNotes}>Save Notes</Button>
           )}
@@ -985,10 +1003,11 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
             <textarea
               value={adminDelayRemark}
               onChange={(e) => setAdminDelayRemark(e.target.value)}
-              className="w-full px-3 py-2 border border-amber-300 rounded-md text-sm focus:ring-2 focus:ring-amber-500 bg-white"
+              className={`w-full px-3 py-2 border rounded-md text-sm focus:ring-2 bg-white ${delayErr ? 'border-red-400 focus:ring-red-400' : 'border-amber-300 focus:ring-amber-500'}`}
               rows={2}
               placeholder="Delay remark (required) — explain why approval exceeded 48 hours…"
             />
+            {delayErr && <p className="text-xs font-medium text-brand-red">{delayErr}</p>}
           </div>
         )}
 
@@ -1000,10 +1019,10 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
             label="View PR PDF"          />
           {isPending && (
             <div className="flex gap-3">
-              <Button variant="danger" onClick={reject} disabled={processing}>
+              <Button variant="danger" onClick={reject} disabled={processing || !adminNotes.trim() || !!rejectErr}>
                 <XCircle size={16} className="mr-1" /> Reject
               </Button>
-              <Button onClick={approve} disabled={processing || (isDelayed && !adminDelayRemark.trim())}>
+              <Button onClick={approve} disabled={processing || (isDelayed && (!adminDelayRemark.trim() || !!delayErr))}>
                 <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Approve'}
               </Button>
             </div>
@@ -1042,8 +1061,11 @@ function QcReviewModal({ request, onClose, onUpdated }) {
     setProcessing(false);
   };
 
+  const qcRejectErr = reasonError(qcNotes, { fieldLabel: 'reason for rejection' });
+
   const reject = async () => {
     if (!qcNotes.trim()) return alert('Please provide a reason for rejection');
+    if (qcRejectErr) return alert(qcRejectErr);
     setProcessing(true);
     try {
       await api.put(`/purchase-requests/${request.id}/qc-reject`, { qcNotes });
@@ -1110,6 +1132,9 @@ function QcReviewModal({ request, onClose, onUpdated }) {
             rows={3} placeholder="QC review notes — required when rejecting..."
             disabled={!isPending}
           />
+          {isPending && qcNotes.trim() && qcRejectErr && (
+            <p className="mt-1 text-xs font-medium text-brand-red">{qcRejectErr} <span className="text-gray-400">(required to reject)</span></p>
+          )}
         </div>
 
         <div className="flex justify-between items-center pt-2 gap-3">
@@ -1119,7 +1144,7 @@ function QcReviewModal({ request, onClose, onUpdated }) {
             label="View PR PDF"          />
           {isPending && (
             <div className="flex gap-3">
-              <Button variant="danger" onClick={reject} disabled={processing}>
+              <Button variant="danger" onClick={reject} disabled={processing || !qcNotes.trim() || !!qcRejectErr}>
                 <XCircle size={16} className="mr-1" /> Reject
               </Button>
               <Button onClick={approve} disabled={processing}>
@@ -2104,9 +2129,11 @@ export default function PurchaseRequests() {
                   const earliestRequired = requiredDates.length > 0
                     ? requiredDates.reduce((a, b) => (new Date(a) < new Date(b) ? a : b))
                     : null;
+                  const pendSince = prPendingSince(r);
+                  const tatTint = tatRowClass(tatStatus(pendSince).level);
 
                   return (
-                    <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                    <tr key={r.id} className={`border-b border-gray-100 transition-colors ${tatTint || (i % 2 === 1 ? 'bg-brand-gray' : 'bg-white')} ${tatTint ? '' : 'hover:bg-navy-50'}`}>
                       <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => handleRowClick(r)}>
                         {r.requestNumber}
                       </td>
@@ -2119,7 +2146,12 @@ export default function PurchaseRequests() {
                         )}
                       </td>
                       <td className="px-3 py-2 text-gray-600">{r.items?.length}</td>
-                      <td className="px-3 py-2"><Badge color={statusColor(r.status)}>{statusLabel(r.status)}</Badge></td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-col items-start gap-1">
+                          <Badge color={statusColor(r.status)}>{statusLabel(r.status)}</Badge>
+                          {pendSince && <TatBadge since={pendSince} />}
+                        </div>
+                      </td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
                       <td className="px-3 py-2 text-gray-500 text-xs">
                         {earliestRequired ? (

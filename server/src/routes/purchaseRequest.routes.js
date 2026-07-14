@@ -9,6 +9,7 @@ const {
   paginate, applyDateFilter, isUniqueViolation, validateWorkOrderLink,
 } = require('../utils/helpers');
 const { buildCoverageSummary, cancelLeftoverPRItems } = require('../utils/prClosure');
+const { validateReason } = require('../utils/reasonValidation');
 
 const router = express.Router();
 
@@ -1224,6 +1225,8 @@ router.put('/:id/qc-reject', authenticate, authorize('QC'), async (req, res) => 
     if (!QC_MANAGED_ROLES.includes(request.manager?.role)) {
       return res.status(400).json({ error: 'This PR is not under QC oversight' });
     }
+    const qcRejectCheck = validateReason(qcNotes, { fieldLabel: 'reason for rejection' });
+    if (!qcRejectCheck.ok) return res.status(400).json({ error: qcRejectCheck.error });
 
     const updated = await prisma.purchaseRequest.update({
       where: { id: req.params.id },
@@ -1290,6 +1293,11 @@ router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, r
     const slaStart = request.qcApprovedAt ? new Date(request.qcApprovedAt) : new Date(request.createdAt);
     if ((new Date() - slaStart) > SLA_48H_PR && !adminDelayRemark?.trim()) {
       return res.status(400).json({ error: 'This approval is past the 48-hour SLA. Please provide a delay remark explaining why.' });
+    }
+    // Delay remark, when provided, must be a genuine reason (not gibberish)
+    if (adminDelayRemark?.trim()) {
+      const check = validateReason(adminDelayRemark, { fieldLabel: 'delay remark' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
     }
 
     // Update approved quantities
@@ -1381,6 +1389,8 @@ router.put('/:id/admin-reject', authenticate, authorize('ADMIN'), async (req, re
     if (request.status !== 'PENDING_ADMIN') {
       return res.status(400).json({ error: 'Only pending requests can be rejected' });
     }
+    const rejectCheck = validateReason(adminNotes, { fieldLabel: 'reason for rejection' });
+    if (!rejectCheck.ok) return res.status(400).json({ error: rejectCheck.error });
 
     const updated = await prisma.purchaseRequest.update({
       where: { id: req.params.id },

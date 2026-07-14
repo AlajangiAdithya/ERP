@@ -56,6 +56,7 @@ const {
   generateSequentialNumber, paginate, applyDateFilter, withDocRetry, isAutoAcceptUnit,
 } = require('../utils/helpers');
 const { syncAlarmsForWO } = require('../services/workOrderAlarms');
+const { validateReason } = require('../utils/reasonValidation');
 
 const router = express.Router();
 
@@ -1053,6 +1054,15 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
     if (accept && (now - new Date(existing.createdAt)) > SLA_48H && !adminDelayRemark?.trim()) {
       return res.status(400).json({ error: 'This acceptance is past the 48-hour SLA. Please provide a delay remark explaining why.' });
     }
+    if (accept && adminDelayRemark?.trim()) {
+      const check = validateReason(adminDelayRemark, { fieldLabel: 'delay remark' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
+    }
+    // Rejection reason, when given, must be meaningful.
+    if (!accept && note?.trim()) {
+      const check = validateReason(note, { fieldLabel: 'reason for not accepting' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
+    }
 
     const updated = await prisma.workOrder.update({
       where: { id: req.params.id },
@@ -1127,6 +1137,15 @@ router.post('/:id/unit-accept', authenticate, authorize('MANAGER'), async (req, 
     // SLA gate: unit manager must provide a delay remark if accepting past 48h from admin acceptance
     if (accept && existing.adminAcceptedAt && (now - new Date(existing.adminAcceptedAt)) > SLA_48H && !unitDelayRemark?.trim()) {
       return res.status(400).json({ error: 'This acceptance is past the 48-hour SLA. Please provide a delay remark explaining why.' });
+    }
+    if (accept && unitDelayRemark?.trim()) {
+      const check = validateReason(unitDelayRemark, { fieldLabel: 'delay remark' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
+    }
+    // Unit rejection always needs a real reason (the note field).
+    if (!accept) {
+      const check = validateReason(note, { fieldLabel: 'reason for not accepting' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
     }
 
     const updated = await prisma.workOrder.update({

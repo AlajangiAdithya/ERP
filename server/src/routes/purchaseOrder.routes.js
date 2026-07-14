@@ -12,6 +12,7 @@ const {
   DEPT_BY_ROLE,
 } = require('../utils/helpers');
 const { cancelLeftoverPRItems } = require('../utils/prClosure');
+const { validateReason } = require('../utils/reasonValidation');
 
 // Wraps multer so we can return a clean 400 on malformed/oversize uploads.
 function acceptPoDocument(req, res, next) {
@@ -1314,6 +1315,8 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
 
     // Save optional delay note on the order itself (separate from payment notes)
     if (data.delayNote && data.delayNote.trim()) {
+      const check = validateReason(data.delayNote, { fieldLabel: 'reason for delay' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
       await prisma.purchaseOrder.update({
         where: { id: order.id },
         data: { delayNote: data.delayNote.trim() },
@@ -1706,6 +1709,8 @@ router.put('/:id/po-creation-delay-remark', authenticate, authorize('PURCHASE_OF
   try {
     const { remark } = req.body;
     if (!remark?.trim()) return res.status(400).json({ error: 'Remark is required' });
+    const check = validateReason(remark, { fieldLabel: 'delay remark' });
+    if (!check.ok) return res.status(400).json({ error: check.error });
 
     const order = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id } });
     if (!order) return res.status(404).json({ error: 'Purchase order not found' });

@@ -7,6 +7,7 @@ const {
   generateSequentialNumber, generateGatePassNumber, paginate, applyDateFilter, isUniqueViolation,
   withDocRetry, generateProductSku, normalizeMaterialType,
 } = require('../utils/helpers');
+const { validateReason } = require('../utils/reasonValidation');
 
 const router = express.Router();
 
@@ -1222,6 +1223,8 @@ router.put('/:id/reject', authenticate, async (req, res) => {
   try {
     const { reason } = req.body;
     if (!reason || !reason.trim()) return res.status(400).json({ error: 'Rejection reason is required' });
+    const reasonCheck = validateReason(reason, { fieldLabel: 'rejection reason' });
+    if (!reasonCheck.ok) return res.status(400).json({ error: reasonCheck.error });
 
     const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Gate pass not found' });

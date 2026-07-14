@@ -22,6 +22,9 @@ import StatsCard from '../components/shared/StatsCard';
 import PageHero from '../components/shared/PageHero';
 import SearchBar from '../components/shared/SearchBar';
 import { formatDate, formatDateTime } from '../utils/formatters';
+import { reasonError } from '../utils/reasonValidation';
+import TatBadge from '../components/shared/TatBadge';
+import { tatStatus, tatRowClass } from '../utils/tat';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import WorkOrderPdf from '../components/pdf/WorkOrderPdf';
 import InvoicePdf from '../components/pdf/InvoicePdf';
@@ -39,6 +42,13 @@ const STATUS_META = {
   REJECTED:       { color: 'red',    label: 'Rejected',         Icon: XCircle },
   ON_HOLD:        { color: 'red',    label: 'On Hold',          Icon: PauseCircle },
 };
+
+// When a WO is waiting on someone to act, this is when the wait started — drives
+// the turnaround ageing badge (yellow ≥24h, red ≥48h) in the lists.
+const woPendingSince = (w) =>
+  w?.status === 'PENDING_ADMIN' ? w.createdAt
+    : w?.status === 'ADMIN_ACCEPTED' ? w.adminAcceptedAt
+      : null;
 
 // 'CLOSED_ORDERS' is a virtual tab: one "Orders Closed" bucket that gathers both
 // COMPLETED (delivered, payment pending) and CLOSED (fully paid) orders, shown as
@@ -810,6 +820,7 @@ function DashboardTable({ workOrders, onOpen }) {
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
+                  <TatBadge since={woPendingSince(w)} />
                   {w.overdue && <Badge color="red">Overdue</Badge>}
                   {w.onTime === true && <Badge color="green">On-Time</Badge>}
                   {w.onTime === false && <Badge color="red">Late</Badge>}
@@ -1022,12 +1033,15 @@ function WorkOrderSheet({ workOrders, onOpen }) {
                 : w.status === 'CLOSED' ? 'border-l-green-500'
                 : w.status === 'COMPLETED' ? 'border-l-amber-500'
                 : 'border-l-navy-300';
-              const zebra = i % 2 === 1 ? 'bg-brand-gray' : 'bg-white';
+              const pendSince = woPendingSince(w);
+              const tatLevel = tatStatus(pendSince).level;
+              const tatTint = tatRowClass(tatLevel);
+              const zebra = tatTint || (i % 2 === 1 ? 'bg-brand-gray' : 'bg-white');
 
               return (
                 <tr
                   key={w.id}
-                  className={`group ${zebra} hover:bg-navy-50 transition-colors cursor-pointer`}
+                  className={`group ${zebra} ${tatTint ? '' : 'hover:bg-navy-50'} transition-colors cursor-pointer`}
                   onClick={() => onOpen(w)}
                 >
                   {/* # — sticky, with status-coloured accent edge */}
@@ -1039,6 +1053,7 @@ function WorkOrderSheet({ workOrders, onOpen }) {
                   <Std>
                     <Badge color={meta.color}><Icon size={11} className="inline mr-1" />{meta.label}</Badge>
                     <div className="flex flex-wrap gap-1 mt-1">
+                      {pendSince && <TatBadge since={pendSince} />}
                       {w.overdue && <Pill tone="red">Overdue</Pill>}
                       {w.onTime === true && <Pill tone="green">On-Time</Pill>}
                       {w.onTime === false && <Pill tone="red">Late</Pill>}
@@ -3107,6 +3122,8 @@ function AdminAcceptControls({ wo, units, busy, onAccept, onReject }) {
   const [adminDelayRemark, setAdminDelayRemark] = useState('');
 
   const isDelayed = wo.createdAt && (Date.now() - new Date(wo.createdAt).getTime()) > 48 * 60 * 60 * 1000;
+  const delayErr = isDelayed ? reasonError(adminDelayRemark, { fieldLabel: 'delay remark' }) : '';
+  const delayBlocked = isDelayed && (!adminDelayRemark.trim() || !!delayErr);
 
   return (
     <div className="w-full space-y-2 border-t pt-3">
@@ -3128,12 +3145,13 @@ function AdminAcceptControls({ wo, units, busy, onAccept, onReject }) {
           value={adminDelayRemark}
           onChange={(e) => setAdminDelayRemark(e.target.value)}
           placeholder="Explain why the admin acceptance was delayed beyond 48 hours…"
+          error={delayErr || undefined}
         />
       )}
       <div className="flex justify-end gap-2">
         <Button variant="danger" disabled={busy} onClick={() => onReject({ note })}>Reject</Button>
         <Button
-          disabled={busy || !assignedUnitId || (isDelayed && !adminDelayRemark.trim())}
+          disabled={busy || !assignedUnitId || delayBlocked}
           onClick={() => onAccept({ note, assignedUnitId, adminDelayRemark: adminDelayRemark.trim() || undefined })}
         >
           Accept &amp; Assign
@@ -3148,6 +3166,10 @@ function UnitAcceptControl({ wo, busy, onAccept, onReject }) {
   const [unitDelayRemark, setUnitDelayRemark] = useState('');
 
   const isDelayed = wo?.adminAcceptedAt && (Date.now() - new Date(wo.adminAcceptedAt).getTime()) > 48 * 60 * 60 * 1000;
+  const delayErr = isDelayed ? reasonError(unitDelayRemark, { fieldLabel: 'delay remark' }) : '';
+  const delayBlocked = isDelayed && (!unitDelayRemark.trim() || !!delayErr);
+  const rejectErr = reasonError(note, { fieldLabel: 'reason for not accepting' });
+  const rejectBlocked = !note.trim() || !!rejectErr;
 
   return (
     <div className="w-full space-y-2 border-t pt-3">
@@ -3163,6 +3185,7 @@ function UnitAcceptControl({ wo, busy, onAccept, onReject }) {
         value={note}
         onChange={(e) => setNote(e.target.value)}
         placeholder="Reason for rejection or remarks on acceptance"
+        error={note.trim() ? (rejectErr || undefined) : undefined}
       />
       {isDelayed && (
         <Textarea
@@ -3171,14 +3194,15 @@ function UnitAcceptControl({ wo, busy, onAccept, onReject }) {
           value={unitDelayRemark}
           onChange={(e) => setUnitDelayRemark(e.target.value)}
           placeholder="Explain why the unit acceptance was delayed beyond 48 hours…"
+          error={delayErr || undefined}
         />
       )}
       <div className="flex justify-end gap-2">
-        <Button variant="danger" disabled={busy || !note.trim()} onClick={() => onReject(note)}>
+        <Button variant="danger" disabled={busy || rejectBlocked} onClick={() => onReject(note)}>
           Reject
         </Button>
         <Button
-          disabled={busy || (isDelayed && !unitDelayRemark.trim())}
+          disabled={busy || delayBlocked}
           onClick={() => onAccept({ note, unitDelayRemark: unitDelayRemark.trim() || undefined })}
         >
           Accept
