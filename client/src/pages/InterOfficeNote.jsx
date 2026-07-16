@@ -371,6 +371,8 @@ function FormFields({ form, update, items, updateItem, addItem, removeItem, work
         <Input label="Project Name" value={form.projectName} onChange={e => update('projectName', e.target.value)} />
         <Select label="Work Order No." value={form.supplyOrderNo} onChange={e => update('supplyOrderNo', e.target.value)}>
           <option value="">— Select work order —</option>
+          <option value="R&D">R &amp; D — Product research (not a work order)</option>
+          <option value="Data Generation">Data Generation (not a work order)</option>
           {workOrders.map(wo => (
             <option key={wo.id} value={wo.workOrderNumber}>
               {wo.workOrderNumber}{wo.supplyOrderNo ? ` · SO: ${wo.supplyOrderNo}` : ''} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
