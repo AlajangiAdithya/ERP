@@ -373,7 +373,7 @@ function FormFields({ form, update, items, updateItem, addItem, removeItem, work
           <option value="">— Select work order —</option>
           {workOrders.map(wo => (
             <option key={wo.id} value={wo.workOrderNumber}>
-              {wo.workOrderNumber}{wo.nomenclature ? ` — ${wo.nomenclature}` : wo.customerName ? ` — ${wo.customerName}` : ''}
+              {wo.workOrderNumber}{wo.supplyOrderNo ? ` · SO: ${wo.supplyOrderNo}` : ''} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
             </option>
           ))}
         </Select>
