@@ -654,7 +654,7 @@ router.put('/:id/edit', authenticate, authorize('MANAGER', 'ADMIN', 'PLANNING'),
 // Legacy (kind=null) keeps the old behaviour: vehicleNo/driverName required, routes to PENDING_ACCOUNTS.
 router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
-    const { driverName, vehicleNo, remarks, items: itemUpdates } = req.body || {};
+    const { driverName, vehicleNo, remarks, storeDelayRemark, items: itemUpdates } = req.body || {};
 
     const existing = await prisma.gatePass.findUnique({
       where: { id: req.params.id },
@@ -676,6 +676,18 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
       : (existing.kind === 'OUTSIDE' ? 'PENDING_ACCOUNTS' : 'PENDING_LOGISTICS');
 
     const now = new Date();
+
+    // 48-hour Stores SLA — measured from when the gate pass was raised (createdAt).
+    // Past 48h the Store Incharge MUST record why the approval was delayed.
+    const SLA_48H = 48 * 60 * 60 * 1000;
+    const storeLate = existing.createdAt && (now - new Date(existing.createdAt).getTime()) > SLA_48H;
+    if (storeLate && !storeDelayRemark?.trim()) {
+      return res.status(400).json({ error: 'This gate pass is past the 48-hour Stores SLA. Please provide a delay remark explaining why.' });
+    }
+    if (storeDelayRemark?.trim()) {
+      const check = validateReason(storeDelayRemark, { fieldLabel: 'delay remark' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
+    }
 
     // Update per-item gatePassDetails and transportation if provided
     if (Array.isArray(itemUpdates) && itemUpdates.length > 0) {
@@ -701,6 +713,7 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
         storeInchargeById: req.user.id,
         storeInchargeAt: now,
         remarks: remarks?.trim() || existing.remarks,
+        storeDelayRemark: storeDelayRemark?.trim() || existing.storeDelayRemark,
       },
       include: GATEPASS_INCLUDE,
     });
@@ -744,7 +757,7 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
 // (Replaces the old /accounts-approve for v2; legacy rows still use /accounts-approve below.)
 router.put('/:id/accounts-invoice', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
   try {
-    const { invoiceNo, dcNo, remarks } = req.body || {};
+    const { invoiceNo, dcNo, remarks, accountsDelayRemark } = req.body || {};
 
     const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
@@ -759,6 +772,20 @@ router.put('/:id/accounts-invoice', authenticate, authorize('ACCOUNTING', 'FINAN
     }
 
     const now = new Date();
+
+    // 48-hour Accounts SLA — measured from when the pass reached Accounts
+    // (storeInchargeAt). Past 48h, Accounts MUST record why it was delayed.
+    const SLA_48H = 48 * 60 * 60 * 1000;
+    const accountsSince = existing.storeInchargeAt || existing.createdAt;
+    const accountsLate = accountsSince && (now - new Date(accountsSince).getTime()) > SLA_48H;
+    if (accountsLate && !accountsDelayRemark?.trim()) {
+      return res.status(400).json({ error: 'This gate pass is past the 48-hour Accounts SLA. Please provide a delay remark explaining why.' });
+    }
+    if (accountsDelayRemark?.trim()) {
+      const check = validateReason(accountsDelayRemark, { fieldLabel: 'delay remark' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
+    }
+
     const updated = await prisma.gatePass.update({
       where: { id: req.params.id },
       data: {
@@ -766,6 +793,7 @@ router.put('/:id/accounts-invoice', authenticate, authorize('ACCOUNTING', 'FINAN
         invoiceNo: invoiceNo?.trim() || existing.invoiceNo,
         dcNo: dcNo?.trim() || existing.dcNo,
         remarks: remarks?.trim() || existing.remarks,
+        accountsDelayRemark: accountsDelayRemark?.trim() || existing.accountsDelayRemark,
         accountsById: req.user.id,
         accountsAt: now,
       },
@@ -1170,6 +1198,7 @@ router.put('/:id/stores-ack', authenticate, authorize('STORE_MANAGER', 'ADMIN'),
 // PUT /api/gatepasses/:id/accounts-approve — LEGACY (kind=null OUTWARD rows, e.g. FIM /send-out)
 router.put('/:id/accounts-approve', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
   try {
+    const { accountsDelayRemark } = req.body || {};
     const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
     if (existing.kind) {
@@ -1180,10 +1209,25 @@ router.put('/:id/accounts-approve', authenticate, authorize('ACCOUNTING', 'FINAN
     }
 
     const now = new Date();
+
+    // 48-hour Accounts SLA — measured from when the pass reached Accounts
+    // (storeInchargeAt). Past 48h, Accounts MUST record why it was delayed.
+    const SLA_48H = 48 * 60 * 60 * 1000;
+    const accountsSince = existing.storeInchargeAt || existing.createdAt;
+    const accountsLate = accountsSince && (now - new Date(accountsSince).getTime()) > SLA_48H;
+    if (accountsLate && !accountsDelayRemark?.trim()) {
+      return res.status(400).json({ error: 'This gate pass is past the 48-hour Accounts SLA. Please provide a delay remark explaining why.' });
+    }
+    if (accountsDelayRemark?.trim()) {
+      const check = validateReason(accountsDelayRemark, { fieldLabel: 'delay remark' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
+    }
+
     const updated = await prisma.gatePass.update({
       where: { id: req.params.id },
       data: {
         status: 'APPROVED',
+        accountsDelayRemark: accountsDelayRemark?.trim() || existing.accountsDelayRemark,
         accountsById: req.user.id,
         accountsAt: now,
         approvedById: req.user.id,

@@ -14,7 +14,8 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
-import { reasonError } from '../utils/reasonValidation';
+import { slaRemarkState } from '../utils/sla';
+import { SlaNotice, SlaDelayRemark } from '../components/shared/SlaGate';
 import TatBadge from '../components/shared/TatBadge';
 import PageHero from '../components/shared/PageHero';
 
@@ -734,10 +735,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentType, setPaymentType] = useState('ADVANCE');
   const [paymentNotes, setPaymentNotes] = useState('');
-  const [delayAcknowledged, setDelayAcknowledged] = useState(false);
   const [delayNote, setDelayNote] = useState('');
-  const [poCreationDelayRemark, setPoCreationDelayRemark] = useState('');
-  const [savingPoRemark, setSavingPoRemark] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [inwardItems, setInwardItems] = useState([]);
   const [prQuotations, setPrQuotations] = useState([]);
@@ -860,46 +858,19 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const isPendingAccounting = order.status === 'PENDING_ACCOUNTING';
   const isCreditPlaced = order.status === 'CREDIT_PLACED';
 
-  // Phase 2: detect placement delay vs PR creation
-  const prCreatedAt = order?.purchaseRequest?.createdAt || order?.sourceRequests?.[0]?.purchaseRequest?.createdAt;
-  const daysSincePr = prCreatedAt
-    ? Math.floor((Date.now() - new Date(prCreatedAt).getTime()) / (1000 * 60 * 60 * 24))
-    : 0;
-  const isDelayed = daysSincePr >= 3;
-
-  // SLA: PO creation should happen within 4 days of PR admin approval
-  const prAdminApprovedAt = order?.purchaseRequest?.adminApprovedAt
-    || order?.sourceRequests?.map(s => s.purchaseRequest?.adminApprovedAt).filter(Boolean)
-        .sort()[0]; // earliest among union sources
-  const poCreationSlaMs = 4 * 24 * 60 * 60 * 1000;
-  const isPoCreationDelayed = prAdminApprovedAt && order?.createdAt
-    && (new Date(order.createdAt) - new Date(prAdminApprovedAt)) > poCreationSlaMs;
-  const poCreationDaysLate = isPoCreationDelayed
-    ? Math.ceil((new Date(order.createdAt) - new Date(prAdminApprovedAt)) / (1000 * 60 * 60 * 24)) - 4
-    : 0;
-
-  const poRemarkErr = reasonError(poCreationDelayRemark, { fieldLabel: 'delay remark' });
-  const delayNoteErr = reasonError(delayNote, { fieldLabel: 'reason for delay' });
-
-  const savePoCreationRemark = async () => {
-    if (!poCreationDelayRemark.trim()) return;
-    if (poRemarkErr) return alert(poRemarkErr);
-    setSavingPoRemark(true);
-    try {
-      await api.put(`/purchase-orders/${order.id}/po-creation-delay-remark`, { remark: poCreationDelayRemark });
-      onUpdated();
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save remark');
-    }
-    setSavingPoRemark(false);
-  };
+  // 48-hour placement SLA — measured from when the PO became "awaiting placement"
+  // (createdAt), matching the ageing badge in the list. Past 48h the Purchase
+  // Officer must record a validated delay remark before the order can be placed.
+  const placementSla = slaRemarkState(order?.createdAt, delayNote);
+  const isDelayed = placementSla.isDelayed;
+  const delayNoteErr = placementSla.error;
 
   const placeOrder = async () => {
     if (!paymentAmount || parseFloat(paymentAmount) <= 0) return alert('Enter the payment amount.');
-    if (isDelayed && delayAcknowledged && !delayNote.trim()) {
-      return alert('Please write a brief reason for the delay before placing the order.');
+    if (isDelayed && !delayNote.trim()) {
+      return alert('This order is past the 48-hour placement SLA. Please add a delay remark explaining why before placing it.');
     }
-    if (delayNote.trim() && delayNoteErr) return alert(delayNoteErr);
+    if (isDelayed && delayNoteErr) return alert(delayNoteErr);
     if (!confirm(`Send ${paymentType} payment request of ₹${parseFloat(paymentAmount).toLocaleString('en-IN')} to Accounting?`)) return;
     setProcessing(true);
     try {
@@ -907,13 +878,12 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
         paymentType,
         amount: parseFloat(paymentAmount),
         notes: paymentNotes || undefined,
-        delayNote: isDelayed && delayAcknowledged ? delayNote.trim() : undefined,
+        delayNote: delayNote.trim() || undefined,
       });
       setShowPaymentForm(false);
       setPaymentAmount('');
       setPaymentNotes('');
       setDelayNote('');
-      setDelayAcknowledged(false);
       onClose();
       onUpdated();
     } catch (err) {
@@ -1288,45 +1258,12 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
         </div>
 
         {order.delayNote && (
-          <div className="bg-orange-50 border border-orange-200 rounded-md p-3 text-sm">
-            <div className="text-xs font-semibold text-orange-900 uppercase tracking-wide mb-1">Order Placement Delay Note</div>
+          <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm">
+            <div className="text-xs font-semibold text-amber-900 uppercase tracking-wide mb-1">⚠ Placement delayed beyond 48h — delay remark</div>
             <div className="text-gray-700">{order.delayNote}</div>
           </div>
         )}
 
-        {/* PO Creation SLA (4 days from PR admin approval) */}
-        {isPoCreationDelayed && (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
-            <p className="text-xs font-semibold text-amber-800">
-              ⚠ PR → PO SLA exceeded by {poCreationDaysLate} day{poCreationDaysLate !== 1 ? 's' : ''} — PO was created more than 4 days after PR admin approval.
-            </p>
-            {order.poCreationDelayRemark ? (
-              <p className="text-sm text-gray-700 bg-white rounded px-2 py-1 border border-amber-200">
-                <span className="font-semibold text-amber-900">Delay remark: </span>{order.poCreationDelayRemark}
-              </p>
-            ) : userRole === 'PURCHASE_OFFICER' ? (
-              <div className="space-y-1.5">
-                <textarea
-                  value={poCreationDelayRemark}
-                  onChange={(e) => setPoCreationDelayRemark(e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md text-sm focus:ring-2 bg-white ${poRemarkErr ? 'border-red-400 focus:ring-red-400' : 'border-amber-300 focus:ring-amber-500'}`}
-                  rows={2}
-                  placeholder="Explain why this PO was created more than 4 days after PR approval…"
-                />
-                {poRemarkErr && <p className="text-xs font-medium text-brand-red">{poRemarkErr}</p>}
-                <button
-                  onClick={savePoCreationRemark}
-                  disabled={savingPoRemark || !poCreationDelayRemark.trim() || !!poRemarkErr}
-                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40"
-                >
-                  {savingPoRemark ? 'Saving…' : 'Save Delay Remark'}
-                </button>
-              </div>
-            ) : (
-              <p className="text-xs text-amber-700 italic">Delay remark not yet provided by Purchase Officer.</p>
-            )}
-          </div>
-        )}
         {order.mirNo && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 text-sm">
             <span className="text-xs font-semibold text-emerald-900 uppercase tracking-wide">MIR No: </span>
@@ -1759,50 +1696,17 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                     <Input label="Notes" value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} placeholder="Optional" />
                   </div>
 
-                  {isDelayed && (
-                    <div className="border border-orange-300 bg-orange-50 rounded-md p-3 space-y-2">
-                      <div className="text-xs font-semibold text-orange-800">
-                        Placement delay detected — PR was created {daysSincePr} day(s) ago.
-                      </div>
-                      <div className="flex items-center gap-4 text-sm">
-                        <label className="inline-flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="delay-ack"
-                            checked={delayAcknowledged === true}
-                            onChange={() => setDelayAcknowledged(true)}
-                          />
-                          <span>Delayed by 3 days or more — add reason</span>
-                        </label>
-                        <label className="inline-flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="delay-ack"
-                            checked={delayAcknowledged === false}
-                            onChange={() => { setDelayAcknowledged(false); setDelayNote(''); }}
-                          />
-                          <span>No comment</span>
-                        </label>
-                      </div>
-                      {delayAcknowledged && (
-                        <>
-                          <textarea
-                            value={delayNote}
-                            onChange={(e) => setDelayNote(e.target.value)}
-                            placeholder="Reason for delay in placing the order…"
-                            rows={2}
-                            className={`w-full px-3 py-2 border rounded-md text-sm ${delayNote.trim() && delayNoteErr ? 'border-red-400 focus:ring-red-400' : ''}`}
-                          />
-                          {delayNote.trim() && delayNoteErr && (
-                            <p className="text-xs font-medium text-brand-red">{delayNoteErr}</p>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
+                  <SlaNotice action="Placing this order" />
+                  <SlaDelayRemark
+                    isDelayed={isDelayed}
+                    value={delayNote}
+                    onChange={(e) => setDelayNote(e.target.value)}
+                    error={delayNoteErr}
+                    action="Placing this order"
+                  />
 
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={placeOrder} disabled={processing || (delayAcknowledged && !!delayNote.trim() && !!delayNoteErr)}>{processing ? 'Placing...' : 'Place Order & Request Payment'}</Button>
+                    <Button size="sm" onClick={placeOrder} disabled={processing || placementSla.blocked}>{processing ? 'Placing...' : 'Place Order & Request Payment'}</Button>
                     <Button size="sm" variant="secondary" onClick={() => setShowPaymentForm(false)}>Cancel</Button>
                   </div>
                 </div>

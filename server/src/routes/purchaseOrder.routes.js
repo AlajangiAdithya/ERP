@@ -1300,6 +1300,18 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
       return res.status(400).json({ error: `Requested amount exceeds outstanding balance (₹${outstanding.toLocaleString('en-IN')})` });
     }
 
+    // 48-hour placement SLA — measured from when the PO became "awaiting placement"
+    // (createdAt). Past 48h, the Purchase Officer MUST record why it was delayed.
+    const SLA_48H = 48 * 60 * 60 * 1000;
+    const placementLate = order.createdAt && (Date.now() - new Date(order.createdAt).getTime()) > SLA_48H;
+    if (placementLate && !data.delayNote?.trim()) {
+      return res.status(400).json({ error: 'This order is past the 48-hour placement SLA. Please provide a delay remark explaining why.' });
+    }
+    if (data.delayNote?.trim()) {
+      const check = validateReason(data.delayNote, { fieldLabel: 'delay remark' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
+    }
+
     const paymentNumber = await generateSequentialNumber(prisma, 'PAY');
     const paymentRequest = await prisma.paymentRequest.create({
       data: {
@@ -1313,10 +1325,8 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
       include: { createdBy: { select: { id: true, name: true } } },
     });
 
-    // Save optional delay note on the order itself (separate from payment notes)
-    if (data.delayNote && data.delayNote.trim()) {
-      const check = validateReason(data.delayNote, { fieldLabel: 'reason for delay' });
-      if (!check.ok) return res.status(400).json({ error: check.error });
+    // Persist the delay remark on the order (already validated against the SLA above).
+    if (data.delayNote?.trim()) {
       await prisma.purchaseOrder.update({
         where: { id: order.id },
         data: { delayNote: data.delayNote.trim() },

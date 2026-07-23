@@ -19,6 +19,18 @@ import { checkFileSize } from '../utils/fileGuard';
 import { formatDate, formatDateTime } from '../utils/formatters';
 import GatePassPdf from '../components/pdf/GatePassPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
+import TatBadge from '../components/shared/TatBadge';
+import { SlaNotice, SlaDelayRemark } from '../components/shared/SlaGate';
+import { slaRemarkState } from '../utils/sla';
+
+// When a gate pass is awaiting a decision, this is the timestamp its 48-hour SLA
+// clock runs from — used by the ageing badge and the delay-remark gate.
+//   • PENDING_STORE   → from when the pass was raised (createdAt)
+//   • PENDING_ACCOUNTS → from when Stores forwarded it (storeInchargeAt)
+const gpPendingSince = (g) =>
+  g?.status === 'PENDING_STORE' ? g.createdAt
+    : g?.status === 'PENDING_ACCOUNTS' ? (g.storeInchargeAt || g.createdAt)
+      : null;
 
 // The two formats a gate pass can take. The toggle at the top of the page
 // switches which register format (columns + workflow) is shown, and seeds the
@@ -463,7 +475,10 @@ function GatePassSheet({ rows, view, role, canCreate, onView, onEdit, onAction }
                   </Td>
                   <Td nowrap={false} className="max-w-[130px]">{g.createdBy?.name || <Dash />}</Td>
                   <Td nowrap={false} className="max-w-[160px]">
-                    <Pill tone={statusTone(g.status)}>{meta.label}</Pill>
+                    <div className="flex flex-col items-start gap-1">
+                      <Pill tone={statusTone(g.status)}>{meta.label}</Pill>
+                      <TatBadge since={gpPendingSince(g)} />
+                    </div>
                     {g.rejectedReason && <div className="text-[10px] text-rose-700 mt-0.5 line-clamp-2" title={g.rejectedReason}>⚠ {g.rejectedReason}</div>}
                   </Td>
 
@@ -616,7 +631,7 @@ function ActionModal({ gatePass, type, onClose, onDone }) {
           <StoreApproveBox g={g} busy={busy} onSubmit={(b) => act(`/gatepasses/${g.id}/store-approve`, b)} />
         )}
         {type === 'accounts-invoice' && (
-          <AccountsInvoiceBox busy={busy} onSubmit={(b) => act(`/gatepasses/${g.id}/accounts-invoice`, b)} />
+          <AccountsInvoiceBox g={g} busy={busy} onSubmit={(b) => act(`/gatepasses/${g.id}/accounts-invoice`, b)} />
         )}
         {type === 'store-review' && (
           <StoreReviewBox busy={busy} onSubmit={(b) => act(`/gatepasses/${g.id}/store-review`, b)} />
@@ -1071,6 +1086,10 @@ function StoreApproveBox({ g, busy, onSubmit }) {
   const [driverName, setDriverName] = useState(g.driverName || '');
   const [vehicleNo,  setVehicleNo]  = useState(g.vehicleNo  || '');
   const [remarks,    setRemarks]    = useState('');
+  const [storeDelayRemark, setStoreDelayRemark] = useState('');
+
+  // 48-hour Stores SLA — from when the pass was raised.
+  const sla = slaRemarkState(g.createdAt, storeDelayRemark);
 
   // Per-item gate pass details + transportation — pre-populate from existing values
   const [itemFields, setItemFields] = useState(
@@ -1096,10 +1115,11 @@ function StoreApproveBox({ g, busy, onSubmit }) {
       gatePassDetails: f.gatePassDetails.trim(),
       transportation:  f.transportation.trim(),
     }));
+    if (storeDelayRemark.trim()) body.storeDelayRemark = storeDelayRemark.trim();
     onSubmit(body);
   };
 
-  const disabled = busy || (isLegacy && (!driverName.trim() || !vehicleNo.trim()));
+  const disabled = busy || (isLegacy && (!driverName.trim() || !vehicleNo.trim())) || sla.blocked;
 
   return (
     <div className="space-y-3">
@@ -1163,6 +1183,15 @@ function StoreApproveBox({ g, busy, onSubmit }) {
 
       <Textarea label="Remarks (optional)" value={remarks} onChange={e => setRemarks(e.target.value)} rows={2} />
 
+      <SlaNotice action="Stores approval" />
+      <SlaDelayRemark
+        isDelayed={sla.isDelayed}
+        value={storeDelayRemark}
+        onChange={e => setStoreDelayRemark(e.target.value)}
+        error={sla.error}
+        action="Stores approval"
+      />
+
       <div className="flex justify-end">
         <Button disabled={disabled} onClick={submit}>
           <ShieldCheck size={14} /> Approve & Forward
@@ -1172,15 +1201,20 @@ function StoreApproveBox({ g, busy, onSubmit }) {
   );
 }
 
-function AccountsInvoiceBox({ busy, onSubmit }) {
+function AccountsInvoiceBox({ g, busy, onSubmit }) {
   const [invoiceNo, setInvoiceNo] = useState('');
   const [dcNo, setDcNo] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [accountsDelayRemark, setAccountsDelayRemark] = useState('');
+
+  // 48-hour Accounts SLA — from when Stores forwarded the pass to Accounts.
+  const sla = slaRemarkState(g?.storeInchargeAt || g?.createdAt, accountsDelayRemark);
 
   const submit = () => onSubmit({
     invoiceNo: invoiceNo.trim() || undefined,
     dcNo: dcNo.trim() || undefined,
     remarks: remarks.trim() || undefined,
+    accountsDelayRemark: accountsDelayRemark.trim() || undefined,
   });
 
   return (
@@ -1191,8 +1225,18 @@ function AccountsInvoiceBox({ busy, onSubmit }) {
         <Input label="Delivery Challan No." value={dcNo} onChange={e => setDcNo(e.target.value)} placeholder="e.g. DC/2026/001" />
       </div>
       <Textarea label="Remarks (optional)" value={remarks} onChange={e => setRemarks(e.target.value)} rows={2} />
+
+      <SlaNotice action="Accounts step" />
+      <SlaDelayRemark
+        isDelayed={sla.isDelayed}
+        value={accountsDelayRemark}
+        onChange={e => setAccountsDelayRemark(e.target.value)}
+        error={sla.error}
+        action="Accounts step"
+      />
+
       <div className="flex justify-end">
-        <Button disabled={busy || (!invoiceNo.trim() && !dcNo.trim())} onClick={submit}>
+        <Button disabled={busy || (!invoiceNo.trim() && !dcNo.trim()) || sla.blocked} onClick={submit}>
           <Calculator size={14} /> Save Invoice & Forward
         </Button>
       </div>
@@ -1458,10 +1502,10 @@ function ApprovalTrail({ g }) {
   // Common: Raised by
   stages.push({ label: 'Raised', user: g.createdBy, at: g.createdAt, icon: Send });
   // Stores approval
-  stages.push({ label: 'Stores Approval', user: g.storeIncharge, at: g.storeInchargeAt, icon: PackageCheck });
+  stages.push({ label: 'Stores Approval', user: g.storeIncharge, at: g.storeInchargeAt, icon: PackageCheck, remark: g.storeDelayRemark });
   // Accounts (OUTSIDE only)
   if (kind === 'OUTSIDE' || !kind) {
-    stages.push({ label: kind === 'OUTSIDE' ? 'Accounts (Invoice)' : 'Accounts', user: g.accountsApprover, at: g.accountsAt, icon: Calculator });
+    stages.push({ label: kind === 'OUTSIDE' ? 'Accounts (Invoice)' : 'Accounts', user: g.accountsApprover, at: g.accountsAt, icon: Calculator, remark: g.accountsDelayRemark });
   }
   // Stores Review — OUTSIDE only; LOCAL_JOB skips this stage and goes straight
   // from PENDING_STORE → PENDING_LOGISTICS after the first stores approval.
@@ -1484,7 +1528,7 @@ function ApprovalTrail({ g }) {
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-      {stages.map(({ label, user, at, icon: Icon }, idx) => (
+      {stages.map(({ label, user, at, icon: Icon, remark }, idx) => (
         <div key={`${label}-${idx}`} className={`p-2 rounded border text-xs ${at ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
           <div className="flex items-center gap-1.5 text-gray-700 font-medium">
             <Icon size={12} /> {label}
@@ -1496,6 +1540,11 @@ function ApprovalTrail({ g }) {
             </>
           ) : (
             <p className="text-gray-400 mt-0.5 flex items-center gap-1"><AlertCircle size={10} /> Pending</p>
+          )}
+          {remark && (
+            <p className="mt-1 text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-1" title={remark}>
+              ⚠ Delayed &gt;48h: {remark}
+            </p>
           )}
         </div>
       ))}

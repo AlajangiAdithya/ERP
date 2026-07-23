@@ -24,6 +24,7 @@ import SearchBar from '../components/shared/SearchBar';
 import { formatDate, formatDateTime } from '../utils/formatters';
 import { reasonError } from '../utils/reasonValidation';
 import TatBadge from '../components/shared/TatBadge';
+import { SlaNotice } from '../components/shared/SlaGate';
 import { tatStatus, tatRowClass } from '../utils/tat';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import WorkOrderPdf from '../components/pdf/WorkOrderPdf';
@@ -3128,6 +3129,7 @@ function AdminAcceptControls({ wo, units, busy, onAccept, onReject }) {
   return (
     <div className="w-full space-y-2 border-t pt-3">
       <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Admin Acceptance</p>
+      <SlaNotice action="Admin acceptance" />
       {isDelayed && (
         <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
           <span className="font-bold">⚠ SLA overdue</span> — This WO has been pending admin acceptance for more than 48 hours.
@@ -3174,6 +3176,7 @@ function UnitAcceptControl({ wo, busy, onAccept, onReject }) {
   return (
     <div className="w-full space-y-2 border-t pt-3">
       <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Unit Decision</p>
+      <SlaNotice action="Unit acceptance" />
       {isDelayed && (
         <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
           <span className="font-bold">⚠ SLA overdue</span> — More than 48 hours have passed since admin acceptance.

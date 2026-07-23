@@ -12,6 +12,7 @@ import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
 import { UOM_OPTIONS } from '../utils/units';
 import { reasonError } from '../utils/reasonValidation';
+import { SlaNotice } from '../components/shared/SlaGate';
 import TatBadge from '../components/shared/TatBadge';
 import { tatStatus, tatRowClass } from '../utils/tat';
 import PRPdf from '../components/pdf/PRPdf';
@@ -993,6 +994,9 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
             <p className="text-sm text-gray-700">{request.adminDelayRemark}</p>
           </div>
         )}
+
+        {/* 48-hour rule stated up-front for the approver */}
+        {isPending && <SlaNotice action="Admin approval" />}
 
         {/* SLA delay remark — shown when PR has been pending more than 48h */}
         {isPending && isDelayed && (

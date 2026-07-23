@@ -1342,6 +1342,11 @@ model GatePass {
   requisitionNo        String?
   remarks              String?
   rejectedReason       String?
+  // 48-hour SLA delay remarks — mandatory when a stage is actioned more than 48h
+  // after it became pending (Stores step measured from createdAt; Accounts step
+  // from storeInchargeAt). Shown in the approval trail so everyone sees the why.
+  storeDelayRemark     String?
+  accountsDelayRemark  String?
 
   // Approval trail
   siteInchargeById  String?
