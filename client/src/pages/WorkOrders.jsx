@@ -2828,7 +2828,9 @@ function RemarksTab({ wo, canEdit, busy, onSave }) {
 // raised against this work order. Read-only history visible to anyone with
 // WO access, so the team can see how much was requested / issued per order.
 // ────────────────────────────────────────────────────────────────────
-function WoRequestList({ title, rows, emptyLabel }) {
+// Shared PR / MIV table. `showPrLink` turns on the MIV-only columns: the Issue
+// No and the purchase request Stores issued the material against.
+function WoRequestList({ title, rows, emptyLabel, showPrLink = false }) {
   return (
     <div className="space-y-2">
       <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">{title} ({rows.length})</p>
@@ -2841,6 +2843,8 @@ function WoRequestList({ title, rows, emptyLabel }) {
               <tr className="text-left text-navy-400 border-b">
                 <th className="px-2 py-1 font-semibold">Number</th>
                 <th className="px-2 py-1 font-semibold">Status</th>
+                {showPrLink && <th className="px-2 py-1 font-semibold">Issue No</th>}
+                {showPrLink && <th className="px-2 py-1 font-semibold">Issued against PR</th>}
                 <th className="px-2 py-1 font-semibold">Raised by</th>
                 <th className="px-2 py-1 font-semibold text-center">Items</th>
                 <th className="px-2 py-1 font-semibold">Date</th>
@@ -2851,6 +2855,20 @@ function WoRequestList({ title, rows, emptyLabel }) {
                 <tr key={r.id} className="border-b border-navy-50">
                   <td className="px-2 py-1 font-mono text-navy-700">{r.requestNumber}</td>
                   <td className="px-2 py-1"><Badge color="gray">{r.status}</Badge></td>
+                  {showPrLink && (
+                    <td className="px-2 py-1 font-mono text-navy-600">{r.issueNo || '—'}</td>
+                  )}
+                  {showPrLink && (
+                    <td className="px-2 py-1 font-mono">
+                      {r.purchaseRequest ? (
+                        <span className="text-green-800 font-semibold" title={`Purchase request ${r.purchaseRequest.requestNumber} (${r.purchaseRequest.status})`}>
+                          {r.purchaseRequest.requestNumber}
+                        </span>
+                      ) : (
+                        <span className="text-navy-300">—</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-2 py-1 text-navy-600">{r.manager?.name || '—'}</td>
                   <td className="px-2 py-1 text-center text-navy-600">{r._count?.items ?? '—'}</td>
                   <td className="px-2 py-1 text-navy-500">{formatDate(r.createdAt)}</td>
@@ -2878,10 +2896,25 @@ function RequestsTab({ wo }) {
           <div className="text-[10px] uppercase tracking-wider text-navy-500">MIVs (Material Issues)</div>
           <div className="text-xl font-bold text-navy-800">{mivs.length}</div>
         </div>
+        <div className="rounded-lg border border-navy-100 bg-navy-50 px-4 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-navy-500">MIVs linked to a PR</div>
+          <div className="text-xl font-bold text-navy-800">
+            {mivs.filter((m) => m.purchaseRequest).length}
+            <span className="text-sm font-normal text-navy-400"> / {mivs.length}</span>
+          </div>
+        </div>
       </div>
       <WoRequestList title="Purchase Requests" rows={prs} emptyLabel="No purchase requests raised against this work order yet." />
       <div className="border-t pt-4">
-        <WoRequestList title="Material Issue Vouchers (MIV)" rows={mivs} emptyLabel="No MIVs issued against this work order yet." />
+        <WoRequestList
+          title="Material Issue Vouchers (MIV)"
+          rows={mivs}
+          showPrLink
+          emptyLabel="No MIVs issued against this work order yet."
+        />
+        <p className="mt-2 text-[11px] text-navy-400">
+          “Issued against PR” is filled in by Stores when they clear the MIV — a dash means they have not recorded a purchase request for that issue.
+        </p>
       </div>
     </div>
   );

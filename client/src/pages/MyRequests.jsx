@@ -174,11 +174,18 @@ export default function MyRequests() {
     PENDING: 'yellow', APPROVED: 'green', PARTIAL: 'orange', COLLECTED: 'blue', REJECTED: 'red', CANCELLED: 'gray'
   }[s] || 'gray');
 
+  // Org-wide overseers get every MIV from GET /requests instead of just their own
+  // (they are excluded from REQUESTER_ROLES server-side). They can still only
+  // edit / cancel / collect the ones they raised, so label the extra rows.
+  const seesAllMivs = ['PLANNING', 'ACCOUNTING', 'FINANCE', 'ADMIN'].includes(user?.role);
+
   return (
     <div className="space-y-6">
       <PageHero
-        title="My Requests"
-        subtitle="Material Issue Voucher requests for your store withdrawals."
+        title={seesAllMivs ? 'MIV Requests' : 'My Requests'}
+        subtitle={seesAllMivs
+          ? 'Every Material Issue Voucher across the org. Raise your own with New Request — you can only edit or collect the ones you raised.'
+          : 'Material Issue Voucher requests for your store withdrawals.'}
         eyebrow="MIV"
         icon={ClipboardList}
         actions={<Button onClick={openCreate}><Plus size={16} /> New Request</Button>}
@@ -205,6 +212,7 @@ export default function MyRequests() {
               <thead>
                 <tr className="border-b">
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Request #</th>
+                  {seesAllMivs && <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Raised by</th>}
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Notes</th>
@@ -216,6 +224,12 @@ export default function MyRequests() {
                 {requests.map((r, i) => (
                   <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => setShowDetail(r)}>{r.requestNumber}</td>
+                    {seesAllMivs && (
+                      <td className="px-3 py-2 text-gray-600">
+                        {r.managerId === user?.id ? 'You' : (r.manager?.name || '—')}
+                        {r.unit?.code ? <span className="text-xs text-gray-400"> · {r.unit.code}</span> : null}
+                      </td>
+                    )}
                     <td className="px-3 py-2 text-gray-600">{r.items?.length} item(s)</td>
                     <td className="px-3 py-2"><Badge color={statusColor(r.status)}>{r.status}</Badge></td>
                     <td className="px-3 py-2 text-gray-600 max-w-48 truncate">{r.notes || '—'}</td>
@@ -425,6 +439,13 @@ export default function MyRequests() {
               {showDetail.issueDate && <div><span className="text-gray-500">Issue Date:</span> <span>{formatDateTime(showDetail.issueDate)}</span></div>}
               {showDetail.clearedAt && <div><span className="text-gray-500">Cleared:</span> <span>{formatDateTime(showDetail.clearedAt)}</span></div>}
               {showDetail.collectedAt && <div><span className="text-gray-500">Collected:</span> <span>{formatDateTime(showDetail.collectedAt)}</span></div>}
+              {/* Recorded by Stores at clearance. */}
+              {showDetail.purchaseRequest && (
+                <div>
+                  <span className="text-gray-500">Issued against PR:</span>{' '}
+                  <span className="font-mono font-semibold text-green-800">{showDetail.purchaseRequest.requestNumber}</span>
+                </div>
+              )}
             </div>
 
             {showDetail.notes && (

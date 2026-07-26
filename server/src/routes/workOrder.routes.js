@@ -193,10 +193,20 @@ const PR_MIV_SELECT = {
   },
   orderBy: { createdAt: 'desc' },
 };
+// MIVs carry one extra field the PR list doesn't: the purchase request Stores
+// issued the material against, so the WO shows "MIV → which PR" at a glance.
+const MIV_SELECT = {
+  ...PR_MIV_SELECT,
+  select: {
+    ...PR_MIV_SELECT.select,
+    issueNo: true,
+    purchaseRequest: { select: { id: true, requestNumber: true, status: true } },
+  },
+};
 const WO_DETAIL_INCLUDE = {
   ...WO_INCLUDE,
   purchaseRequests: PR_MIV_SELECT,
-  productRequests:  PR_MIV_SELECT,
+  productRequests:  MIV_SELECT,
   // Field-level audit of every core/scope edit (who/when/role + from→to). Kept
   // OUT of the lean list include — only loaded on the detail modal.
   editHistory:      { orderBy: { createdAt: 'desc' }, take: 200 },

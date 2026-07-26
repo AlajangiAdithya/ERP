@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowDown, ArrowUp, ArrowRight, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine, FileText, GitBranch, Box, Paperclip, Upload, X, Pencil } from 'lucide-react';
+import { ArrowLeft, ArrowDown, ArrowUp, ArrowRight, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine, FileText, GitBranch, Box, Paperclip, Upload, X, Pencil, FlaskConical } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { isProductMasterEditor } from '../utils/roles';
@@ -496,6 +496,10 @@ function FimTab({ product, user, onRefresh }) {
         const item = b.sourceInwardGatePassItem;
         const outwards = item?.outwardLinkedItems || [];
         const cd = fimReturnCountdown(item?.probableReturnDate);
+        const testReports = [
+          ...(item?.testReports || []).map(r => ({ ...r, scope: 'item' })),
+          ...(gp?.testReports || []).map(r => ({ ...r, scope: 'entry' })),
+        ];
         const canAssign = isStores && !b.unitAcceptedAt;
         const canAccept = isManager && b.assignedToUnitId && !b.unitAcceptedAt
           && (user?.role === 'ADMIN' || user?.unitId === b.assignedToUnitId);
@@ -552,11 +556,32 @@ function FimTab({ product, user, onRefresh }) {
                   {gp?.customerGpPdfUrl && (
                     <div>
                       <a
-                        href={gp.customerGpPdfUrl} target="_blank" rel="noreferrer"
+                        href={fileUrl(gp.customerGpPdfUrl)} target="_blank" rel="noreferrer"
                         className="inline-flex items-center gap-1 text-navy-700 hover:underline"
                       >
                         <FileText size={12} /> View customer GP PDF
                       </a>
+                    </div>
+                  )}
+                  {/* Customer test reports / material certificates: this line's own
+                      first, then any that cover the whole FIM entry. */}
+                  {testReports.length > 0 && (
+                    <div className="pt-1">
+                      <span className="text-gray-500">Test reports:</span>
+                      <div className="mt-0.5 space-y-0.5">
+                        {testReports.map((r, ri) => (
+                          <a
+                            key={r.id || r.url || ri}
+                            href={fileUrl(r.url)} target="_blank" rel="noreferrer"
+                            title={`${r.name || 'Test report'}${r.scope === 'entry' ? ' (covers the whole FIM entry)' : ''}`}
+                            className="flex items-center gap-1 text-navy-700 hover:underline"
+                          >
+                            <FlaskConical size={11} className="shrink-0" />
+                            <span className="truncate">{r.name || 'Test report'}</span>
+                            {r.scope === 'entry' && <span className="text-gray-400 shrink-0">(entry)</span>}
+                          </a>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {gp?.gpRequisitionNo && (

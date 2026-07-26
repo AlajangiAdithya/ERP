@@ -171,11 +171,15 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><UnitUsageLogs /></PrivateRoute>
               } />
 
-              {/* MIV requesters — Manager / Lab / QC / R&D / Safety / Designs / Planning / Metrology / NDT.
-                  The non-unit owner depts can issue the stock reserved to their department.
-                  Planning raises/issues its own while still monitoring all MIVs. */}
+              {/* MIV requesters — Manager / Lab / QC / R&D / Safety / Designs / Planning /
+                  Metrology / NDT, plus Accounting / Finance / Admin / Logistics / HR.
+                  The non-unit owner depts can issue the stock reserved to their department;
+                  the rest draw the unassigned/general pool. Planning / Accounting / Finance /
+                  Admin raise + issue their own while still monitoring all MIVs.
+                  Store Manager stays out — they clear MIVs at /request-clearance.
+                  Mirrors MANAGE_ROLES in server/src/routes/request.routes.js. */}
               <Route path="/my-requests" element={
-                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT', 'PLANNING']}><MyRequests /></PrivateRoute>
+                <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT', 'PLANNING', 'ACCOUNTING', 'FINANCE', 'ADMIN', 'LOGISTICS', 'HR']}><MyRequests /></PrivateRoute>
               } />
 
               {/* Store Manager only */}
@@ -183,9 +187,11 @@ export default function App() {
                 <PrivateRoute allowedRoles={['STORE_MANAGER']}><RequestClearance /></PrivateRoute>
               } />
 
-              {/* Procurement hub — landing page that links to the modules below. */}
+              {/* Procurement hub — landing page that links to the modules below.
+                  HR is in for one card only — MIV Requests. The hub filters its
+                  cards by role, so HR lands on Stock Details + MIV Requests. */}
               <Route path="/procurement" element={
-                <PrivateRoute allowedRoles={[...CHAIN_ROLES, 'LAB', 'LOGISTICS', 'SAFETY']}><Procurement /></PrivateRoute>
+                <PrivateRoute allowedRoles={[...CHAIN_ROLES, 'LAB', 'LOGISTICS', 'SAFETY', 'HR']}><Procurement /></PrivateRoute>
               } />
 
               {/* Monitoring hub — Stock Movements, Audit Logs, Unit Usage Logs. */}

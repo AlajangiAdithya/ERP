@@ -41,6 +41,11 @@ export default function MaterialIssuePdf({ data }) {
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Supply Order No.</Text></View>
             <View style={[styles.cell, { width: '30%' }]}><Text>{r.workOrder?.supplyOrderNo || '—'}</Text></View>
           </View>
+          {/* Recorded by Stores at clearance — which PR this material went out against. */}
+          <View style={styles.row}>
+            <View style={[styles.cellLabel, { width: '20%' }]}><Text>Issued Against PR No.</Text></View>
+            <View style={[styles.cell, { width: '80%' }]}><Text>{r.purchaseRequest?.requestNumber || '—'}</Text></View>
+          </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Requested By</Text></View>
             <View style={[styles.cell, { width: '30%' }]}><Text>{r.manager?.name || '—'}</Text></View>

@@ -114,7 +114,9 @@ const MODULES = [
     icon: ClipboardList,
     title: 'MIV Requests',
     description: 'Material Issue Voucher requests for store withdrawals.',
-    roles: ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT', 'PLANNING'],
+    // Open to every department that draws material — Store Manager is excluded
+    // because they clear MIVs. Mirrors MANAGE_ROLES in server request.routes.js.
+    roles: ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT', 'PLANNING', 'ACCOUNTING', 'FINANCE', 'ADMIN', 'LOGISTICS', 'HR'],
     gradient: 'from-violet-500 via-purple-500 to-fuchsia-500',
     glow: 'group-hover:shadow-violet-500/40',
     iconBg: 'bg-gradient-to-br from-violet-100 to-purple-200 text-violet-700',
@@ -330,9 +332,9 @@ const WORKFLOW_STEPS = [
   {
     icon: ClipboardList,
     title: 'MIV Requests (Store withdrawals)',
-    actor: 'Manager / Lab / QC / R&D',
+    actor: 'Any department except Stores',
     to: '/my-requests',
-    summary: 'Departments raise Material Issue Voucher requests to withdraw stock from stores.',
+    summary: 'Departments raise Material Issue Voucher requests to withdraw stock from stores. Stores clears them.',
     statuses: ['PENDING', 'APPROVED', 'ISSUED'],
     docs: [
       { label: 'MIV slip', detail: 'Printable issue voucher generated when stores issue the material.' },

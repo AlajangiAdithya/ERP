@@ -451,6 +451,12 @@ model ProductRequest {
   // Selected in place of a Work Order when the MIV is for product R&D / research
   // (mirrors PurchaseRequest.isRnd). Mutually exclusive with workOrderId.
   isRnd          Boolean       @default(false)
+  // Which Purchase Request this material was issued against — filled in by STORES
+  // at clearance (they mention the PR number only; the link is resolved from it).
+  // Optional: plenty of MIVs draw general stock with no PR behind them. SetNull so
+  // deleting a PR never deletes the MIVs that referenced it.
+  purchaseRequestId String?
+  purchaseRequest   PurchaseRequest? @relation("MivIssuedAgainstPr", fields: [purchaseRequestId], references: [id], onDelete: SetNull)
   status         RequestStatus @default(PENDING)
   notes          String?
   remarks        String? // Remarks field from MIV form
@@ -463,6 +469,7 @@ model ProductRequest {
   items          RequestItem[]
 
   @@index([workOrderId])
+  @@index([purchaseRequestId])
 }
 
 model RequestItem {
@@ -520,6 +527,7 @@ model PurchaseRequest {
   qcApprovedById       String?
   qcApprovedBy         User?                 @relation("PurchaseRequestQcApprover", fields: [qcApprovedById], references: [id])
   qcApprovedAt         DateTime?
+  qcDelayRemark        String? // Required when QC approves after 48h SLA from createdAt
   adminNotes           String?
   adminDelayRemark     String? // Required when admin approves after 48h SLA from createdAt (or qcApprovedAt)
   adminApprovedById    String?
@@ -536,6 +544,8 @@ model PurchaseRequest {
   quotationSources     QuotationSource[]
   purchaseOrderSources PurchaseOrderSource[]
   cashPurchaseInwards  MaterialInwardRegister[] @relation("CashPurchasePR")
+  // MIVs that Stores issued against this PR (set at MIV clearance).
+  issuedMivs           ProductRequest[]      @relation("MivIssuedAgainstPr")
 
   @@index([workOrderId])
 }
@@ -1371,6 +1381,10 @@ model GatePass {
 
   // FIM linkage: batches that were inwarded from this (INWARD) gate pass
   fimBatches ProductBatch[] @relation("FimSourceGatePass")
+
+  // Customer test reports / material certificates handed over with the FIM.
+  // Includes both entry-level rows (gatePassItemId null) and per-line ones.
+  testReports FimTestReport[] @relation("FimTestReportGatePass")
 }
 
 model GatePassItem {
@@ -1408,12 +1422,39 @@ model GatePassItem {
   // FIM batches created from this INWARD item
   fimBatches ProductBatch[] @relation("FimSourceItem")
 
+  // Test reports / material certificates that cover THIS line specifically.
+  testReports FimTestReport[] @relation("FimTestReportItem")
+
   // OFFSITE dispatch: which offsite-MIV line(s) this dispatched item fulfils.
   mivLinks GatePassMivLink[]
 
   @@index([gatePassId])
   @@index([sourceInwardGatePassItemId])
   @@index([workOrderId])
+}
+
+// ──── FIM TEST REPORTS ────
+// Material test certificates / inspection reports the customer hands over with
+// Free Issue Material. Captured by Stores on the FIM (INWARD gate pass) entry:
+// `gatePassItemId` set = the report covers that one line; null = it covers the
+// whole FIM entry. Any common document format (PDF, scan, DOC, XLS, ZIP) — they
+// are surfaced as read-only links on the FIM register, the FIM inward list and
+// the product's FIM tab. uploadedBy* are snapshots (no back-relation on User).
+model FimTestReport {
+  id             String        @id @default(uuid())
+  gatePassId     String
+  gatePass       GatePass      @relation("FimTestReportGatePass", fields: [gatePassId], references: [id], onDelete: Cascade)
+  gatePassItemId String?
+  gatePassItem   GatePassItem? @relation("FimTestReportItem", fields: [gatePassItemId], references: [id], onDelete: Cascade)
+  url            String
+  name           String
+  mimeType       String?
+  uploadedById   String?
+  uploadedByName String?
+  createdAt      DateTime      @default(now())
+
+  @@index([gatePassId])
+  @@index([gatePassItemId])
 }
 
 // ──── OFFSITE MIV ↔ GATE PASS LINK ────

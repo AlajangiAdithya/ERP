@@ -26,9 +26,11 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'HR', 'PLANNING', 'ACCOUNTING', 'FINANCE'];
 
 // Procurement & Inventory Management hub is visible to every authenticated
-// user EXCEPT Supply Chain and HR. ACCOUNTING + FINANCE are admin-level
-// read-only observers of the procurement chain, so the hub is open to them.
-const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN' && r !== 'HR');
+// user EXCEPT Supply Chain. ACCOUNTING + FINANCE are admin-level read-only
+// observers of the procurement chain, so the hub is open to them. HR is in as
+// well — it can raise MIVs, and the hub is the only route to /my-requests. The
+// cards inside are role-filtered, so HR only sees Stock Details + MIV Requests.
+const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN');
 
 // HR hub is hidden from Metrology — not part of their workflow.
 const NON_METROLOGY_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY');

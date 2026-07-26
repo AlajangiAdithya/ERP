@@ -1,8 +1,9 @@
+const crypto = require('crypto');
 const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { fimGpUpload, publicUrlFor } = require('../middleware/upload');
+const { fimGpUpload, fimTestReportUpload, publicUrlFor } = require('../middleware/upload');
 const {
   generateSequentialNumber, generateGatePassNumber, paginate, applyDateFilter, isUniqueViolation,
   withDocRetry, generateProductSku, normalizeMaterialType,
@@ -13,19 +14,35 @@ const router = express.Router();
 
 // Accept an optional customer-GP PDF upload alongside the inward gate-pass create.
 // Field name from the client: `customerGpPdf`. multipart bodies arrive with
-// `items` as a JSON string — the handler parses it.
+// `items` / `testReports` as JSON strings — the handler parses them.
 function acceptFimGpPdf(req, res, next) {
   const contentType = req.headers['content-type'] || '';
   if (!contentType.startsWith('multipart/form-data')) return next();
   fimGpUpload.single('customerGpPdf')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message || 'Customer GP PDF upload failed' });
-    if (typeof req.body.items === 'string') {
-      try { req.body.items = JSON.parse(req.body.items); }
-      catch { return res.status(400).json({ error: 'Malformed items payload' }); }
+    for (const field of ['items', 'testReports']) {
+      if (typeof req.body[field] === 'string') {
+        try { req.body[field] = JSON.parse(req.body[field]); }
+        catch { return res.status(400).json({ error: `Malformed ${field} payload` }); }
+      }
     }
     next();
   });
 }
+
+// Normalises a test-report list from the create payload into DB rows. Files are
+// uploaded up-front via POST /upload-test-report, which returns {url,name,mimeType};
+// the create call just echoes those references back.
+const testReportRows = (list, user) =>
+  (Array.isArray(list) ? list : [])
+    .filter((r) => r && r.url)
+    .map((r) => ({
+      url: String(r.url),
+      name: (r.name && String(r.name)) || 'test-report',
+      mimeType: r.mimeType ? String(r.mimeType) : null,
+      uploadedById: user?.id || null,
+      uploadedByName: user?.name || null,
+    }));
 
 const GP_DOC_TYPES = ['ORIGINAL', 'DUPLICATE'];
 
@@ -55,8 +72,12 @@ const GATEPASS_INCLUDE = {
   logisticsBy: USER_SELECT,
   siteOfficeAckBy: USER_SELECT,
   localReturnedBy: USER_SELECT,
+  // Every customer test report on this FIM entry — per-line ones included, so a
+  // caller can show the whole set. Line-level rows also come back on items[].
+  testReports: { orderBy: { createdAt: 'asc' } },
   items: {
     include: {
+      testReports: { orderBy: { createdAt: 'asc' } },
       workOrder: {
         select: {
           id: true, workOrderNumber: true, customerName: true, nomenclature: true,
@@ -174,6 +195,30 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
+// POST /api/gatepasses/upload-test-report — uploads one or more customer test
+// reports / material certificates and returns { files: [{url,name,mimeType}] }.
+// The FIM entry form calls this first, then echoes the references back on create
+// (per item, or against the entry as a whole). Stores/Admin only — they are the
+// ones who record FIM intake.
+router.post(
+  '/upload-test-report',
+  authenticate,
+  authorize('STORE_MANAGER', 'ADMIN'),
+  (req, res) => {
+    fimTestReportUpload.fields([{ name: 'files', maxCount: 10 }, { name: 'file', maxCount: 1 }])(req, res, (err) => {
+      if (err) return res.status(400).json({ error: err.message || 'Test report upload failed' });
+      const uploaded = [...(req.files?.files || []), ...(req.files?.file || [])];
+      if (uploaded.length === 0) return res.status(400).json({ error: 'No file uploaded' });
+      const files = uploaded.map((f) => ({
+        url: publicUrlFor('fim-test-reports', f.filename),
+        name: f.originalname,
+        mimeType: f.mimetype || null,
+      }));
+      res.json({ files, url: files[0].url, name: files[0].name });
+    });
+  },
+);
+
 // POST /api/gatepasses — Create an OUTWARD or INWARD gate pass.
 // OUTWARD: Manager raises (RAMS/GPR/01) → Store → Accounts → Approved.
 // INWARD: Stores / Manager records customer-supplied FIM. Status starts at
@@ -188,6 +233,9 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
       customerGpDocType: rawDocType,
       vehicleNo: rawVehicleNo, driverName: rawDriverName,
       gpRequisitionNo: rawGpRequisitionNo,
+      // INWARD only — customer test reports covering the whole FIM entry.
+      // Per-line reports ride along on each item as `item.testReports`.
+      testReports: rawTestReports,
       // Gate Pass v2 (OUTWARD) — kind-aware fields
       kind: rawKind,
       jobWorkNo: rawJobWorkNo,
@@ -315,6 +363,10 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
       gpUnitCode = u?.code || u?.name || 'GEN';
     }
 
+    // Pre-generate the line ids so the per-line customer test reports created
+    // right after this can be tied to the exact line they were picked on.
+    const itemIds = items.map(() => crypto.randomUUID());
+
     let fimNumber = null;
     const gatePass = await withDocRetry(async () => {
       // Auto per-unit pass number RAPS/GP/<UNIT>/<FY>/<N>; a supplied number overrides.
@@ -357,7 +409,8 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
           siteInchargeById: (isInward || kind) ? null : req.user.id,
           siteInchargeAt: (isInward || kind) ? null : new Date(),
           items: {
-            create: items.map((it) => ({
+            create: items.map((it, idx) => ({
+              id: itemIds[idx],
               description: it.description.trim(),
               quantity: Number(it.quantity),
               unit: it.unit || 'pcs',
@@ -379,13 +432,37 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
       });
     });
 
+    // Customer test reports / material certificates (INWARD FIM only). Entry-level
+    // rows carry no line id; per-line rows point at the line they were picked on.
+    // Stored right after the gate pass so they exist even if the auto-inward below
+    // fails — the documents are the customer's proof and must not be lost.
+    let testReportCount = 0;
+    if (isInward) {
+      const reportRows = [
+        ...testReportRows(rawTestReports, req.user).map((r) => ({ ...r, gatePassItemId: null })),
+        ...items.flatMap((it, idx) =>
+          testReportRows(it.testReports, req.user).map((r) => ({ ...r, gatePassItemId: itemIds[idx] }))),
+      ].map((r) => ({ ...r, gatePassId: gatePass.id }));
+      if (reportRows.length) {
+        try {
+          await prisma.fimTestReport.createMany({ data: reportRows });
+          testReportCount = reportRows.length;
+        } catch (err) {
+          console.error('FIM test report save failed:', err);
+        }
+      }
+    }
+
     await prisma.auditLog.create({
       data: {
         userId: req.user.id,
         action: 'CREATE',
         entity: 'GatePass',
         entityId: gatePass.id,
-        details: { passNumber: gatePass.passNumber, partyName: gatePass.partyName, direction },
+        details: {
+          passNumber: gatePass.passNumber, partyName: gatePass.partyName, direction,
+          ...(testReportCount ? { testReports: testReportCount } : {}),
+        },
         ipAddress: req.ip,
       },
     });
@@ -510,7 +587,12 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
       });
     }
 
-    res.status(201).json(gatePass);
+    // Test reports were written after the create call, so re-read to return them.
+    const created = testReportCount
+      ? await prisma.gatePass.findUnique({ where: { id: gatePass.id }, include: GATEPASS_INCLUDE })
+      : gatePass;
+
+    res.status(201).json(created || gatePass);
   } catch (error) {
     console.error('Create gate pass error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -1644,11 +1726,14 @@ const BATCH_FIM_INCLUDE = {
     select: {
       id: true, passNumber: true, customerName: true, customerGatePassNo: true,
       customerGatePassDate: true, customerGpDocType: true, customerGpPdfUrl: true,
+      // Entry-level customer test reports (per-line ones come with the item).
+      testReports: { where: { gatePassItemId: null }, orderBy: { createdAt: 'asc' } },
     },
   },
   sourceInwardGatePassItem: {
     select: {
       id: true, description: true, probableReturnDate: true, itemPassType: true,
+      testReports: { orderBy: { createdAt: 'asc' } },
     },
   },
 };

@@ -9,18 +9,25 @@ const router = express.Router();
 
 // Roles whose MIV visibility is scoped to "own only" on the read endpoints.
 // Includes the non-unit owner departments (QC, LAB, SAFETY, DESIGNS,
-// METROLOGY, NDT) so they can issue the stock reserved to their department.
-// PLANNING is intentionally excluded here — it keeps org-wide read visibility
-// (sees every MIV), so it never gets scoped down to its own.
-const REQUESTER_ROLES = ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT'];
-// Roles allowed to create/collect/cancel MIVs. PLANNING may raise/issue its own
-// (the per-handler managerId checks keep it to its own) while still monitoring
-// the whole org via the unscoped listing — so it is added here but NOT to
-// REQUESTER_ROLES above.
-const MANAGE_ROLES = [...REQUESTER_ROLES, 'PLANNING'];
+// METROLOGY, NDT) so they can issue the stock reserved to their department,
+// plus the support departments (LOGISTICS, HR) which have no reserved bucket and
+// draw from the unassigned/general pool.
+// PLANNING / ACCOUNTING / FINANCE / ADMIN are intentionally excluded here — they
+// keep org-wide read visibility (see every MIV), so they never get scoped down.
+const REQUESTER_ROLES = ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT', 'LOGISTICS', 'HR'];
+// Roles allowed to create/collect/cancel MIVs. PLANNING, ACCOUNTING, FINANCE and
+// ADMIN may raise/issue their own (every handler below re-checks
+// `request.managerId === req.user.id`, so the org-wide listing never lets them
+// act on somebody else's MIV) while still monitoring the whole org — so they are
+// added here but NOT to REQUESTER_ROLES above.
+// STORE_MANAGER is deliberately absent: Stores *clears* MIVs (/request-clearance),
+// so letting them raise one would be self-approval. INWARD_QC, SITE_OFFICE,
+// PURCHASE_OFFICER and SUPPLY_CHAIN are out by the same product decision.
+const MANAGE_ROLES = [...REQUESTER_ROLES, 'PLANNING', 'ACCOUNTING', 'FINANCE', 'ADMIN'];
 // Unit-bound roles must belong to a unit; everyone else (QC, LAB, SAFETY,
-// DESIGNS, PLANNING …) may file without one — their MIV draws from their
-// department's reserved bucket and the unassigned pool.
+// DESIGNS, PLANNING, ACCOUNTING, FINANCE, LOGISTICS, HR, ADMIN …) may file
+// without one — their MIV draws from their department's reserved bucket (only the
+// owner departments in DEPT_BY_ROLE have one) plus the unassigned pool.
 const UNIT_BOUND_ROLES = ['MANAGER', 'RND'];
 
 // Per-MIV-line reverse map: which gate pass(es) carried this offsite line out.
@@ -60,6 +67,50 @@ const createRequestSchema = z.object({
 // Same shape as create — used when the owner edits a still-PENDING MIV before
 // the store accepts it. Items are fully replaced (no stock has moved yet).
 const editRequestSchema = createRequestSchema;
+
+// Lean shape for the "issued against PR" link, attached wherever an MIV is read.
+const PR_LINK_SELECT = {
+  select: {
+    id: true, requestNumber: true, status: true,
+    unit: { select: { id: true, name: true, code: true } },
+  },
+};
+
+// Resolve the Purchase Request that Stores says this material is being issued
+// against. Stores mentions the PR NUMBER only — an id is accepted too so the
+// picker can skip the lookup. Returns:
+//   { ok: true, purchaseRequestId }  — id, or null when the link is being cleared
+//   { ok: true, skip: true }         — neither field was sent; leave as-is
+//   { ok: false, error }
+async function resolvePurchaseRequestLink(client, body) {
+  const hasNumber = body && 'purchaseRequestNumber' in body;
+  const hasId = body && 'purchaseRequestId' in body;
+  if (!hasNumber && !hasId) return { ok: true, skip: true };
+
+  const rawId = hasId ? body.purchaseRequestId : null;
+  const rawNumber = hasNumber ? String(body.purchaseRequestNumber ?? '').trim() : '';
+
+  // An explicit empty value on either field clears the link.
+  if (!rawId && !rawNumber) return { ok: true, purchaseRequestId: null };
+
+  const pr = rawId
+    ? await client.purchaseRequest.findUnique({ where: { id: rawId }, select: { id: true } })
+    // Numbers are typed by hand, so match case-insensitively on the whole string.
+    : await client.purchaseRequest.findFirst({
+        where: { requestNumber: { equals: rawNumber, mode: 'insensitive' } },
+        select: { id: true },
+      });
+
+  if (!pr) {
+    return {
+      ok: false,
+      error: rawNumber
+        ? `No purchase request found with number "${rawNumber}". Check the PR number and try again.`
+        : 'The selected purchase request no longer exists',
+    };
+  }
+  return { ok: true, purchaseRequestId: pr.id };
+}
 
 // ──── Shared MIV issue helpers (used by both /approve and /issue-available) ────
 // Per-item availability = (a) the requester's own bucket — a unit bucket
@@ -192,6 +243,7 @@ router.get('/', authenticate, async (req, res) => {
         include: {
           manager: { select: { id: true, name: true, username: true, role: true } },
           unit: { select: { id: true, name: true, code: true, isOffsite: true } },
+          purchaseRequest: PR_LINK_SELECT,
           workOrder: {
           select: {
             id: true, workOrderNumber: true, supplyOrderNo: true,
@@ -239,6 +291,7 @@ router.get('/:id', authenticate, async (req, res) => {
       include: {
         manager: { select: { id: true, name: true, username: true, role: true, unit: { select: { name: true, code: true } } } },
         unit: { select: { id: true, name: true, code: true, isOffsite: true } },
+        purchaseRequest: PR_LINK_SELECT,
         workOrder: {
           select: {
             id: true, workOrderNumber: true, supplyOrderNo: true,
@@ -488,6 +541,11 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
       return res.status(400).json({ error: 'Only pending requests can be approved' });
     }
 
+    // Optional: the PR this material is being issued against (Stores types the
+    // PR number). Resolved before any stock moves so a bad number fails cleanly.
+    const prLink = await resolvePurchaseRequestLink(prisma, req.body);
+    if (!prLink.ok) return res.status(400).json({ error: prLink.error });
+
     // Partial issue: no longer all-or-nothing. Issue whatever is available to
     // the requester right now (own reserved bucket + unassigned pool), per item.
     // Items with insufficient stock get whatever's there; the remainder waits
@@ -546,6 +604,7 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
           clearedAt: now,
           ...(fullyIssued ? { collectedAt: now } : {}),
           ...(issueNo ? { issueNo, issueDate: now } : {}),
+          ...(prLink.skip ? {} : { purchaseRequestId: prLink.purchaseRequestId }),
         },
       });
     });
@@ -558,6 +617,7 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
+        purchaseRequest: PR_LINK_SELECT,
         items: { include: { product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } } } },
       },
     });
@@ -624,6 +684,86 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
   }
 });
 
+// PUT /api/requests/:id/purchase-request — Stores records (or corrects, or
+// clears) the Purchase Request this MIV was issued against, without touching
+// stock. Separate from /approve so the number can be added after the fact —
+// Stores often issues first and matches the PR afterwards.
+//
+// Body: { purchaseRequestNumber } (what Stores actually types) or
+//       { purchaseRequestId }; an empty value on either clears the link.
+router.put('/:id/purchase-request', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const request = await prisma.productRequest.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true, requestNumber: true, managerId: true, purchaseRequestId: true,
+        purchaseRequest: { select: { requestNumber: true } },
+      },
+    });
+    if (!request) return res.status(404).json({ error: 'Request not found' });
+
+    const prLink = await resolvePurchaseRequestLink(prisma, req.body);
+    if (!prLink.ok) return res.status(400).json({ error: prLink.error });
+    if (prLink.skip) {
+      return res.status(400).json({ error: 'Provide a purchase request number (or an empty value to clear it)' });
+    }
+
+    // Same shape the clearance list serves, so the client can drop this straight
+    // back into the open modal without losing isOffsite / the work order.
+    const updated = await prisma.productRequest.update({
+      where: { id: request.id },
+      data: { purchaseRequestId: prLink.purchaseRequestId },
+      include: {
+        manager: { select: { id: true, name: true, username: true, role: true } },
+        unit: { select: { id: true, name: true, code: true, isOffsite: true } },
+        purchaseRequest: PR_LINK_SELECT,
+        workOrder: {
+          select: {
+            id: true, workOrderNumber: true, supplyOrderNo: true,
+            assignedUnitName: true,
+            assignedUnit: { select: { id: true, name: true, code: true } },
+          },
+        },
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } } } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'EDIT',
+        entity: 'ProductRequest',
+        entityId: request.id,
+        details: {
+          requestNumber: request.requestNumber,
+          field: 'purchaseRequestId',
+          from: request.purchaseRequest?.requestNumber || null,
+          to: updated.purchaseRequest?.requestNumber || null,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    // Let the requester know which PR their material landed against.
+    if (request.managerId && updated.purchaseRequest) {
+      await prisma.notification.create({
+        data: {
+          type: 'REQUEST_APPROVED',
+          title: `MIV ${request.requestNumber} linked to PR ${updated.purchaseRequest.requestNumber}`,
+          message: `${req.user.name} recorded MIV ${request.requestNumber} as issued against purchase request ${updated.purchaseRequest.requestNumber}.`,
+          targetUserId: request.managerId,
+          sentById: req.user.id,
+        },
+      });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Set MIV purchase request error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // PUT /api/requests/:id/issue-available — Store Manager tops up a PARTIAL MIV.
 // Issues whatever is now available against each item's still-pending qty
 // (pending = approvedQty − qtyIssued). Advances the MIV to COLLECTED once every
@@ -646,6 +786,10 @@ router.put('/:id/issue-available', authenticate, authorize('STORE_MANAGER', 'ADM
     if (request.status !== 'PARTIAL') {
       return res.status(400).json({ error: 'Only partially-issued MIVs can be topped up' });
     }
+
+    // Stores can set (or correct) the PR this issue is against on a top-up too.
+    const prLink = await resolvePurchaseRequestLink(prisma, req.body);
+    if (!prLink.ok) return res.status(400).json({ error: prLink.error });
 
     const requesterDept = request.unitId ? null : deptForRole(request.manager?.role);
     const availabilityByItem = await computeAvailability(prisma, request, requesterDept);
@@ -710,6 +854,7 @@ router.put('/:id/issue-available', authenticate, authorize('STORE_MANAGER', 'ADM
           issueNo,
           issueDate: request.issueDate || now,
           ...(fullyIssued ? { collectedAt: now } : {}),
+          ...(prLink.skip ? {} : { purchaseRequestId: prLink.purchaseRequestId }),
         },
       });
     });
@@ -725,6 +870,7 @@ router.put('/:id/issue-available', authenticate, authorize('STORE_MANAGER', 'ADM
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
+        purchaseRequest: PR_LINK_SELECT,
         items: { include: { product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true } } } },
       },
     });

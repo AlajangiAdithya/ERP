@@ -159,6 +159,15 @@ const fimGpUpload = multer({
   limits: { fileSize: SIZE_PDF },
 });
 
+// Customer test reports / material certificates handed over with FIM material.
+// Multiple files per FIM entry, any common document or scan format (the customer
+// sends whatever they have — PDF certificates, scanned images, spreadsheets).
+const fimTestReportUpload = multer({
+  storage: makeStorage('fim-test-reports'),
+  fileFilter: prSpecMimeAllowList,
+  limits: { fileSize: SIZE_DOC },
+});
+
 // Calibration certificate PDF (one per fiscal-year record on a calibration item).
 // Every viewer of the metrology register is allowed to download these.
 const calibrationCertUpload = multer({
@@ -228,6 +237,7 @@ module.exports = {
   vendorEvaluationUpload,
   supplierAssessmentUpload,
   fimGpUpload,
+  fimTestReportUpload,
   calibrationCertUpload,
   closureDocUpload,
   amcDocUpload,

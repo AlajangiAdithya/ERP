@@ -7,6 +7,7 @@ const { prSpecsUpload, publicUrlFor } = require('../middleware/upload');
 const {
   generateSequentialNumber, generateProductSku, normalizeMaterialType,
   paginate, applyDateFilter, isUniqueViolation, validateWorkOrderLink,
+  validateRequiredByDate, validateRequiredByDates,
 } = require('../utils/helpers');
 const { buildCoverageSummary, cancelLeftoverPRItems } = require('../utils/prClosure');
 const { validateReason } = require('../utils/reasonValidation');
@@ -346,6 +347,41 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
     });
   } catch (error) {
     console.error('Get purchase requests error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/purchase-requests/lookup?q= — lean PR-number typeahead.
+// Feeds the "issued against PR" picker on MIV clearance, where Stores mentions
+// the PR number only. Returns just enough to identify a PR in a dropdown; the
+// full list endpoint is far too heavy (every item + attachments) for this.
+// Must stay ABOVE `GET /:id` or that route swallows "lookup".
+router.get('/lookup', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const requests = await prisma.purchaseRequest.findMany({
+      where: q
+        ? {
+            OR: [
+              { requestNumber: { contains: q, mode: 'insensitive' } },
+              { items: { some: { productName: { contains: q, mode: 'insensitive' } } } },
+            ],
+          }
+        : {},
+      select: {
+        id: true, requestNumber: true, status: true, createdAt: true,
+        manager: { select: { id: true, name: true } },
+        unit: { select: { id: true, name: true, code: true } },
+        workOrder: { select: { id: true, workOrderNumber: true } },
+        items: { select: { productName: true }, take: 3 },
+        _count: { select: { items: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+    });
+    res.json({ requests });
+  } catch (error) {
+    console.error('PR lookup error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -785,6 +821,10 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
   try {
     const data = createSchema.parse(req.body);
 
+    // Required-by dates must clear the 15-day procurement lead time.
+    const rbCheck = validateRequiredByDates(data.items);
+    if (!rbCheck.ok) return res.status(400).json({ error: rbCheck.error });
+
     // Unit-bound roles (MANAGER, RND) file PRs against their own unit. Global
     // roles (STORE_MANAGER, DESIGNS, PLANNING, QC, LAB, METROLOGY, NDT) file
     // PRs in their own name with no unit attached — their PR is owned by them
@@ -985,6 +1025,10 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
       return res.status(400).json({ error: 'Only pending requests can be edited' });
     }
 
+    // Required-by dates must clear the 15-day procurement lead time.
+    const rbCheck = validateRequiredByDates(data.items);
+    if (!rbCheck.ok) return res.status(400).json({ error: rbCheck.error });
+
     // Re-validate the optional Work Order link (any live WO, any unit).
     const woLink = await validateWorkOrderLink(prisma, data.workOrderId, request.unitId);
     if (!woLink.ok) return res.status(400).json({ error: woLink.error });
@@ -1128,12 +1172,150 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
   }
 });
 
+// PUT /api/purchase-requests/:id/required-by — change the required-by date at ANY
+// stage of the PR's life.
+//
+// Deliberately separate from PUT /:id: that route deletes and recreates the item
+// rows, which is only safe while the PR is still pending because quotations, PO
+// allocations and material-pool memberships all point at item IDs. This route
+// updates the date column in place on the existing rows, so it stays safe once
+// the PR is approved, in progress, converted to a PO, or closed.
+//
+// Nothing downstream stores its own copy of this date — the PR list, PR PDF,
+// quotation screen, PO overdue radar and dashboards all read
+// PurchaseRequestItem.requiredByDate through the relation — so the new date shows
+// up everywhere the moment it is saved here.
+//
+// Body: { requiredByDate }                    → applies one date to every line
+//       { items: [{ id, requiredByDate }] }   → sets them line by line
+// A null/empty date clears the field. Any supplied date must still clear the
+// 15-day floor.
+router.put(
+  '/:id/required-by',
+  authenticate,
+  authorize(...REQUESTER_ROLES, 'ADMIN', 'PURCHASE_OFFICER'),
+  async (req, res) => {
+    try {
+      const request = await prisma.purchaseRequest.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true, requestNumber: true, status: true, managerId: true,
+          unit: { select: { name: true, code: true } },
+          items: { select: { id: true, productName: true, requiredByDate: true } },
+        },
+      });
+      if (!request) return res.status(404).json({ error: 'Purchase request not found' });
+
+      // ADMIN and the purchase officer chasing delivery can retime any PR;
+      // a requester only their own.
+      const isOverseer = ['ADMIN', 'PURCHASE_OFFICER'].includes(req.user.role);
+      if (!isOverseer && request.managerId !== req.user.id) {
+        return res.status(403).json({ error: 'You can only change the required-by date on your own requests' });
+      }
+
+      // Normalise both body shapes into one list of { id, date } updates.
+      const byId = new Map(request.items.map((it) => [it.id, it]));
+      let updates;
+      if (Array.isArray(req.body?.items)) {
+        updates = [];
+        for (const row of req.body.items) {
+          if (!byId.has(row.id)) {
+            return res.status(400).json({ error: 'One of the items does not belong to this purchase request' });
+          }
+          const check = validateRequiredByDate(
+            row.requiredByDate,
+            `Required by date for "${byId.get(row.id).productName}"`,
+          );
+          if (!check.ok) return res.status(400).json({ error: check.error });
+          updates.push({ id: row.id, date: check.date });
+        }
+      } else if ('requiredByDate' in (req.body || {})) {
+        const check = validateRequiredByDate(req.body.requiredByDate);
+        if (!check.ok) return res.status(400).json({ error: check.error });
+        updates = request.items.map((it) => ({ id: it.id, date: check.date }));
+      } else {
+        return res.status(400).json({ error: 'Provide requiredByDate, or an items array' });
+      }
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: 'Nothing to update' });
+      }
+
+      await prisma.$transaction(
+        updates.map((u) =>
+          prisma.purchaseRequestItem.update({
+            where: { id: u.id },
+            data: { requiredByDate: u.date },
+          }),
+        ),
+      );
+
+      const updated = await prisma.purchaseRequest.findUnique({
+        where: { id: request.id },
+        include: {
+          manager: { select: { id: true, name: true } },
+          unit: { select: { id: true, name: true, code: true } },
+          noteAttachments: { orderBy: { createdAt: 'asc' } },
+          items: {
+            include: {
+              product: { select: { id: true, name: true, sku: true, unit: true, category: true } },
+              attachments: { orderBy: { createdAt: 'asc' } },
+            },
+          },
+        },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'EDIT',
+          entity: 'PurchaseRequest',
+          entityId: request.id,
+          details: {
+            requestNumber: request.requestNumber,
+            field: 'requiredByDate',
+            status: request.status,
+            changes: updates.map((u) => ({
+              itemId: u.id,
+              productName: byId.get(u.id)?.productName || null,
+              from: byId.get(u.id)?.requiredByDate || null,
+              to: u.date,
+            })),
+          },
+          ipAddress: req.ip,
+        },
+      });
+
+      // Tell whoever is working the PR right now that the deadline moved.
+      const unitLabel = updated.unit?.name || updated.unit?.code || 'No unit';
+      const approverRole =
+        updated.status === 'PENDING_QC' ? 'QC'
+          : updated.status === 'PENDING_ADMIN' ? 'ADMIN'
+            : 'PURCHASE_OFFICER';
+      await prisma.notification.create({
+        data: {
+          type: 'NEW_PURCHASE_REQUEST',
+          title: `PR ${updated.requestNumber} — required-by date changed`,
+          message: `${req.user.name} (${unitLabel}) changed the required-by date on PR ${updated.requestNumber}.`,
+          targetRole: approverRole,
+          sentById: req.user.id,
+        },
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error('Update required-by date error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
 // PUT /api/purchase-requests/:id/qc-approve — QC department first-level approval
 // for PRs raised by LAB / METROLOGY / NDT. On success the PR moves on to ADMIN
 // for the second-level approval (status PENDING_QC → PENDING_ADMIN).
 router.put('/:id/qc-approve', authenticate, authorize('QC'), async (req, res) => {
   try {
-    const { qcNotes } = req.body;
+    const { qcNotes, qcDelayRemark } = req.body;
 
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: req.params.id },
@@ -1152,11 +1334,22 @@ router.put('/:id/qc-approve', authenticate, authorize('QC'), async (req, res) =>
       return res.status(400).json({ error: 'This PR is not under QC oversight' });
     }
 
+    // 48-hour QC SLA — measured from when the PR was raised (createdAt).
+    // Past 48h, QC MUST record a genuine delay remark before approving.
+    if ((new Date() - new Date(request.createdAt)) > SLA_48H_PR && !qcDelayRemark?.trim()) {
+      return res.status(400).json({ error: 'This QC approval is past the 48-hour SLA. Please provide a delay remark explaining why.' });
+    }
+    if (qcDelayRemark?.trim()) {
+      const check = validateReason(qcDelayRemark, { fieldLabel: 'delay remark' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
+    }
+
     const updated = await prisma.purchaseRequest.update({
       where: { id: req.params.id },
       data: {
         status: 'PENDING_ADMIN',
         qcNotes: qcNotes || null,
+        qcDelayRemark: qcDelayRemark?.trim() || null,
         qcApprovedById: req.user.id,
         qcApprovedAt: new Date(),
       },

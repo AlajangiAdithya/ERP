@@ -24,6 +24,33 @@ import InwardInspectionRequestPdf from '../components/pdf/InwardInspectionReques
 const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
 const fileUrl = (u) => (u && u.startsWith('http') ? u : `${API_ORIGIN}${u || ''}`);
 
+// Customer test reports / material certificates attached to a FIM entry. The
+// customer hands over whatever they have, so every common document or scan
+// format is accepted (validated by extension — DWG/office mimes vary by browser).
+const TR_ACCEPT = '.pdf,.jpg,.jpeg,.png,.dwg,.doc,.docx,.xls,.xlsx,.zip';
+const TR_EXT_RE = /\.(pdf|png|jpe?g|dwg|docx?|xlsx?|zip)$/i;
+const TR_MAX_MB = 15;
+
+// Read-only link list for FIM test reports — used on the FIM inward views.
+function TestReportLinks({ items, label }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      {label && <span className="text-gray-500">{label}</span>}
+      {items.map((r, i) => (
+        <a
+          key={r.id || r.url || i}
+          href={fileUrl(r.url)} target="_blank" rel="noreferrer"
+          className="inline-flex items-center gap-1 text-navy-700 hover:underline max-w-[220px] truncate"
+          title={r.name || 'Test report'}
+        >
+          <FlaskConical size={11} /> {r.name || 'Test report'}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 // PO terms & conditions annexure — a static client asset, the same one merged
 // into PO PDFs. Surfaced to QC alongside the PO/PR/supplier reference docs.
 const TNC_DOC = { label: 'PO Terms & Conditions Annexure', url: `${window.location.origin}/po-terms-and-conditions.pdf` };
@@ -2227,6 +2254,12 @@ function FromGatePassMode({ canEdit }) {
                       <span className="text-gray-500">Items {view === 'pending' ? 'pending' : 'accepted'}:</span>{' '}
                       {view === 'pending' ? pending.length : inwardedCount} of {g.items?.length || 0}
                     </div>
+                    {(g.testReports || []).length > 0 && (
+                      <div className="inline-flex items-center gap-1 text-[11px] text-navy-700 font-medium">
+                        <FlaskConical size={11} />
+                        {g.testReports.length} test report{g.testReports.length === 1 ? '' : 's'} — open to view
+                      </div>
+                    )}
                   </div>
                 </Card>
               );
@@ -2248,11 +2281,17 @@ function FromGatePassMode({ canEdit }) {
 // ─── Record Inward Modal ────────────────────────────────────────────────
 // Captures customer FIM details and posts an INWARD gate pass (inwardKind
 // STORES). STORES inward auto-accepts into the product list immediately.
+// `_key` is a client-only row identity so an in-flight test-report upload still
+// lands on the right row after rows are added/removed. It never goes to the API.
+let inwardRowSeq = 0;
 const blankInwardItem = () => ({
+  _key: `row-${++inwardRowSeq}`,
   description: '', quantity: 1, unit: 'pcs',
   dispatchedTo: '', itemPurpose: '', probableReturnDate: '',
   itemPassType: 'RETURNABLE', gatePassDetails: '', transportation: '',
   contactPersonDetails: '', remarks: '',
+  // Customer test reports / material certificates for this line ([{url,name,mimeType}]).
+  testReports: [],
 });
 
 function RecordInwardModal({ onClose, onCreated }) {
@@ -2267,6 +2306,11 @@ function RecordInwardModal({ onClose, onCreated }) {
   const [gpRequisitionNo, setGpRequisitionNo] = useState('');
   const [remarks, setRemarks] = useState('');
   const [items, setItems] = useState([blankInwardItem()]);
+  // Test reports that cover the consignment as a whole (one cert for every line).
+  const [entryReports, setEntryReports] = useState([]);
+  const [entryUpload, setEntryUpload] = useState({ uploading: false, error: '' });
+  // Per-row upload state, keyed by the row's `_key`: { [_key]: { uploading, error } }.
+  const [itemUpload, setItemUpload] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -2276,7 +2320,71 @@ function RecordInwardModal({ onClose, onCreated }) {
     setItems(copy);
   };
   const addItem = () => setItems([...items, blankInwardItem()]);
-  const removeItem = (idx) => setItems(items.length === 1 ? items : items.filter((_, i) => i !== idx));
+  const removeItem = (idx) => {
+    if (items.length === 1) return;
+    const dropped = items[idx];
+    setItems(items.filter((_, i) => i !== idx));
+    // Drop the row's upload state too, so a stale "uploading" flag can't block submit.
+    setItemUpload((s) => {
+      const { [dropped._key]: _removed, ...rest } = s;
+      return rest;
+    });
+  };
+
+  // Extension + size guard before we start a (potentially slow) upload.
+  const validateReportFiles = (fileList) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return { ok: false, error: '' };
+    for (const f of files) {
+      if (!TR_EXT_RE.test(f.name)) return { ok: false, error: 'Allowed: PDF, JPG, PNG, DWG, DOC, XLS, ZIP' };
+      if (f.size > TR_MAX_MB * 1024 * 1024) return { ok: false, error: `Max ${TR_MAX_MB} MB per file` };
+    }
+    return { ok: true, files };
+  };
+
+  // Files are stored server-side first; the returned {url,name,mimeType} refs
+  // then travel with the FIM entry payload on submit.
+  const uploadReports = async (files) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append('files', f));
+    const { data } = await api.post('/gatepasses/upload-test-report', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data.files || (data.url ? [{ url: data.url, name: data.name }] : []);
+  };
+
+  const addEntryReports = async (fileList) => {
+    const v = validateReportFiles(fileList);
+    if (!v.ok) { if (v.error) setEntryUpload({ uploading: false, error: v.error }); return; }
+    setEntryUpload({ uploading: true, error: '' });
+    try {
+      const uploaded = await uploadReports(v.files);
+      setEntryReports((prev) => [...prev, ...uploaded]);
+      setEntryUpload({ uploading: false, error: '' });
+    } catch (err) {
+      setEntryUpload({ uploading: false, error: err.response?.data?.error || 'Upload failed' });
+    }
+  };
+  const removeEntryReport = (fi) => setEntryReports((prev) => prev.filter((_, i) => i !== fi));
+
+  const addItemReports = async (rowKey, fileList) => {
+    const v = validateReportFiles(fileList);
+    if (!v.ok) { if (v.error) setItemUpload((s) => ({ ...s, [rowKey]: { uploading: false, error: v.error } })); return; }
+    setItemUpload((s) => ({ ...s, [rowKey]: { uploading: true, error: '' } }));
+    try {
+      const uploaded = await uploadReports(v.files);
+      // Resolve the row by key, not index — rows may have moved while uploading.
+      setItems((prev) => prev.map((row) => (row._key === rowKey
+        ? { ...row, testReports: [...(row.testReports || []), ...uploaded] }
+        : row)));
+      setItemUpload((s) => ({ ...s, [rowKey]: { uploading: false, error: '' } }));
+    } catch (err) {
+      setItemUpload((s) => ({ ...s, [rowKey]: { uploading: false, error: err.response?.data?.error || 'Upload failed' } }));
+    }
+  };
+  const removeItemReport = (rowKey, fi) => setItems((prev) => prev.map((row) => (row._key === rowKey
+    ? { ...row, testReports: (row.testReports || []).filter((_, i) => i !== fi) }
+    : row)));
 
   const submit = async () => {
     setError('');
@@ -2288,9 +2396,13 @@ function RecordInwardModal({ onClose, onCreated }) {
     if (items.some(i => i.itemPassType === 'RETURNABLE' && !i.probableReturnDate)) {
       return setError('Returnable items need a probable date of return');
     }
+    if (entryUpload.uploading || Object.values(itemUpload).some(u => u?.uploading)) {
+      return setError('Wait for the test report upload to finish');
+    }
 
     setSaving(true);
     try {
+      const reportRefs = (list) => (list || []).map(r => ({ url: r.url, name: r.name, mimeType: r.mimeType || null }));
       const itemsPayload = items.map(i => ({
         description: i.description.trim(),
         quantity: Number(i.quantity),
@@ -2303,7 +2415,9 @@ function RecordInwardModal({ onClose, onCreated }) {
         transportation: i.transportation?.trim() || null,
         contactPersonDetails: i.contactPersonDetails?.trim() || null,
         remarks: i.remarks?.trim() || null,
+        testReports: reportRefs(i.testReports),
       }));
+      const entryReportsPayload = reportRefs(entryReports);
 
       // Use multipart when a PDF is attached so the server can store the file alongside the GP record.
       if (customerGpPdf) {
@@ -2321,6 +2435,8 @@ function RecordInwardModal({ onClose, onCreated }) {
         if (gpRequisitionNo.trim()) fd.append('gpRequisitionNo', gpRequisitionNo.trim());
         fd.append('customerGpPdf', customerGpPdf);
         fd.append('items', JSON.stringify(itemsPayload));
+        // Already-uploaded test report references — the server parses this JSON.
+        fd.append('testReports', JSON.stringify(entryReportsPayload));
         await api.post('/gatepasses', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       } else {
         await api.post('/gatepasses', {
@@ -2336,6 +2452,7 @@ function RecordInwardModal({ onClose, onCreated }) {
           driverName: driverName.trim() || null,
           gpRequisitionNo: gpRequisitionNo.trim() || null,
           items: itemsPayload,
+          testReports: entryReportsPayload,
         });
       }
       onCreated();
@@ -2416,6 +2533,46 @@ function RecordInwardModal({ onClose, onCreated }) {
               )}
             </div>
           </div>
+
+          {/* Test reports covering the whole consignment. Per-item reports go in
+              the "Test Reports" column of the items table below. */}
+          <div className="border border-blue-200 bg-white rounded p-2.5 space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-gray-700">
+                Test reports / material certificates <span className="text-gray-400 font-normal">(for the whole entry — optional)</span>
+              </span>
+              <label className="inline-flex items-center gap-1 cursor-pointer text-xs font-medium text-navy-700 hover:underline">
+                <Upload size={12} />
+                {entryUpload.uploading ? 'Uploading…' : (entryReports.length ? 'Add more' : 'Attach files')}
+                <input
+                  type="file"
+                  multiple
+                  accept={TR_ACCEPT}
+                  className="hidden"
+                  disabled={entryUpload.uploading}
+                  onChange={(e) => { addEntryReports(e.target.files); e.target.value = ''; }}
+                />
+              </label>
+            </div>
+            {entryReports.length > 0 && (
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {entryReports.map((f, fi) => (
+                  <span key={f.url || fi} className="inline-flex items-center gap-1 text-xs">
+                    <a href={fileUrl(f.url)} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-navy-700 hover:underline truncate max-w-[220px]" title={f.name}>
+                      <Paperclip size={10} /> {f.name || 'file'}
+                    </a>
+                    <button type="button" onClick={() => removeEntryReport(fi)}
+                      className="text-gray-400 hover:text-red-600" title="Remove"><X size={11} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {entryUpload.error && <div className="text-[11px] text-red-600">{entryUpload.error}</div>}
+            <div className="text-[11px] text-gray-400">
+              Any format (PDF, image, DWG, DOC, XLS, ZIP), up to {TR_MAX_MB} MB each. Visible to everyone on the FIM register and the product's FIM tab.
+            </div>
+          </div>
         </div>
 
         <div>
@@ -2425,7 +2582,7 @@ function RecordInwardModal({ onClose, onCreated }) {
           </div>
 
           <div className="border border-gray-200 rounded-md overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: 1200 }}>
+            <table className="w-full text-sm" style={{ minWidth: 1400 }}>
               <colgroup>
                 <col style={{ width: '36px' }} />
                 <col style={{ width: '220px' }} />
@@ -2436,6 +2593,7 @@ function RecordInwardModal({ onClose, onCreated }) {
                 <col style={{ width: '170px' }} />
                 <col style={{ width: '130px' }} />
                 <col style={{ width: '180px' }} />
+                <col style={{ width: '200px' }} />
                 <col style={{ width: '40px' }} />
               </colgroup>
               <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
@@ -2449,12 +2607,13 @@ function RecordInwardModal({ onClose, onCreated }) {
                   <th className="px-3 py-2.5 font-medium">Issued to Dept / Person</th>
                   <th className="px-3 py-2.5 font-medium">Pass Type</th>
                   <th className="px-3 py-2.5 font-medium">Remarks</th>
+                  <th className="px-3 py-2.5 font-medium">Test Reports</th>
                   <th className="px-2 py-2.5"></th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((it, idx) => (
-                  <tr key={idx} className="border-t border-gray-100 align-top">
+                  <tr key={it._key} className="border-t border-gray-100 align-top">
                     <td className="px-3 py-2 text-center text-gray-500">{idx + 1}</td>
                     <td className="px-2 py-2">
                       <input className={cellInput}
@@ -2495,6 +2654,39 @@ function RecordInwardModal({ onClose, onCreated }) {
                       <input className={cellInput}
                         value={it.remarks} onChange={e => updateItem(idx, 'remarks', e.target.value)} />
                     </td>
+                    <td className="px-2 py-2">
+                      <label className="inline-flex items-center gap-1 cursor-pointer text-xs font-medium text-navy-700 hover:underline">
+                        <Upload size={11} />
+                        {itemUpload[it._key]?.uploading
+                          ? 'Uploading…'
+                          : ((it.testReports || []).length ? 'Add more' : 'Attach')}
+                        <input
+                          type="file"
+                          multiple
+                          accept={TR_ACCEPT}
+                          className="hidden"
+                          disabled={itemUpload[it._key]?.uploading}
+                          onChange={e => { addItemReports(it._key, e.target.files); e.target.value = ''; }}
+                        />
+                      </label>
+                      {(it.testReports || []).length > 0 && (
+                        <div className="mt-1 space-y-0.5">
+                          {it.testReports.map((f, fi) => (
+                            <div key={f.url || fi} className="flex items-center gap-1">
+                              <a href={fileUrl(f.url)} target="_blank" rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] text-navy-700 hover:underline truncate max-w-[150px]" title={f.name}>
+                                <Paperclip size={9} /> {f.name || 'file'}
+                              </a>
+                              <button type="button" onClick={() => removeItemReport(it._key, fi)}
+                                className="text-gray-400 hover:text-red-600 shrink-0" title="Remove"><X size={10} /></button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {itemUpload[it._key]?.error && (
+                        <div className="text-[10px] text-red-600 mt-0.5">{itemUpload[it._key].error}</div>
+                      )}
+                    </td>
                     <td className="px-2 py-2 text-center">
                       <button onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 disabled:opacity-30"
                         disabled={items.length === 1} title="Remove row">
@@ -2526,6 +2718,10 @@ function RecordInwardModal({ onClose, onCreated }) {
 
 function AcceptInwardForm({ gatePass, onCancel, onComplete, canEdit }) {
   const items = (gatePass.items || []).filter(i => (i.inwardedQty || 0) < (i.quantity || 0));
+  // Customer test reports — entry-level ones carry no line id; the rest hang off
+  // their line. Shown for every entry, whether it still needs acceptance or not.
+  const entryTestReports = (gatePass.testReports || []).filter(r => !r.gatePassItemId);
+  const itemsWithReports = (gatePass.items || []).filter(i => (i.testReports || []).length > 0);
   const [products, setProducts] = useState([]);
   const [rows, setRows] = useState(
     items.map(i => ({
@@ -2614,6 +2810,31 @@ function AcceptInwardForm({ gatePass, onCancel, onComplete, canEdit }) {
         <strong>FIM (Free Issue Material):</strong> these items belong to the customer. Each accepted item creates (or adds to) a Product
         and marks the resulting batch as <em>FIM</em>, linked to this gate pass so the product can be traced back to the customer.
       </div>
+
+      {/* Customer test reports recorded with this FIM entry — read-only for everyone. */}
+      {(entryTestReports.length > 0 || itemsWithReports.length > 0 || gatePass.customerGpPdfUrl) && (
+        <div className="mb-3 p-3 border border-gray-200 rounded bg-gray-50 text-xs space-y-2">
+          <div className="font-medium text-gray-700 flex items-center gap-1.5">
+            <FlaskConical size={13} className="text-navy-700" /> Test reports & documents
+          </div>
+          {gatePass.customerGpPdfUrl && (
+            <a href={fileUrl(gatePass.customerGpPdfUrl)} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-1 text-navy-700 hover:underline">
+              <FileText size={11} /> Customer GP / DC / Invoice document
+            </a>
+          )}
+          <TestReportLinks items={entryTestReports} label="Whole entry:" />
+          {itemsWithReports.map(i => (
+            <div key={i.id} className="flex flex-wrap items-start gap-x-2 gap-y-1">
+              <span className="text-gray-500 shrink-0">{i.description}:</span>
+              <TestReportLinks items={i.testReports} />
+            </div>
+          ))}
+          {entryTestReports.length === 0 && itemsWithReports.length === 0 && (
+            <div className="text-gray-400">No test reports were attached to this entry.</div>
+          )}
+        </div>
+      )}
 
       {error && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 

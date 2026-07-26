@@ -10,6 +10,7 @@ import Input from '../components/ui/Input';
 import Modal from '../components/ui/Modal';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import MaterialIssuePdf from '../components/pdf/MaterialIssuePdf';
+import PrNumberPicker from '../components/shared/PrNumberPicker';
 import { formatDateTime } from '../utils/formatters';
 
 export default function RequestClearance() {
@@ -31,6 +32,12 @@ export default function RequestClearance() {
   const [vehicleId, setVehicleId] = useState('');
   const [usePrivate, setUsePrivate] = useState(false);
   const [pv, setPv] = useState({ regNumber: '', driverName: '', driverPhone: '' });
+  // "Issued against PR" — Stores records which purchase request this material is
+  // going out against. `linkedPr` is the picked { id, requestNumber }; `typedPr`
+  // is whatever they typed without picking, which the server resolves by number.
+  const [linkedPr, setLinkedPr] = useState(null);
+  const [typedPr, setTypedPr] = useState('');
+  const [savingPr, setSavingPr] = useState(false);
   const STATUS_TABS = ['PENDING', 'PARTIAL', 'COLLECTED', 'REJECTED', 'ALL'];
   const refreshKey = useAutoRefresh();
 
@@ -112,13 +119,27 @@ export default function RequestClearance() {
     setSelectedRequest(request);
     setRejectMode(false);
     setRejectNote('');
+    // Pre-load whatever PR is already recorded so re-opening shows the link.
+    setLinkedPr(request.purchaseRequest
+      ? { id: request.purchaseRequest.id, requestNumber: request.purchaseRequest.requestNumber }
+      : null);
+    setTypedPr('');
+  };
+
+  // Body fragment carrying the PR link. A picked PR sends its id; a bare typed
+  // number goes as-is for the server to resolve. Nothing typed = field omitted,
+  // which leaves any existing link untouched.
+  const prLinkBody = () => {
+    if (linkedPr) return { purchaseRequestId: linkedPr.id };
+    if (typedPr.trim()) return { purchaseRequestNumber: typedPr.trim() };
+    return {};
   };
 
   const acceptRequest = async () => {
     if (!selectedRequest) return;
     setProcessing(true);
     try {
-      await api.put(`/requests/${selectedRequest.id}/approve`, {});
+      await api.put(`/requests/${selectedRequest.id}/approve`, prLinkBody());
       setSelectedRequest(null);
       fetchRequests();
     } catch (err) {
@@ -133,13 +154,35 @@ export default function RequestClearance() {
     if (!selectedRequest) return;
     setProcessing(true);
     try {
-      await api.put(`/requests/${selectedRequest.id}/issue-available`, {});
+      await api.put(`/requests/${selectedRequest.id}/issue-available`, prLinkBody());
       setSelectedRequest(null);
       fetchRequests();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to issue');
     }
     setProcessing(false);
+  };
+
+  // Record / correct / clear the PR number on an MIV that is already issued —
+  // Stores often issues first and matches the PR afterwards.
+  const savePrLink = async () => {
+    if (!selectedRequest) return;
+    setSavingPr(true);
+    try {
+      const body = linkedPr
+        ? { purchaseRequestId: linkedPr.id }
+        : { purchaseRequestNumber: typedPr.trim() };
+      const { data } = await api.put(`/requests/${selectedRequest.id}/purchase-request`, body);
+      setSelectedRequest(data);
+      setLinkedPr(data.purchaseRequest
+        ? { id: data.purchaseRequest.id, requestNumber: data.purchaseRequest.requestNumber }
+        : null);
+      setTypedPr('');
+      fetchRequests();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save the PR number');
+    }
+    setSavingPr(false);
   };
 
   const rejectRequest = async () => {
@@ -202,6 +245,7 @@ export default function RequestClearance() {
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Issue No</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Against PR</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
                 </tr>
@@ -215,6 +259,11 @@ export default function RequestClearance() {
                     <td className="px-3 py-2 text-gray-600">{r.items?.length}</td>
                     <td className="px-3 py-2"><Badge color={statusColor(r.status)}>{r.status}</Badge></td>
                     <td className="px-3 py-2 text-xs font-mono text-gray-700">{r.issueNo || '—'}</td>
+                    <td className="px-3 py-2 text-xs font-mono">
+                      {r.purchaseRequest
+                        ? <span className="text-green-800 font-semibold">{r.purchaseRequest.requestNumber}</span>
+                        : <span className="text-gray-400">—</span>}
+                    </td>
                     <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
                     <td className="px-3 py-2">
                       <div className="flex gap-2">
@@ -408,7 +457,49 @@ export default function RequestClearance() {
               {selectedRequest.remarks && <div><span className="text-gray-500">Remarks:</span> <span>{selectedRequest.remarks}</span></div>}
               {selectedRequest.issueNo && <div><span className="text-gray-500">Issue No:</span> <span className="font-mono text-xs">{selectedRequest.issueNo}</span></div>}
               {selectedRequest.issueDate && <div><span className="text-gray-500">Issue Date:</span> <span>{formatDateTime(selectedRequest.issueDate)}</span></div>}
+              {selectedRequest.workOrder?.workOrderNumber && (
+                <div><span className="text-gray-500">Work Order:</span> <span className="font-mono text-xs">{selectedRequest.workOrder.workOrderNumber}</span></div>
+              )}
+              <div>
+                <span className="text-gray-500">Issued against PR:</span>{' '}
+                {selectedRequest.purchaseRequest
+                  ? <span className="font-mono text-xs font-semibold text-green-800">{selectedRequest.purchaseRequest.requestNumber}</span>
+                  : <span className="text-gray-400 text-xs">Not recorded</span>}
+              </div>
             </div>
+
+            {/* Stores records which PR this material goes out against. Shown on
+                PENDING/PARTIAL so it can be set as part of issuing, and on
+                already-issued MIVs so it can be added or corrected afterwards. */}
+            {!selectedRequest.unit?.isOffsite && (
+              <div className="border border-gray-200 rounded-md p-3">
+                <PrNumberPicker
+                  value={linkedPr}
+                  onChange={setLinkedPr}
+                  onTypedNumber={setTypedPr}
+                  disabled={processing || savingPr}
+                  help={
+                    selectedRequest.status === 'PENDING' || selectedRequest.status === 'PARTIAL'
+                      ? 'Optional — saved when you issue below. Leave blank if this material is not against any purchase request.'
+                      : 'Optional — use Save PR number to record or correct it on this issued MIV.'
+                  }
+                />
+                {/* On an already-issued MIV there is no issue button to piggyback
+                    on, so give the link its own save. */}
+                {!['PENDING', 'PARTIAL'].includes(selectedRequest.status) && (
+                  <div className="flex justify-end mt-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={savePrLink}
+                      disabled={savingPr || (!linkedPr && !typedPr.trim() && !selectedRequest.purchaseRequest)}
+                    >
+                      {savingPr ? 'Saving…' : 'Save PR number'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {selectedRequest.unit?.isOffsite && (
               <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">

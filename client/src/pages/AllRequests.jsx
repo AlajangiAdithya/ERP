@@ -121,6 +121,7 @@ export default function AllRequests() {
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Against PR</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Created</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Cleared</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Collected</th>
@@ -129,7 +130,7 @@ export default function AllRequests() {
                 </thead>
                 <tbody>
                   {requests.length === 0 ? (
-                    <tr><td colSpan={9} className="px-3 py-4 text-center text-gray-400">No requests found</td></tr>
+                    <tr><td colSpan={10} className="px-3 py-4 text-center text-gray-400">No requests found</td></tr>
                   ) : requests.map((r, i) => (
                     <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => setShowDetail(r)} PrimordialIndex={i}>
                       <td className="px-3 py-2 font-medium text-navy-700">{r.requestNumber}</td>
@@ -137,6 +138,11 @@ export default function AllRequests() {
                       <td className="px-3 py-2"><Badge color="blue">{r.unit?.code}</Badge></td>
                       <td className="px-3 py-2 text-gray-600">{r.items?.length}</td>
                       <td className="px-3 py-2"><Badge color={statusColor(r.status)}>{r.status}</Badge></td>
+                      <td className="px-3 py-2 text-xs font-mono">
+                        {r.purchaseRequest
+                          ? <span className="text-green-800 font-semibold">{r.purchaseRequest.requestNumber}</span>
+                          : <span className="text-gray-400">—</span>}
+                      </td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{r.clearedAt ? formatDateTime(r.clearedAt) : '—'}</td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{r.collectedAt ? formatDateTime(r.collectedAt) : '—'}</td>
@@ -174,6 +180,16 @@ export default function AllRequests() {
               <div><span className="text-gray-500">Created:</span> <span>{formatDateTime(showDetail.createdAt)}</span></div>
               {showDetail.clearedAt && <div><span className="text-gray-500">Cleared:</span> <span>{formatDateTime(showDetail.clearedAt)}</span></div>}
               {showDetail.collectedAt && <div><span className="text-gray-500">Collected:</span> <span>{formatDateTime(showDetail.collectedAt)}</span></div>}
+              {showDetail.workOrder?.workOrderNumber && (
+                <div><span className="text-gray-500">Work Order:</span> <span className="font-mono text-xs">{showDetail.workOrder.workOrderNumber}</span></div>
+              )}
+              {/* Recorded by Stores at clearance. */}
+              <div>
+                <span className="text-gray-500">Issued against PR:</span>{' '}
+                {showDetail.purchaseRequest
+                  ? <span className="font-mono font-semibold text-green-800">{showDetail.purchaseRequest.requestNumber}</span>
+                  : <span className="text-gray-400 text-xs">Not recorded</span>}
+              </div>
             </div>
             {showDetail.notes && <div className="bg-gray-50 rounded-md p-3 text-sm"><span className="text-gray-500">Notes:</span> {showDetail.notes}</div>}
             {showDetail.clearanceNotes && <div className="bg-blue-50 rounded-md p-3 text-sm"><span className="text-blue-600">Clearance:</span> {showDetail.clearanceNotes}</div>}

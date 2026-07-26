@@ -232,6 +232,8 @@ const FILE_FIELDS = {
     { field: 'signedDeliveryPdfUrl', label: 'Signed Delivery PDF' },
     { field: 'customerGpPdfUrl', label: 'Customer Gate Pass PDF' },
   ],
+  // One row per uploaded FIM test report — "deleting" drops the row.
+  FimTestReport: [{ field: 'url', label: 'FIM Test Report' }],
   Vehicle: [{ field: 'rcUrl', label: 'Vehicle RC' }],
   WorkOrderBgEntry: [{ field: 'fileUrl', label: 'Bank Guarantee File' }],
   WorkOrderInsuranceEntry: [{ field: 'fileUrl', label: 'Insurance File' }],
@@ -437,6 +439,24 @@ router.get('/uploads', async (req, res) => {
         url: g.customerGpPdfUrl, uploadedAt: g.date, uploadedBy: null,
       });
     });
+
+    // 9b. FimTestReport — customer test reports on a FIM inward entry (multi-file).
+    const fimReports = await prisma.fimTestReport.findMany({
+      select: {
+        id: true, url: true, name: true, createdAt: true, uploadedByName: true,
+        gatePass: { select: { fimNumber: true, passNumber: true, customerName: true } },
+        gatePassItem: { select: { description: true } },
+      },
+    });
+    fimReports.forEach((r) => uploads.push({
+      table: 'FimTestReport', recordId: r.id, field: 'url',
+      label: `FIM Test Report: ${r.name || 'file'}`,
+      recordLabel: [
+        r.gatePass?.fimNumber || r.gatePass?.passNumber,
+        r.gatePassItem?.description || r.gatePass?.customerName,
+      ].filter(Boolean).join(' · ') || r.id,
+      url: r.url, uploadedAt: r.createdAt, uploadedBy: r.uploadedByName || null,
+    }));
 
     // 10. Vehicle.rcUrl
     const vehicles = await prisma.vehicle.findMany({
@@ -841,6 +861,7 @@ router.delete('/uploads', async (req, res) => {
       WorkOrderClosureDoc: 'fileUrl',
       PurchaseRequestItemAttachment: 'url',
       PurchaseRequestAttachment: 'url',
+      FimTestReport: 'url',
     };
     if (ROW_PER_FILE[table] === field) {
       await prisma[key].delete({ where: { id: recordId } });

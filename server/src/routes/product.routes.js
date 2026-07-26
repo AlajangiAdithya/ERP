@@ -264,12 +264,16 @@ router.get('/fim-status', authenticate, async (req, res) => {
             customerName: true, customerGatePassNo: true, customerGatePassDate: true,
             customerGpDocType: true, customerGpPdfUrl: true, date: true,
             vehicleNo: true, driverName: true,
+            // Customer test reports covering the whole FIM entry. Per-line ones
+            // come back on sourceInwardGatePassItem.testReports below.
+            testReports: { where: { gatePassItemId: null }, orderBy: { createdAt: 'asc' } },
           },
         },
         sourceInwardGatePassItem: {
           select: {
             id: true, description: true, probableReturnDate: true, itemPassType: true,
             itemPurpose: true, dispatchedTo: true, remarks: true,
+            testReports: { orderBy: { createdAt: 'asc' } },
             outwardLinkedItems: {
               select: {
                 id: true,
@@ -571,12 +575,15 @@ router.get('/:id', authenticate, async (req, res) => {
             customerContact: true, customerGpDocType: true, customerGpPdfUrl: true,
             vehicleNo: true, driverName: true,
             date: true, passType: true,
+            // Entry-level customer test reports (per-line ones ride on the item).
+            testReports: { where: { gatePassItemId: null }, orderBy: { createdAt: 'asc' } },
           },
         },
         sourceInwardGatePassItem: {
           select: {
             id: true, description: true, quantity: true, unit: true,
             probableReturnDate: true, itemPassType: true,
+            testReports: { orderBy: { createdAt: 'asc' } },
             outwardLinkedItems: {
               select: {
                 id: true, description: true, quantity: true, unit: true,

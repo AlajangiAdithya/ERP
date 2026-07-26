@@ -9,10 +9,11 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
-import { formatDateTime } from '../utils/formatters';
+import { formatDate, formatDateTime } from '../utils/formatters';
 import { UOM_OPTIONS } from '../utils/units';
 import { reasonError } from '../utils/reasonValidation';
-import { SlaNotice } from '../components/shared/SlaGate';
+import { slaRemarkState } from '../utils/sla';
+import { SlaNotice, SlaDelayRemark } from '../components/shared/SlaGate';
 import TatBadge from '../components/shared/TatBadge';
 import { tatStatus, tatRowClass } from '../utils/tat';
 import PRPdf from '../components/pdf/PRPdf';
@@ -129,6 +130,27 @@ const quotationStatusLabel = (s) => ({
   CANCELLED: 'Cancelled',
 }[s] || s);
 
+// ──── REQUIRED-BY DATE FLOOR ────
+// Procurement needs a workable lead time, so a PR line can never be needed sooner
+// than 15 days out. Server mirror: MIN_REQUIRED_BY_DAYS in
+// server/src/utils/helpers.js — keep both in sync. Every date input for this
+// field takes `min={requiredByMin()}`, and submit re-checks it so a typed date
+// (which bypasses the picker's min) can't slip through either.
+const MIN_REQUIRED_BY_DAYS = 15;
+
+const toDateInput = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// Earliest date the user may pick, as a 'YYYY-MM-DD' string for <input type="date" min>.
+const requiredByMin = () => {
+  const now = new Date();
+  return toDateInput(new Date(now.getFullYear(), now.getMonth(), now.getDate() + MIN_REQUIRED_BY_DAYS));
+};
+
+// True when a 'YYYY-MM-DD' value is inside the blocked window. Empty passes —
+// the field is optional.
+const requiredByTooSoon = (value) => !!value && value < requiredByMin();
+
 // ─── Manager: Create or Edit Request (paper-table format) ───
 // Dual-mode form: when `requestToEdit` is provided, the modal pre-loads its
 // items + notes and submits a PUT instead of POST. Edit is gated server-side
@@ -207,10 +229,10 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   }, [isOpen, prefillItems, prefillNotes, requestToEdit]);
 
   // "Fabric" materials get a 2-month default required-by date (overridable).
+  // 60 days clears the 15-day floor, so the default is always a legal pick.
   const fabricDefaultDate = () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 60);
-    return d.toISOString().split('T')[0];
+    const now = new Date();
+    return toDateInput(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 60));
   };
   const looksLikeFabric = (item) => {
     const hay = `${item.materialType} ${item.productName} ${item.materialSpecification}`.toLowerCase();
@@ -321,6 +343,14 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const submit = async () => {
     const validItems = items.filter(i => i.productName.trim());
     if (validItems.length === 0) return alert('Enter at least one material description');
+    // The picker's `min` only guards clicks — a typed date still needs checking.
+    const tooSoon = validItems.find(i => requiredByTooSoon(i.requiredByDate));
+    if (tooSoon) {
+      return alert(
+        `"${tooSoon.productName.trim()}" is needed too soon. The required-by date must be at least ` +
+        `${MIN_REQUIRED_BY_DAYS} days from today — pick ${requiredByMin()} or later.`
+      );
+    }
     setSaving(true);
     try {
       const payload = {
@@ -694,12 +724,21 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                 ))}
               </tr>
               <tr>
-                <td className={labelCell}>Required By Date</td>
+                <td className={labelCell}>
+                  Required By Date
+                  <div className="font-normal text-[10px] text-gray-500">min {MIN_REQUIRED_BY_DAYS} days out</div>
+                </td>
                 {items.map((item, idx) => (
                   <td key={idx} className={dataCell}>
                     <input type="date" value={item.requiredByDate}
+                      min={requiredByMin()}
                       onChange={(e) => updateItem(idx, 'requiredByDate', e.target.value)}
-                      className={cellInput} />
+                      className={`${cellInput} ${requiredByTooSoon(item.requiredByDate) ? 'bg-red-50 text-red-700' : ''}`} />
+                    {requiredByTooSoon(item.requiredByDate) && (
+                      <div className="px-1.5 pb-1 text-[10px] text-red-600">
+                        On or after {requiredByMin()}
+                      </div>
+                    )}
                   </td>
                 ))}
               </tr>
@@ -1041,6 +1080,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
 // QC only approves/rejects with notes here; quantity adjustment stays with ADMIN.
 function QcReviewModal({ request, onClose, onUpdated }) {
   const [qcNotes, setQcNotes] = useState('');
+  const [qcDelayRemark, setQcDelayRemark] = useState('');
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
@@ -1051,11 +1091,19 @@ function QcReviewModal({ request, onClose, onUpdated }) {
 
   const isPending = request.status === 'PENDING_QC';
 
+  // 48-hour QC SLA — measured from when the PR was raised.
+  const sla = slaRemarkState(request.createdAt, qcDelayRemark);
+
   const approve = async () => {
+    if (sla.isDelayed && !qcDelayRemark.trim()) {
+      return alert('This QC review has exceeded the 48-hour SLA. Please provide a delay remark before approving.');
+    }
+    if (sla.error) return alert(sla.error);
     setProcessing(true);
     try {
       await api.put(`/purchase-requests/${request.id}/qc-approve`, {
         qcNotes: qcNotes || undefined,
+        qcDelayRemark: qcDelayRemark.trim() || undefined,
       });
       onClose();
       onUpdated();
@@ -1141,6 +1189,26 @@ function QcReviewModal({ request, onClose, onUpdated }) {
           )}
         </div>
 
+        {/* Saved QC delay remark — shown after approval so everyone sees why it was late */}
+        {!isPending && request.qcDelayRemark && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <p className="text-xs font-semibold text-amber-800 mb-0.5">⚠ QC approval delayed beyond 48h — remark</p>
+            <p className="text-sm text-gray-700">{request.qcDelayRemark}</p>
+          </div>
+        )}
+
+        {/* 48-hour rule stated up-front + required remark once overdue */}
+        {isPending && <SlaNotice action="QC approval" />}
+        {isPending && (
+          <SlaDelayRemark
+            isDelayed={sla.isDelayed}
+            value={qcDelayRemark}
+            onChange={(e) => setQcDelayRemark(e.target.value)}
+            error={sla.error}
+            action="QC approval"
+          />
+        )}
+
         <div className="flex justify-between items-center pt-2 gap-3">
           <DownloadPdfButton
             document={<PRPdf request={request} />}
@@ -1151,7 +1219,7 @@ function QcReviewModal({ request, onClose, onUpdated }) {
               <Button variant="danger" onClick={reject} disabled={processing || !qcNotes.trim() || !!qcRejectErr}>
                 <XCircle size={16} className="mr-1" /> Reject
               </Button>
-              <Button onClick={approve} disabled={processing}>
+              <Button onClick={approve} disabled={processing || sla.blocked}>
                 <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Approve & Forward to Admin'}
               </Button>
             </div>
@@ -1380,6 +1448,42 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
   const [closing, setClosing] = useState(false);
   const [cashConvertOpen, setCashConvertOpen] = useState(false);
   const [converting, setConverting] = useState(false);
+  // Inline required-by editing, allowed at ANY stage. `editingRbId` is the item
+  // row being retimed; the saved date goes straight to the item column, so every
+  // other screen that reads it picks the new value up on its next load.
+  const [editingRbId, setEditingRbId] = useState(null);
+  const [rbDraft, setRbDraft] = useState('');
+  const [rbSaving, setRbSaving] = useState(false);
+
+  // Who may retime a PR: the raiser, plus Admin and the purchase officer chasing
+  // the delivery. Mirrors the guard on PUT /purchase-requests/:id/required-by.
+  const canEditRequiredBy =
+    !!request &&
+    (['ADMIN', 'PURCHASE_OFFICER'].includes(user?.role) || request.managerId === user?.id);
+
+  const openRbEdit = (item) => {
+    setEditingRbId(item.id);
+    setRbDraft(item.requiredByDate ? new Date(item.requiredByDate).toISOString().split('T')[0] : '');
+  };
+
+  const saveRequiredBy = async (itemId) => {
+    if (requiredByTooSoon(rbDraft)) {
+      alert(`The required-by date must be at least ${MIN_REQUIRED_BY_DAYS} days from today — pick ${requiredByMin()} or later.`);
+      return;
+    }
+    setRbSaving(true);
+    try {
+      await api.put(`/purchase-requests/${request.id}/required-by`, {
+        items: [{ id: itemId, requiredByDate: rbDraft || null }],
+      });
+      setEditingRbId(null);
+      setRbDraft('');
+      onReload?.();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to update the required-by date');
+    }
+    setRbSaving(false);
+  };
 
   const submitCashConvert = async () => {
     setConverting(true);
@@ -1554,6 +1658,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Required By</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Quotation</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Item Status</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purchased</th>
@@ -1669,6 +1774,42 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                     <td className="px-3 py-2 text-gray-600">{item.requestedQty} {item.productUnit}</td>
                     <td className="px-3 py-2 text-gray-600">
                       {item.adminApprovedQty != null ? `${item.adminApprovedQty} ${item.productUnit}` : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+                      {editingRbId === item.id ? (
+                        <div className="flex flex-col gap-1">
+                          <input
+                            type="date"
+                            value={rbDraft}
+                            min={requiredByMin()}
+                            onChange={(e) => setRbDraft(e.target.value)}
+                            className="px-1.5 py-1 text-xs border border-gray-300 rounded"
+                          />
+                          <div className="flex gap-1">
+                            <Button size="sm" disabled={rbSaving} onClick={() => saveRequiredBy(item.id)}>
+                              {rbSaving ? 'Saving…' : 'Save'}
+                            </Button>
+                            <Button size="sm" variant="ghost" disabled={rbSaving} onClick={() => setEditingRbId(null)}>
+                              Cancel
+                            </Button>
+                          </div>
+                          <span className="text-[10px] text-gray-500">On or after {requiredByMin()}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <span>{item.requiredByDate ? formatDate(item.requiredByDate) : '—'}</span>
+                          {canEditRequiredBy && (
+                            <button
+                              type="button"
+                              onClick={() => openRbEdit(item)}
+                              title="Change the required-by date"
+                              className="text-navy-700 hover:text-navy-900"
+                            >
+                              <Pencil size={12} />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       {item.itemQuotationStatus ? (

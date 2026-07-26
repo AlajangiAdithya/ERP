@@ -255,6 +255,78 @@ const validateWorkOrderLink = async (prisma, rawWorkOrderId, requesterUnitId) =>
   return { ok: true, workOrderId: wo.id };
 };
 
+// ──── PURCHASE-REQUEST REQUIRED-BY FLOOR ────
+// Every PR line must be needed at least this many days out, so procurement has a
+// workable lead time. Applies on create, on full edit, and on the any-stage
+// date change (PUT /purchase-requests/:id/required-by). Mirrored client-side by
+// MIN_REQUIRED_BY_DAYS in client/src/pages/PurchaseRequests.jsx — keep in sync.
+const MIN_REQUIRED_BY_DAYS = 15;
+
+// This field is a calendar date, not an instant. The existing rows were written
+// as `new Date('YYYY-MM-DD')` — i.e. UTC midnight — and every reader formats them
+// back with toISOString(), so we keep that storage convention exactly. Comparing
+// and storing go through 'YYYY-MM-DD' strings, which sidesteps the off-by-one a
+// local-midnight Date would introduce for anyone not on UTC.
+
+// 'YYYY-MM-DD' for a date-only input: a string (already in that shape or ISO) or
+// a Date previously stored as UTC midnight. Returns null if unparseable.
+const toDateKey = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString().slice(0, 10);
+  }
+  const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+};
+
+// A 'YYYY-MM-DD' key back to the UTC-midnight Date the column stores.
+const dateKeyToUtcDate = (key) => new Date(`${key}T00:00:00.000Z`);
+
+const formatDateOnly = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// Earliest required-by date a PR line may carry, as 'YYYY-MM-DD'. Built from the
+// server's local calendar day + MIN_REQUIRED_BY_DAYS, matching what the browser
+// puts in the date picker's `min`.
+const requiredByFloorKey = () => {
+  const now = new Date();
+  return formatDateOnly(new Date(now.getFullYear(), now.getMonth(), now.getDate() + MIN_REQUIRED_BY_DAYS));
+};
+
+// Validate one required-by date. An empty value is allowed — the field is
+// optional — but anything inside the 15-day window is rejected.
+// Returns { ok: true, date } (date may be null) or { ok: false, error }.
+const validateRequiredByDate = (value, label = 'Required by date') => {
+  if (value === undefined || value === null || value === '') return { ok: true, date: null };
+  const key = toDateKey(value);
+  if (!key) return { ok: false, error: `${label} is not a valid date` };
+  const floor = requiredByFloorKey();
+  // Both sides are zero-padded 'YYYY-MM-DD', so lexical order is date order.
+  if (key < floor) {
+    return {
+      ok: false,
+      error: `${label} must be at least ${MIN_REQUIRED_BY_DAYS} days from today — pick ${floor} or later`,
+    };
+  }
+  return { ok: true, date: dateKeyToUtcDate(key) };
+};
+
+// Validate the required-by date on every line of a PR payload at once. Returns
+// { ok: true } or { ok: false, error } naming the offending line.
+const validateRequiredByDates = (items) => {
+  for (let i = 0; i < (items || []).length; i++) {
+    const check = validateRequiredByDate(
+      items[i].requiredByDate,
+      `Required by date for "${items[i].productName || `item ${i + 1}`}"`,
+    );
+    if (!check.ok) return check;
+  }
+  return { ok: true };
+};
+
 const isUniqueViolation = (err) => err && err.code === 'P2002';
 
 // Retry wrapper for doc-number races. Reads the existing max, builds the next
@@ -291,4 +363,10 @@ module.exports = {
   AUTO_ACCEPT_UNIT_NAMES,
   isAutoAcceptUnit,
   validateWorkOrderLink,
+  MIN_REQUIRED_BY_DAYS,
+  toDateKey,
+  formatDateOnly,
+  requiredByFloorKey,
+  validateRequiredByDate,
+  validateRequiredByDates,
 };

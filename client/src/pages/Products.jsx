@@ -4,6 +4,7 @@ import {
   Plus, Package, Download, FileText, CheckCircle2,
   Pencil, Send, Building2, Calendar, Truck, User as UserIcon,
   ArrowRightLeft, AlertTriangle, Hash, PackageCheck, RotateCcw, Trash2,
+  FlaskConical,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -19,6 +20,11 @@ import { UOM_OPTIONS } from '../utils/units';
 import SearchBar from '../components/shared/SearchBar';
 import Pagination from '../components/shared/Pagination';
 import PageHero from '../components/shared/PageHero';
+
+// Uploaded docs (customer GP scans, FIM test reports) are served from the API
+// origin, not the app origin — strip the trailing /api and prefix.
+const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
+const fileUrl = (u) => (u && u.startsWith('http') ? u : `${API_ORIGIN}${u || ''}`);
 
 // Compute days-until-return for a FIM batch's probable return date.
 // Returns { label, color } so the FIM Status table can show a red countdown.
@@ -782,11 +788,11 @@ function FimStatusView({ user, onOpenProduct }) {
 
           {/* Scrollable table */}
           <div className="overflow-x-auto bg-white">
-            <table className="w-full text-xs" style={{ minWidth: 2000 }}>
+            <table className="w-full text-xs" style={{ minWidth: 2160 }}>
               <thead>
                 {/* Grouping row (visual headers above the columns) */}
                 <tr className="bg-navy-50 text-navy-700 border-b border-navy-200">
-                  <th colSpan={5} className={`px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider ${groupBorder}`}>
+                  <th colSpan={6} className={`px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider ${groupBorder}`}>
                     <span className="flex items-center gap-1.5"><Hash size={11} /> Inward Details</span>
                   </th>
                   <th colSpan={4} className={`px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider ${groupBorder}`}>
@@ -810,7 +816,8 @@ function FimStatusView({ user, onOpenProduct }) {
                   <th className="px-3 py-2 font-medium text-left">Date</th>
                   <th className="px-3 py-2 font-medium text-left">Vehicle / Driver</th>
                   <th className="px-3 py-2 font-medium text-left">Cust. GP Type</th>
-                  <th className={`px-3 py-2 font-medium text-left ${groupBorder}`}>Cust. GP No.</th>
+                  <th className="px-3 py-2 font-medium text-left">Cust. GP No.</th>
+                  <th className={`px-3 py-2 font-medium text-left ${groupBorder}`} style={{ minWidth: 160 }}>Test Reports</th>
 
                   <th className="px-3 py-2 font-medium text-left">Description</th>
                   <th className="px-3 py-2 font-medium text-right">Quantity</th>
@@ -833,6 +840,12 @@ function FimStatusView({ user, onOpenProduct }) {
                   const gp = b.sourceInwardGatePass || {};
                   const it = b.sourceInwardGatePassItem || {};
                   const cd = returnCountdown(it.probableReturnDate);
+                  // Customer test reports for this line first, then the entry-wide
+                  // ones (the API already filters those to gatePassItemId = null).
+                  const testReports = [
+                    ...(it.testReports || []).map(r => ({ ...r, scope: 'item' })),
+                    ...(gp.testReports || []).map(r => ({ ...r, scope: 'entry' })),
+                  ];
                   const acceptedByThisUnit = b.assignedToUnitId && (user?.role === 'ADMIN' || user?.unitId === b.assignedToUnitId);
                   const canAssign = isStores && !b.unitAcceptedAt;
                   const canAccept = isManager && b.assignedToUnitId && !b.unitAcceptedAt && acceptedByThisUnit;
@@ -900,7 +913,7 @@ function FimStatusView({ user, onOpenProduct }) {
                           </Badge>
                         ) : <span className="text-gray-400 text-[11px]">—</span>}
                       </td>
-                      <td className={`px-3 py-3 ${groupBorder}`}>
+                      <td className="px-3 py-3">
                         <div className="font-mono text-[11px] text-gray-800">{gp.customerGatePassNo || '—'}</div>
                         {gp.customerGatePassDate && (
                           <div className="text-[10px] text-gray-500 mt-0.5">{new Date(gp.customerGatePassDate).toLocaleDateString()}</div>
@@ -912,6 +925,26 @@ function FimStatusView({ user, onOpenProduct }) {
                           >
                             <FileText size={10} /> View PDF
                           </a>
+                        )}
+                      </td>
+                      {/* Customer test reports: this item's own, plus any that cover the whole FIM entry. */}
+                      <td className={`px-3 py-3 ${groupBorder}`}>
+                        {testReports.length === 0 ? (
+                          <span className="text-gray-400 text-[11px]">—</span>
+                        ) : (
+                          <div className="space-y-0.5">
+                            {testReports.map((r, ri) => (
+                              <a
+                                key={r.id || r.url || ri}
+                                href={fileUrl(r.url)} target="_blank" rel="noreferrer"
+                                title={`${r.name || 'Test report'}${r.scope === 'entry' ? ' (whole FIM entry)' : ''}`}
+                                className="flex items-center gap-1 text-navy-700 hover:underline text-[10px]"
+                              >
+                                <FlaskConical size={10} className="shrink-0" />
+                                <span className="truncate max-w-[130px]">{r.name || 'Test report'}</span>
+                              </a>
+                            ))}
+                          </div>
                         )}
                       </td>
 

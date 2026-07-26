@@ -381,7 +381,14 @@ function AdminDashboard() {
       <DashboardHero
         title={greet(user, 'Administrator')}
         subtitle="System overview, units, and recent activity"
-        actions={<InProgressButton />}
+        actions={
+          <>
+            <InProgressButton />
+            <Button variant="secondary" onClick={() => navigate('/my-requests')}>
+              <ClipboardList size={16} className="mr-1" /> My MIV Requests
+            </Button>
+          </>
+        }
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1120,6 +1127,9 @@ function LogisticsDashboard() {
         eyebrow="Logistics Control"
         actions={
           <>
+            <Button variant="secondary" onClick={() => navigate('/my-requests')}>
+              <ClipboardList size={16} className="mr-1" /> MIV Requests
+            </Button>
             <Button variant="secondary" onClick={() => navigate('/vehicles')}>
               <Truck size={16} className="mr-1" /> Vehicles
             </Button>
@@ -1632,6 +1642,9 @@ function AccountingDashboard() {
         actions={
           <>
             <InProgressButton />
+            <Button variant="secondary" onClick={() => navigate('/my-requests')}>
+              <ClipboardList size={16} className="mr-1" /> MIV Requests
+            </Button>
             <Button onClick={() => navigate('/payment-requests')}>
               <ShoppingCart size={16} className="mr-1" /> All Payments
             </Button>
@@ -1845,9 +1858,14 @@ function FinanceDashboard() {
         title={greet(user, 'Finance')}
         subtitle="Customer invoicing, 48h delivery SLA, and the 45-day payment window"
         actions={
-          <Button onClick={() => navigate('/work-orders')}>
-            <ClipboardList size={16} className="mr-1" /> Work Orders
-          </Button>
+          <>
+            <Button variant="secondary" onClick={() => navigate('/my-requests')}>
+              <ClipboardList size={16} className="mr-1" /> MIV Requests
+            </Button>
+            <Button onClick={() => navigate('/work-orders')}>
+              <ClipboardList size={16} className="mr-1" /> Work Orders
+            </Button>
+          </>
         }
       />
 
@@ -2085,6 +2103,9 @@ function HRDashboard() {
         subtitle="Workforce, annual training plan, and skill development"
         actions={
           <>
+            <Button variant="secondary" onClick={() => navigate('/my-requests')}>
+              <ClipboardList size={16} className="mr-1" /> MIV Requests
+            </Button>
             <Button variant="secondary" onClick={() => navigate('/hr/employees')}>
               <Users size={16} className="mr-1" /> Employees
             </Button>
