@@ -46,6 +46,7 @@ const typeColors = {
   NEW_PURCHASE_ASSIGNMENT: 'yellow',
   PURCHASE_COMPLETED: 'green',
   PR_CLOSED: 'gray',
+  PR_REMARK_UPDATED: 'blue',
   QUOTATION_REVIEW: 'yellow',
   QUOTATION_APPROVED: 'green',
   QUOTATION_HOLD: 'yellow',

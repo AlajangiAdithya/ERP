@@ -25,6 +25,8 @@ import MaterialSpecPicker from '../components/shared/MaterialSpecPicker';
 const ATT_ACCEPT = '.pdf,.jpg,.jpeg,.png,.dwg,.doc,.docx,.xls,.xlsx,.zip';
 const ATT_EXT_RE = /\.(pdf|png|jpe?g|dwg|docx?|xlsx?|zip)$/i;
 const ATT_MAX_MB = 15;
+// Mirrors the server cap on PUT /purchase-requests/:id/remarks.
+const MAX_REMARK_LEN = 1000;
 
 // Normalise any PR item/note attachment list coming from the API (new multi-file
 // `attachments` array; falls back to the legacy single specAttachment* fields).
@@ -55,6 +57,31 @@ function AttachmentLinks({ items, label }) {
           </a>
         ))}
       </span>
+    </div>
+  );
+}
+
+// Inline remark editor — shared by the PR-level note and each material line's
+// remark in the detail view. Remarks stay editable at every PR stage, and each
+// save notifies Purchase + Stores (they buy / issue against what it says), so
+// the reminder is spelled out next to the Save button.
+function RemarkEditor({ value, onChange, onSave, onCancel, saving, rows = 2 }) {
+  return (
+    <div className="mt-1 space-y-1">
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        maxLength={MAX_REMARK_LEN}
+        autoFocus
+        placeholder="Type the remark…"
+        className="w-full px-2 py-1.5 border border-gray-400 rounded text-xs text-gray-800 focus:outline-none focus:bg-yellow-50"
+      />
+      <div className="flex items-center gap-1 flex-wrap">
+        <Button size="sm" disabled={saving} onClick={onSave}>{saving ? 'Saving…' : 'Save'}</Button>
+        <Button size="sm" variant="ghost" disabled={saving} onClick={onCancel}>Cancel</Button>
+        <span className="text-[10px] text-gray-500">Purchase &amp; Stores get notified</span>
+      </div>
     </div>
   );
 }
@@ -1454,6 +1481,26 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
   const [editingRbId, setEditingRbId] = useState(null);
   const [rbDraft, setRbDraft] = useState('');
   const [rbSaving, setRbSaving] = useState(false);
+  // Remark editing, allowed at ANY stage — the PR-level note and each line's
+  // remark. `remarkTarget` is what is open: { scope: 'PR' } or
+  // { scope: 'ITEM', id }. Saved text is kept in `remarkEdits` (keyed 'PR' or
+  // item id) so the open modal shows the new value immediately — the parent
+  // refetches the list but the `request` prop it handed us stays as it was.
+  const [remarkTarget, setRemarkTarget] = useState(null);
+  const [remarkDraft, setRemarkDraft] = useState('');
+  const [remarkSaving, setRemarkSaving] = useState(false);
+  const [remarkEdits, setRemarkEdits] = useState({});
+
+  // This modal stays mounted between opens (it only renders null while `request`
+  // is null), so switching to another PR has to clear the previous PR's edit
+  // state — otherwise its saved remark would bleed into the new one.
+  useEffect(() => {
+    setRemarkTarget(null);
+    setRemarkDraft('');
+    setRemarkEdits({});
+    setEditingRbId(null);
+    setRbDraft('');
+  }, [request?.id]);
 
   // Who may retime a PR: the raiser, plus Admin and the purchase officer chasing
   // the delivery. Mirrors the guard on PUT /purchase-requests/:id/required-by.
@@ -1483,6 +1530,46 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
       alert(err.response?.data?.error || 'Failed to update the required-by date');
     }
     setRbSaving(false);
+  };
+
+  // Who may reword a remark: the raiser, plus Admin. Purchase and Stores are the
+  // audience for the change, not the authors. Mirrors the guard on
+  // PUT /purchase-requests/:id/remarks.
+  const canEditRemarks =
+    !!request && (user?.role === 'ADMIN' || request.managerId === user?.id);
+
+  const headerRemark = 'PR' in remarkEdits ? remarkEdits.PR : (request?.notes || '');
+  const itemRemarkOf = (item) => (item.id in remarkEdits ? remarkEdits[item.id] : (item.itemRemarks || ''));
+
+  const openRemarkEdit = (target, current) => {
+    setRemarkTarget(target);
+    setRemarkDraft(current || '');
+  };
+
+  const closeRemarkEdit = () => {
+    setRemarkTarget(null);
+    setRemarkDraft('');
+  };
+
+  const saveRemark = async () => {
+    if (!remarkTarget) return;
+    const text = remarkDraft.trim();
+    setRemarkSaving(true);
+    try {
+      await api.put(
+        `/purchase-requests/${request.id}/remarks`,
+        remarkTarget.scope === 'PR'
+          ? { notes: text }
+          : { items: [{ id: remarkTarget.id, itemRemarks: text }] },
+      );
+      const key = remarkTarget.scope === 'PR' ? 'PR' : remarkTarget.id;
+      setRemarkEdits((prev) => ({ ...prev, [key]: text }));
+      closeRemarkEdit();
+      onReload?.();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to update the remark');
+    }
+    setRemarkSaving(false);
   };
 
   const submitCashConvert = async () => {
@@ -1622,9 +1709,39 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           )}
         </div>
 
-        {(request.notes || (request.noteAttachments || []).length > 0) && (
+        {/* PR-level remark — editable at any stage by the raiser or Admin. Shown
+            even when empty for those two so a remark can be added later. */}
+        {(headerRemark || (request.noteAttachments || []).length > 0 || canEditRemarks) && (
           <div className="bg-yellow-50 rounded-md p-3 text-sm space-y-1">
-            {request.notes && (<div><span className="text-yellow-700 font-medium">Your Note:</span> <span>{request.notes}</span></div>)}
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <span className="text-yellow-700 font-medium">Notes / Remarks:</span>{' '}
+                {remarkTarget?.scope === 'PR' ? (
+                  <RemarkEditor
+                    value={remarkDraft}
+                    onChange={setRemarkDraft}
+                    onSave={saveRemark}
+                    onCancel={closeRemarkEdit}
+                    saving={remarkSaving}
+                    rows={3}
+                  />
+                ) : headerRemark ? (
+                  <span className="whitespace-pre-wrap">{headerRemark}</span>
+                ) : (
+                  <span className="text-gray-400">— no remark yet —</span>
+                )}
+              </div>
+              {canEditRemarks && remarkTarget?.scope !== 'PR' && (
+                <button
+                  type="button"
+                  onClick={() => openRemarkEdit({ scope: 'PR' }, headerRemark)}
+                  title="Edit this remark — Purchase and Stores are notified"
+                  className="shrink-0 text-navy-700 hover:text-navy-900"
+                >
+                  <Pencil size={12} />
+                </button>
+              )}
+            </div>
             <AttachmentLinks label="Note attachments:" items={request.noteAttachments} />
           </div>
         )}
@@ -1753,7 +1870,8 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                           </div>
                         </div>
                       )}
-                      {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo || itemAttachmentList(item).length > 0) && (
+                      {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo
+                        || itemAttachmentList(item).length > 0 || itemRemarkOf(item) || canEditRemarks) && (
                         <div className="mt-1 text-xs text-gray-500 space-y-0.5">
                           {item.materialType && (
                             <div><span className="font-medium text-gray-600">Type:</span> {item.materialType}</div>
@@ -1767,6 +1885,41 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                           {item.qapNo && (
                             <div><span className="font-medium text-gray-600">QAP #:</span> {item.qapNo}</div>
                           )}
+                          {/* Per-material remark — editable at any stage, same rules as the
+                              PR-level one. Hidden entirely for read-only viewers with no remark. */}
+                          {(() => {
+                            const editing = remarkTarget?.scope === 'ITEM' && remarkTarget.id === item.id;
+                            const text = itemRemarkOf(item);
+                            if (!editing && !text && !canEditRemarks) return null;
+                            return (
+                              <div>
+                                <span className="font-medium text-gray-600">Remarks:</span>{' '}
+                                {editing ? (
+                                  <RemarkEditor
+                                    value={remarkDraft}
+                                    onChange={setRemarkDraft}
+                                    onSave={saveRemark}
+                                    onCancel={closeRemarkEdit}
+                                    saving={remarkSaving}
+                                  />
+                                ) : (
+                                  <>
+                                    <span className="whitespace-pre-wrap">{text || <span className="text-gray-400">—</span>}</span>
+                                    {canEditRemarks && (
+                                      <button
+                                        type="button"
+                                        onClick={() => openRemarkEdit({ scope: 'ITEM', id: item.id }, text)}
+                                        title="Edit this material's remark — Purchase and Stores are notified"
+                                        className="ml-1 align-middle text-navy-700 hover:text-navy-900"
+                                      >
+                                        <Pencil size={11} />
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })()}
                           <AttachmentLinks label="Spec files:" items={itemAttachmentList(item)} />
                         </div>
                       )}

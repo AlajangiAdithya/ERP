@@ -53,6 +53,7 @@ const NOTIFICATION_ROUTES = {
   NEW_PURCHASE_ASSIGNMENT: '/purchase-requests',
   PURCHASE_COMPLETED: '/purchase-requests',
   PR_CLOSED: '/purchase-requests',
+  PR_REMARK_UPDATED: '/purchase-requests',
 
   // Inter-office notes
   ION_RECEIVED: '/ion',

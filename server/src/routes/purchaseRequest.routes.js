@@ -1310,6 +1310,204 @@ router.put(
   },
 );
 
+// ──── PR REMARKS — editable at ANY stage ────
+// Remarks are the running commentary on a PR: the header-level note plus the
+// per-line "Other details / Remarks" column. They keep changing long after the
+// PR is raised (spec clarification, revised urgency, a supplier hint), so they
+// are editable at every status.
+//
+// Deliberately separate from PUT /:id, which deletes and recreates the item rows
+// — only safe while the PR is still pending, because quotations, PO allocations
+// and material-pool memberships all point at item IDs. This route updates the
+// remark columns IN PLACE, so it stays safe once the PR is approved, quoted,
+// ordered, closed or rejected.
+//
+// Nothing downstream keeps its own copy of a remark — the PR list/detail, PR
+// PDF, quotation screens, record-purchase modal and ION all read
+// PurchaseRequest.notes / PurchaseRequestItem.itemRemarks through the relation
+// — so an edit surfaces everywhere on the next load.
+const MAX_REMARK_LEN = 1000;
+
+// Roles that ACT on what a remark says — Purchase buys against it, Stores
+// receives/issues against it. Both are notified on every remark edit; a silent
+// change would leave them working from a stale instruction.
+const REMARK_WATCHER_ROLES = ['PURCHASE_OFFICER', 'STORE_MANAGER'];
+
+// Trims a remark to text-or-null. Remarks are free-form and often very short
+// ("grade SS316"), so they deliberately skip the gibberish `validateReason`
+// check that mandatory delay reasons get — only length is enforced.
+function parseRemark(raw, label) {
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+  const text = String(raw).trim();
+  if (text.length > MAX_REMARK_LEN) {
+    return { ok: false, error: `${label} is too long (max ${MAX_REMARK_LEN} characters).` };
+  }
+  return { ok: true, value: text || null };
+}
+
+const remarkSnippet = (text) => {
+  if (!text) return '(cleared)';
+  return text.length > 120 ? `${text.slice(0, 120)}…` : text;
+};
+
+// PUT /api/purchase-requests/:id/remarks
+// Body: { notes }                            → header remark
+//       { items: [{ id, itemRemarks }] }     → per-line remarks
+// Both may be sent together. An empty string or null clears that remark.
+router.put('/:id/remarks', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (req, res) => {
+  try {
+    const request = await prisma.purchaseRequest.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true, requestNumber: true, status: true, managerId: true, notes: true,
+        unit: { select: { name: true, code: true } },
+        items: { select: { id: true, productName: true, itemRemarks: true } },
+      },
+    });
+    if (!request) return res.status(404).json({ error: 'Purchase request not found' });
+
+    // ADMIN can amend any PR's remarks; a requester only their own.
+    if (req.user.role !== 'ADMIN' && request.managerId !== req.user.id) {
+      return res.status(403).json({ error: 'You can only edit the remarks on your own requests' });
+    }
+
+    const body = req.body || {};
+    const hasHeader = Object.prototype.hasOwnProperty.call(body, 'notes');
+    const itemRows = Array.isArray(body.items) ? body.items : null;
+    if (!hasHeader && !itemRows) {
+      return res.status(400).json({ error: 'Provide notes, or an items array' });
+    }
+
+    let headerNotes = null;
+    if (hasHeader) {
+      const parsed = parseRemark(body.notes, 'The PR remark');
+      if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+      headerNotes = parsed.value;
+    }
+
+    // Keyed by item id so a duplicated line in the payload is last-write-wins.
+    const byId = new Map(request.items.map((it) => [it.id, it]));
+    const itemUpdates = new Map();
+    for (const row of itemRows || []) {
+      const item = byId.get(row?.id);
+      if (!item) {
+        return res.status(400).json({ error: 'One of the items does not belong to this purchase request' });
+      }
+      const parsed = parseRemark(row.itemRemarks, `The remark for "${item.productName}"`);
+      if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+      itemUpdates.set(item.id, {
+        id: item.id,
+        productName: item.productName,
+        from: item.itemRemarks || null,
+        to: parsed.value,
+      });
+    }
+
+    // Only genuinely-changed remarks are written, audited and notified — resaving
+    // the same text must not spam Purchase and Stores.
+    const changes = [];
+    if (hasHeader && headerNotes !== (request.notes || null)) {
+      changes.push({ scope: 'PR', label: 'PR remark', from: request.notes || null, to: headerNotes });
+    }
+    for (const u of itemUpdates.values()) {
+      if (u.to !== u.from) {
+        changes.push({ scope: 'ITEM', itemId: u.id, label: u.productName, from: u.from, to: u.to });
+      }
+    }
+
+    const fullInclude = {
+      manager: { select: { id: true, name: true } },
+      unit: { select: { id: true, name: true, code: true } },
+      noteAttachments: { orderBy: { createdAt: 'asc' } },
+      items: {
+        include: {
+          product: { select: { id: true, name: true, sku: true, unit: true, category: true } },
+          attachments: { orderBy: { createdAt: 'asc' } },
+        },
+      },
+    };
+
+    if (changes.length === 0) {
+      const unchanged = await prisma.purchaseRequest.findUnique({
+        where: { id: request.id },
+        include: fullInclude,
+      });
+      return res.json(unchanged);
+    }
+
+    await prisma.$transaction([
+      ...(changes.some((c) => c.scope === 'PR')
+        ? [prisma.purchaseRequest.update({ where: { id: request.id }, data: { notes: headerNotes } })]
+        : []),
+      ...changes
+        .filter((c) => c.scope === 'ITEM')
+        .map((c) => prisma.purchaseRequestItem.update({
+          where: { id: c.itemId },
+          data: { itemRemarks: c.to },
+        })),
+    ]);
+
+    const updated = await prisma.purchaseRequest.findUnique({
+      where: { id: request.id },
+      include: fullInclude,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'EDIT',
+        entity: 'PurchaseRequest',
+        entityId: request.id,
+        details: {
+          requestNumber: request.requestNumber,
+          field: 'remarks',
+          status: request.status,
+          changes,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    // One line per changed remark, capped so the message stays readable on a
+    // phone push when someone edits every line of a long PR at once.
+    const unitLabel = updated.unit?.name || updated.unit?.code || 'No unit';
+    const parts = changes
+      .slice(0, 4)
+      .map((c) => `${c.scope === 'PR' ? 'PR remark' : c.label}: "${remarkSnippet(c.to)}"`);
+    if (changes.length > 4) parts.push(`+${changes.length - 4} more`);
+    // Status is spelled out because it tells the reader how urgent the change is
+    // (a remark edited at ORDER_PLACED may need the supplier told).
+    const statusText = String(request.status).replace(/_/g, ' ').toLowerCase();
+    const message =
+      `${req.user.name} (${unitLabel}) updated remarks on PR ${request.requestNumber} ` +
+      `(${statusText}) — ${parts.join(' · ')}`;
+
+    const targets = REMARK_WATCHER_ROLES.map((role) => ({
+      type: 'PR_REMARK_UPDATED',
+      title: `PR ${request.requestNumber} — remarks updated`,
+      message,
+      targetRole: role,
+      sentById: req.user.id,
+    }));
+    // Whoever raised the PR also needs to know when ADMIN amends their remark.
+    if (request.managerId && request.managerId !== req.user.id) {
+      targets.push({
+        type: 'PR_REMARK_UPDATED',
+        title: `PR ${request.requestNumber} — remarks updated`,
+        message,
+        targetUserId: request.managerId,
+        sentById: req.user.id,
+      });
+    }
+    await prisma.notification.createMany({ data: targets });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Update purchase request remarks error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // PUT /api/purchase-requests/:id/qc-approve — QC department first-level approval
 // for PRs raised by LAB / METROLOGY / NDT. On success the PR moves on to ADMIN
 // for the second-level approval (status PENDING_QC → PENDING_ADMIN).
