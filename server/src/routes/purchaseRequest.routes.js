@@ -1117,8 +1117,8 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
     // PRs in their own name with no unit attached — their PR is owned by them
     // (managerId) and never shows up on any unit dashboard. STORE_MANAGER's
     // PR is effectively "unassigned" (chain-visible); DESIGNS/PLANNING/QC
-    // PRs are own-only. LAB/METROLOGY/NDT PRs are own-only but also visible
-    // to QC for first-level approval.
+    // PRs are own-only. LAB/METROLOGY/NDT/INWARD_QC PRs are own-only but also
+    // visible to QC for first-level approval.
     let unitId = null;
     if (GLOBAL_REQUESTER_ROLES.includes(req.user.role)) {
       unitId = null;
@@ -1181,8 +1181,8 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
       itemsResolved.push({ ...item, productId, materialType: matType });
     }
 
-    // PRs raised by LAB / METROLOGY / NDT enter the QC-approval gate first.
-    // Every other requester role goes straight to ADMIN as before.
+    // PRs raised by LAB / METROLOGY / NDT / INWARD_QC enter the QC-approval gate
+    // first. Every other requester role goes straight to ADMIN as before.
     const needsQcApproval = QC_MANAGED_ROLES.includes(req.user.role);
     const initialStatus = needsQcApproval ? 'PENDING_QC' : 'PENDING_ADMIN';
 

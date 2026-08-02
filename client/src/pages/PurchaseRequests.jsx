@@ -1633,11 +1633,17 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
 
   // Date + change trail always read through the last save, so an edit made in
   // this modal is visible without reopening it.
-  const dateHistory = (rbSaved?.id === request?.id ? rbSaved.dateHistory : request?.dateHistory) || [];
+  //
+  // Both ids must actually exist before the saved PR is treated as this PR: the
+  // modal stays mounted with request === null between opens, and a bare
+  // `rbSaved?.id === request?.id` is `undefined === undefined` there — i.e. true —
+  // which then reads straight off the null `rbSaved`. This runs before the
+  // `if (!request) return null` guard below, so it has to stand on its own.
+  const rbFresh = rbSaved && request && rbSaved.id === request.id ? rbSaved : null;
+
+  const dateHistory = (rbFresh ? rbFresh.dateHistory : request?.dateHistory) || [];
   const requiredByOf = (item) => {
-    const saved = rbSaved?.id === request?.id
-      ? (rbSaved.items || []).find((i) => i.id === item.id)
-      : null;
+    const saved = rbFresh ? (rbFresh.items || []).find((i) => i.id === item.id) : null;
     return saved ? saved.requiredByDate : item.requiredByDate;
   };
 

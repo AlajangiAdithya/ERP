@@ -14,7 +14,12 @@ const router = express.Router();
 // quantity from one owner's ledger (ProductUnitStock / ProductDeptStock) to
 // another. The destination owner raises the request; the source owner (or an
 // admin) approves the release.
-const OWNER_DEPT_ROLES = Object.keys(DEPT_BY_ROLE); // QC, DESIGNS, SAFETY, LAB, METROLOGY, NDT, PLANNING
+// QC, DESIGNS, SAFETY, LAB, METROLOGY, NDT, PLANNING.
+// INWARD_QC is excluded: it maps to the QC department in DEPT_BY_ROLE purely so
+// material it purchases reserves to the QC bucket at inward. It is a narrow
+// inward-inspection login and is not a stock owner — it must not create, approve
+// or reject QC's transfers, nor be an approval target for them.
+const OWNER_DEPT_ROLES = Object.keys(DEPT_BY_ROLE).filter((r) => r !== 'INWARD_QC');
 // Roles that may touch transfers at all (route guard). Monitors (LOGISTICS) get
 // read-only oversight; ownership is enforced per-action below.
 const TRANSFER_ROLES = ['MANAGER', 'ADMIN', 'LOGISTICS', ...OWNER_DEPT_ROLES];
