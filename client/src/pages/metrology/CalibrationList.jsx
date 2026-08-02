@@ -592,7 +592,7 @@ export default function CalibrationList({
   return (
     <div className="space-y-5">
       {/* Hero */}
-      <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${theme.gradient} px-6 py-6 text-white shadow-xl`}>
+      <div className={`on-dark relative overflow-hidden rounded-3xl bg-gradient-to-br ${theme.gradient} px-6 py-6 text-white shadow-xl`}>
         <div className="absolute -top-16 -right-16 w-72 h-72 bg-white/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-20 -left-10 w-64 h-64 bg-white/5 rounded-full blur-3xl pointer-events-none" />
 

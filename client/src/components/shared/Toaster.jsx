@@ -58,7 +58,7 @@ function ToastCard({ toast, onDismiss }) {
 
 function EnableCard({ onEnable, onDismiss }) {
   return (
-    <div className="pointer-events-auto w-80 max-w-[calc(100vw-2rem)] rounded-xl bg-navy-800 text-white shadow-2xl ring-1 ring-white/10 p-3">
+    <div className="on-dark pointer-events-auto w-80 max-w-[calc(100vw-2rem)] rounded-xl bg-navy-800 text-white shadow-2xl ring-1 ring-white/10 p-3">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 flex-shrink-0 w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
           <BellRing size={16} />

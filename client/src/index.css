@@ -1,19 +1,22 @@
+@import './theme.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
   font-family: 'DM Sans', system-ui, sans-serif;
-  background-color: #EDF0F7;
+  background-color: rgb(var(--page-bg));
   background-image:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(58, 107, 224, 0.06), transparent),
-    radial-gradient(rgba(30, 58, 138, 0.045) 1px, transparent 1px);
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgb(var(--page-glow) / 0.06), transparent),
+    radial-gradient(rgb(var(--page-dot) / var(--page-dot-alpha)) 1px, transparent 1px);
   background-size: 100% 100%, 22px 22px;
   background-attachment: fixed;
-  color: #16306E;
+  color: rgb(var(--tx-navy-700));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 h1, h2, h3 {
@@ -25,12 +28,49 @@ h1, h2, h3 {
   background: #1E3A8A;
   color: #fff;
 }
+html.dark ::selection {
+  background: #5C8AF2;
+  color: #0B111D;
+}
 
 /* Keyboard focus — visible, consistent, never on mouse click */
 :focus-visible {
   outline: 2px solid #3A6BE0;
   outline-offset: 2px;
   border-radius: 4px;
+}
+html.dark :focus-visible {
+  outline-color: #8FB1F8;
+}
+
+/* ── Dark-mode odds and ends ───────────────────────────────────────────────
+   Everything class-based retints itself through src/theme.css. What's left is
+   the handful of surfaces drawn outside Tailwind: native controls, and Recharts
+   which paints its axes/tooltips with inline SVG attributes. */
+
+/* Native date/time pickers, spinners, dropdown lists and autofill all follow
+   `color-scheme: dark` (set on html.dark in theme.css) — no manual restyling
+   needed, and inverting the picker glyphs here would in fact undo it. */
+
+html.dark .recharts-cartesian-grid line,
+html.dark .recharts-cartesian-axis-line,
+html.dark .recharts-cartesian-axis-tick-line {
+  stroke: rgb(var(--bd-gray-200));
+}
+html.dark .recharts-text {
+  fill: rgb(var(--tx-gray-500));
+}
+html.dark .recharts-default-tooltip {
+  background-color: rgb(var(--bg-white)) !important;
+  border-color: rgb(var(--bd-gray-200)) !important;
+  color: rgb(var(--tx-gray-700)) !important;
+}
+html.dark .recharts-tooltip-item,
+html.dark .recharts-tooltip-label {
+  color: rgb(var(--tx-gray-700)) !important;
+}
+html.dark .recharts-legend-item-text {
+  color: rgb(var(--tx-gray-600)) !important;
 }
 
 @layer utilities {
@@ -73,12 +113,12 @@ h1, h2, h3 {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #B9C5DF;
+  background: rgb(var(--scrollbar-thumb));
   border-radius: 8px;
-  border: 2px solid #EDF0F7;
+  border: 2px solid rgb(var(--scrollbar-track));
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #506FAF;
+  background: rgb(var(--scrollbar-thumb-hover));
 }
 
 /* Respect reduced-motion preferences */

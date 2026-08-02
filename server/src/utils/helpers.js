@@ -205,6 +205,9 @@ const generateProductSku = async (prisma, _materialType) => {
 const DEPT_BY_ROLE = {
   DESIGNS: 'Designs',
   QC: 'QC',
+  // Inward QC is part of the QC department — its material reserves to the same
+  // "QC" bucket rather than a separate one.
+  INWARD_QC: 'QC',
   LAB: 'Lab',
   METROLOGY: 'Metrology',
   NDT: 'NDT',
@@ -216,7 +219,8 @@ const DEPT_BY_ROLE = {
 };
 
 // Canonical set of department owner labels (the values of DEPT_BY_ROLE).
-const OWNER_DEPTS = Object.values(DEPT_BY_ROLE);
+// De-duped: several roles can share one department (QC and INWARD_QC both own "QC").
+const OWNER_DEPTS = [...new Set(Object.values(DEPT_BY_ROLE))];
 
 // Department label a given role owns stock under, or null for unit-bound / non-owner roles.
 const deptForRole = (role) => DEPT_BY_ROLE[role] || null;
@@ -327,6 +331,22 @@ const validateRequiredByDates = (items) => {
   return { ok: true };
 };
 
+// ── Tax (GST) on payment requests ──────────────────────────────────────────
+// Rates offered in the picker. Anything else can still be typed in as a custom
+// percentage, so this is a convenience list, not a whitelist.
+const GST_RATES = [0, 5, 12, 18, 28];
+
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+
+// Splits a taxable (basic) amount into { taxPercent, taxAmount, payableAmount }.
+// `amount` stays the taxable value everywhere — only payableAmount carries tax.
+const computeTax = (amount, taxPercent = 0) => {
+  const base = Number(amount) || 0;
+  const pct = Number(taxPercent) || 0;
+  const taxAmount = round2((base * pct) / 100);
+  return { taxPercent: pct, taxAmount, payableAmount: round2(base + taxAmount) };
+};
+
 const isUniqueViolation = (err) => err && err.code === 'P2002';
 
 // Retry wrapper for doc-number races. Reads the existing max, builds the next
@@ -357,6 +377,9 @@ module.exports = {
   generateProductSku,
   isUniqueViolation,
   withDocRetry,
+  GST_RATES,
+  round2,
+  computeTax,
   DEPT_BY_ROLE,
   OWNER_DEPTS,
   deptForRole,

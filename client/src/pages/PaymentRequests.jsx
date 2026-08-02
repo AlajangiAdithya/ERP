@@ -83,7 +83,15 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
           <div><span className="text-gray-500">Order #:</span> <span>{payment.purchaseOrder?.orderNumber}</span></div>
           <div><span className="text-gray-500">Supplier:</span> <span>{payment.purchaseOrder?.supplierName}</span></div>
           <div><span className="text-gray-500">Type:</span> <Badge color={typeColor(payment.paymentType)}>{payment.paymentType}</Badge></div>
-          <div><span className="text-gray-500">Amount:</span> <span className="font-bold text-navy-700 text-lg">{formatCurrency(payment.amount)}</span></div>
+          <div>
+            <span className="text-gray-500">Payable:</span>{' '}
+            <span className="font-bold text-navy-700 text-lg">{formatCurrency(payment.payableAmount || payment.amount)}</span>
+            {payment.taxPercent > 0 && (
+              <div className="text-xs text-gray-500 mt-0.5">
+                Basic {formatCurrency(payment.amount)} + {payment.taxPercent}% tax {formatCurrency(payment.taxAmount)}
+              </div>
+            )}
+          </div>
           <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(payment.status)}>{payment.status}</Badge></div>
           <div><span className="text-gray-500">Requested by:</span> <span>{payment.createdBy?.name}</span></div>
           <div><span className="text-gray-500">Date:</span> <span>{formatDateTime(payment.createdAt)}</span></div>
@@ -110,6 +118,12 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
               <div>Paid: {formatCurrency(payment.purchaseOrder.totalPaid)}</div>
               <div>Remaining: {formatCurrency(payment.purchaseOrder.totalAmount - payment.purchaseOrder.totalPaid)}</div>
             </div>
+            {payment.taxPercent > 0 && (
+              <p className="mt-1 text-[11px] text-blue-800">
+                These order figures are basic (pre-tax) values — only {formatCurrency(payment.amount)} of this
+                request counts against the balance; the {payment.taxPercent}% tax is paid on top.
+              </p>
+            )}
           </div>
         )}
 
@@ -256,7 +270,9 @@ export default function PaymentRequests() {
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Order</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Supplier</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Type</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Amount</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Basic</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Tax</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Payable</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
@@ -283,7 +299,11 @@ export default function PaymentRequests() {
                     </td>
                     <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.supplierName}</td>
                     <td className="px-3 py-2"><Badge color={typeColor(p.paymentType)}>{p.paymentType}</Badge></td>
-                    <td className="px-3 py-2 font-medium">{formatCurrency(p.amount)}</td>
+                    <td className="px-3 py-2 text-gray-600">{formatCurrency(p.amount)}</td>
+                    <td className="px-3 py-2 text-gray-600 text-xs">
+                      {p.taxPercent ? `${p.taxPercent}% · ${formatCurrency(p.taxAmount)}` : '—'}
+                    </td>
+                    <td className="px-3 py-2 font-medium">{formatCurrency(p.payableAmount || p.amount)}</td>
                     <td className="px-3 py-2"><Badge color={statusColor(p.status)}>{p.status}</Badge></td>
                     <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(p.createdAt)}</td>
                     <td className="px-3 py-2">

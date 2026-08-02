@@ -7,6 +7,7 @@ const {
   formatDDMMYY, normalizeMaterialType, getFinancialYear, generateProductSku,
 } = require('../utils/helpers');
 const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
+const { validateReason } = require('../utils/reasonValidation');
 
 const router = express.Router();
 
@@ -17,6 +18,14 @@ const WRITE_ROLES = ['ADMIN', 'STORE_MANAGER'];
 // operator — it shares exactly this one capability (take/finish review) and
 // nothing else (no create, no request-QC, no inward-into-stock).
 const QC_ROLES = ['ADMIN', 'QC', 'INWARD_QC'];
+// Who may waive the inspection on a lot ("QC not required"). Deliberately does
+// NOT include Stores: Stores raises the receipt, so letting it also wave the
+// receipt past QC would remove the check entirely. Nor INWARD_QC — that login
+// performs inspections, it doesn't decide which materials need one. The call
+// belongs to QC proper, the unit manager the material is bound for, or Admin.
+const QC_WAIVE_ROLES = ['ADMIN', 'QC', 'MANAGER'];
+// Statuses a lot can be waived from — anything before a QC outcome has been filed.
+const QC_WAIVABLE_STATUSES = ['DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW'];
 // Everyone with oversight may read the register (INWARD_QC must read it to review).
 const VIEW_ROLES = [
   'ADMIN', 'STORE_MANAGER', 'QC', 'INWARD_QC', 'PURCHASE_OFFICER', 'PLANNING',
@@ -178,6 +187,29 @@ async function notifyMasterDataHold(row, sentById, { title, message }) {
     if (mgr) notes.push({ ...base, targetRole: null, targetUserId: mgr.id });
   }
   await prisma.notification.createMany({ data: notes });
+}
+
+// The "concerned manager(s)" for a register row — the people who decide whether
+// this material actually needs an inspection. That is the manager(s) of the unit
+// the lot is bound for, plus the indenter who raised the PR when they are someone
+// else (a department head, another unit's manager). De-duped user ids.
+async function concernedManagerIds(row) {
+  const ids = new Set();
+  if (row.issuedToUnitId) {
+    const mgrs = await prisma.user.findMany({
+      where: { role: 'MANAGER', unitId: row.issuedToUnitId, isActive: true },
+      select: { id: true },
+    });
+    mgrs.forEach((m) => ids.add(m.id));
+  }
+  if (row.indenterId) {
+    const indenter = await prisma.user.findFirst({
+      where: { id: row.indenterId, isActive: true },
+      select: { id: true },
+    });
+    if (indenter) ids.add(indenter.id);
+  }
+  return [...ids];
 }
 
 // POs that can still receive material (anything that isn't fully closed).
@@ -579,7 +611,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const poItemIds = new Set();
     const linkIds = new Set(); // failed ↔ replacement MIR cross-links
     rows.forEach((r) => {
-      [r.createdById, r.qcRequestedById, r.qcReviewerId].forEach((id) => id && userIds.add(id));
+      [r.createdById, r.qcRequestedById, r.qcReviewerId, r.qcWaivedById].forEach((id) => id && userIds.add(id));
       if (r.issuedToUnitId) unitIds.add(r.issuedToUnitId);
       if (r.productId) productIds.add(r.productId);
       if (r.batchNo) batchNos.add(r.batchNo);
@@ -682,6 +714,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       createdBy: userMap[r.createdById] || null,
       qcRequestedBy: r.qcRequestedById ? userMap[r.qcRequestedById] || null : null,
       qcReviewer: r.qcReviewerId ? userMap[r.qcReviewerId] || null : null,
+      qcWaivedBy: r.qcWaivedById ? userMap[r.qcWaivedById] || null : null,
       issuedToUnit: r.issuedToUnitId ? unitMap[r.issuedToUnitId] || null : null,
       product: r.productId ? productMap[r.productId] || null : null,
       poNumber: r.purchaseOrderId ? (poMap[r.purchaseOrderId]?.orderNumber || null) : (r.manualPoNumber || null),
@@ -1137,7 +1170,9 @@ router.post('/:id/request-qc', authenticate, requireInwardWrite, async (req, res
     // Tools & Fixtures may have been inwarded before QC (deferred). Such a lot is
     // already in stock (inwardedAt set) but still needs its QC — allow requesting it.
     const deferredQcPending = !!(row.inwardedAt && !row.qcResult);
-    if (!['DRAFT', 'QC_REQUESTED'].includes(row.status) && !deferredQcPending) {
+    // QC_NOT_REQUIRED is included so a waiver can be undone: Stores sends the lot
+    // back into the normal inspection flow and the waiver fields are cleared below.
+    if (!['DRAFT', 'QC_REQUESTED', 'QC_NOT_REQUIRED'].includes(row.status) && !deferredQcPending) {
       return res.status(400).json({ error: 'QC has already been taken up for this entry' });
     }
 
@@ -1188,18 +1223,43 @@ router.post('/:id/request-qc', authenticate, requireInwardWrite, async (req, res
           qcRequestNote: str(req.body?.qcRequestNote) || qcRequest.storesRemark,
           qcDocRequirement: docsRequired.join(', ') || null,
           qcRequest,
+          // Any earlier "QC not required" call is undone by sending the lot to QC.
+          qcWaived: false,
+          qcWaivedAt: null,
+          qcWaivedById: null,
+          qcWaivedReason: null,
         },
       });
     });
-    await prisma.notification.create({
-      data: {
-        type: 'INWARD_QC_REQUEST',
-        title: `QC requested: ${row.itemDescription || row.mirNo}`,
-        message: `${req.user.name} requested QC for inward ${row.mirNo}${row.docNumber ? ` (${row.docNumber})` : ''}. Open the Inward register to take the review.`,
-        targetRole: 'QC',
-        sentById: req.user.id,
-      },
+    // QC is told to pick the lot up; the concerned manager(s) and Admin are told
+    // the material is sitting at QC and reminded they can waive the inspection if
+    // this item does not need one (the "QC Not Required" action on the register).
+    const item = row.itemDescription || row.mirNo;
+    const docSuffix = row.docNumber ? ` (${row.docNumber})` : '';
+    const notes = [{
+      type: 'INWARD_QC_REQUEST',
+      title: `QC requested: ${item}`,
+      message: `${req.user.name} requested QC for inward ${row.mirNo}${docSuffix}. Open the Inward register to take the review, or click “QC Not Required” if this material needs no inspection.`,
+      targetRole: 'QC',
+      sentById: req.user.id,
+    }];
+    const atQcMsg = `${item} (inward ${row.mirNo}${docSuffix}${row.qtyReceived != null ? `, qty ${row.qtyReceived}${row.uom ? ` ${row.uom}` : ''}` : ''}) is now at QC for inspection. If this material does not need any QC, open the Inward Material Register and click “QC Not Required” — it will move straight to the inward step.`;
+    const managerIds = await concernedManagerIds(row);
+    managerIds.forEach((id) => notes.push({
+      type: 'INWARD_QC_REQUEST',
+      title: `Material at QC: ${item}`,
+      message: atQcMsg,
+      targetUserId: id,
+      sentById: req.user.id,
+    }));
+    notes.push({
+      type: 'INWARD_QC_REQUEST',
+      title: `Material at QC: ${item}`,
+      message: atQcMsg,
+      targetRole: 'ADMIN',
+      sentById: req.user.id,
     });
+    await prisma.notification.createMany({ data: notes });
     res.json(updated);
   } catch (err) {
     console.error('request-qc error:', err);
@@ -1222,6 +1282,96 @@ router.post('/:id/take-review', authenticate, authorize(...QC_ROLES), async (req
   } catch (err) {
     console.error('take-review error:', err);
     res.status(500).json({ error: 'Failed to take review' });
+  }
+});
+
+// ── POST /api/material-inward/:id/qc-not-required ─────────────────────
+// Waive the inspection. Not every receipt needs QC — standard consumables,
+// stationery, a re-order of a proven part. QC, the concerned unit manager, or an
+// Admin marks the lot "QC not required" and it skips straight to the inward step
+// (Stores can then inward it; the master-data gate still applies). A meaningful
+// reason is mandatory — this is a documented bypass of an inspection, so the
+// register has to say why. The round is archived to qcHistory for the audit trail.
+router.post('/:id/qc-not-required', authenticate, authorize(...QC_WAIVE_ROLES), async (req, res) => {
+  try {
+    const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
+    if (!row) return res.status(404).json({ error: 'Entry not found' });
+    if (row.inwardedAt) return res.status(400).json({ error: 'This entry has already been inwarded' });
+    if (!QC_WAIVABLE_STATUSES.includes(row.status)) {
+      return res.status(400).json({
+        error: row.status === 'QC_NOT_REQUIRED'
+          ? 'QC has already been marked not required for this entry'
+          : 'QC has already been completed for this entry — it can no longer be waived',
+      });
+    }
+
+    const check = validateReason(req.body?.reason, { minLength: 12, minWords: 2, fieldLabel: 'reason' });
+    if (!check.ok) return res.status(400).json({ error: check.error });
+    const reason = check.cleaned;
+
+    // Archive the waived round alongside real inspection rounds so the lot's QC
+    // history reads end-to-end (round 1 waived, round 2 inspected after a resend …).
+    const history = Array.isArray(row.qcHistory) ? [...row.qcHistory] : [];
+    history.push({
+      round: row.qcRound || 1,
+      result: 'NOT_REQUIRED',
+      reportNo: null,
+      remark: reason,
+      reviewerId: req.user.id,
+      reviewerName: req.user.name,
+      reviewerRole: req.user.role,
+      finishedAt: new Date().toISOString(),
+    });
+
+    const updated = await prisma.materialInwardRegister.update({
+      where: { id: row.id },
+      data: {
+        status: 'QC_NOT_REQUIRED',
+        qcWaived: true,
+        qcWaivedAt: new Date(),
+        qcWaivedById: req.user.id,
+        qcWaivedReason: reason,
+        // No inspection happened: leave the result/qty/report columns empty so a
+        // waived lot is never mistaken for a passed one.
+        qcResult: null,
+        qcReviewerId: null,
+        qcReviewStartedAt: null,
+        qcHistory: history,
+      },
+    });
+
+    // Stores is the actor on the next step, so it always gets told. QC is told when
+    // someone else waived (so it stops expecting the lot), and the concerned
+    // manager(s) + Admin are kept in the loop on who cleared it and why.
+    const item = row.itemDescription || row.mirNo;
+    const msg = `${req.user.name} marked QC NOT REQUIRED for inward ${row.mirNo}${row.docNumber ? ` (${row.docNumber})` : ''} — ${reason}. Stores can inward it directly.`;
+    const notes = [{
+      type: 'INWARD_QC_NOT_REQUIRED',
+      title: `QC not required: ${item}`,
+      message: msg,
+      targetRole: 'STORE_MANAGER',
+      sentById: req.user.id,
+    }];
+    if (!QC_ROLES.includes(req.user.role)) {
+      notes.push({
+        type: 'INWARD_QC_NOT_REQUIRED', title: `QC not required: ${item}`, message: msg, targetRole: 'QC', sentById: req.user.id,
+      });
+    }
+    if (req.user.role !== 'ADMIN') {
+      notes.push({
+        type: 'INWARD_QC_NOT_REQUIRED', title: `QC not required: ${item}`, message: msg, targetRole: 'ADMIN', sentById: req.user.id,
+      });
+    }
+    const managerIds = await concernedManagerIds(row);
+    managerIds.filter((id) => id !== req.user.id).forEach((id) => notes.push({
+      type: 'INWARD_QC_NOT_REQUIRED', title: `QC not required: ${item}`, message: msg, targetUserId: id, sentById: req.user.id,
+    }));
+    await prisma.notification.createMany({ data: notes });
+
+    res.json(updated);
+  } catch (err) {
+    console.error('qc-not-required error:', err);
+    res.status(500).json({ error: 'Failed to mark QC not required' });
   }
 });
 
@@ -1486,8 +1636,11 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
 
     if (!isTF && !isHT && !isMach) {
       // Normal flow: QC must be finished + passed, and the master data must have
-      // been added, before any stock is created.
-      if (row.status !== 'QC_DONE') return res.status(400).json({ error: 'Finish QC before inwarding' });
+      // been added, before any stock is created. A lot QC / the concerned manager
+      // / an Admin marked "QC not required" clears the inspection gate the same
+      // way a finished review does — the master-data gate below still applies.
+      const qcCleared = row.status === 'QC_DONE' || (row.qcWaived && row.status === 'QC_NOT_REQUIRED');
+      if (!qcCleared) return res.status(400).json({ error: 'Finish QC before inwarding' });
       if (row.qcResult === 'FAILED') return res.status(400).json({ error: 'QC failed — this material cannot be inwarded' });
       if (product && product.masterDataComplete === false) {
         await notifyMasterDataHold(row, req.user.id, {

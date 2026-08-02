@@ -13,6 +13,7 @@ import { formatDate } from '../utils/formatters';
 import IONPdf from '../components/pdf/IONPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import PageHero from '../components/shared/PageHero';
+import WorkOrderPicker from '../components/shared/WorkOrderPicker';
 
 const STATUS_TABS = [
   { key: 'ALL',       label: 'All' },
@@ -369,16 +370,21 @@ function FormFields({ form, update, items, updateItem, addItem, removeItem, work
     <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Input label="Project Name" value={form.projectName} onChange={e => update('projectName', e.target.value)} />
-        <Select label="Work Order No." value={form.supplyOrderNo} onChange={e => update('supplyOrderNo', e.target.value)}>
-          <option value="">— Select work order —</option>
-          <option value="R&D">R &amp; D — Product research (not a work order)</option>
-          <option value="Data Generation">Data Generation (not a work order)</option>
-          {workOrders.map(wo => (
-            <option key={wo.id} value={wo.workOrderNumber}>
-              {wo.workOrderNumber}{wo.supplyOrderNo ? ` · SO: ${wo.supplyOrderNo}` : ''} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
-            </option>
-          ))}
-        </Select>
+        <div>
+          <label className="block text-[13px] font-semibold text-navy-700 mb-1.5">Work Order No.</label>
+          <WorkOrderPicker
+            workOrders={workOrders}
+            value={form.supplyOrderNo}
+            onChange={(v) => update('supplyOrderNo', v)}
+            valueKey="workOrderNumber"
+            emptyLabel="— Select work order —"
+            className="w-full flex items-center gap-2 px-3.5 py-2 bg-white border border-navy-200 rounded-lg text-sm text-navy-800 text-left hover:border-navy-300 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-600"
+            specialOptions={[
+              { value: 'R&D', label: 'R & D', hint: '— Product research (not a work order)' },
+              { value: 'Data Generation', label: 'Data Generation', hint: '(not a work order)' },
+            ]}
+          />
+        </div>
         <Input label="Ref Doc / QA Plan" value={form.referenceDocQA} onChange={e => update('referenceDocQA', e.target.value)} />
       </div>
 

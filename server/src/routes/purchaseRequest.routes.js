@@ -11,6 +11,10 @@ const {
 } = require('../utils/helpers');
 const { buildCoverageSummary, cancelLeftoverPRItems } = require('../utils/prClosure');
 const { validateReason } = require('../utils/reasonValidation');
+const {
+  EXPORT_ROW_CAP, addInfoSheet, addSheet, createWorkbook, dateCell,
+  exportFileName, num, sendWorkbook, titleCase, yesNo,
+} = require('../utils/excel');
 
 const router = express.Router();
 
@@ -18,7 +22,9 @@ const router = express.Router();
 // PLANNING is included: it raises its own PRs in addition to overseeing the
 // whole pipeline (it is deliberately kept OUT of OWN_ONLY_ROLES below so the
 // listing endpoint still shows it every PR).
-const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'];
+// INWARD_QC raises its own PRs like any other QC-department sub-role; they are
+// gated behind QC's approval (see QC_MANAGED_ROLES below).
+const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'STORE_MANAGER', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'];
 // Subset that should only see PRs they themselves raised. STORE_MANAGER is
 // intentionally excluded — they also receive goods against everyone's PRs, so
 // they keep full chain visibility like ADMIN.
@@ -26,7 +32,7 @@ const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'LA
 // (not the whole org's). Add to OWN_ONLY so the listing endpoint scopes correctly.
 // PLANNING is intentionally excluded — it raises its own PRs but retains
 // org-wide read visibility (a monitor that also files).
-const OWN_ONLY_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+const OWN_ONLY_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
 // Monitor roles — full read visibility across the chain. PLANNING also raises
 // its own PRs (see REQUESTER_ROLES), but its visibility stays org-wide.
 const MONITOR_ROLES = ['PLANNING'];
@@ -34,16 +40,26 @@ const MONITOR_ROLES = ['PLANNING'];
 // LAB / METROLOGY / NDT included so their own raised PRs are visible to them through the listing endpoints.
 // ACCOUNTING + FINANCE are admin-level read-only observers — they see the whole
 // chain (every PR in every status) but never get the approve/edit endpoints.
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
 // Roles that are globally-scoped — they raise PRs in their own name, not for any
 // specific unit. Their PRs have unitId = null and only show up on their own
 // dashboard plus the procurement chain (ADMIN, PURCHASE_OFFICER, ACCOUNTING).
 // Includes QC ("Quality") and the QC-department roles (LAB / METROLOGY / NDT)
 // because Quality acts as a non-unit function here.
-const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'];
+const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'QC', 'INWARD_QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'];
 // Sub-roles under the QC department. PRs from these roles go to QC for the
-// first-level approval before flowing on to ADMIN.
-const QC_MANAGED_ROLES = ['LAB', 'METROLOGY', 'NDT'];
+// first-level approval before flowing on to ADMIN. INWARD_QC sits here too — it
+// may raise its own requests, but nothing leaves the QC department without QC's
+// own approval first.
+const QC_MANAGED_ROLES = ['LAB', 'METROLOGY', 'NDT', 'INWARD_QC'];
+
+// Everything a PURCHASE_OFFICER may see on the PR list — approved and beyond.
+// Doubles as the whitelist for their status tabs, so a tab can only ever narrow
+// this set, never widen it.
+const PO_VISIBLE_STATUSES = [
+  'APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED',
+  'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'CASH_PURCHASE', 'COMPLETED',
+];
 
 // Normalises an item's attachment list from the request payload. Accepts the new
 // multi-file `attachments` array and falls back to the legacy single
@@ -157,7 +173,7 @@ const createSchema = z.object({
 router.post(
   '/upload-spec',
   authenticate,
-  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'),
+  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'INWARD_QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'),
   (req, res) => {
     prSpecsUpload.fields([{ name: 'files', maxCount: 10 }, { name: 'file', maxCount: 1 }])(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
@@ -174,36 +190,53 @@ router.post(
 );
 
 // GET /api/purchase-requests — list based on role
+// Visibility + filter clause for the PR list. Shared by the paged list endpoint
+// and the Excel export so an export can never widen what a role is allowed to
+// see, and can never disagree with the list the user is looking at.
+function buildPrListWhere(user, { status, fromDate, toDate }) {
+  const where = {};
+  applyDateFilter(where, { fromDate, toDate });
+
+  // Role-based filtering — requester roles see only their own.
+  // QC is special: in addition to their own PRs they also oversee PRs raised
+  // by LAB / METROLOGY / NDT (the sub-roles of the QC department), since
+  // QC is the first-level approver for those PRs.
+  if (user.role === 'QC') {
+    where.OR = [
+      { managerId: user.id },
+      { manager: { role: { in: QC_MANAGED_ROLES } } },
+    ];
+  } else if (OWN_ONLY_ROLES.includes(user.role)) {
+    where.managerId = user.id;
+  } else if (user.role === 'PURCHASE_OFFICER') {
+    // PO sees approved and beyond (including cash purchase PRs they converted)
+    where.status = { in: PO_VISIBLE_STATUSES };
+  }
+  // ADMIN, STORE_MANAGER, ACCOUNTING and FINANCE see all — accounts/finance are
+  // full read-only observers, so they get every PR in every status (including
+  // the still-floating pending/in-progress ones), exactly like admin.
+
+  // A status tab narrows the list HERE, not in the browser — the client only
+  // holds one page, so filtering client-side would hide rows that belong on
+  // this page and leave the page count meaningless. For the PO the filter is
+  // clamped to the statuses they may already see.
+  if (status) {
+    if (user.role === 'PURCHASE_OFFICER') {
+      if (PO_VISIBLE_STATUSES.includes(status)) where.status = status;
+    } else {
+      where.status = status;
+    }
+  }
+
+  return where;
+}
+
 router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
 
-    const where = {};
-    applyDateFilter(where, { fromDate, toDate });
-
-    // Role-based filtering — requester roles see only their own.
-    // QC is special: in addition to their own PRs they also oversee PRs raised
-    // by LAB / METROLOGY / NDT (the sub-roles of the QC department), since
-    // QC is the first-level approver for those PRs.
-    if (req.user.role === 'QC') {
-      where.OR = [
-        { managerId: req.user.id },
-        { manager: { role: { in: QC_MANAGED_ROLES } } },
-      ];
-    } else if (OWN_ONLY_ROLES.includes(req.user.role)) {
-      where.managerId = req.user.id;
-    } else if (req.user.role === 'PURCHASE_OFFICER') {
-      // PO sees approved and beyond (including cash purchase PRs they converted)
-      where.status = { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'CASH_PURCHASE', 'COMPLETED'] };
-    }
-    // ADMIN, STORE_MANAGER, ACCOUNTING and FINANCE see all — accounts/finance are
-    // full read-only observers, so they get every PR in every status (including
-    // the still-floating pending/in-progress ones), exactly like admin.
-
-    if (status && !['PURCHASE_OFFICER'].includes(req.user.role)) {
-      where.status = status;
-    }
+    const where = buildPrListWhere(req.user, { status, fromDate, toDate });
 
     const [requests, total] = await Promise.all([
       prisma.purchaseRequest.findMany({
@@ -215,6 +248,9 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
           qcApprovedBy: { select: { id: true, name: true } },
           adminApprovedBy: { select: { id: true, name: true } },
           noteAttachments: { orderBy: { createdAt: 'asc' } },
+          // Required-by change trail (newest first) — the PR detail modal shows
+          // who moved each line's date, when, and from what to what.
+          dateHistory: { orderBy: { createdAt: 'desc' } },
           items: {
             include: {
               product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
@@ -348,6 +384,254 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   } catch (error) {
     console.error('Get purchase requests error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── Excel export ───
+// Human-readable status labels, kept in step with the client's statusLabel() so
+// the spreadsheet reads the same as the screen it was exported from.
+const PR_STATUS_LABEL = {
+  PENDING_QC: 'Pending QC',
+  PENDING_ADMIN: 'Pending Admin',
+  APPROVED: 'Approved',
+  IN_PROGRESS: 'In Progress',
+  QUOTATION_SUBMITTED: 'Quotation Submitted',
+  QUOTATION_APPROVED: 'Quotation Approved',
+  ORDER_PLACED: 'Order Placed',
+  GOODS_ARRIVED: 'Goods Arrived',
+  QC_PASSED: 'QC Passed',
+  INWARD_DONE: 'Inward Done',
+  COMPLETED: 'Completed',
+  REJECTED: 'Rejected',
+  CASH_PURCHASE: 'Cash Purchase',
+};
+const prStatusLabel = (s) => PR_STATUS_LABEL[s] || titleCase(s);
+
+const PR_ITEM_STATUS_LABEL = {
+  WAITING: 'Waiting',
+  ORDERED: 'Ordered',
+  ON_THE_WAY: 'On the Way',
+  RECEIVED: 'Received',
+  CANCELLED: 'Cancelled',
+};
+
+const sum = (list, pick) => list.reduce((t, x) => t + (Number(pick(x)) || 0), 0);
+const earliest = (dates) => {
+  const valid = dates.filter(Boolean).map((d) => new Date(d)).filter((d) => !Number.isNaN(d.getTime()));
+  return valid.length ? new Date(Math.min(...valid.map((d) => d.getTime()))) : null;
+};
+const joinUnique = (list) => Array.from(new Set(list.filter(Boolean))).join(', ');
+
+// GET /api/purchase-requests/export — the current PR list as a formatted .xlsx.
+// Takes the same `status` / `fromDate` / `toDate` filters as the list endpoint and
+// runs through the identical visibility clause, so what downloads is exactly what
+// the user can see on screen — just unpaged. Two sheets: one row per PR, and one
+// row per material line for anyone who needs to pivot on materials.
+// Must stay ABOVE `GET /:id` or that route swallows "export".
+router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
+  try {
+    const { status, fromDate, toDate } = req.query;
+    const where = buildPrListWhere(req.user, { status, fromDate, toDate });
+
+    const [total, requests] = await Promise.all([
+      prisma.purchaseRequest.count({ where }),
+      prisma.purchaseRequest.findMany({
+        where,
+        include: {
+          manager: { select: { name: true, username: true, role: true } },
+          unit: { select: { name: true, code: true } },
+          workOrder: { select: { workOrderNumber: true, supplyOrderNo: true } },
+          qcApprovedBy: { select: { name: true } },
+          adminApprovedBy: { select: { name: true } },
+          items: {
+            include: {
+              product: { select: { sku: true, category: true } },
+              attachments: { select: { id: true } },
+            },
+          },
+          quotations: {
+            where: { supersededAt: null },
+            select: { quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true },
+          },
+          purchaseOrders: { select: { orderNumber: true, totalAmount: true, totalPaid: true, status: true } },
+          purchaseOrderSources: {
+            select: { purchaseOrder: { select: { orderNumber: true, totalAmount: true, totalPaid: true, status: true } } },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: EXPORT_ROW_CAP,
+      }),
+    ]);
+
+    const prRows = [];
+    const itemRows = [];
+
+    for (const r of requests) {
+      const items = r.items || [];
+      // A PR reaches its PO either directly or through the union pivot — both
+      // carry the same order, so merge and de-dupe by order number.
+      const orders = [
+        ...(r.purchaseOrders || []),
+        ...(r.purchaseOrderSources || []).map((s) => s.purchaseOrder).filter(Boolean),
+      ].filter((o, i, arr) => arr.findIndex((x) => x.orderNumber === o.orderNumber) === i);
+      const selectedQuote = (r.quotations || []).find((q) => q.isSelected) || null;
+      const unitLabel = r.unit?.code ? `${r.unit.code}${r.unit.name ? ` — ${r.unit.name}` : ''}` : 'Central / Non-unit';
+      const workOrderLabel = r.isRnd
+        ? 'R&D'
+        : (r.workOrder?.workOrderNumber
+          ? `${r.workOrder.workOrderNumber}${r.workOrder.supplyOrderNo ? ` (SO ${r.workOrder.supplyOrderNo})` : ''}`
+          : '');
+
+      prRows.push({
+        requestNumber: r.requestNumber,
+        status: prStatusLabel(r.status),
+        raisedBy: r.manager?.name || '',
+        raisedByRole: titleCase(r.manager?.role),
+        unit: unitLabel,
+        workOrder: workOrderLabel,
+        isRnd: yesNo(r.isRnd),
+        createdAt: dateCell(r.createdAt),
+        lineCount: items.length,
+        requestedQty: num(sum(items, (i) => i.requestedQty)),
+        approvedQty: num(sum(items, (i) => (i.adminApprovedQty ?? i.requestedQty))),
+        purchasedQty: num(sum(items, (i) => i.purchasedQty)),
+        requiredBy: dateCell(earliest(items.map((i) => i.requiredByDate))),
+        qcApprovedBy: r.qcApprovedBy?.name || '',
+        qcApprovedAt: dateCell(r.qcApprovedAt),
+        adminApprovedBy: r.adminApprovedBy?.name || '',
+        adminApprovedAt: dateCell(r.adminApprovedAt),
+        quotationCount: (r.quotations || []).length,
+        supplier: selectedQuote?.supplierName || '',
+        quotedValue: num(selectedQuote?.totalAmount),
+        poNumbers: joinUnique(orders.map((o) => o.orderNumber)),
+        poValue: num(sum(orders, (o) => o.totalAmount)),
+        poPaid: num(sum(orders, (o) => o.totalPaid)),
+        notes: r.notes || '',
+        adminNotes: r.adminNotes || '',
+      });
+
+      items.forEach((i, idx) => {
+        const approved = i.adminApprovedQty ?? i.requestedQty;
+        itemRows.push({
+          requestNumber: r.requestNumber,
+          prStatus: prStatusLabel(r.status),
+          unit: unitLabel,
+          raisedBy: r.manager?.name || '',
+          createdAt: dateCell(r.createdAt),
+          sr: idx + 1,
+          material: i.productName,
+          sku: i.product?.sku || '',
+          category: i.materialType || i.product?.category || '',
+          uom: i.productUnit || '',
+          requestedQty: num(i.requestedQty),
+          approvedQty: num(i.adminApprovedQty),
+          purchasedQty: num(i.purchasedQty),
+          pendingQty: num(Math.max(0, (Number(approved) || 0) - (Number(i.purchasedQty) || 0))),
+          itemStatus: i.itemStatus ? (PR_ITEM_STATUS_LABEL[i.itemStatus] || titleCase(i.itemStatus)) : '',
+          quotationStatus: titleCase(i.itemQuotationStatus),
+          requiredBy: dateCell(i.requiredByDate),
+          drawingNo: i.drawingNo || '',
+          qapNo: i.qapNo || '',
+          specification: i.materialSpecification || '',
+          purpose: i.purpose || '',
+          sourceOfSupply: i.sourceOfSupply || '',
+          scopeOfWork: i.scopeOfWork || '',
+          inspectionType: i.inspectionType || '',
+          remarks: i.itemRemarks || '',
+          specFiles: (i.attachments || []).length,
+        });
+      });
+    }
+
+    const wb = createWorkbook();
+    addInfoSheet(wb, {
+      title: 'Purchase Requests',
+      user: req.user,
+      filters: [
+        { label: 'Status', value: status ? prStatusLabel(status) : 'All' },
+        { label: 'From Date', value: fromDate || 'Beginning' },
+        { label: 'To Date', value: toDate || 'Today' },
+      ],
+      counts: [
+        { label: 'Purchase Requests', value: prRows.length },
+        { label: 'Material Lines', value: itemRows.length },
+        { label: 'Matching Records', value: total },
+      ],
+      truncated: total > requests.length,
+    });
+
+    addSheet(wb, {
+      name: 'Purchase Requests',
+      rows: prRows,
+      columns: [
+        { header: 'PR No.', key: 'requestNumber' },
+        { header: 'Status', key: 'status' },
+        { header: 'Raised By', key: 'raisedBy' },
+        { header: 'Department / Role', key: 'raisedByRole' },
+        { header: 'Unit', key: 'unit' },
+        { header: 'Work Order', key: 'workOrder' },
+        { header: 'R&D', key: 'isRnd', align: 'center' },
+        { header: 'Raised On', key: 'createdAt', fmt: 'dateTime' },
+        { header: 'Lines', key: 'lineCount', fmt: 'int', align: 'right' },
+        { header: 'Requested Qty', key: 'requestedQty', fmt: 'qty', align: 'right' },
+        { header: 'Approved Qty', key: 'approvedQty', fmt: 'qty', align: 'right' },
+        { header: 'Purchased Qty', key: 'purchasedQty', fmt: 'qty', align: 'right' },
+        { header: 'Earliest Required By', key: 'requiredBy', fmt: 'date' },
+        { header: 'QC Approved By', key: 'qcApprovedBy' },
+        { header: 'QC Approved On', key: 'qcApprovedAt', fmt: 'dateTime' },
+        { header: 'Admin Approved By', key: 'adminApprovedBy' },
+        { header: 'Admin Approved On', key: 'adminApprovedAt', fmt: 'dateTime' },
+        { header: 'Quotations', key: 'quotationCount', fmt: 'int', align: 'right' },
+        { header: 'Selected Supplier', key: 'supplier' },
+        { header: 'Quoted Value', key: 'quotedValue', fmt: 'money', align: 'right' },
+        { header: 'PO No.', key: 'poNumbers' },
+        { header: 'PO Value', key: 'poValue', fmt: 'money', align: 'right' },
+        { header: 'Paid', key: 'poPaid', fmt: 'money', align: 'right' },
+        { header: 'Notes', key: 'notes', wrap: true },
+        { header: 'Admin Notes', key: 'adminNotes', wrap: true },
+      ],
+    });
+
+    addSheet(wb, {
+      name: 'PR Material Lines',
+      rows: itemRows,
+      columns: [
+        { header: 'PR No.', key: 'requestNumber' },
+        { header: 'PR Status', key: 'prStatus' },
+        { header: 'Unit', key: 'unit' },
+        { header: 'Raised By', key: 'raisedBy' },
+        { header: 'Raised On', key: 'createdAt', fmt: 'dateTime' },
+        { header: 'Sr.', key: 'sr', fmt: 'int', align: 'right' },
+        { header: 'Material Description', key: 'material', wrap: true },
+        { header: 'SKU', key: 'sku' },
+        { header: 'Material Category', key: 'category' },
+        { header: 'UOM', key: 'uom', align: 'center' },
+        { header: 'Requested Qty', key: 'requestedQty', fmt: 'qty', align: 'right' },
+        { header: 'Approved Qty', key: 'approvedQty', fmt: 'qty', align: 'right' },
+        { header: 'Purchased Qty', key: 'purchasedQty', fmt: 'qty', align: 'right' },
+        { header: 'Pending Qty', key: 'pendingQty', fmt: 'qty', align: 'right' },
+        { header: 'Line Status', key: 'itemStatus' },
+        { header: 'Quotation Status', key: 'quotationStatus' },
+        { header: 'Required By', key: 'requiredBy', fmt: 'date' },
+        { header: 'Drawing No.', key: 'drawingNo' },
+        { header: 'QAP No.', key: 'qapNo' },
+        { header: 'Specification', key: 'specification', wrap: true },
+        { header: 'Purpose', key: 'purpose', wrap: true },
+        { header: 'Source of Supply', key: 'sourceOfSupply' },
+        { header: 'Scope of Work', key: 'scopeOfWork', wrap: true },
+        { header: 'Inspection Type', key: 'inspectionType' },
+        { header: 'Remarks', key: 'remarks', wrap: true },
+        { header: 'Spec Files', key: 'specFiles', fmt: 'int', align: 'right' },
+      ],
+    });
+
+    await sendWorkbook(res, wb, exportFileName('Purchase_Requests'));
+  } catch (error) {
+    console.error('Export purchase requests error:', error);
+    // The response may already be streaming XLSX bytes by the time this fires —
+    // sending JSON then would corrupt the download, so only answer if untouched.
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to generate Excel export' });
+    else res.end();
   }
 });
 
@@ -673,6 +957,9 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
         qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
         noteAttachments: { orderBy: { createdAt: 'asc' } },
+        // Required-by change trail (newest first) — who moved a line's date, when,
+        // and from what to what.
+        dateHistory: { orderBy: { createdAt: 'desc' } },
         items: {
           include: {
             product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
@@ -1241,14 +1528,41 @@ router.put(
         return res.status(400).json({ error: 'Nothing to update' });
       }
 
-      await prisma.$transaction(
-        updates.map((u) =>
-          prisma.purchaseRequestItem.update({
-            where: { id: u.id },
-            data: { requiredByDate: u.date },
+      // Only lines whose date actually moved are written and recorded — saving a
+      // row without touching its date must not leave a "changed" entry behind.
+      const sameDay = (a, b) => {
+        if (!a && !b) return true;
+        if (!a || !b) return false;
+        return new Date(a).getTime() === new Date(b).getTime();
+      };
+      const realChanges = updates
+        .map((u) => ({ ...u, before: byId.get(u.id)?.requiredByDate ?? null }))
+        .filter((u) => !sameDay(u.before, u.date));
+
+      if (realChanges.length > 0) {
+        await prisma.$transaction([
+          ...realChanges.map((u) =>
+            prisma.purchaseRequestItem.update({
+              where: { id: u.id },
+              data: { requiredByDate: u.date },
+            }),
+          ),
+          // The visible trail: who moved this line's date, when, and old → new.
+          prisma.purchaseRequestDateHistory.createMany({
+            data: realChanges.map((u) => ({
+              requestId: request.id,
+              itemId: u.id,
+              productName: byId.get(u.id)?.productName || null,
+              fromDate: u.before,
+              toDate: u.date,
+              changedById: req.user.id,
+              changedByName: req.user.name || null,
+              changedByRole: req.user.role || null,
+              prStatus: request.status,
+            })),
           }),
-        ),
-      );
+        ]);
+      }
 
       const updated = await prisma.purchaseRequest.findUnique({
         where: { id: request.id },
@@ -1256,6 +1570,7 @@ router.put(
           manager: { select: { id: true, name: true } },
           unit: { select: { id: true, name: true, code: true } },
           noteAttachments: { orderBy: { createdAt: 'asc' } },
+          dateHistory: { orderBy: { createdAt: 'desc' } },
           items: {
             include: {
               product: { select: { id: true, name: true, sku: true, unit: true, category: true } },
@@ -1264,6 +1579,9 @@ router.put(
           },
         },
       });
+
+      // A save that changed nothing is a no-op: no audit row, no notification.
+      if (realChanges.length === 0) return res.json(updated);
 
       await prisma.auditLog.create({
         data: {
@@ -1275,10 +1593,10 @@ router.put(
             requestNumber: request.requestNumber,
             field: 'requiredByDate',
             status: request.status,
-            changes: updates.map((u) => ({
+            changes: realChanges.map((u) => ({
               itemId: u.id,
               productName: byId.get(u.id)?.productName || null,
-              from: byId.get(u.id)?.requiredByDate || null,
+              from: u.before,
               to: u.date,
             })),
           },
@@ -1292,11 +1610,21 @@ router.put(
         updated.status === 'PENDING_QC' ? 'QC'
           : updated.status === 'PENDING_ADMIN' ? 'ADMIN'
             : 'PURCHASE_OFFICER';
+      // Spell out the actual move in the notification — the reader has to know
+      // the new deadline without opening the PR.
+      const dayLabel = (d) => (d ? new Date(d).toLocaleDateString('en-GB') : 'not set');
+      const moveLines = realChanges
+        .slice(0, 3)
+        .map((u) => `${byId.get(u.id)?.productName || 'Item'}: ${dayLabel(u.before)} → ${dayLabel(u.date)}`)
+        .join('; ');
+      const moreCount = realChanges.length - Math.min(realChanges.length, 3);
       await prisma.notification.create({
         data: {
           type: 'NEW_PURCHASE_REQUEST',
           title: `PR ${updated.requestNumber} — required-by date changed`,
-          message: `${req.user.name} (${unitLabel}) changed the required-by date on PR ${updated.requestNumber}.`,
+          message:
+            `${req.user.name} (${unitLabel}) changed the required-by date on PR ${updated.requestNumber} — ` +
+            `${moveLines}${moreCount > 0 ? ` and ${moreCount} more line(s)` : ''}.`,
           targetRole: approverRole,
           sentById: req.user.id,
         },
@@ -1419,6 +1747,7 @@ router.put('/:id/remarks', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'),
       manager: { select: { id: true, name: true } },
       unit: { select: { id: true, name: true, code: true } },
       noteAttachments: { orderBy: { createdAt: 'asc' } },
+      dateHistory: { orderBy: { createdAt: 'desc' } },
       items: {
         include: {
           product: { select: { id: true, name: true, sku: true, unit: true, category: true } },

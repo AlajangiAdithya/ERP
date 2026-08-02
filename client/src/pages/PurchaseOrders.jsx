@@ -18,6 +18,7 @@ import { slaRemarkState } from '../utils/sla';
 import { SlaNotice, SlaDelayRemark } from '../components/shared/SlaGate';
 import TatBadge from '../components/shared/TatBadge';
 import PageHero from '../components/shared/PageHero';
+import ExportExcelButton from '../components/shared/ExportExcelButton';
 
 const formatCurrency = (amt) => `₹${Number(amt || 0).toLocaleString('en-IN')}`;
 
@@ -729,11 +730,76 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
   );
 }
 
+// ─── Tax (GST) on a payment request ───
+// The amount typed into the payment form is the TAXABLE (basic) value, matching
+// the quotation/PO totals, which are quoted pre-tax. The rate picked here is
+// added on top; `payableAmount` is what Accounting actually pays the supplier.
+const GST_RATES = [0, 5, 12, 18, 28];
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+
+// `taxChoice` is a GST_RATES entry as a string, or 'custom' with `customTax`.
+const resolveTax = (taxChoice, customTax) =>
+  (taxChoice === 'custom' ? (parseFloat(customTax) || 0) : (parseFloat(taxChoice) || 0));
+
+const taxBreakup = (amount, taxChoice, customTax) => {
+  const base = parseFloat(amount) || 0;
+  const percent = resolveTax(taxChoice, customTax);
+  const tax = round2((base * percent) / 100);
+  return { base, percent, tax, payable: round2(base + tax) };
+};
+
+function TaxField({ taxChoice, setTaxChoice, customTax, setCustomTax }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">Tax / GST %</label>
+      <select
+        value={taxChoice}
+        onChange={(e) => setTaxChoice(e.target.value)}
+        className="w-full px-3 py-2 border rounded-md text-sm"
+      >
+        {GST_RATES.map((r) => (
+          <option key={r} value={String(r)}>{r === 0 ? 'No tax (0%)' : `${r}%`}</option>
+        ))}
+        <option value="custom">Custom…</option>
+      </select>
+      {taxChoice === 'custom' && (
+        <input
+          type="number" min="0" max="100" step="0.01"
+          value={customTax}
+          onChange={(e) => setCustomTax(e.target.value)}
+          placeholder="e.g. 1.5"
+          className="mt-1 w-full px-3 py-2 border rounded-md text-sm"
+        />
+      )}
+    </div>
+  );
+}
+
+// Basic → tax → payable, so the officer sees exactly what goes to Accounting.
+function TaxSummary({ amount, taxChoice, customTax }) {
+  const { base, percent, tax, payable } = taxBreakup(amount, taxChoice, customTax);
+  if (!base) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs bg-white/70 border border-gray-200 rounded-md px-3 py-2">
+      <span className="text-gray-600">Basic: <span className="font-medium text-gray-800">{formatCurrency(base)}</span></span>
+      <span className="text-gray-600">Tax ({percent}%): <span className="font-medium text-gray-800">{formatCurrency(tax)}</span></span>
+      <span className="text-gray-900 font-semibold">Payable: {formatCurrency(payable)}</span>
+      {percent > 0 && (
+        <span className="text-[11px] text-gray-500">
+          Only the basic value counts against the PO balance; tax is paid on top.
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ─── Order Detail Modal ───
 function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentType, setPaymentType] = useState('ADVANCE');
+  const [taxChoice, setTaxChoice] = useState('0');
+  const [customTax, setCustomTax] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [delayNote, setDelayNote] = useState('');
   const [processing, setProcessing] = useState(false);
@@ -865,23 +931,46 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const isDelayed = placementSla.isDelayed;
   const delayNoteErr = placementSla.error;
 
+  // Shared by both payment forms: validates the picked tax % and returns the
+  // basic / tax / payable split, or null when the entry is unusable.
+  const preparePayment = () => {
+    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+      alert('Enter the payment amount.');
+      return null;
+    }
+    const split = taxBreakup(paymentAmount, taxChoice, customTax);
+    if (taxChoice === 'custom' && (customTax === '' || split.percent < 0 || split.percent > 100)) {
+      alert('Enter a custom tax percentage between 0 and 100.');
+      return null;
+    }
+    return split;
+  };
+
+  const confirmLine = ({ base, percent, tax, payable }) => (percent
+    ? `${formatCurrency(payable)} — basic ${formatCurrency(base)} + ${percent}% tax ${formatCurrency(tax)}`
+    : formatCurrency(base));
+
   const placeOrder = async () => {
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) return alert('Enter the payment amount.');
+    const split = preparePayment();
+    if (!split) return;
     if (isDelayed && !delayNote.trim()) {
       return alert('This order is past the 48-hour placement SLA. Please add a delay remark explaining why before placing it.');
     }
     if (isDelayed && delayNoteErr) return alert(delayNoteErr);
-    if (!confirm(`Send ${paymentType} payment request of ₹${parseFloat(paymentAmount).toLocaleString('en-IN')} to Accounting?`)) return;
+    if (!confirm(`Send ${paymentType} payment request of ${confirmLine(split)} to Accounting?`)) return;
     setProcessing(true);
     try {
       await api.post(`/purchase-orders/${order.id}/place-order`, {
         paymentType,
-        amount: parseFloat(paymentAmount),
+        amount: split.base,
+        taxPercent: split.percent,
         notes: paymentNotes || undefined,
         delayNote: delayNote.trim() || undefined,
       });
       setShowPaymentForm(false);
       setPaymentAmount('');
+      setTaxChoice('0');
+      setCustomTax('');
       setPaymentNotes('');
       setDelayNote('');
       onClose();
@@ -1076,17 +1165,22 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   };
 
   const requestPayment = async () => {
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) return alert('Enter a valid amount');
+    const split = preparePayment();
+    if (!split) return;
+    if (!confirm(`Send ${paymentType} payment request of ${confirmLine(split)} to Accounting?`)) return;
     setProcessing(true);
     try {
       await api.post('/payment-requests', {
         purchaseOrderId: order.id,
-        amount: parseFloat(paymentAmount),
+        amount: split.base,
+        taxPercent: split.percent,
         paymentType,
         notes: paymentNotes || undefined,
       });
       setShowPaymentForm(false);
       setPaymentAmount('');
+      setTaxChoice('0');
+      setCustomTax('');
       setPaymentNotes('');
       onClose();
       onUpdated();
@@ -1597,7 +1691,9 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                 <tr className="border-b">
                   <th className="px-2 py-1 text-left text-gray-500">Payment #</th>
                   <th className="px-2 py-1 text-left text-gray-500">Type</th>
-                  <th className="px-2 py-1 text-left text-gray-500">Amount</th>
+                  <th className="px-2 py-1 text-left text-gray-500">Basic</th>
+                  <th className="px-2 py-1 text-left text-gray-500">Tax</th>
+                  <th className="px-2 py-1 text-left text-gray-500">Payable</th>
                   <th className="px-2 py-1 text-left text-gray-500">Status</th>
                   <th className="px-2 py-1 text-left text-gray-500">Date</th>
                 </tr>
@@ -1607,7 +1703,11 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                   <tr key={p.id} className="border-b border-gray-50">
                     <td className="px-2 py-1">{p.paymentNumber}</td>
                     <td className="px-2 py-1"><Badge color={p.paymentType === 'ADVANCE' ? 'blue' : 'navy'}>{p.paymentType}</Badge></td>
-                    <td className="px-2 py-1 font-medium">{formatCurrency(p.amount)}</td>
+                    <td className="px-2 py-1">{formatCurrency(p.amount)}</td>
+                    <td className="px-2 py-1 text-gray-600">
+                      {p.taxPercent ? `${p.taxPercent}% · ${formatCurrency(p.taxAmount)}` : '—'}
+                    </td>
+                    <td className="px-2 py-1 font-medium">{formatCurrency(p.payableAmount || p.amount)}</td>
                     <td className="px-2 py-1">
                       <Badge color={p.status === 'PAID' ? 'green' : p.status === 'REJECTED' ? 'red' : 'yellow'}>{p.status}</Badge>
                     </td>
@@ -1681,9 +1781,10 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
               ) : (
                 <div className="w-full bg-amber-50 border border-amber-200 rounded-md p-4 space-y-3">
                   <h4 className="text-sm font-semibold text-amber-900">Place Order — First Payment Request</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <Input label="Amount (₹)" type="number" value={paymentAmount}
+                  <div className="grid grid-cols-4 gap-3">
+                    <Input label="Basic amount (₹)" type="number" value={paymentAmount}
                       onChange={(e) => setPaymentAmount(e.target.value)} min="1" max={order.totalAmount} />
+                    <TaxField taxChoice={taxChoice} setTaxChoice={setTaxChoice} customTax={customTax} setCustomTax={setCustomTax} />
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
                       <select value={paymentType} onChange={(e) => setPaymentType(e.target.value)}
@@ -1695,6 +1796,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                     </div>
                     <Input label="Notes" value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} placeholder="Optional" />
                   </div>
+                  <TaxSummary amount={paymentAmount} taxChoice={taxChoice} customTax={customTax} />
 
                   <SlaNotice action="Placing this order" />
                   <SlaDelayRemark
@@ -1723,9 +1825,10 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
               ) : (
                 <div className="w-full bg-blue-50 rounded-md p-4 space-y-3">
                   <h4 className="text-sm font-semibold">New Payment Request</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <Input label="Amount (₹)" type="number" value={paymentAmount}
+                  <div className="grid grid-cols-4 gap-3">
+                    <Input label="Basic amount (₹)" type="number" value={paymentAmount}
                       onChange={(e) => setPaymentAmount(e.target.value)} min="1" max={remaining} />
+                    <TaxField taxChoice={taxChoice} setTaxChoice={setTaxChoice} customTax={customTax} setCustomTax={setCustomTax} />
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
                       <select value={paymentType} onChange={(e) => setPaymentType(e.target.value)}
@@ -1737,6 +1840,7 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
                     </div>
                     <Input label="Notes" value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} placeholder="Optional" />
                   </div>
+                  <TaxSummary amount={paymentAmount} taxChoice={taxChoice} customTax={customTax} />
                   <div className="flex gap-2">
                     <Button size="sm" onClick={requestPayment} disabled={processing}>{processing ? 'Sending...' : 'Send Payment Request'}</Button>
                     <Button size="sm" variant="secondary" onClick={() => setShowPaymentForm(false)}>Cancel</Button>
@@ -2165,6 +2269,14 @@ export default function PurchaseOrders() {
     ? ['ALL', 'ORDERED', 'CREDIT_PLACED', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED']
     : ['ALL', 'PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PAID', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED'];
 
+  // Server-side filters handed to the Excel export, so the workbook covers every
+  // matching PO rather than only the 100 loaded here.
+  const exportParams = {
+    status: tab !== 'ALL' ? tab : undefined,
+    fromDate: fromDate || undefined,
+    toDate: toDate || undefined,
+  };
+
   return (
     <div className="space-y-6">
       <PageHero
@@ -2172,6 +2284,17 @@ export default function PurchaseOrders() {
         subtitle="Issue purchase orders to suppliers, monitor delivery, payment, and QC status — grouped by PR → supplier → material."
         eyebrow="Order Tracking"
         icon={Truck}
+        actions={
+          /* Exports every PO matching the current status tab and date range — the
+             search box is a client-side narrowing of the loaded page, so it is
+             deliberately not applied to the export. */
+          <ExportExcelButton
+            endpoint="/purchase-orders/export"
+            params={exportParams}
+            fileName="RAPS_Purchase_Orders.xlsx"
+            disabled={loading || orders.length === 0}
+          />
+        }
       />
 
       {/* Dashboard Stats */}

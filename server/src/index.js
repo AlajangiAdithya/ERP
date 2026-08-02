@@ -89,6 +89,9 @@ app.use(helmet({
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true,
+  // File downloads (Excel exports) name themselves via Content-Disposition; without
+  // this the browser hides the header from JS and the client can't read the filename.
+  exposedHeaders: ['Content-Disposition'],
 }));
 
 // Rate limiting on auth routes — brute-force guard on login/refresh.

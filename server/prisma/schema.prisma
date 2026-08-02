@@ -432,61 +432,61 @@ enum MovementType {
 // ──── PRODUCT REQUESTS / MIV (Requester → Store Manager workflow) ────
 // Form No: RAPS/MIV/REV01 Dt: 01/02/2025
 model ProductRequest {
-  id             String        @id @default(uuid())
-  requestNumber  String        @unique
-  referenceNo    String? // Reference No. & Date (from MIV form)
-  mirNo          String? // MIR NO. (from MIV form)
-  issueNo        String? // Issue No.
-  issueDate      DateTime? // Issue Date
-  managerId      String?
-  manager        User?         @relation(fields: [managerId], references: [id], onDelete: SetNull)
+  id                String           @id @default(uuid())
+  requestNumber     String           @unique
+  referenceNo       String? // Reference No. & Date (from MIV form)
+  mirNo             String? // MIR NO. (from MIV form)
+  issueNo           String? // Issue No.
+  issueDate         DateTime? // Issue Date
+  managerId         String?
+  manager           User?            @relation(fields: [managerId], references: [id], onDelete: SetNull)
   // Null for global requester roles (QC, LAB, SAFETY, DESIGNS …) who draw from
   // the unassigned pool rather than a unit's bucket.
-  unitId         String?
-  unit           Unit?         @relation(fields: [unitId], references: [id])
+  unitId            String?
+  unit              Unit?            @relation(fields: [unitId], references: [id])
   // Optional header-level link to the Work Order this MIV is issued against.
   // Null = "No work order". SetNull so removing a WO never deletes its MIVs.
-  workOrderId    String?
-  workOrder      WorkOrder?    @relation("ProductRequestWorkOrder", fields: [workOrderId], references: [id], onDelete: SetNull)
+  workOrderId       String?
+  workOrder         WorkOrder?       @relation("ProductRequestWorkOrder", fields: [workOrderId], references: [id], onDelete: SetNull)
   // Selected in place of a Work Order when the MIV is for product R&D / research
   // (mirrors PurchaseRequest.isRnd). Mutually exclusive with workOrderId.
-  isRnd          Boolean       @default(false)
+  isRnd             Boolean          @default(false)
   // Which Purchase Request this material was issued against — filled in by STORES
   // at clearance (they mention the PR number only; the link is resolved from it).
   // Optional: plenty of MIVs draw general stock with no PR behind them. SetNull so
   // deleting a PR never deletes the MIVs that referenced it.
   purchaseRequestId String?
   purchaseRequest   PurchaseRequest? @relation("MivIssuedAgainstPr", fields: [purchaseRequestId], references: [id], onDelete: SetNull)
-  status         RequestStatus @default(PENDING)
-  notes          String?
-  remarks        String? // Remarks field from MIV form
-  clearanceNotes String?
-  clearedById    String?
-  clearedAt      DateTime?
-  collectedAt    DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  items          RequestItem[]
+  status            RequestStatus    @default(PENDING)
+  notes             String?
+  remarks           String? // Remarks field from MIV form
+  clearanceNotes    String?
+  clearedById       String?
+  clearedAt         DateTime?
+  collectedAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  items             RequestItem[]
 
   @@index([workOrderId])
   @@index([purchaseRequestId])
 }
 
 model RequestItem {
-  id              String         @id @default(uuid())
+  id              String            @id @default(uuid())
   requestId       String
-  request         ProductRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  request         ProductRequest    @relation(fields: [requestId], references: [id], onDelete: Cascade)
   productId       String
-  product         Product        @relation(fields: [productId], references: [id])
+  product         Product           @relation(fields: [productId], references: [id])
   quantity        Float
   approvedQty     Float?
-  collectedQty    Float          @default(0) // cumulative qty actually taken (partial collection)
+  collectedQty    Float             @default(0) // cumulative qty actually taken (partial collection)
   purpose         String? // Purpose (Production fills)
   qtyIssued       Float? // Qty Issue (Store fills)
   materialBatchNo String? // Material Batch No. If any (Store fills)
   // OFFSITE flow only: cumulative qty already dispatched out on gate passes
   // (sum of this item's GatePassMivLink quantities). Never exceeds approvedQty.
-  dispatchedQty   Float          @default(0)
+  dispatchedQty   Float             @default(0)
   gatePassLinks   GatePassMivLink[]
 }
 
@@ -501,23 +501,23 @@ enum RequestStatus {
 
 // ──── PURCHASE REQUESTS (Requester → Admin → PO → Quotation → Order workflow) ────
 model PurchaseRequest {
-  id                   String                @id @default(uuid())
-  requestNumber        String                @unique
+  id                   String                       @id @default(uuid())
+  requestNumber        String                       @unique
   requestId            String? // Legacy order-name column (kept for backward compat; new PRs leave this null and use requestNumber as the identifier)
   managerId            String?
-  manager              User?                 @relation("PurchaseRequestManager", fields: [managerId], references: [id], onDelete: SetNull)
+  manager              User?                        @relation("PurchaseRequestManager", fields: [managerId], references: [id], onDelete: SetNull)
   // Null for global requester roles (STORE_MANAGER, DESIGNS, PLANNING, QC,
   // LAB, METROLOGY, NDT, SAFETY) — they raise PRs in their own name.
   unitId               String?
-  unit                 Unit?                 @relation(fields: [unitId], references: [id])
+  unit                 Unit?                        @relation(fields: [unitId], references: [id])
   // Optional header-level link to the Work Order this PR is raised for. Null =
   // "No work order". SetNull so removing a WO never deletes its PRs.
   workOrderId          String?
-  workOrder            WorkOrder?            @relation("PurchaseRequestWorkOrder", fields: [workOrderId], references: [id], onDelete: SetNull)
+  workOrder            WorkOrder?                   @relation("PurchaseRequestWorkOrder", fields: [workOrderId], references: [id], onDelete: SetNull)
   // Selected in place of a Work Order when the PR is for product R&D / research
   // purposes. Mutually exclusive with workOrderId (never both set).
-  isRnd                Boolean               @default(false)
-  status               PurchaseRequestStatus @default(PENDING_ADMIN)
+  isRnd                Boolean                      @default(false)
+  status               PurchaseRequestStatus        @default(PENDING_ADMIN)
   notes                String?
   materialSpecsPdfUrl  String? // Optional material specs PDF attached at PR creation
   // QC-department gate: PRs raised by LAB / METROLOGY / NDT pass through QC
@@ -525,16 +525,16 @@ model PurchaseRequest {
   // gate (e.g. raised by MANAGER, DESIGNS, RND, PLANNING, STORE_MANAGER, QC).
   qcNotes              String?
   qcApprovedById       String?
-  qcApprovedBy         User?                 @relation("PurchaseRequestQcApprover", fields: [qcApprovedById], references: [id])
+  qcApprovedBy         User?                        @relation("PurchaseRequestQcApprover", fields: [qcApprovedById], references: [id])
   qcApprovedAt         DateTime?
   qcDelayRemark        String? // Required when QC approves after 48h SLA from createdAt
   adminNotes           String?
   adminDelayRemark     String? // Required when admin approves after 48h SLA from createdAt (or qcApprovedAt)
   adminApprovedById    String?
-  adminApprovedBy      User?                 @relation("PurchaseRequestApprover", fields: [adminApprovedById], references: [id])
+  adminApprovedBy      User?                        @relation("PurchaseRequestApprover", fields: [adminApprovedById], references: [id])
   adminApprovedAt      DateTime?
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
   items                PurchaseRequestItem[]
   // Header-level "note" attachments — files the requester attaches to the PR as a
   // whole (alongside the free-text notes), independent of any one material line.
@@ -543,27 +543,57 @@ model PurchaseRequest {
   purchaseOrders       PurchaseOrder[]
   quotationSources     QuotationSource[]
   purchaseOrderSources PurchaseOrderSource[]
-  cashPurchaseInwards  MaterialInwardRegister[] @relation("CashPurchasePR")
+  cashPurchaseInwards  MaterialInwardRegister[]     @relation("CashPurchasePR")
   // MIVs that Stores issued against this PR (set at MIV clearance).
-  issuedMivs           ProductRequest[]      @relation("MivIssuedAgainstPr")
+  issuedMivs           ProductRequest[]             @relation("MivIssuedAgainstPr")
+  // Audit trail of every required-by date change (who / when / old → new).
+  dateHistory          PurchaseRequestDateHistory[]
 
   @@index([workOrderId])
 }
 
+// One recorded change to a PR line's required-by date. Written by
+// PUT /api/purchase-requests/:id/required-by — one row per line that actually
+// moved (no-op saves record nothing). The date itself lives on
+// PurchaseRequestItem.requiredByDate; this is purely the "who moved it, when,
+// and from what to what" trail shown in the PR detail view.
+//
+// itemId is NOT a foreign key and productName is a snapshot: PUT /:id deletes
+// and recreates item rows while a PR is pending, so the history must survive an
+// item id that no longer exists.
+model PurchaseRequestDateHistory {
+  id            String          @id @default(uuid())
+  requestId     String
+  request       PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  itemId        String?
+  productName   String?
+  fromDate      DateTime?
+  toDate        DateTime?
+  changedById   String?
+  changedByName String?
+  changedByRole String?
+  // PR status at the moment of the change — a date moved after the PO is placed
+  // reads very differently from one moved while still pending.
+  prStatus      String?
+  createdAt     DateTime        @default(now())
+
+  @@index([requestId, createdAt])
+}
+
 // Form No: RAPS/PRF Rev no. 02 Date: 31/08/2024
 model PurchaseRequestItem {
-  id                     String                        @id @default(uuid())
+  id                     String                          @id @default(uuid())
   requestId              String
-  request                PurchaseRequest               @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  request                PurchaseRequest                 @relation(fields: [requestId], references: [id], onDelete: Cascade)
   productId              String?
-  product                Product?                      @relation(fields: [productId], references: [id])
+  product                Product?                        @relation(fields: [productId], references: [id])
   productName            String // Material Description
-  productUnit            String                        @default("pcs") // UOM
+  productUnit            String                          @default("pcs") // UOM
   requestedQty           Float // Required Quantity
   adminApprovedQty       Float?
-  purchasedQty           Float                         @default(0)
+  purchasedQty           Float                           @default(0)
   itemStatus             ItemOrderStatus? // Set once ORDER_PLACED; mirrored from PO items
-  itemQuotationStatus    PRItemQuotationStatus         @default(AWAITING_QUOTATION) // Per-item quote progress, independent of order/inward status
+  itemQuotationStatus    PRItemQuotationStatus           @default(AWAITING_QUOTATION) // Per-item quote progress, independent of order/inward status
   // PRF form fields
   materialType           String? // Raw material / Consumable / Hand Tools & Fastners / Tools & Fixtures / Others
   materialSpecification  String? // Material specification data
@@ -995,53 +1025,53 @@ model QuotationItem {
 
 // ──── PURCHASE ORDERS (created when quotation is selected) ────
 model PurchaseOrder {
-  id                String                @id @default(uuid())
-  orderNumber       String                @unique
-  customName        String
-  purchaseRequestId String?
-  purchaseRequest   PurchaseRequest?      @relation(fields: [purchaseRequestId], references: [id])
-  isUnion           Boolean               @default(false)
-  quotationId       String
-  quotation         Quotation             @relation(fields: [quotationId], references: [id], onDelete: Restrict)
-  supplierId        String?
-  supplier          Supplier?             @relation(fields: [supplierId], references: [id])
-  supplierName      String
-  totalAmount       Float
-  advancePaid       Float                 @default(0)
-  totalPaid         Float                 @default(0)
-  goodsArrived      Boolean               @default(false)
-  goodsArrivedAt    DateTime?
-  delayNote                String? // Optional note when PO placed ≥3 days after PR creation
-  poCreationDelayRemark    String? // Required when PO created >4 days after PR adminApprovedAt
-  mirNo             String? // Auto-generated at stores inward (MIR-YYYYMMDD-NNN)
-  inwardedAt        DateTime? // Timestamp of stores inward
+  id                    String                @id @default(uuid())
+  orderNumber           String                @unique
+  customName            String
+  purchaseRequestId     String?
+  purchaseRequest       PurchaseRequest?      @relation(fields: [purchaseRequestId], references: [id])
+  isUnion               Boolean               @default(false)
+  quotationId           String
+  quotation             Quotation             @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  supplierId            String?
+  supplier              Supplier?             @relation(fields: [supplierId], references: [id])
+  supplierName          String
+  totalAmount           Float
+  advancePaid           Float                 @default(0)
+  totalPaid             Float                 @default(0)
+  goodsArrived          Boolean               @default(false)
+  goodsArrivedAt        DateTime?
+  delayNote             String? // Optional note when PO placed ≥3 days after PR creation
+  poCreationDelayRemark String? // Required when PO created >4 days after PR adminApprovedAt
+  mirNo                 String? // Auto-generated at stores inward (MIR-YYYYMMDD-NNN)
+  inwardedAt            DateTime? // Timestamp of stores inward
   // Signed PO PDF uploaded by Purchase Officer after the quotation is approved.
   // This is the single source of truth for the PO document — no auto-generated PDF is offered.
-  poDocumentUrl     String?
-  status            PurchaseOrderStatus   @default(PENDING_ACCOUNTING)
+  poDocumentUrl         String?
+  status                PurchaseOrderStatus   @default(PENDING_ACCOUNTING)
   // Credit-based order placement: PO Officer can place order on word-of-trust
   // before payment is processed. Order proceeds, payment follows later.
-  isCreditOrder     Boolean               @default(false)
-  creditPlacedAt    DateTime?
-  creditPlacedById  String?
-  creditPlacedBy    User?                 @relation("POCreditPlacer", fields: [creditPlacedById], references: [id])
-  creditNote        String?
+  isCreditOrder         Boolean               @default(false)
+  creditPlacedAt        DateTime?
+  creditPlacedById      String?
+  creditPlacedBy        User?                 @relation("POCreditPlacer", fields: [creditPlacedById], references: [id])
+  creditNote            String?
   // Manual close — Purchase Officer clicks "Close PO" once everything is received & paid.
   // Force-close is allowed with `forceClosed=true` when some qty is still pending or payment is short;
   // in that case leftover PR items are cancelled.
-  closedAt          DateTime?
-  closedById        String?
-  closedBy          User?                 @relation("POCloser", fields: [closedById], references: [id])
-  closeReason       String?
-  forceClosed       Boolean               @default(false)
-  createdById       String
-  createdBy         User                  @relation("POCreator", fields: [createdById], references: [id])
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-  items             PurchaseOrderItem[]
-  paymentRequests   PaymentRequest[]
-  qcInspections     QCInspection[]
-  sourceRequests    PurchaseOrderSource[]
+  closedAt              DateTime?
+  closedById            String?
+  closedBy              User?                 @relation("POCloser", fields: [closedById], references: [id])
+  closeReason           String?
+  forceClosed           Boolean               @default(false)
+  createdById           String
+  createdBy             User                  @relation("POCreator", fields: [createdById], references: [id])
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  items                 PurchaseOrderItem[]
+  paymentRequests       PaymentRequest[]
+  qcInspections         QCInspection[]
+  sourceRequests        PurchaseOrderSource[]
 }
 
 // Junction: links a union PurchaseOrder to its source PurchaseRequests
@@ -1135,7 +1165,16 @@ model PaymentRequest {
   paymentNumber   String               @unique
   purchaseOrderId String
   purchaseOrder   PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
+  // `amount` is the TAXABLE (basic) value and is the only figure that moves the
+  // PO ledger — PO totals come from quotations, which are quoted pre-tax, so
+  // totalPaid/remaining stay comparable. Tax is recorded alongside it:
+  //   taxAmount     = amount × taxPercent / 100
+  //   payableAmount = amount + taxAmount  ← what Accounting actually pays out
+  // taxPercent 0 (the default) reproduces the old behaviour exactly.
   amount          Float
+  taxPercent      Float                @default(0)
+  taxAmount       Float                @default(0)
+  payableAmount   Float                @default(0)
   paymentType     PaymentType
   status          PaymentRequestStatus @default(PENDING)
   notes           String?
@@ -1463,13 +1502,13 @@ model FimTestReport {
 // items; one MIV is fulfilled across several GPs (partial dispatch). `quantity` is
 // how much of the MIV line went out on this GP line.
 model GatePassMivLink {
-  id            String      @id @default(uuid())
+  id             String       @id @default(uuid())
   gatePassItemId String
-  gatePassItem  GatePassItem @relation(fields: [gatePassItemId], references: [id], onDelete: Cascade)
-  requestItemId String
-  requestItem   RequestItem @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
-  quantity      Float
-  createdAt     DateTime    @default(now())
+  gatePassItem   GatePassItem @relation(fields: [gatePassItemId], references: [id], onDelete: Cascade)
+  requestItemId  String
+  requestItem    RequestItem  @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+  quantity       Float
+  createdAt      DateTime     @default(now())
 
   @@index([gatePassItemId])
   @@index([requestItemId])
@@ -1525,16 +1564,16 @@ enum GatePassStatus {
 // Standard form: Doc No RAMS/ION/00 (LAB / METROLOGY / cross-unit MANAGER).
 // NDT variant:  Doc No RAPS/ION-7 — adds qty + per-activity sub-details (UT/RT/VT).
 model InterOfficeNote {
-  id                 String    @id @default(uuid())
-  ionNumber          String    @unique
+  id                 String              @id @default(uuid())
+  ionNumber          String              @unique
   userReferenceNo    String?
   section            String?
   projectName        String?
   supplyOrderNo      String?
   referenceDocQA     String?
   materialSupplyDate DateTime?
-  sampleRequired     Boolean   @default(false)
-  reportGeneration   Boolean   @default(false)
+  sampleRequired     Boolean             @default(false)
+  reportGeneration   Boolean             @default(false)
   requiredByDate     DateTime?
   completedDate      DateTime?
   externalQAWitness  String?
@@ -1542,15 +1581,15 @@ model InterOfficeNote {
   otherInformation   String?
   reportNoAndDate    String? // report number filled at Work Done step
   collectedBy        String? // name of person who collected items (filled at Collected step)
-  status             IONStatus @default(SENT)
-  recipientRole      String?   @default("LAB") // LAB | METROLOGY | NDT | RND | DESIGNS (when not assigned to a specific manager)
+  status             IONStatus           @default(SENT)
+  recipientRole      String?             @default("LAB") // LAB | METROLOGY | NDT | RND | DESIGNS (when not assigned to a specific manager)
   createdById        String
-  createdBy          User      @relation("IONCreator", fields: [createdById], references: [id])
+  createdBy          User                @relation("IONCreator", fields: [createdById], references: [id])
   assignedToId       String?
-  assignedTo         User?     @relation("IONAssignee", fields: [assignedToId], references: [id])
+  assignedTo         User?               @relation("IONAssignee", fields: [assignedToId], references: [id])
   remarks            String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
   items              IONItem[]
   machineAllocations MachineAllocation[] @relation("IONAllocations")
 }
@@ -1761,7 +1800,7 @@ model WorkOrder {
 
   // ── Order details ──
   orderQuantity  Float
-  orderUnit      String   @default("Nos")
+  orderUnit      String    @default("Nos")
   // Primary delivery commitment date. Nullable: some imported orders carry only
   // a relative term (e.g. "FIM+3 Months") instead of a real date — that term is
   // kept in deliveryClause and PLANNING/SC fill the real PDC in later.
@@ -1850,25 +1889,25 @@ model WorkOrder {
   pdc3MonthMgrAckNote      String?
   pdc3MonthAlertNotifiedAt DateTime? // stamped by the daily cron once the alert fires, to keep it one-shot
 
-  extensions       WorkOrderExtension[]
-  pdcChanges       WorkOrderPdcChange[]
-  editHistory      WorkOrderEditHistory[]
-  invoices         WorkOrderInvoice[]
-  closures         WorkOrderClosure[]
-  bgEntries        WorkOrderBgEntry[]
-  insuranceEntries WorkOrderInsuranceEntry[]
-  alarms           WorkOrderAlarm[]
+  extensions         WorkOrderExtension[]
+  pdcChanges         WorkOrderPdcChange[]
+  editHistory        WorkOrderEditHistory[]
+  invoices           WorkOrderInvoice[]
+  closures           WorkOrderClosure[]
+  bgEntries          WorkOrderBgEntry[]
+  insuranceEntries   WorkOrderInsuranceEntry[]
+  alarms             WorkOrderAlarm[]
   // Line items — the materials under this WO. Each has its own qty + UOM and is
   // tracked lot-wise through delivery. orderQuantity/orderUnit above are kept as
   // aggregates (sum of item qty / first item UOM) for back-compat.
-  items            WorkOrderItem[]
+  items              WorkOrderItem[]
   // PRs and MIVs raised against this work order (header-level link; see
   // PurchaseRequest.workOrderId / ProductRequest.workOrderId).
-  purchaseRequests PurchaseRequest[] @relation("PurchaseRequestWorkOrder")
-  productRequests  ProductRequest[]  @relation("ProductRequestWorkOrder")
-  machineAllocations MachineAllocation[] @relation("WorkOrderAllocations")
+  purchaseRequests   PurchaseRequest[]         @relation("PurchaseRequestWorkOrder")
+  productRequests    ProductRequest[]          @relation("ProductRequestWorkOrder")
+  machineAllocations MachineAllocation[]       @relation("WorkOrderAllocations")
   // Gate-pass line items dispatched / sent to machining against this WO.
-  gatePassItems    GatePassItem[]    @relation("GatePassItemWorkOrder")
+  gatePassItems      GatePassItem[]            @relation("GatePassItemWorkOrder")
 
   @@index([assignedUnitId])
   @@index([status])
@@ -2437,23 +2476,23 @@ model Message {
 // AMC = Annual Maintenance Contract — status text + optional attachment.
 // ──────────────────────────────────────────────────────────────
 model Machinery {
-  id              String    @id @default(uuid())
+  id              String              @id @default(uuid())
   serialNumber    Int // S. No (display ordering)
   name            String // Name of Machinery / Equipment
   capacity        String? // Capacity / Size (multiline OK)
   makeModel       String? // Make & Model
   machineSerialNo String? // Serial No printed on the machine
-  rapsId          String    @unique // RAPS ID No (e.g. RAMS/HP-01/LM/01)
+  rapsId          String              @unique // RAPS ID No (e.g. RAMS/HP-01/LM/01)
   place           String? // Place of Machine (Unit-1, Unit-5, Unit-1A …)
   remarks         String?
   amcStatus       String? // ACTIVE / EXPIRED / NA / free-text
   amcVendor       String?
   amcExpiry       DateTime?
   amcAttachment   String? // /uploads/amc-docs/…
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
   createdById     String?
-  createdBy       User?     @relation("MachineryCreator", fields: [createdById], references: [id])
+  createdBy       User?               @relation("MachineryCreator", fields: [createdById], references: [id])
   allocations     MachineAllocation[]
   downtimes       MachineDowntime[]
 
@@ -2923,13 +2962,13 @@ model MaterialInwardRegister {
   vehicleDetails String?
 
   // Invoice / Cash purchase / Delivery challan / Gate pass + its number
-  docType   InwardDocType @default(INVOICE)
-  docNumber String?
+  docType      InwardDocType @default(INVOICE)
+  docNumber    String?
   // Date printed on that document (invoice / DC / gate pass), as supplied.
   documentDate DateTime?
   // Stores-uploaded supporting documents (invoice / DC / test report / COA …).
   // Array of { label, name, url, uploadedAt, uploadedById }.
-  documents Json?
+  documents    Json?
 
   // Source PO (optional). Snapshot fields are copied at creation so the row
   // stays readable even if the PO later changes.
@@ -2972,9 +3011,9 @@ model MaterialInwardRegister {
   // the same PO is its own lot; null for direct/cash entries with no PO.
   lotNo Int?
 
-  purpose      String?
-  batchNo      String?
-  dateOfExpiry DateTime?
+  purpose           String?
+  batchNo           String?
+  dateOfExpiry      DateTime?
   // Manufacturing date of the received lot, as supplied on the material.
   manufacturingDate DateTime?
 
@@ -3018,6 +3057,18 @@ model MaterialInwardRegister {
   // first-class for the register columns + stock logic.
   qcReport     Json?
   qcFinishedAt DateTime?
+
+  // QC waiver ("QC not required"). Not every received lot needs an inspection —
+  // standard consumables, stationery, re-orders of a proven part. When Stores
+  // sends such a lot to QC, the owning unit's manager (and QC / Admin) is notified
+  // and can mark it QC-not-required: the lot skips inspection and goes straight to
+  // the inward step. Deliberately NOT a Stores action — the call belongs to QC or
+  // the manager the material is for, so Stores can't wave its own receipt through.
+  // Reversible: Stores can still resend a waived lot to QC, which clears these.
+  qcWaived       Boolean   @default(false)
+  qcWaivedAt     DateTime?
+  qcWaivedById   String?
+  qcWaivedReason String?
 
   // Non-conformance (NCR). When QC rejects a lot (qcResult = FAILED) it uploads the
   // NCR document here. This drives the replacement chain below — Stores raises a
@@ -3073,6 +3124,9 @@ enum InwardStatus {
   QC_REQUESTED
   QC_IN_REVIEW
   QC_DONE
+  // QC waived — the material genuinely needed no inspection and QC / the owning
+  // unit's manager / Admin cleared it straight through to the inward step.
+  QC_NOT_REQUIRED
   ON_HOLD
   INWARDED
 }

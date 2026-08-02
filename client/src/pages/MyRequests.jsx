@@ -13,6 +13,7 @@ import DateRangeFilter from '../components/shared/DateRangeFilter';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import MaterialIssuePdf from '../components/pdf/MaterialIssuePdf';
 import OffsiteMivGuide from '../components/shared/OffsiteMivGuide';
+import WorkOrderPicker from '../components/shared/WorkOrderPicker';
 import { formatDateTime } from '../utils/formatters';
 import { useAuth } from '../context/AuthContext';
 
@@ -317,19 +318,12 @@ export default function MyRequests() {
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Work Order</label>
-            <select
+            <WorkOrderPicker
+              workOrders={workOrders}
               value={workOrderId}
-              onChange={(e) => setWorkOrderId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
-            >
-              <option value="">— No work order —</option>
-              <option value="RND">R &amp; D — Product research (not a work order)</option>
-              {workOrders.map(wo => (
-                <option key={wo.id} value={wo.id}>
-                  {wo.workOrderNumber}{wo.supplyOrderNo ? ` · SO: ${wo.supplyOrderNo}` : ''} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
-                </option>
-              ))}
-            </select>
+              onChange={setWorkOrderId}
+              specialOptions={[{ value: 'RND', label: 'R & D', hint: '— Product research (not a work order)' }]}
+            />
           </div>
 
           <div>

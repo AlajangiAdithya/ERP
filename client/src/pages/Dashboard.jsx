@@ -1601,7 +1601,8 @@ function AccountingDashboard() {
       const pendingTotal = pendingRes.status === 'fulfilled' ? (pendingRes.value.data.total ?? 0) : 0;
       const paidTotal = paidRes.status === 'fulfilled' ? (paidRes.value.data.total ?? paid.length) : paid.length;
 
-      const totalAwaitingValue = approved.reduce((sum, p) => sum + (p.amount || 0), 0);
+      // Cash actually going out = basic + tax (payableAmount); old rows have none.
+      const totalAwaitingValue = approved.reduce((sum, p) => sum + (p.payableAmount || p.amount || 0), 0);
 
       setActionablePayments(approved);
       setRecentPaid(paid);
@@ -1743,7 +1744,7 @@ function AccountingDashboard() {
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Payment #</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Order</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Supplier</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Payable</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Type</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Action</th>
@@ -1755,7 +1756,12 @@ function AccountingDashboard() {
                     <td className="px-3 py-2 font-medium text-navy-700">{p.paymentNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.customName || p.purchaseOrder?.orderNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.supplierName || '—'}</td>
-                    <td className="px-3 py-2 text-right font-medium">{fmtINR(p.amount)}</td>
+                    <td className="px-3 py-2 text-right font-medium">
+                      {fmtINR(p.payableAmount || p.amount)}
+                      {p.taxPercent > 0 && (
+                        <div className="text-[10px] font-normal text-gray-500">incl. {p.taxPercent}% tax</div>
+                      )}
+                    </td>
                     <td className="px-3 py-2"><Badge color="blue">{p.paymentType}</Badge></td>
                     <td className="px-3 py-2"><Badge color="green">{p.status}</Badge></td>
                     <td className="px-3 py-2">
@@ -1795,7 +1801,7 @@ function AccountingDashboard() {
                   <tr key={p.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-navy-700">{p.paymentNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.customName || p.purchaseOrder?.orderNumber}</td>
-                    <td className="px-3 py-2 text-right">{fmtINR(p.amount)}</td>
+                    <td className="px-3 py-2 text-right">{fmtINR(p.payableAmount || p.amount)}</td>
                     <td className="px-3 py-2 text-gray-600">{p.processedBy?.name || '—'}</td>
                     <td className="px-3 py-2 text-gray-500">{p.processedAt ? formatDateTime(p.processedAt) : '—'}</td>
                   </tr>
@@ -2310,6 +2316,12 @@ function QCDashboard() {
         actions={
           <>
             <InProgressButton />
+            {/* QC raises its own gate passes — the other roles on this dashboard don't. */}
+            {user?.role === 'QC' && (
+              <Button variant="secondary" onClick={() => navigate('/gate-pass')}>
+                <DoorOpen size={16} className="mr-1" /> Gate Pass
+              </Button>
+            )}
             <Button onClick={() => navigate('/inward-entry')}>
               <ClipboardCheck size={16} className="mr-1" /> All Inspections
             </Button>

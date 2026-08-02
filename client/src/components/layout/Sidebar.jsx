@@ -30,20 +30,24 @@ const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT
 // observers of the procurement chain, so the hub is open to them. HR is in as
 // well — it can raise MIVs, and the hub is the only route to /my-requests. The
 // cards inside are role-filtered, so HR only sees Stock Details + MIV Requests.
-const PROCUREMENT_ROLES = ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN');
+// INWARD_QC is appended explicitly (it is not in ALL_ROLES): the hub is its only
+// route to Purchase Requests / Purchase Orders, which it may raise and follow.
+const PROCUREMENT_ROLES = [...ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN'), 'INWARD_QC'];
 
 // HR hub is hidden from Metrology — not part of their workflow.
 const NON_METROLOGY_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY');
 
-// Gate Pass / Vehicle Movement / Logistics hub is hidden from Metrology
-// and QC — neither runs dispatch.
-const DISPATCH_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY' && r !== 'QC');
+// Gate Pass / Vehicle Movement / Logistics hub is hidden from Metrology —
+// they don't run dispatch. QC is in: it raises its own gate passes like any
+// other requester department.
+const DISPATCH_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY');
 
 const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
-    // INWARD_QC is a single-purpose login — its only entry is the inward QC page.
-    // (Not in ALL_ROLES, so every other item below stays hidden for it.)
+    // INWARD_QC is a near-single-purpose login — the inward QC page, plus the
+    // Procurement hub (PROCUREMENT_ROLES) for the PRs it raises. It is not in
+    // ALL_ROLES, so every other item below stays hidden for it.
     { to: '/inward-entry', icon: ClipboardCheck, label: 'Inward QC', roles: ['INWARD_QC'] },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC', 'PLANNING'] },
     // Messaging stays reachable from the Dashboard card; no sidebar entry.
@@ -166,7 +170,7 @@ export default function Sidebar() {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-40">
           <div className="fixed inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <div className="fixed left-0 top-0 bottom-0 w-56 bg-gradient-to-b from-navy-800 to-navy-900 flex flex-col z-50 overflow-hidden">
+          <div className="on-dark fixed left-0 top-0 bottom-0 w-56 bg-gradient-to-b from-navy-800 to-navy-900 flex flex-col z-50 overflow-hidden">
             <div
               className="absolute inset-0 opacity-[0.06] bg-cover bg-center pointer-events-none"
               style={{ backgroundImage: "url('/rocket.jpg')" }}
@@ -185,7 +189,7 @@ export default function Sidebar() {
       )}
 
       {/* Desktop sidebar — fixed so it stays put while the page scrolls */}
-      <aside className="hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 fixed left-0 top-0 bottom-0 w-56 shadow-xl z-30 overflow-hidden">
+      <aside className="on-dark hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 fixed left-0 top-0 bottom-0 w-56 shadow-xl z-30 overflow-hidden">
         <div
           className="absolute inset-0 opacity-[0.06] bg-cover bg-center pointer-events-none"
           style={{ backgroundImage: "url('/rocket.jpg')" }}

@@ -38,7 +38,7 @@ export default function SuperAdminActivity() {
 
   return (
     <div className="space-y-4 -m-6 p-4 sm:p-6 bg-slate-50 min-h-screen">
-      <div className="rounded-2xl bg-gradient-to-r from-slate-700 to-slate-900 text-white p-4 sm:p-5 shadow flex items-center justify-between">
+      <div className="on-dark rounded-2xl bg-gradient-to-r from-slate-700 to-slate-900 text-white p-4 sm:p-5 shadow flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-300">
             <Radio size={13} /> Owner · Activity

@@ -39,6 +39,7 @@ const NOTIFICATION_ROUTES = {
   QC_ON_HOLD: '/inward-entry',
   QC_RE_REVIEW: '/inward-entry',
   INWARD_QC_REQUEST: '/inward-entry',
+  INWARD_QC_NOT_REQUIRED: '/inward-entry',
   INWARD_QC_DONE: '/inward-entry',
   INWARD_QC_HOLD: '/inward-entry',
   INWARD_QC_FAILED: '/inward-entry',

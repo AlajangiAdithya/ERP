@@ -70,7 +70,8 @@ export default function Login() {
           <div className="flex flex-col items-center mb-8">
             <div className="relative mb-4">
               <div className="absolute inset-0 bg-blue-500/30 blur-2xl rounded-full" aria-hidden="true" />
-              <div className="relative bg-gradient-to-br from-blue-50 to-white rounded-2xl p-3 ring-1 ring-blue-100 shadow-lg">
+              {/* Logo tile stays light in both themes — the mark is dark navy. */}
+              <div className="on-dark relative bg-gradient-to-br from-blue-50 to-white rounded-2xl p-3 ring-1 ring-blue-100 shadow-lg">
                 <img
                   src="/rapslogo6.png"
                   alt="RAPS"

@@ -10,7 +10,8 @@ import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
 
 // ACCOUNTING + FINANCE are admin-level read-only observers across the chain.
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+// INWARD_QC is a QC-department requester: its PRs go through QC before ADMIN.
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
 
 // Every authenticated role gets Products visibility — stock data is universal.
 const ALL_ROLES = [
@@ -28,7 +29,7 @@ const PAYMENT_ROLES   = ['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING', 'FINANCE'];
 // Inward Entry: Stores actually records inward (write); Manager/QC/Designs/R&D
 // can see what's ready and what's been inwarded for traceability (read-only).
 // ACCOUNTING + FINANCE get the same read-only traceability view.
-const INWARD_ROLES = ['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'ACCOUNTING', 'FINANCE'];
+const INWARD_ROLES = ['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'ACCOUNTING', 'FINANCE'];
 
 const MODULES = [
   {
@@ -156,7 +157,7 @@ export default function Procurement() {
   return (
     <div className="space-y-6">
       {/* Hero */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-900 via-navy-800 to-indigo-900 px-7 py-7 text-white shadow-2xl">
+      <div className="on-dark relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-900 via-navy-800 to-indigo-900 px-7 py-7 text-white shadow-2xl">
         <div className="absolute -top-20 -right-20 w-80 h-80 bg-blue-500/20 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-24 -left-10 w-72 h-72 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute top-4 right-6 opacity-10">
@@ -318,12 +319,13 @@ const WORKFLOW_STEPS = [
   {
     icon: PackagePlus,
     title: 'Material Inward Register + QC',
-    actor: 'Stores → QC → Stores',
+    actor: 'Stores → QC / Unit Manager → Stores',
     to: '/inward-entry',
-    summary: 'When material reaches the store, Stores logs it (PO or direct), requests QC, QC reviews inline, then Stores inwards the accepted qty into stock.',
-    statuses: ['DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW', 'QC_DONE', 'INWARDED'],
+    summary: 'When material reaches the store, Stores logs it (PO or direct) and requests QC. QC reviews inline — or QC / the concerned unit manager / Admin marks the lot “QC Not Required” when the item needs no inspection — then Stores inwards the accepted qty into stock.',
+    statuses: ['DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW', 'QC_DONE', 'QC_NOT_REQUIRED', 'INWARDED'],
     docs: [
       { label: 'MIR row', detail: 'One register row per material line — carries vehicle, document, batch, expiry, issued-to and the QC report remark.' },
+      { label: 'QC waiver', detail: 'Items needing no inspection are cleared by QC / the unit manager / Admin with a recorded reason — no QC report is produced.' },
       { label: 'MIV back-link', detail: 'The MIV no. column auto-fills when a unit later draws the batch.' },
     ],
     color: 'from-orange-500 to-yellow-500',

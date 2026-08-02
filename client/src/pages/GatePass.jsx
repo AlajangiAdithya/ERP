@@ -20,6 +20,7 @@ import { formatDate, formatDateTime } from '../utils/formatters';
 import GatePassPdf from '../components/pdf/GatePassPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import TatBadge from '../components/shared/TatBadge';
+import WorkOrderPicker from '../components/shared/WorkOrderPicker';
 import { SlaNotice, SlaDelayRemark } from '../components/shared/SlaGate';
 import { slaRemarkState } from '../utils/sla';
 
@@ -99,6 +100,7 @@ const DEFAULT_TAB_BY_ROLE = {
   FINANCE: 'PENDING_ACCOUNTS',
   STORE_MANAGER: 'PENDING_STORE',
   MANAGER: 'PENDING_STORE',
+  QC: 'PENDING_STORE',
   ADMIN: 'ALL',
 };
 
@@ -199,7 +201,13 @@ const ACTION_DEFS = {
 export default function GatePass() {
   const { user } = useAuth();
   const role = user?.role;
-  const canCreate = ['MANAGER', 'ADMIN', 'PLANNING'].includes(role);
+  // Stores raises its own outward passes too — those skip the stores-approval
+  // stage entirely (the server releases them straight to Accounts / Logistics).
+  const canCreate = ['MANAGER', 'ADMIN', 'PLANNING', 'QC', 'STORE_MANAGER'].includes(role);
+  // Editing a still-pending pass belongs to the requester roles only — Stores
+  // never has a PENDING_STORE pass of its own to edit, and the server's /edit
+  // endpoint does not authorise STORE_MANAGER.
+  const canEdit = ['MANAGER', 'ADMIN', 'PLANNING', 'QC'].includes(role);
   const [view, setView] = useState('OUTSIDE'); // 'OUTSIDE' | 'LOCAL_JOB'
   const [activeTab, setActiveTab] = useState(DEFAULT_TAB_BY_ROLE[role] || 'PENDING_STORE');
   const [gatePasses, setGatePasses] = useState([]);
@@ -326,7 +334,7 @@ export default function GatePass() {
           rows={filtered}
           view={view}
           role={role}
-          canCreate={canCreate}
+          canEdit={canEdit}
           onView={setDetail}
           onEdit={setEditTarget}
           onAction={(gatePass, type) => setActionFor({ gatePass, type })}
@@ -373,7 +381,7 @@ export default function GatePass() {
 // The Excel-style register sheet — one row per gate pass, columns adapt to the
 // chosen format, every workflow step actioned inline from the row.
 // ────────────────────────────────────────────────────────────────────
-function GatePassSheet({ rows, view, role, canCreate, onView, onEdit, onAction }) {
+function GatePassSheet({ rows, view, role, canEdit, onView, onEdit, onAction }) {
   const isLocal = view === 'LOCAL_JOB';
   return (
     <Card className="!p-0 overflow-hidden">
@@ -503,7 +511,7 @@ function GatePassSheet({ rows, view, role, canCreate, onView, onEdit, onAction }
                           className="!px-2 !py-1 !text-[10px]"
                         />
                         <IconBtn title="View details" onClick={() => onView(g)}><Eye size={13} /></IconBtn>
-                        {canCreate && g.status === 'PENDING_STORE' && (
+                        {canEdit && g.status === 'PENDING_STORE' && (
                           <IconBtn title="Edit gate pass" onClick={() => onEdit(g)}><Pencil size={13} /></IconBtn>
                         )}
                         {acts.includes('reject') && (
@@ -692,6 +700,12 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // Stores raising its own pass: the server signs the stores stage at creation and
+  // releases it to the next desk — Accounts for Outside (invoice/DC), Logistics for
+  // a Local Job. Everyone else's pass still queues for Store Incharge approval.
+  const isStores = user?.role === 'STORE_MANAGER';
+  const directNextDesk = kind === 'OUTSIDE' ? 'Accounts for the invoice / DC' : 'Logistics for dispatch';
+
   // All live work orders (any unit) so each dispatched line can be tagged to the
   // WO it goes out / to machining against.
   useEffect(() => {
@@ -752,7 +766,14 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
   const cellInput = "w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700";
 
   return (
-    <Modal isOpen onClose={onClose} title={isEdit ? `Edit Gate Pass — ${initialData?.passNumber}` : 'Gate Pass Request'} size="full">
+    <Modal
+      isOpen
+      onClose={onClose}
+      title={isEdit
+        ? `Edit Gate Pass — ${initialData?.passNumber}`
+        : isStores ? 'Raise Gate Pass (Stores)' : 'Gate Pass Request'}
+      size="full"
+    >
       <div className="space-y-6">
         {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
@@ -809,7 +830,10 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
         </div>
 
         <p className="text-xs text-gray-500">
-          Enter the Gate Pass No. above; the Date is set automatically. Pass details and Transport are filled by Logistics on dispatch / acknowledgement. The Store Incharge will approve first, then Logistics assigns the vehicle.
+          Enter the Gate Pass No. above; the Date is set automatically. Pass details and Transport are filled by Logistics on dispatch / acknowledgement.{' '}
+          {isStores
+            ? `You are raising this as Stores, so there is no separate Store Incharge approval — on save it is released straight to ${directNextDesk}.`
+            : 'The Store Incharge will approve first, then Logistics assigns the vehicle.'}
         </p>
 
         <div>
@@ -867,15 +891,12 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
                       </select>
                     </td>
                     <td className="px-2 py-2">
-                      <select className={cellInput}
-                        value={it.workOrderId} onChange={e => updateItem(idx, 'workOrderId', e.target.value)}>
-                        <option value="">— No work order —</option>
-                        {workOrders.map((wo) => (
-                          <option key={wo.id} value={wo.id}>
-                            {wo.workOrderNumber} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
-                          </option>
-                        ))}
-                      </select>
+                      <WorkOrderPicker
+                        workOrders={workOrders}
+                        value={it.workOrderId}
+                        onChange={(v) => updateItem(idx, 'workOrderId', v)}
+                        className={`${cellInput} flex items-center gap-2 bg-white text-left`}
+                      />
                     </td>
                     <td className="px-2 py-2">
                       <input className={cellInput}
@@ -935,7 +956,13 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
         <div className="flex justify-end gap-2 pt-3 border-t border-gray-200">
           <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>
-            <Send size={14} /> {saving ? (isEdit ? 'Saving…' : 'Submitting…') : (isEdit ? 'Save Changes' : 'Submit to Stores')}
+            <Send size={14} /> {saving
+              ? (isEdit ? 'Saving…' : 'Submitting…')
+              : isEdit
+                ? 'Save Changes'
+                : isStores
+                  ? (kind === 'OUTSIDE' ? 'Raise & Send to Accounts' : 'Raise & Send to Logistics')
+                  : 'Submit to Stores'}
           </Button>
         </div>
       </div>
@@ -1083,6 +1110,9 @@ function ItemsTable({ items }) {
 
 function StoreApproveBox({ g, busy, onSubmit }) {
   const isLegacy = !g.kind;
+  // OUTWARD "Outside" passes: the per-item Gate Pass Details belong to Accounts,
+  // who fills them at the next step. Stores only supplies Transportation here.
+  const detailsOwnedByAccounts = g.kind === 'OUTSIDE';
   const [driverName, setDriverName] = useState(g.driverName || '');
   const [vehicleNo,  setVehicleNo]  = useState(g.vehicleNo  || '');
   const [remarks,    setRemarks]    = useState('');
@@ -1111,9 +1141,10 @@ function StoreApproveBox({ g, busy, onSubmit }) {
       body.vehicleNo  = vehicleNo.trim();
     }
     body.items = itemFields.map(f => ({
-      id:              f.id,
-      gatePassDetails: f.gatePassDetails.trim(),
-      transportation:  f.transportation.trim(),
+      id:             f.id,
+      transportation: f.transportation.trim(),
+      // Accounts owns Gate Pass Details on OUTSIDE passes (server ignores it there too).
+      ...(detailsOwnedByAccounts ? {} : { gatePassDetails: f.gatePassDetails.trim() }),
     }));
     if (storeDelayRemark.trim()) body.storeDelayRemark = storeDelayRemark.trim();
     onSubmit(body);
@@ -1127,7 +1158,7 @@ function StoreApproveBox({ g, busy, onSubmit }) {
         {isLegacy
           ? 'Legacy FIM gate pass — capture driver/vehicle and forward to Accounts'
           : g.kind === 'OUTSIDE'
-            ? 'Fill in gate pass details for each item, then approve and forward to Accounts'
+            ? 'Fill in transportation for each item, then approve and forward to Accounts — Accounts fills the gate pass details'
             : 'Fill in gate pass details for each item, then approve and forward to Logistics'}
       </div>
 
@@ -1142,14 +1173,16 @@ function StoreApproveBox({ g, busy, onSubmit }) {
       {itemFields.length > 0 && (
         <div className="border border-gray-200 rounded overflow-hidden">
           <div className="bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600 border-b border-gray-200">
-            Gate Pass Details per Item
+            {detailsOwnedByAccounts ? 'Transportation per Item' : 'Gate Pass Details per Item'}
           </div>
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-gray-500 border-b border-gray-100 bg-gray-50/60">
                 <th className="px-3 py-1.5 w-8">#</th>
                 <th className="px-3 py-1.5">Component</th>
-                <th className="px-3 py-1.5" style={{ minWidth: 160 }}>Gate Pass Details *</th>
+                {!detailsOwnedByAccounts && (
+                  <th className="px-3 py-1.5" style={{ minWidth: 160 }}>Gate Pass Details *</th>
+                )}
                 <th className="px-3 py-1.5" style={{ minWidth: 140 }}>Transportation</th>
               </tr>
             </thead>
@@ -1158,14 +1191,16 @@ function StoreApproveBox({ g, busy, onSubmit }) {
                 <tr key={f.id} className="border-t border-gray-100">
                   <td className="px-3 py-1.5 text-gray-400">{idx + 1}</td>
                   <td className="px-3 py-1.5 text-gray-700 font-medium">{f.description}</td>
-                  <td className="px-2 py-1">
-                    <input
-                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-navy-400"
-                      placeholder="e.g. GP-2024-001"
-                      value={f.gatePassDetails}
-                      onChange={e => updateItem(idx, 'gatePassDetails', e.target.value)}
-                    />
-                  </td>
+                  {!detailsOwnedByAccounts && (
+                    <td className="px-2 py-1">
+                      <input
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-navy-400"
+                        placeholder="e.g. GP-2024-001"
+                        value={f.gatePassDetails}
+                        onChange={e => updateItem(idx, 'gatePassDetails', e.target.value)}
+                      />
+                    </td>
+                  )}
                   <td className="px-2 py-1">
                     <input
                       className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-navy-400"
@@ -1178,6 +1213,11 @@ function StoreApproveBox({ g, busy, onSubmit }) {
               ))}
             </tbody>
           </table>
+          {detailsOwnedByAccounts && (
+            <p className="px-3 py-1.5 text-[11px] text-gray-500 border-t border-gray-100 bg-gray-50/60">
+              Gate Pass Details are entered by Accounts at the next step.
+            </p>
+          )}
         </div>
       )}
 
@@ -1210,20 +1250,72 @@ function AccountsInvoiceBox({ g, busy, onSubmit }) {
   // 48-hour Accounts SLA — from when Stores forwarded the pass to Accounts.
   const sla = slaRemarkState(g?.storeInchargeAt || g?.createdAt, accountsDelayRemark);
 
+  // Per-item Gate Pass Details are owned by Accounts on outward "Outside" passes.
+  // Transportation is shown for context only — Stores fills that at its own step.
+  const [itemFields, setItemFields] = useState(
+    (g?.items || []).map(it => ({
+      id:              it.id,
+      description:     it.description,
+      transportation:  it.transportation || '',
+      gatePassDetails: it.gatePassDetails || '',
+    }))
+  );
+  const updateItem = (idx, val) =>
+    setItemFields(prev => prev.map((f, i) => i === idx ? { ...f, gatePassDetails: val } : f));
+
   const submit = () => onSubmit({
     invoiceNo: invoiceNo.trim() || undefined,
     dcNo: dcNo.trim() || undefined,
     remarks: remarks.trim() || undefined,
     accountsDelayRemark: accountsDelayRemark.trim() || undefined,
+    items: itemFields.map(f => ({ id: f.id, gatePassDetails: f.gatePassDetails.trim() })),
   });
 
   return (
     <div className="p-3 bg-amber-50 border border-amber-200 rounded space-y-2">
-      <p className="text-xs font-medium text-amber-800">Add invoice / DC details and forward to Stores for final review</p>
+      <p className="text-xs font-medium text-amber-800">Fill the gate pass details for each item, add invoice / DC details, and forward to Stores for final review</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         <Input label="Invoice No." value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="e.g. INV/2026/001" />
         <Input label="Delivery Challan No." value={dcNo} onChange={e => setDcNo(e.target.value)} placeholder="e.g. DC/2026/001" />
       </div>
+
+      {/* Per-item gate pass details — Accounts owns this column on outward passes. */}
+      {itemFields.length > 0 && (
+        <div className="border border-gray-200 rounded overflow-hidden bg-white">
+          <div className="bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600 border-b border-gray-200">
+            Gate Pass Details per Item
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-gray-500 border-b border-gray-100 bg-gray-50/60">
+                <th className="px-3 py-1.5 w-8">#</th>
+                <th className="px-3 py-1.5">Component</th>
+                <th className="px-3 py-1.5" style={{ minWidth: 160 }}>Gate Pass Details *</th>
+                <th className="px-3 py-1.5" style={{ minWidth: 140 }}>Transportation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {itemFields.map((f, idx) => (
+                <tr key={f.id} className="border-t border-gray-100">
+                  <td className="px-3 py-1.5 text-gray-400">{idx + 1}</td>
+                  <td className="px-3 py-1.5 text-gray-700 font-medium">{f.description}</td>
+                  <td className="px-2 py-1">
+                    <input
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-navy-400"
+                      placeholder="e.g. GP-2024-001"
+                      value={f.gatePassDetails}
+                      onChange={e => updateItem(idx, e.target.value)}
+                    />
+                  </td>
+                  {/* Filled by Stores at the previous step — read-only here. */}
+                  <td className="px-3 py-1.5 text-gray-500">{f.transportation || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <Textarea label="Remarks (optional)" value={remarks} onChange={e => setRemarks(e.target.value)} rows={2} />
 
       <SlaNotice action="Accounts step" />
@@ -1499,10 +1591,21 @@ function ApprovalTrail({ g }) {
   const kind = g.kind;
   const stages = [];
 
+  // Raised by Stores itself — the stores stage was signed at creation rather than
+  // as a separate review, so the trail says so instead of showing the same person
+  // twice as if they had approved their own request.
+  const storesRaised = g.createdBy?.role === 'STORE_MANAGER' && g.storeIncharge?.id === g.createdBy?.id;
+
   // Common: Raised by
   stages.push({ label: 'Raised', user: g.createdBy, at: g.createdAt, icon: Send });
   // Stores approval
-  stages.push({ label: 'Stores Approval', user: g.storeIncharge, at: g.storeInchargeAt, icon: PackageCheck, remark: g.storeDelayRemark });
+  stages.push({
+    label: storesRaised ? 'Stores (raised & released)' : 'Stores Approval',
+    user: g.storeIncharge,
+    at: g.storeInchargeAt,
+    icon: PackageCheck,
+    remark: g.storeDelayRemark,
+  });
   // Accounts (OUTSIDE only)
   if (kind === 'OUTSIDE' || !kind) {
     stages.push({ label: kind === 'OUTSIDE' ? 'Accounts (Invoice)' : 'Accounts', user: g.accountsApprover, at: g.accountsAt, icon: Calculator, remark: g.accountsDelayRemark });
@@ -1618,6 +1721,10 @@ function WorkflowModal({ onClose }) {
         <div className="p-3 bg-gray-50 border border-gray-200 rounded text-xs text-gray-700">
           <p className="font-medium mb-1">Notes</p>
           <ul className="list-disc ml-4 space-y-0.5">
+            <li>
+              When <span className="font-medium">Stores</span> raises the gate pass itself, the Stores approval step is skipped —
+              it is signed at creation and released straight to Accounts (Outside) or Logistics (Local Job).
+            </li>
             <li>Logistics pre-registers all company vehicles in the <span className="font-medium">Vehicles</span> page; the dispatch picker pulls from that pool.</li>
             <li>For Outside dispatches, a driver-signed delivery PDF is mandatory before confirming dispatch.</li>
             <li>Rejection is allowed at any pending stage — the gate pass moves to REJECTED with the reviewer's reason captured.</li>

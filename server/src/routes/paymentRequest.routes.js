@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
-const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, withDocRetry } = require('../utils/helpers');
+const { generateSequentialNumber, paginate, applyDateFilter, isUniqueViolation, withDocRetry, computeTax } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -16,9 +16,19 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 // read-only observer (the pay/approve/reject endpoints below stay Accounting/Admin).
 const PAYMENT_VIEW_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING', 'FINANCE'];
 
+const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+
+// One phrase for every notification: the payable figure, with the tax split
+// spelled out when a rate was applied. Falls back to `amount` for old rows.
+const amountPhrase = (r) => (r.taxPercent
+  ? `${inr(r.payableAmount)} (basic ${inr(r.amount)} + ${r.taxPercent}% tax ${inr(r.taxAmount)})`
+  : inr(r.payableAmount || r.amount));
+
 const createSchema = z.object({
   purchaseOrderId: z.string().uuid(),
+  // Taxable (basic) value — the tax % rides on top, see PaymentRequest in schema.prisma.
   amount: z.number().positive(),
+  taxPercent: z.number().min(0).max(100).optional(),
   paymentType: z.enum(['ADVANCE', 'PARTIAL', 'FINAL']),
   notes: z.string().optional(),
 });
@@ -115,6 +125,8 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
       return res.status(400).json({ error: `Payment amount exceeds remaining balance of ₹${remaining.toLocaleString('en-IN')}` });
     }
 
+    const tax = computeTax(data.amount, data.taxPercent);
+
     let paymentNumber;
     const request = await withDocRetry(async () => {
       paymentNumber = await generateSequentialNumber(prisma, 'PAY');
@@ -123,6 +135,9 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
           paymentNumber,
           purchaseOrderId: data.purchaseOrderId,
           amount: data.amount,
+          taxPercent: tax.taxPercent,
+          taxAmount: tax.taxAmount,
+          payableAmount: tax.payableAmount,
           paymentType: data.paymentType,
           notes: data.notes || null,
           createdById: req.user.id,
@@ -138,7 +153,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
       data: {
         type: 'PAYMENT_REQUEST',
         title: `Payment Request: ${order.customName}`,
-        message: `${data.paymentType} payment of ₹${data.amount.toLocaleString('en-IN')} requested for order "${order.customName}" (${order.orderNumber}) to ${order.supplierName}. Please approve to send to Accounting.${data.notes ? ' Notes: ' + data.notes : ''}`,
+        message: `${data.paymentType} payment of ${amountPhrase({ ...tax, amount: data.amount })} requested for order "${order.customName}" (${order.orderNumber}) to ${order.supplierName}. Please approve to send to Accounting.${data.notes ? ' Notes: ' + data.notes : ''}`,
         targetRole: 'ADMIN',
         sentById: req.user.id,
       },
@@ -150,7 +165,15 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
         action: 'CREATE',
         entity: 'PaymentRequest',
         entityId: request.id,
-        details: { paymentNumber, amount: data.amount, paymentType: data.paymentType, orderNumber: order.orderNumber },
+        details: {
+          paymentNumber,
+          amount: data.amount,
+          taxPercent: tax.taxPercent,
+          taxAmount: tax.taxAmount,
+          payableAmount: tax.payableAmount,
+          paymentType: data.paymentType,
+          orderNumber: order.orderNumber,
+        },
         ipAddress: req.ip,
       },
     });
@@ -191,7 +214,7 @@ router.put('/:id/approve', authenticate, authorize('ADMIN'), async (req, res) =>
       data: {
         type: 'PAYMENT_APPROVED',
         title: `Payment Approved: ${request.purchaseOrder.customName}`,
-        message: `${request.paymentType} payment of ₹${request.amount.toLocaleString('en-IN')} for order "${request.purchaseOrder.customName}" (${request.purchaseOrder.orderNumber}) has been approved by ${req.user.name}. Please process the payment.`,
+        message: `${request.paymentType} payment of ${amountPhrase(request)} for order "${request.purchaseOrder.customName}" (${request.purchaseOrder.orderNumber}) has been approved by ${req.user.name}. Please process the payment.`,
         targetRole: 'ACCOUNTING',
         sentById: req.user.id,
       },
@@ -203,7 +226,12 @@ router.put('/:id/approve', authenticate, authorize('ADMIN'), async (req, res) =>
         action: 'APPROVE_PAYMENT',
         entity: 'PaymentRequest',
         entityId: request.id,
-        details: { paymentNumber: request.paymentNumber, amount: request.amount },
+        details: {
+          paymentNumber: request.paymentNumber,
+          amount: request.amount,
+          taxPercent: request.taxPercent,
+          payableAmount: request.payableAmount,
+        },
         ipAddress: req.ip,
       },
     });
@@ -333,7 +361,7 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
       data: {
         type: 'PAYMENT_PROCESSED',
         title: `Payment Processed: ${order.customName}`,
-        message: `${request.paymentType} payment of ₹${request.amount.toLocaleString('en-IN')} for order "${order.customName}" has been processed.`,
+        message: `${request.paymentType} payment of ${amountPhrase(request)} for order "${order.customName}" has been processed.`,
         targetRole: 'PURCHASE_OFFICER',
         sentById: req.user.id,
       },
@@ -370,6 +398,9 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
         details: {
           paymentNumber: request.paymentNumber,
           amount: request.amount,
+          taxPercent: request.taxPercent,
+          taxAmount: request.taxAmount,
+          payableAmount: request.payableAmount,
           paymentType: request.paymentType,
           transitionedOrderToPlaced: wasPendingAccounting,
         },
@@ -419,7 +450,7 @@ router.put('/:id/reject', authenticate, authorize('ACCOUNTING', 'ADMIN'), async 
       data: {
         type: 'PAYMENT_REJECTED',
         title: `Payment Rejected: ${request.purchaseOrder.customName}`,
-        message: `${request.paymentType} payment of ₹${request.amount.toLocaleString('en-IN')} for order "${request.purchaseOrder.customName}" was rejected.${notes ? ' Reason: ' + notes : ''}`,
+        message: `${request.paymentType} payment of ${amountPhrase(request)} for order "${request.purchaseOrder.customName}" was rejected.${notes ? ' Reason: ' + notes : ''}`,
         targetRole: 'PURCHASE_OFFICER',
         sentById: req.user.id,
       },

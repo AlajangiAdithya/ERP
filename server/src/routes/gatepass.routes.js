@@ -220,10 +220,10 @@ router.post(
 );
 
 // POST /api/gatepasses — Create an OUTWARD or INWARD gate pass.
-// OUTWARD: Manager raises (RAMS/GPR/01) → Store → Accounts → Approved.
+// OUTWARD: Manager / Planning / QC raises (RAMS/GPR/01) → Store → Accounts → Approved.
 // INWARD: Stores / Manager records customer-supplied FIM. Status starts at
 // PENDING_ACCEPTANCE; items get inwarded into Products via the From-Gatepass flow.
-router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'PLANNING'), acceptFimGpPdf, async (req, res) => {
+router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'PLANNING', 'QC'), acceptFimGpPdf, async (req, res) => {
   try {
     const {
       passNumber: rawPassNumber,
@@ -347,12 +347,24 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
         : (siteName?.trim() || 'In-house');
     }
 
+    // Stores raising its own outward gate pass: the PENDING_STORE stage exists so
+    // the Store Incharge can vet someone else's request — when Stores IS the
+    // raiser there is nobody left to approve, so the pass is signed off at
+    // creation and goes straight to the next desk. Only for v2 (kind-bearing)
+    // outward passes; legacy kind=null rows still need the driver/vehicle capture
+    // that happens at /store-approve.
+    const storesDirect = !isInward && !!kind && req.user.role === 'STORE_MANAGER';
+
     // INWARD STORES is now final on creation — items go straight into Products,
     // so the gate pass is ACCEPTED immediately. DIRECT_TO_UNIT still awaits the
     // destination unit marking it Collected.
     const initialStatus = isInward
       ? (inwardKind === 'STORES' ? 'ACCEPTED' : 'PENDING_ACCEPTANCE')
-      : 'PENDING_STORE';
+      : storesDirect
+        // Same fork /store-approve applies: OUTSIDE needs the invoice/DC from
+        // Accounts first, LOCAL_JOB goes straight to Logistics for a vehicle.
+        ? (kind === 'OUTSIDE' ? 'PENDING_ACCOUNTS' : 'PENDING_LOGISTICS')
+        : 'PENDING_STORE';
 
     // Which unit's counter this GP belongs to: the destination unit for
     // direct-to-unit inward, otherwise the creator's own unit. Falls back to 'GEN'.
@@ -408,6 +420,10 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
           // signature is captured separately via /store-approve / review steps.
           siteInchargeById: (isInward || kind) ? null : req.user.id,
           siteInchargeAt: (isInward || kind) ? null : new Date(),
+          // Stores signed the pass by raising it — record it against the stores
+          // stage so the approval trail shows a signature there instead of a gap.
+          storeInchargeById: storesDirect ? req.user.id : null,
+          storeInchargeAt: storesDirect ? new Date() : null,
           items: {
             create: items.map((it, idx) => ({
               id: itemIds[idx],
@@ -461,6 +477,10 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
         entityId: gatePass.id,
         details: {
           passNumber: gatePass.passNumber, partyName: gatePass.partyName, direction,
+          status: gatePass.status,
+          // Flags the passes that skipped the stores approval stage, so the audit
+          // log explains why there is no separate STORE_INCHARGE_APPROVAL entry.
+          ...(storesDirect ? { storesDirectRelease: true } : {}),
           ...(testReportCount ? { testReports: testReportCount } : {}),
         },
         ipAddress: req.ip,
@@ -577,6 +597,19 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
           sentById: req.user.id,
         });
       }
+    } else if (storesDirect) {
+      // No stores review to wait on — tell the desk that actually has to act next.
+      const nextRole = initialStatus === 'PENDING_ACCOUNTS' ? 'ACCOUNTING' : 'LOGISTICS';
+      const nextStep = initialStatus === 'PENDING_ACCOUNTS'
+        ? 'Awaiting Accounts to add invoice / DC details.'
+        : 'Awaiting Logistics for vehicle assignment and dispatch.';
+      await notify({
+        type: 'GATE_PASS_REQUEST',
+        title: `Gate Pass Raised by Stores: ${gatePass.passNumber}`,
+        message: `${req.user.name} (Stores) raised and released gate pass ${gatePass.passNumber} (${items.length} item${items.length === 1 ? '' : 's'}). ${nextStep}`,
+        targetRole: nextRole,
+        sentById: req.user.id,
+      });
     } else {
       await notify({
         type: 'GATE_PASS_REQUEST',
@@ -600,9 +633,9 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
 });
 
 // PUT /api/gatepasses/:id/edit
-// Creator (MANAGER / PLANNING / ADMIN) can edit a gate pass while it is still
+// Creator (MANAGER / PLANNING / QC / ADMIN) can edit a gate pass while it is still
 // PENDING_STORE (before Stores has approved it). Replaces all items.
-router.put('/:id/edit', authenticate, authorize('MANAGER', 'ADMIN', 'PLANNING'), async (req, res) => {
+router.put('/:id/edit', authenticate, authorize('MANAGER', 'ADMIN', 'PLANNING', 'QC'), async (req, res) => {
   try {
     const {
       passNumber: rawPassNumber,
@@ -771,18 +804,27 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
       if (!check.ok) return res.status(400).json({ error: check.error });
     }
 
-    // Update per-item gatePassDetails and transportation if provided
+    // Update per-item gatePassDetails and transportation if provided.
+    //
+    // OUTSIDE passes are the exception: their per-item "Gate Pass Details" are
+    // owned by Accounts and entered at the /accounts-invoice step that follows,
+    // so Stores only fills Transportation here. Anything the client sends for
+    // gatePassDetails on an OUTSIDE pass is ignored rather than trusted.
+    const detailsOwnedByAccounts = existing.kind === 'OUTSIDE';
     if (Array.isArray(itemUpdates) && itemUpdates.length > 0) {
+      const ownItemIds = new Set(existing.items.map((it) => it.id));
       await Promise.all(
-        itemUpdates.map((iu) =>
-          prisma.gatePassItem.update({
-            where: { id: iu.id },
-            data: {
-              gatePassDetails: iu.gatePassDetails?.trim() || null,
-              transportation:  iu.transportation?.trim()  || null,
-            },
-          })
-        )
+        itemUpdates
+          .filter((iu) => iu && ownItemIds.has(iu.id))
+          .map((iu) =>
+            prisma.gatePassItem.update({
+              where: { id: iu.id },
+              data: {
+                ...(detailsOwnedByAccounts ? {} : { gatePassDetails: iu.gatePassDetails?.trim() || null }),
+                transportation: iu.transportation?.trim() || null,
+              },
+            })
+          )
       );
     }
 
@@ -835,13 +877,19 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
 });
 
 // PUT /api/gatepasses/:id/accounts-invoice
-// OUTSIDE only: Accounts attaches invoice / DC numbers and forwards to Stores for final review.
+// OUTSIDE only: Accounts attaches invoice / DC numbers, fills the per-item Gate
+// Pass Details, and forwards to Stores for final review. The per-item details sit
+// with Accounts (not Stores) on outward OUTSIDE passes — Stores only supplies the
+// Transportation column at its own step.
 // (Replaces the old /accounts-approve for v2; legacy rows still use /accounts-approve below.)
 router.put('/:id/accounts-invoice', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
   try {
-    const { invoiceNo, dcNo, remarks, accountsDelayRemark } = req.body || {};
+    const { invoiceNo, dcNo, remarks, accountsDelayRemark, items: itemUpdates } = req.body || {};
 
-    const existing = await prisma.gatePass.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.gatePass.findUnique({
+      where: { id: req.params.id },
+      include: { items: { select: { id: true } } },
+    });
     if (!existing) return res.status(404).json({ error: 'Gate pass not found' });
     if (existing.kind !== 'OUTSIDE') {
       return res.status(400).json({ error: 'Invoice step applies to OUTSIDE gate passes only' });
@@ -866,6 +914,22 @@ router.put('/:id/accounts-invoice', authenticate, authorize('ACCOUNTING', 'FINAN
     if (accountsDelayRemark?.trim()) {
       const check = validateReason(accountsDelayRemark, { fieldLabel: 'delay remark' });
       if (!check.ok) return res.status(400).json({ error: check.error });
+    }
+
+    // Per-item Gate Pass Details — Accounts owns this column on OUTWARD OUTSIDE
+    // passes. Transportation is left alone: that stays with Stores.
+    if (Array.isArray(itemUpdates) && itemUpdates.length > 0) {
+      const ownItemIds = new Set(existing.items.map((it) => it.id));
+      await Promise.all(
+        itemUpdates
+          .filter((iu) => iu && ownItemIds.has(iu.id))
+          .map((iu) =>
+            prisma.gatePassItem.update({
+              where: { id: iu.id },
+              data: { gatePassDetails: iu.gatePassDetails?.trim() || null },
+            })
+          )
+      );
     }
 
     const updated = await prisma.gatePass.update({

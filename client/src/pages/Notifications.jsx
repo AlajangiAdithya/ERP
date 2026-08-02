@@ -76,6 +76,7 @@ const typeColors = {
   WO_PDC_3MONTH_ALERT: 'orange',
   PO_CLOSED: 'gray',
   INWARD_QC_REQUEST: 'yellow',
+  INWARD_QC_NOT_REQUIRED: 'blue',
   INWARD_QC_DONE: 'green',
   INWARD_QC_HOLD: 'orange',
   MESSAGE_RECEIVED: 'blue',

@@ -3,7 +3,7 @@ import {
   Package, Plus, FlaskConical, ClipboardCheck, CheckCircle2,
   Search, Filter, X, Pencil, Trash2, ArrowDownToLine, Building2,
   Paperclip, Upload, FileText, FileSearch, ExternalLink, UserRound,
-  Send, FileInput, AlertTriangle, Wrench, FileWarning, Repeat,
+  Send, FileInput, AlertTriangle, Wrench, FileWarning, Repeat, ShieldCheck,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -16,6 +16,7 @@ import PageHero from '../components/shared/PageHero';
 import { formatDate } from '../utils/formatters';
 import { UOM_OPTIONS } from '../utils/units';
 import { checkFileSize } from '../utils/fileGuard';
+import { reasonError } from '../utils/reasonValidation';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import InwardInspectionReportPdf from '../components/pdf/InwardInspectionReportPdf';
 import InwardInspectionRequestPdf from '../components/pdf/InwardInspectionRequestPdf';
@@ -123,6 +124,11 @@ const iirRequestDefaults = (row) => {
 // INWARD_QC is the inward-only QC operator — same review actions as QC, nothing else.
 const WRITE_ROLES = ['ADMIN', 'STORE_MANAGER'];
 const QC_ROLES = ['ADMIN', 'QC', 'INWARD_QC'];
+// Who may mark a lot "QC not required". Mirrors QC_WAIVE_ROLES on the server —
+// QC proper, the concerned unit manager, and Admin. Never Stores (it raises the
+// receipt, so it can't wave its own receipt through) and never INWARD_QC (that
+// login performs inspections, it doesn't decide which materials need one).
+const QC_WAIVE_ROLES = ['ADMIN', 'QC', 'MANAGER'];
 
 // Who performed a QC review, with their role spelled out so an Inward QC operator
 // is clearly distinguished from full QC on the register and the report.
@@ -150,16 +156,47 @@ const docLabel = (v) => DOC_TYPES.find((d) => d.value === v)?.label || v;
 const MATERIAL_TYPE_OPTIONS = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Others'];
 
 const STATUS_META = {
-  DRAFT:        { label: 'Draft',        tone: 'gray' },
-  QC_REQUESTED: { label: 'QC Requested', tone: 'amber' },
-  QC_IN_REVIEW: { label: 'In Review',    tone: 'blue' },
-  QC_DONE:      { label: 'QC Done',      tone: 'green' },
-  ON_HOLD:      { label: 'On Hold',      tone: 'red' },
-  INWARDED:     { label: 'Inwarded',     tone: 'green' },
+  DRAFT:           { label: 'Draft',            tone: 'gray' },
+  QC_REQUESTED:    { label: 'QC Requested',     tone: 'amber' },
+  QC_IN_REVIEW:    { label: 'In Review',        tone: 'blue' },
+  QC_DONE:         { label: 'QC Done',          tone: 'green' },
+  QC_NOT_REQUIRED: { label: 'QC Not Required',  tone: 'violet' },
+  ON_HOLD:         { label: 'On Hold',          tone: 'red' },
+  INWARDED:        { label: 'Inwarded',         tone: 'green' },
 };
 const RESULT_TONE = { PASSED: 'green', PARTIAL: 'amber', FAILED: 'red', ON_HOLD: 'red' };
 
-const STATUS_TABS = ['ALL', 'DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW', 'QC_DONE', 'ON_HOLD', 'INWARDED'];
+const STATUS_TABS = ['ALL', 'DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW', 'QC_DONE', 'QC_NOT_REQUIRED', 'ON_HOLD', 'INWARDED'];
+
+// Status accent on the sticky MIR column. A bare 4px rule was too easy to miss on
+// a dense sheet, so each status now gets a thicker bar plus a colour wash that
+// fades out across the cell. The wash is alpha-based and sits on top of the
+// cell's inherited background, so zebra striping and row hover still read through.
+const ROW_ACCENTS = {
+  // Alpha steps must stay on Tailwind's opacity scale (multiples of 5) — an
+  // off-scale value like /12 generates no class at all and the stop is lost.
+  //
+  // Draft is the "nothing has happened yet" state — deliberately the faintest,
+  // and kept on the muted navy-300 so it never reads as the blue "In Review".
+  gray:   'border-l-[5px] border-l-navy-300 bg-gradient-to-r from-navy-300/25 via-navy-300/10 to-transparent',
+  amber:  'border-l-[5px] border-l-amber-500 bg-gradient-to-r from-amber-400/45 via-amber-400/15 to-transparent',
+  blue:   'border-l-[5px] border-l-blue-500 bg-gradient-to-r from-blue-500/40 via-blue-500/10 to-transparent',
+  green:  'border-l-[5px] border-l-emerald-500 bg-gradient-to-r from-emerald-500/40 via-emerald-500/10 to-transparent',
+  red:    'border-l-[5px] border-l-rose-500 bg-gradient-to-r from-rose-500/40 via-rose-500/10 to-transparent',
+  violet: 'border-l-[5px] border-l-violet-500 bg-gradient-to-r from-violet-500/40 via-violet-500/10 to-transparent',
+};
+
+// Which accent a row carries. A failed QC outcome outranks the row's own status
+// so a rejected lot always reads red, whatever stage it is sitting at.
+function rowAccent(r) {
+  if (r.status === 'INWARDED') return ROW_ACCENTS.green;
+  if (r.status === 'ON_HOLD' || r.qcResult === 'FAILED') return ROW_ACCENTS.red;
+  if (r.status === 'QC_REQUESTED') return ROW_ACCENTS.amber;
+  if (r.status === 'QC_IN_REVIEW') return ROW_ACCENTS.blue;
+  if (r.status === 'QC_NOT_REQUIRED') return ROW_ACCENTS.violet;
+  if (r.status === 'QC_DONE') return ROW_ACCENTS.green;
+  return ROW_ACCENTS.gray;
+}
 
 const fmtQty = (n) => (n == null ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }));
 
@@ -233,6 +270,8 @@ function MaterialInwardRegister() {
   const role = user?.role;
   const canWrite = canInwardWrite(user);
   const isQC = QC_ROLES.includes(role);
+  // "QC not required" — QC, the concerned unit manager, and Admin only.
+  const canWaiveQc = QC_WAIVE_ROLES.includes(role);
   // Editing existing rows is a lighter grant than full inward write: Stores (canWrite)
   // plus any unit manager (Units 1–5), who can view and edit every row in the shared
   // register regardless of which unit it is bound for (the server allows all-unit edits).
@@ -245,6 +284,7 @@ function MaterialInwardRegister() {
   const [showNew, setShowNew] = useState(false);
   const [requestFor, setRequestFor] = useState(null); // row -> request QC
   const [reviewFor, setReviewFor] = useState(null);    // row -> QC review
+  const [waiveFor, setWaiveFor] = useState(null);      // row -> mark QC not required
   const [inwardFor, setInwardFor] = useState(null);    // row -> final inward
   const [editFor, setEditFor] = useState(null);
   const [docsFor, setDocsFor] = useState(null);        // row -> manage / view documents
@@ -358,10 +398,12 @@ function MaterialInwardRegister() {
           canWrite={canWrite}
           canEdit={canEdit}
           isQC={isQC}
+          canWaiveQc={canWaiveQc}
           busyId={busyId}
           onRequestQc={setRequestFor}
           onTakeReview={takeReview}
           onContinueReview={setReviewFor}
+          onWaiveQc={setWaiveFor}
           onInward={setInwardFor}
           onEdit={setEditFor}
           onDelete={del}
@@ -383,6 +425,9 @@ function MaterialInwardRegister() {
       )}
       {reviewFor && (
         <ReviewModal row={reviewFor} onClose={() => setReviewFor(null)} onDone={() => { setReviewFor(null); load(); }} />
+      )}
+      {waiveFor && (
+        <WaiveQcModal row={waiveFor} onClose={() => setWaiveFor(null)} onDone={() => { setWaiveFor(null); load(); }} />
       )}
       {inwardFor && (
         <InwardConfirmModal row={inwardFor} onClose={() => setInwardFor(null)} onDone={() => { setInwardFor(null); load(); }} />
@@ -406,7 +451,7 @@ function MaterialInwardRegister() {
 // ────────────────────────────────────────────────────────────────────
 // The Excel-style register sheet (horizontal scroll, sticky header + MIR col)
 // ────────────────────────────────────────────────────────────────────
-function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTakeReview, onContinueReview, onInward, onEdit, onDelete, onDocs, onViewReport, onResend, onReplace }) {
+function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequestQc, onTakeReview, onContinueReview, onWaiveQc, onInward, onEdit, onDelete, onDocs, onViewReport, onResend, onReplace }) {
   return (
     <Card className="!p-0 overflow-hidden">
       <div className="overflow-x-auto">
@@ -428,24 +473,18 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTak
               <Th groupEnd>Issued To</Th>
               <Th>QC / Review</Th>
               <Th>MIV No.</Th>
-              {(canEdit || isQC) && <Th>Action</Th>}
+              {(canEdit || isQC || canWaiveQc) && <Th>Action</Th>}
             </tr>
           </thead>
           <tbody>
             {rows.map((r, i) => {
               const meta = STATUS_META[r.status] || { label: r.status, tone: 'gray' };
               const zebra = i % 2 ? 'bg-brand-gray' : 'bg-white';
-              const accent =
-                r.status === 'INWARDED' ? 'border-l-green-500'
-                : r.status === 'ON_HOLD' ? 'border-l-red-500'
-                : r.qcResult === 'FAILED' ? 'border-l-red-500'
-                : r.status === 'QC_REQUESTED' ? 'border-l-amber-500'
-                : r.status === 'QC_IN_REVIEW' ? 'border-l-blue-500'
-                : 'border-l-navy-300';
+              const accent = rowAccent(r);
               const busy = busyId === r.id;
               return (
                 <tr key={r.id} className={`group ${zebra} hover:bg-navy-50 transition-colors`}>
-                  <Td sticky className={`border-l-4 ${accent}`}>
+                  <Td sticky className={accent}>
                     <div className="font-mono text-[11px] font-semibold text-navy-800">{r.mirNo}</div>
                     <div className="mt-1 flex items-center gap-1 flex-wrap">
                       <Pill tone={meta.tone}>{meta.label}</Pill>
@@ -524,6 +563,16 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTak
                     <Pill tone={r.status === 'QC_DONE' && r.qcResult ? RESULT_TONE[r.qcResult] : meta.tone}>
                       {r.status === 'QC_DONE' && r.qcResult ? `QC ${r.qcResult}` : meta.label}
                     </Pill>
+                    {/* Inspection waived — who cleared it and why. */}
+                    {r.qcWaived && (
+                      <div className="text-[10px] text-violet-700 mt-0.5 font-semibold inline-flex items-start gap-1" title={r.qcWaivedReason || ''}>
+                        <ShieldCheck size={10} className="mt-px shrink-0" />
+                        <span>No QC needed{r.qcWaivedBy ? ` — ${reviewerLabel(r.qcWaivedBy)}` : ''}</span>
+                      </div>
+                    )}
+                    {r.qcWaived && r.qcWaivedReason && (
+                      <div className="text-[10px] text-gray-600 mt-0.5 line-clamp-2" title={r.qcWaivedReason}>“{r.qcWaivedReason}”</div>
+                    )}
                     {/* Tools & Fixtures inwarded to the unit before QC — QC still pending. */}
                     {r.qcPending && (
                       <div className="text-[10px] text-amber-700 mt-0.5 font-semibold inline-flex items-center gap-1">
@@ -575,7 +624,7 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTak
                     ) : <Dash />}
                   </Td>
                   {/* Action */}
-                  {(canEdit || isQC) && (
+                  {(canEdit || isQC || canWaiveQc) && (
                     <Td>
                       <div className="flex flex-col gap-1 items-start">
                         {canWrite && r.status === 'DRAFT' && (
@@ -601,10 +650,27 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, busyId, onRequestQc, onTak
                         {isQC && r.status === 'QC_IN_REVIEW' && (
                           <ActBtn tone="blue" busy={busy} onClick={() => onContinueReview(r)}><ClipboardCheck size={11} /> Continue</ActBtn>
                         )}
-                        {canWrite && r.status === 'QC_DONE' && r.qcResult !== 'FAILED' && !r.inwardedAt && (
+                        {/* Waive the inspection. Open to QC, the concerned unit manager and
+                            Admin while no QC outcome has been filed yet. Hand Tools /
+                            Machinery never enter QC, so there is nothing to waive there. */}
+                        {canWaiveQc && !r.inwardedAt && !r.isHandTools && !r.isMachinery
+                          && ['DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW'].includes(r.status) && (
+                          <ActBtn tone="violet" busy={busy} onClick={() => onWaiveQc(r)}>
+                            <ShieldCheck size={11} /> QC Not Required
+                          </ActBtn>
+                        )}
+                        {canWrite && (r.status === 'QC_DONE' || r.status === 'QC_NOT_REQUIRED') && r.qcResult !== 'FAILED' && !r.inwardedAt && (
                           r.masterDataPending
                             ? <Pill tone="amber">Master data pending</Pill>
-                            : <ActBtn tone="green" busy={busy} onClick={() => onInward(r)}><ArrowDownToLine size={11} /> Inward</ActBtn>
+                            : (
+                              <ActBtn tone="green" busy={busy} onClick={() => onInward(r)}>
+                                <ArrowDownToLine size={11} /> Inward{r.status === 'QC_NOT_REQUIRED' ? ' (no QC)' : ''}
+                              </ActBtn>
+                            )
+                        )}
+                        {/* The waiver is reversible — Stores can still put the lot through QC. */}
+                        {canWrite && r.status === 'QC_NOT_REQUIRED' && !r.inwardedAt && (
+                          <ActBtn tone="amber" busy={busy} onClick={() => onRequestQc(r)}><FlaskConical size={11} /> Send to QC anyway</ActBtn>
                         )}
                         {canWrite && r.status === 'ON_HOLD' && (
                           <ActBtn tone="amber" busy={busy} onClick={() => onResend(r)}><Send size={11} /> Resend to QC</ActBtn>
@@ -1848,7 +1914,14 @@ function InwardConfirmModal({ row, onClose, onDone }) {
               assigned to the unit) without a QC or master-data check.
             </p>
           )}
-          {row.isToolsAndFixtures && !row.qcResult && (
+          {row.qcWaived && (
+            <p className="text-[11px] bg-violet-50 border border-violet-200 text-violet-800 rounded p-2">
+              <strong>QC not required:</strong> {reviewerLabel(row.qcWaivedBy) || 'QC / the unit manager'} waived the
+              inspection{row.qcWaivedReason ? <> — “{row.qcWaivedReason}”</> : ''}. The full received quantity is
+              taken into stock.
+            </p>
+          )}
+          {row.isToolsAndFixtures && !row.qcResult && !row.qcWaived && (
             <p className="text-[11px] bg-amber-50 border border-amber-200 text-amber-800 rounded p-2">
               <strong>Tools &amp; Fixtures fast-path:</strong> this goes straight to the unit without QC or a
               master-data check. QC can be done later on the inwarded lot.
@@ -1858,6 +1931,71 @@ function InwardConfirmModal({ row, onClose, onDone }) {
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>{saving ? 'Recording…' : 'Confirm Inward'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Mark a lot "QC not required" ──
+// The inspection waiver. QC, the concerned unit manager, or an Admin decides this
+// material needs no inspection; the lot skips QC and goes straight to the inward
+// step. A meaningful reason is mandatory (validated client- and server-side) —
+// this is a documented bypass, so the register has to record why.
+function WaiveQcModal({ row, onClose, onDone }) {
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  // reasonError() treats empty as "not yet typed", so the required check is ours.
+  const localError = reason.trim()
+    ? reasonError(reason, { minLength: 12, minWords: 2, fieldLabel: 'reason' })
+    : 'Please enter a reason.';
+
+  const submit = async () => {
+    if (localError) { setError(localError); return; }
+    setSaving(true); setError('');
+    try { await api.post(`/material-inward/${row.id}/qc-not-required`, { reason: reason.trim() }); onDone(); }
+    catch (err) { setError(err.response?.data?.error || 'Failed'); setSaving(false); }
+  };
+
+  return (
+    <Modal isOpen onClose={onClose} title={`QC Not Required — ${row.mirNo}`} size="md">
+      <div className="space-y-3">
+        {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+
+        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 space-y-1">
+          <p className="text-[12px] font-bold text-violet-800 inline-flex items-center gap-1.5">
+            <ShieldCheck size={14} /> Skip inspection for this material
+          </p>
+          <p className="text-[11px] text-violet-700">
+            <strong>{row.itemDescription || row.mirNo}</strong>
+            {row.qtyReceived != null ? ` · ${fmtQty(row.qtyReceived)}${row.uom ? ` ${row.uom}` : ''}` : ''}
+            {row.supplierName ? ` · ${row.supplierName}` : ''}
+            {row.issuedToLabel ? ` · for ${row.issuedToLabel}` : ''}
+          </p>
+          <p className="text-[11px] text-violet-700">
+            No inspection will be carried out. The lot moves straight to the inward step for
+            Stores to take into stock — no QC report, no accepted / rejected quantities.
+          </p>
+        </div>
+
+        <Textarea
+          label="Why is QC not required? *"
+          rows={3}
+          value={reason}
+          onChange={(e) => { setReason(e.target.value); if (error) setError(''); }}
+          placeholder="e.g. Standard off-the-shelf consumable, repeat order from an approved supplier — no incoming inspection specified."
+        />
+        <p className="text-[11px] text-gray-500">
+          Recorded against {row.mirNo} with your name and kept in the lot's QC history. Stores can still
+          send the material to QC afterwards if this turns out to be needed.
+        </p>
+
+        <div className="flex justify-end gap-2 pt-2 border-t">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={saving || !!localError}>
+            {saving ? 'Saving…' : 'Confirm — QC Not Required'}
+          </Button>
         </div>
       </div>
     </Modal>
@@ -2128,6 +2266,7 @@ const PILL_TONES = {
   blue:  'bg-blue-50 text-blue-700 ring-blue-200',
   green: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   red:   'bg-rose-50 text-rose-700 ring-rose-200',
+  violet: 'bg-violet-50 text-violet-700 ring-violet-200',
 };
 const Pill = ({ tone = 'gray', children }) => (
   <span className={`inline-flex items-center text-[9px] font-semibold px-1.5 py-0.5 rounded-full ring-1 ${PILL_TONES[tone]}`}>{children}</span>
@@ -2137,6 +2276,7 @@ const ACT_TONES = {
   amber: 'bg-amber-500 hover:bg-amber-600',
   blue:  'bg-blue-600 hover:bg-blue-700',
   green: 'bg-emerald-600 hover:bg-emerald-700',
+  violet: 'bg-violet-600 hover:bg-violet-700',
 };
 const ActBtn = ({ tone = 'blue', busy, onClick, children }) => (
   <button onClick={onClick} disabled={busy}

@@ -9,10 +9,14 @@ const { poDocumentUpload, goodsArrivedUpload, publicUrlFor, UPLOAD_ROOT } = requ
 const {
   generateSequentialNumber, generateMirNumber, generateProductSku,
   normalizeMaterialType, paginate, applyDateFilter, isUniqueViolation,
-  DEPT_BY_ROLE,
+  DEPT_BY_ROLE, computeTax,
 } = require('../utils/helpers');
 const { cancelLeftoverPRItems } = require('../utils/prClosure');
 const { validateReason } = require('../utils/reasonValidation');
+const {
+  EXPORT_ROW_CAP, addInfoSheet, addSheet, createWorkbook, dateCell,
+  exportFileName, num, sendWorkbook, titleCase, yesNo,
+} = require('../utils/excel');
 
 // Wraps multer so we can return a clean 400 on malformed/oversize uploads.
 function acceptPoDocument(req, res, next) {
@@ -55,7 +59,7 @@ const router = express.Router();
 // (they raise PRs and are own-scoped below, mirroring the PR list).
 // ACCOUNTING + FINANCE are admin-level read-only observers (no status scoping
 // below applies to them, so they see every PO like ADMIN).
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'SAFETY', 'LAB', 'METROLOGY', 'NDT'];
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'SAFETY', 'LAB', 'METROLOGY', 'NDT'];
 
 // Requester roles that may reach the PO chain but must only see POs tied to their
 // OWN purchase requests — same own-only model as the PR list. Unit managers see
@@ -63,7 +67,7 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFIC
 // Metrology, NDT) see only PRs they personally raised. ADMIN / PURCHASE_OFFICER /
 // ACCOUNTING / PLANNING keep full chain visibility; QC + STORE_MANAGER are
 // status-scoped to their work queues below.
-const OWN_SCOPED_PO_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'DESIGNS', 'RND', 'SAFETY'];
+const OWN_SCOPED_PO_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'INWARD_QC', 'DESIGNS', 'RND', 'SAFETY'];
 
 // DEPT_BY_ROLE (role → owning department label) is imported from utils/helpers so
 // inward, MIV issue, and inventory transfers all share one source of truth. When a
@@ -154,47 +158,56 @@ const ORDER_INCLUDE = {
   },
 };
 
+// Role-based status visibility (intersected with the tab/status filter).
+// Stores own "mark goods arrived", so they must see every status an order can
+// be in once it has been placed — including CREDIT_PLACED (credit orders sit
+// here until goods arrive, with no payment step in between).
+const STORE_MANAGER_STATUSES = ['ORDERED', 'PLACED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED', 'CLOSED'];
+const QC_STATUSES = ['GOODS_ARRIVED', 'QC_PENDING'];
+
+// Visibility + filter clause for the PO list. Shared by the paged list endpoint
+// and the Excel export so an export can never widen what a role is allowed to
+// see, and can never disagree with the list the user is looking at.
+function buildPoListWhere(user, { status, fromDate, toDate }) {
+  const where = {};
+  applyDateFilter(where, { fromDate, toDate });
+
+  if (user.role === 'QC') {
+    where.status = { in: QC_STATUSES };
+  } else if (user.role === 'STORE_MANAGER') {
+    // Stores need to anticipate incoming material, act on QC_PASSED, and review history.
+    // Union POs follow the same status flow so this also exposes them.
+    where.status = { in: STORE_MANAGER_STATUSES };
+  } else if (OWN_SCOPED_PO_ROLES.includes(user.role)) {
+    // Requester depts only see POs originating from their own purchase requests
+    // (direct link or via the multi-PR sourceRequests pivot).
+    where.OR = [
+      { purchaseRequest: { managerId: user.id } },
+      { sourceRequests: { some: { purchaseRequest: { managerId: user.id } } } },
+    ];
+  }
+
+  // Apply explicit status filter from tabs, intersected with role permissions
+  if (status) {
+    if (user.role === 'QC') {
+      where.status = QC_STATUSES.includes(status) ? status : { in: [] };
+    } else if (user.role === 'STORE_MANAGER') {
+      where.status = STORE_MANAGER_STATUSES.includes(status) ? status : { in: [] };
+    } else {
+      where.status = status;
+    }
+  }
+
+  return where;
+}
+
 // GET /api/purchase-orders — role-filtered list
 router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate } = req.query;
     const { skip, take } = paginate(page, limit);
 
-    const where = {};
-    applyDateFilter(where, { fromDate, toDate });
-
-    // Role-based status visibility (intersected with the tab/status filter below)
-    // Stores own "mark goods arrived", so they must see every status an order can
-    // be in once it has been placed — including CREDIT_PLACED (credit orders sit
-    // here until goods arrive, with no payment step in between).
-    const STORE_MANAGER_STATUSES = ['ORDERED', 'PLACED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED', 'CLOSED'];
-    const QC_STATUSES = ['GOODS_ARRIVED', 'QC_PENDING'];
-
-    if (req.user.role === 'QC') {
-      where.status = { in: QC_STATUSES };
-    } else if (req.user.role === 'STORE_MANAGER') {
-      // Stores need to anticipate incoming material, act on QC_PASSED, and review history.
-      // Union POs follow the same status flow so this also exposes them.
-      where.status = { in: STORE_MANAGER_STATUSES };
-    } else if (OWN_SCOPED_PO_ROLES.includes(req.user.role)) {
-      // Requester depts only see POs originating from their own purchase requests
-      // (direct link or via the multi-PR sourceRequests pivot).
-      where.OR = [
-        { purchaseRequest: { managerId: req.user.id } },
-        { sourceRequests: { some: { purchaseRequest: { managerId: req.user.id } } } },
-      ];
-    }
-
-    // Apply explicit status filter from tabs, intersected with role permissions
-    if (status) {
-      if (req.user.role === 'QC') {
-        where.status = QC_STATUSES.includes(status) ? status : { in: [] };
-      } else if (req.user.role === 'STORE_MANAGER') {
-        where.status = STORE_MANAGER_STATUSES.includes(status) ? status : { in: [] };
-      } else {
-        where.status = status;
-      }
-    }
+    const where = buildPoListWhere(req.user, { status, fromDate, toDate });
 
     const [orders, total] = await Promise.all([
       prisma.purchaseOrder.findMany({
@@ -211,6 +224,272 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   } catch (error) {
     console.error('Get purchase orders error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── Excel export ───
+// Human-readable status labels, kept in step with the client's statusLabel() so
+// the spreadsheet reads the same as the screen it was exported from.
+const PO_STATUS_LABEL = {
+  PENDING_ACCOUNTING: 'Awaiting Accounting',
+  CREDIT_PLACED: 'On Credit · Payment Pending',
+  ORDERED: 'Ordered',
+  PLACED: 'Order Placed',
+  ADVANCE_PAID: 'Advance Paid',
+  PAYMENT_PENDING: 'Payment Pending',
+  PAID: 'Fully Paid',
+  GOODS_ARRIVED: 'Goods Arrived',
+  QC_PENDING: 'QC Pending',
+  QC_PASSED: 'QC Passed',
+  QC_FAILED: 'QC Failed',
+  PARTIAL: 'Partially Received',
+  INWARD_DONE: 'Inward Done',
+  COMPLETED: 'Completed',
+  CLOSED: 'Closed',
+};
+const poStatusLabel = (s) => PO_STATUS_LABEL[s] || titleCase(s);
+
+const PO_ITEM_STATUS_LABEL = {
+  WAITING: 'Waiting',
+  ORDERED: 'Ordered',
+  ON_THE_WAY: 'On the Way',
+  RECEIVED: 'Received',
+  CANCELLED: 'Cancelled',
+};
+
+const sumBy = (list, pick) => list.reduce((t, x) => t + (Number(pick(x)) || 0), 0);
+const joinUnique = (list) => Array.from(new Set(list.filter(Boolean))).join(', ');
+
+// Every PR behind an order: the direct link for a normal PO, the sourceRequests
+// pivot for a union PO pooling several PRs into one supplier order.
+const sourcePrsOf = (order) => {
+  const list = order.isUnion
+    ? (order.sourceRequests || []).map((s) => s.purchaseRequest)
+    : [order.purchaseRequest];
+  return list.filter(Boolean);
+};
+
+// GET /api/purchase-orders/export — the current PO list as a formatted .xlsx.
+// Same `status` / `fromDate` / `toDate` filters and the same visibility clause as
+// the list endpoint, unpaged. Two sheets: one row per order, and one row per
+// ordered material line for supplier / material level analysis.
+// Must stay ABOVE `GET /:id` or that route swallows "export".
+router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
+  try {
+    const { status, fromDate, toDate } = req.query;
+    const where = buildPoListWhere(req.user, { status, fromDate, toDate });
+
+    const [total, orders] = await Promise.all([
+      prisma.purchaseOrder.count({ where }),
+      prisma.purchaseOrder.findMany({
+        where,
+        include: {
+          createdBy: { select: { name: true } },
+          closedBy: { select: { name: true } },
+          creditPlacedBy: { select: { name: true } },
+          quotation: { select: { quotationNumber: true, supplierContact: true } },
+          supplier: { select: { name: true, gstNumber: true } },
+          purchaseRequest: {
+            select: {
+              requestNumber: true, createdAt: true, adminApprovedAt: true,
+              manager: { select: { name: true } },
+              unit: { select: { name: true, code: true } },
+            },
+          },
+          sourceRequests: {
+            select: {
+              purchaseRequest: {
+                select: {
+                  requestNumber: true, createdAt: true, adminApprovedAt: true,
+                  manager: { select: { name: true } },
+                  unit: { select: { name: true, code: true } },
+                },
+              },
+            },
+          },
+          items: {
+            include: {
+              product: { select: { sku: true, category: true } },
+              allocations: {
+                select: {
+                  allocatedQty: true, receivedQty: true,
+                  purchaseRequestItem: {
+                    select: { request: { select: { requestNumber: true, unit: { select: { code: true } } } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: EXPORT_ROW_CAP,
+      }),
+    ]);
+
+    const orderRows = [];
+    const itemRows = [];
+
+    for (const o of orders) {
+      const items = o.items || [];
+      const prs = sourcePrsOf(o);
+      const prNumbers = joinUnique(prs.map((p) => p.requestNumber));
+      const unitLabel = joinUnique(prs.map((p) => p.unit?.code)) || 'Central / Non-unit';
+      const orderedQty = sumBy(items, (i) => i.quantity);
+      const receivedQty = sumBy(items, (i) => i.receivedQty);
+      const balance = (Number(o.totalAmount) || 0) - (Number(o.totalPaid) || 0);
+
+      orderRows.push({
+        orderNumber: o.orderNumber,
+        customName: o.customName || '',
+        status: poStatusLabel(o.status),
+        isUnion: yesNo(o.isUnion),
+        prNumbers,
+        unit: unitLabel,
+        indentedBy: joinUnique(prs.map((p) => p.manager?.name)),
+        supplier: o.supplierName || o.supplier?.name || '',
+        supplierGst: o.supplier?.gstNumber || '',
+        supplierContact: o.quotation?.supplierContact || '',
+        quotationNumber: o.quotation?.quotationNumber || '',
+        totalAmount: num(o.totalAmount),
+        advancePaid: num(o.advancePaid),
+        totalPaid: num(o.totalPaid),
+        balance: num(balance),
+        isCredit: yesNo(o.isCreditOrder),
+        lineCount: items.length,
+        orderedQty: num(orderedQty),
+        receivedQty: num(receivedQty),
+        pendingQty: num(Math.max(0, orderedQty - receivedQty)),
+        createdAt: dateCell(o.createdAt),
+        createdBy: o.createdBy?.name || '',
+        creditPlacedAt: dateCell(o.creditPlacedAt),
+        goodsArrivedAt: dateCell(o.goodsArrivedAt),
+        mirNo: o.mirNo || '',
+        inwardedAt: dateCell(o.inwardedAt),
+        closedAt: dateCell(o.closedAt),
+        closedBy: o.closedBy?.name || '',
+        forceClosed: o.closedAt ? yesNo(o.forceClosed) : '',
+        closeReason: o.closeReason || '',
+        poDocument: o.poDocumentUrl ? 'Uploaded' : 'Not uploaded',
+        delayRemark: o.poCreationDelayRemark || o.delayNote || '',
+      });
+
+      items.forEach((i, idx) => {
+        // A union PO line is split across the PRs it fills — name them on the row
+        // so material can be traced back to the indent that asked for it.
+        const linePrs = joinUnique((i.allocations || []).map((a) => a.purchaseRequestItem?.request?.requestNumber));
+        itemRows.push({
+          orderNumber: o.orderNumber,
+          poStatus: poStatusLabel(o.status),
+          supplier: o.supplierName || o.supplier?.name || '',
+          prNumbers: linePrs || prNumbers,
+          unit: joinUnique((i.allocations || []).map((a) => a.purchaseRequestItem?.request?.unit?.code)) || unitLabel,
+          createdAt: dateCell(o.createdAt),
+          sr: idx + 1,
+          material: i.productName,
+          sku: i.product?.sku || '',
+          category: i.product?.category || '',
+          uom: i.productUnit || '',
+          quantity: num(i.quantity),
+          unitPrice: num(i.unitPrice),
+          totalPrice: num(i.totalPrice),
+          receivedQty: num(i.receivedQty),
+          pendingQty: num(Math.max(0, (Number(i.quantity) || 0) - (Number(i.receivedQty) || 0))),
+          itemStatus: PO_ITEM_STATUS_LABEL[i.itemStatus] || titleCase(i.itemStatus),
+          statusUpdatedAt: dateCell(i.statusUpdatedAt),
+        });
+      });
+    }
+
+    const wb = createWorkbook();
+    addInfoSheet(wb, {
+      title: 'Purchase Orders',
+      user: req.user,
+      filters: [
+        { label: 'Status', value: status ? poStatusLabel(status) : 'All' },
+        { label: 'From Date', value: fromDate || 'Beginning' },
+        { label: 'To Date', value: toDate || 'Today' },
+      ],
+      counts: [
+        { label: 'Purchase Orders', value: orderRows.length },
+        { label: 'Order Lines', value: itemRows.length },
+        { label: 'Matching Records', value: total },
+        { label: 'Total Order Value', value: sumBy(orderRows, (r) => r.totalAmount), fmt: 'money' },
+        { label: 'Total Paid', value: sumBy(orderRows, (r) => r.totalPaid), fmt: 'money' },
+      ],
+      truncated: total > orders.length,
+    });
+
+    addSheet(wb, {
+      name: 'Purchase Orders',
+      rows: orderRows,
+      columns: [
+        { header: 'PO No.', key: 'orderNumber' },
+        { header: 'Order Name', key: 'customName', wrap: true },
+        { header: 'Status', key: 'status' },
+        { header: 'Union PO', key: 'isUnion', align: 'center' },
+        { header: 'PR No.', key: 'prNumbers' },
+        { header: 'Unit', key: 'unit' },
+        { header: 'Indented By', key: 'indentedBy' },
+        { header: 'Supplier', key: 'supplier' },
+        { header: 'Supplier GST', key: 'supplierGst' },
+        { header: 'Supplier Contact', key: 'supplierContact' },
+        { header: 'Quotation No.', key: 'quotationNumber' },
+        { header: 'Order Value', key: 'totalAmount', fmt: 'money', align: 'right' },
+        { header: 'Advance Paid', key: 'advancePaid', fmt: 'money', align: 'right' },
+        { header: 'Total Paid', key: 'totalPaid', fmt: 'money', align: 'right' },
+        { header: 'Balance Due', key: 'balance', fmt: 'money', align: 'right' },
+        { header: 'Credit Order', key: 'isCredit', align: 'center' },
+        { header: 'Lines', key: 'lineCount', fmt: 'int', align: 'right' },
+        { header: 'Ordered Qty', key: 'orderedQty', fmt: 'qty', align: 'right' },
+        { header: 'Received Qty', key: 'receivedQty', fmt: 'qty', align: 'right' },
+        { header: 'Pending Qty', key: 'pendingQty', fmt: 'qty', align: 'right' },
+        { header: 'Placed On', key: 'createdAt', fmt: 'dateTime' },
+        { header: 'Placed By', key: 'createdBy' },
+        { header: 'Credit Placed On', key: 'creditPlacedAt', fmt: 'dateTime' },
+        { header: 'Goods Arrived On', key: 'goodsArrivedAt', fmt: 'dateTime' },
+        { header: 'MIR No.', key: 'mirNo' },
+        { header: 'Inwarded On', key: 'inwardedAt', fmt: 'dateTime' },
+        { header: 'Closed On', key: 'closedAt', fmt: 'dateTime' },
+        { header: 'Closed By', key: 'closedBy' },
+        { header: 'Force Closed', key: 'forceClosed', align: 'center' },
+        { header: 'Close Reason', key: 'closeReason', wrap: true },
+        { header: 'PO Document', key: 'poDocument' },
+        { header: 'Delay Remark', key: 'delayRemark', wrap: true },
+      ],
+    });
+
+    addSheet(wb, {
+      name: 'PO Order Lines',
+      rows: itemRows,
+      columns: [
+        { header: 'PO No.', key: 'orderNumber' },
+        { header: 'PO Status', key: 'poStatus' },
+        { header: 'Supplier', key: 'supplier' },
+        { header: 'PR No.', key: 'prNumbers' },
+        { header: 'Unit', key: 'unit' },
+        { header: 'Placed On', key: 'createdAt', fmt: 'dateTime' },
+        { header: 'Sr.', key: 'sr', fmt: 'int', align: 'right' },
+        { header: 'Material Description', key: 'material', wrap: true },
+        { header: 'SKU', key: 'sku' },
+        { header: 'Material Category', key: 'category' },
+        { header: 'UOM', key: 'uom', align: 'center' },
+        { header: 'Ordered Qty', key: 'quantity', fmt: 'qty', align: 'right' },
+        { header: 'Unit Price', key: 'unitPrice', fmt: 'money', align: 'right' },
+        { header: 'Line Value', key: 'totalPrice', fmt: 'money', align: 'right' },
+        { header: 'Received Qty', key: 'receivedQty', fmt: 'qty', align: 'right' },
+        { header: 'Pending Qty', key: 'pendingQty', fmt: 'qty', align: 'right' },
+        { header: 'Line Status', key: 'itemStatus' },
+        { header: 'Status Updated On', key: 'statusUpdatedAt', fmt: 'dateTime' },
+      ],
+    });
+
+    await sendWorkbook(res, wb, exportFileName('Purchase_Orders'));
+  } catch (error) {
+    console.error('Export purchase orders error:', error);
+    // The response may already be streaming XLSX bytes by the time this fires —
+    // sending JSON then would corrupt the download, so only answer if untouched.
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to generate Excel export' });
+    else res.end();
   }
 });
 
@@ -1273,7 +1552,9 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
 // POST /api/purchase-orders/:id/place-order — PO places the approved order by sending a payment request to accounting
 const placeOrderSchema = z.object({
   paymentType: z.enum(['ADVANCE', 'PARTIAL', 'FINAL']),
+  // Taxable (basic) value; `taxPercent` is added on top for the payable figure.
   amount: z.number().positive(),
+  taxPercent: z.number().min(0).max(100).optional(),
   notes: z.string().optional(),
   delayNote: z.string().optional(),
 });
@@ -1312,12 +1593,17 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
       if (!check.ok) return res.status(400).json({ error: check.error });
     }
 
+    const tax = computeTax(data.amount, data.taxPercent);
+
     const paymentNumber = await generateSequentialNumber(prisma, 'PAY');
     const paymentRequest = await prisma.paymentRequest.create({
       data: {
         paymentNumber,
         purchaseOrderId: order.id,
         amount: data.amount,
+        taxPercent: tax.taxPercent,
+        taxAmount: tax.taxAmount,
+        payableAmount: tax.payableAmount,
         paymentType: data.paymentType,
         notes: data.notes || null,
         createdById: req.user.id,
@@ -1337,7 +1623,7 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
       data: {
         type: 'PAYMENT_REQUEST',
         title: `Payment Request: ${order.customName}`,
-        message: `New ${data.paymentType.toLowerCase()} payment request of ₹${data.amount.toLocaleString('en-IN')} for order "${order.customName}" (${order.orderNumber}). Supplier: ${order.supplierName}. Please approve to send to Accounting.`,
+        message: `New ${data.paymentType.toLowerCase()} payment request of ₹${tax.payableAmount.toLocaleString('en-IN')}${tax.taxPercent ? ` (basic ₹${data.amount.toLocaleString('en-IN')} + ${tax.taxPercent}% tax ₹${tax.taxAmount.toLocaleString('en-IN')})` : ''} for order "${order.customName}" (${order.orderNumber}). Supplier: ${order.supplierName}. Please approve to send to Accounting.`,
         targetRole: 'ADMIN',
         sentById: req.user.id,
       },
@@ -1355,6 +1641,9 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
           paymentNumber,
           paymentType: data.paymentType,
           amount: data.amount,
+          taxPercent: tax.taxPercent,
+          taxAmount: tax.taxAmount,
+          payableAmount: tax.payableAmount,
         },
         ipAddress: req.ip,
       },

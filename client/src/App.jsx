@@ -65,7 +65,9 @@ import QmsDocuments from './pages/qms/QmsDocuments';
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts,
 // Finance, Planning (+ ADMIN). ACCOUNTING + FINANCE are admin-level read-only
 // observers — full chain visibility, no edit/approve controls.
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+// INWARD_QC is in as a QC-department requester — it raises its own PRs (which
+// need QC's approval before ADMIN sees them) and follows them through to the PO.
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
 
 // Metrology calibration registers access (per access chart RAPS/QSP):
 // Full edit = METROLOGY, QC, MANAGER@UNIT-V.
@@ -242,7 +244,7 @@ export default function App() {
               {/* Dispatch hub — landing page for Gate Pass, Logistics, Vehicle Movement. */}
               <Route path="/transport" element={<PrivateRoute><Transport /></PrivateRoute>} />
               <Route path="/gate-pass" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE', 'PLANNING']}><GatePass /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE', 'PLANNING', 'QC']}><GatePass /></PrivateRoute>
               } />
               {/* Vehicle Register — viewable by anyone signed in (read-only).
                   LOGISTICS + ADMIN get edit/add/delete via the page's canEdit gate. */}

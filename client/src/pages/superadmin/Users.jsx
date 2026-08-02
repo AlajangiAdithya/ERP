@@ -114,7 +114,7 @@ export default function SuperAdminUsers() {
 
   return (
     <div className="space-y-4 -m-6 p-4 sm:p-6 bg-slate-50 min-h-screen">
-      <div className="rounded-2xl bg-gradient-to-r from-purple-700 to-indigo-700 text-white p-4 sm:p-5 shadow">
+      <div className="on-dark rounded-2xl bg-gradient-to-r from-purple-700 to-indigo-700 text-white p-4 sm:p-5 shadow">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-purple-100/80">
           <ShieldCheck size={13} /> Owner · Users
         </div>

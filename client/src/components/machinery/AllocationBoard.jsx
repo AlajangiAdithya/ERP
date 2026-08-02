@@ -6,6 +6,7 @@ import Button from '../ui/Button';
 import Modal from '../ui/Modal';
 import Input, { Select, Textarea } from '../ui/Input';
 import Badge from '../ui/Badge';
+import WorkOrderPicker from '../shared/WorkOrderPicker';
 import { formatDate } from '../../utils/formatters';
 
 // Daily machine-occupation timeline. Working window 09:00–19:00 (600 min).
@@ -443,14 +444,16 @@ function AllocateModal({ date, machines, onClose, onSaved }) {
 
         {sourceType === 'WORK_ORDER' ? (
           <>
-            <Select label="Work Order *" value={workOrderId} onChange={(e) => setWorkOrderId(e.target.value)}>
-              <option value="">Select work order…</option>
-              {options.workOrders.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.workOrderNumber} — {w.nomenclature || w.customerName}
-                </option>
-              ))}
-            </Select>
+            <div>
+              <label className="block text-[13px] font-semibold text-navy-700 mb-1.5">Work Order *</label>
+              <WorkOrderPicker
+                workOrders={options.workOrders}
+                value={workOrderId}
+                onChange={setWorkOrderId}
+                emptyLabel="Select work order…"
+                className="w-full flex items-center gap-2 px-3.5 py-2 bg-white border border-navy-200 rounded-lg text-sm text-navy-800 text-left hover:border-navy-300 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-600"
+              />
+            </div>
             {/* Basic details of the picked WO so the manager sees what job goes on the machine. */}
             <WorkOrderSummary wo={selectedWo} />
           </>

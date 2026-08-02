@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw, GitMerge, Unlink, Upload, Lock, Paperclip, Pencil } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw, GitMerge, Unlink, Upload, Lock, Paperclip, Pencil, History, ArrowRight } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
+import Pagination from '../components/shared/Pagination';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -18,7 +19,9 @@ import TatBadge from '../components/shared/TatBadge';
 import { tatStatus, tatRowClass } from '../utils/tat';
 import PRPdf from '../components/pdf/PRPdf';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
-import MaterialSpecPicker from '../components/shared/MaterialSpecPicker';
+import MaterialNameInput from '../components/shared/MaterialNameInput';
+import ExportExcelButton from '../components/shared/ExportExcelButton';
+import WorkOrderPicker from '../components/shared/WorkOrderPicker';
 
 // Allowed spec / note attachment formats — any common document or drawing type.
 // Validated by extension (DWG/office/zip mime types vary across browsers).
@@ -27,6 +30,9 @@ const ATT_EXT_RE = /\.(pdf|png|jpe?g|dwg|docx?|xlsx?|zip)$/i;
 const ATT_MAX_MB = 15;
 // Mirrors the server cap on PUT /purchase-requests/:id/remarks.
 const MAX_REMARK_LEN = 1000;
+// PRs per page in the list. The status tab and date range are applied on the
+// server, so a page is always a full page of matching PRs.
+const PR_PAGE_SIZE = 50;
 
 // Normalise any PR item/note attachment list coming from the API (new multi-file
 // `attachments` array; falls back to the legacy single specAttachment* fields).
@@ -82,6 +88,78 @@ function RemarkEditor({ value, onChange, onSave, onCancel, saving, rows = 2 }) {
         <Button size="sm" variant="ghost" disabled={saving} onClick={onCancel}>Cancel</Button>
         <span className="text-[10px] text-gray-500">Purchase &amp; Stores get notified</span>
       </div>
+    </div>
+  );
+}
+
+// ─── Required-by date change trail ───
+// Every time a line's required-by date is moved, the server records who did it,
+// when, and the old → new value (PurchaseRequestDateHistory, sent back on the PR
+// as `dateHistory`, newest first). The date is a commitment other departments
+// plan against, so a silent change is never acceptable — it is shown on the line
+// itself and listed in full below the materials table.
+const rbLabel = (d) => (d ? formatDate(d) : 'not set');
+
+const roleLabel = (r) => (r ? r.replace(/_/g, ' ') : '');
+
+// Changes for one material line, newest first. Matched on itemId; a PR edited
+// while still pending recreates its item rows, so those older entries no longer
+// match a line and only appear in the full list (which keeps the product name).
+const rbHistoryFor = (history, itemId) =>
+  (history || []).filter((h) => h.itemId && h.itemId === itemId);
+
+// Compact "this date was changed" note shown right under the date in the line.
+function RequiredByChangeNote({ entries }) {
+  if (!entries || entries.length === 0) return null;
+  const [latest, ...older] = entries;
+  return (
+    <div className="mt-1 whitespace-normal text-[10px] leading-tight">
+      <div className="flex items-center gap-1 text-amber-700 font-medium">
+        <History size={10} className="shrink-0" />
+        <span>{rbLabel(latest.fromDate)} → {rbLabel(latest.toDate)}</span>
+      </div>
+      <div className="text-gray-500">
+        by {latest.changedByName || 'Unknown user'}
+        {latest.changedByRole ? ` (${roleLabel(latest.changedByRole)})` : ''}
+        {' • '}{formatDateTime(latest.createdAt)}
+      </div>
+      {older.length > 0 && (
+        <div className="text-gray-400">+{older.length} earlier change{older.length > 1 ? 's' : ''}</div>
+      )}
+    </div>
+  );
+}
+
+// Full trail for the PR — every line, every change, newest first.
+function RequiredByHistoryPanel({ entries }) {
+  if (!entries || entries.length === 0) return null;
+  return (
+    <div className="border border-amber-200 bg-amber-50 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 mb-2 text-sm font-semibold text-amber-900">
+        <History size={14} /> Required-By Date Changes ({entries.length})
+      </div>
+      <p className="text-[11px] text-amber-800 mb-2">
+        Every change to a required-by date on this PR — who made it, when, and the exact old → new value.
+      </p>
+      <ul className="space-y-1.5">
+        {entries.map((h) => (
+          <li key={h.id} className="text-xs bg-white border border-amber-100 rounded px-2 py-1.5">
+            <div className="flex flex-wrap items-center gap-1.5 text-gray-800">
+              <span className="font-medium">{h.productName || 'Material'}</span>
+              <span className="text-gray-400">·</span>
+              <span>{rbLabel(h.fromDate)}</span>
+              <ArrowRight size={11} className="text-gray-400 shrink-0" />
+              <span className="font-semibold">{rbLabel(h.toDate)}</span>
+            </div>
+            <div className="text-[11px] text-gray-500 mt-0.5">
+              changed by <span className="font-medium text-gray-700">{h.changedByName || 'Unknown user'}</span>
+              {h.changedByRole ? ` (${roleLabel(h.changedByRole)})` : ''}
+              {' on '}{formatDateTime(h.createdAt)}
+              {h.prStatus ? ` • PR was ${statusLabel(h.prStatus)}` : ''}
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -221,8 +299,10 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   // PR can be tied to the WO it's raised for ("" = No work order).
   const [workOrders, setWorkOrders] = useState([]);
   const [workOrderId, setWorkOrderId] = useState('');
-  // Material/spec picker — { idx, mode } identifies which row + which tab opens.
-  const [picker, setPicker] = useState(null);
+  // Saved spec library of every catalogue material linked on the form, keyed by
+  // productId, so the Spec Attachments row can offer them for ticking.
+  const [productSpecs, setProductSpecs] = useState({});
+  const specsFetched = useRef(new Set());
   // Per-item upload state — keyed by row index; tracks {uploading, error} so the
   // UI can show a spinner / error inline without blocking other rows.
   const [specUpload, setSpecUpload] = useState({});
@@ -250,10 +330,32 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
       }
       setWorkOrderId(isEdit ? (requestToEdit.isRnd ? 'RND' : (requestToEdit.workOrderId || '')) : '');
       setSpecUpload({});
+      setProductSpecs({});
+      specsFetched.current = new Set();
       setNoteAttachments(isEdit ? (requestToEdit.noteAttachments || []).map((a) => ({ url: a.url, name: a.name })) : []);
       setNoteUpload({ uploading: false, error: '' });
     }
   }, [isOpen, prefillItems, prefillNotes, requestToEdit]);
+
+  // Fetch a catalogue material's stored spec files once per form session.
+  const loadProductSpecs = async (productId) => {
+    if (!productId || specsFetched.current.has(productId)) return;
+    specsFetched.current.add(productId);
+    try {
+      const { data } = await api.get(`/products/${productId}/specs`);
+      setProductSpecs((prev) => ({ ...prev, [productId]: Array.isArray(data) ? data : [] }));
+    } catch {
+      setProductSpecs((prev) => ({ ...prev, [productId]: [] }));
+    }
+  };
+
+  // Rows can arrive already linked (edit mode / prefill) — pull their spec
+  // libraries too, so those files are tickable without re-picking the material.
+  useEffect(() => {
+    if (!isOpen) return;
+    items.forEach((i) => i.productId && loadProductSpecs(i.productId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, items]);
 
   // "Fabric" materials get a 2-month default required-by date (overridable).
   // 60 days clears the 15-day floor, so the default is always a legal pick.
@@ -335,9 +437,9 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     }
   };
   const removeNote = (fileIdx) => setNoteAttachments((prev) => prev.filter((_, i) => i !== fileIdx));
-  const updateItem = (idx, field, value) => {
+  const updateItemFields = (idx, patch) => {
     const updated = [...items];
-    updated[idx] = { ...updated[idx], [field]: value };
+    updated[idx] = { ...updated[idx], ...patch };
     // Auto-fill required-by date to today+60 days when the row turns into a fabric
     // and the user hasn't already chosen a date.
     if (!updated[idx].requiredByDate && looksLikeFabric(updated[idx])) {
@@ -345,26 +447,32 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     }
     setItems(updated);
   };
+  const updateItem = (idx, field, value) => updateItemFields(idx, { [field]: value });
 
-  // Apply a pick from the MaterialSpecPicker onto its row. Existing picks carry a
-  // productId + (optional) chosen/uploaded spec; New picks just fill the name +
-  // (optional) freshly uploaded spec. Only provided fields overwrite the row.
-  const applyPicker = (payload) => {
-    if (!picker) return;
-    const idx = picker.idx;
-    const updated = [...items];
-    const row = { ...updated[idx] };
-    if (payload.productName !== undefined) row.productName = payload.productName;
-    row.productId = payload.productId ?? null;
-    if (payload.productUnit) row.productUnit = payload.productUnit;
-    // Merge the picker's chosen/uploaded specs into whatever the row already has,
-    // de-duped by URL so re-opening the picker never drops files added directly.
-    const picked = Array.isArray(payload.attachments) ? payload.attachments : [];
-    const existing = row.attachments || [];
-    const seen = new Set(existing.map((a) => a.url));
-    row.attachments = [...existing, ...picked.filter((a) => a.url && !seen.has(a.url))];
-    updated[idx] = row;
-    setItems(updated);
+  // ── Catalogue linking (material description type-ahead) ──
+  // Picking a suggestion ties the row to that catalogue material and adopts its
+  // UOM; typing over the description again drops the link, so the text stands on
+  // its own as a new material. Nothing about this shows on the PR table / PDF.
+  const pickProduct = (idx, p) => {
+    updateItemFields(idx, {
+      productId: p.id,
+      productName: p.name,
+      productUnit: p.unit || items[idx].productUnit,
+    });
+    loadProductSpecs(p.id);
+  };
+  const typeProductName = (idx, text) =>
+    updateItemFields(idx, { productName: text, productId: null });
+
+  // Tick / untick one of the linked material's saved specs onto this line.
+  const toggleSavedSpec = (idx, spec) => {
+    const files = items[idx].attachments || [];
+    const has = files.some((f) => f.url === spec.url);
+    updateItemFields(idx, {
+      attachments: has
+        ? files.filter((f) => f.url !== spec.url)
+        : [...files, { url: spec.url, name: spec.name }],
+    });
   };
 
   const submit = async () => {
@@ -490,19 +598,13 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
             <tr>
               <td className={labelCell}>Work Order</td>
               <td className={dataCell} colSpan={3}>
-                <select
+                <WorkOrderPicker
+                  workOrders={workOrders}
                   value={workOrderId}
-                  onChange={(e) => setWorkOrderId(e.target.value)}
-                  className={cellSelect}
-                >
-                  <option value="">— No work order —</option>
-                  <option value="RND">R &amp; D — Product research (not a work order)</option>
-                  {workOrders.map(wo => (
-                    <option key={wo.id} value={wo.id}>
-                      {wo.workOrderNumber}{wo.supplyOrderNo ? ` · SO: ${wo.supplyOrderNo}` : ''} — {wo.customerName}{wo.nomenclature ? ` (${wo.nomenclature})` : ''} · Unit: {wo.assignedUnit?.name || wo.assignedUnitName || 'Unassigned'}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setWorkOrderId}
+                  className={`${cellSelect} flex items-center gap-2 text-left`}
+                  specialOptions={[{ value: 'RND', label: 'R & D', hint: '— Product research (not a work order)' }]}
+                />
               </td>
             </tr>
           </tbody>
@@ -551,32 +653,17 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                 <td className={labelCell}>Material Description *</td>
                 {items.map((item, idx) => (
                   <td key={idx} className={dataCell}>
-                    <input type="text" value={item.productName}
-                      onChange={(e) => updateItem(idx, 'productName', e.target.value)}
-                      className={cellInput} placeholder="Description..." />
-                    {/* Input aids: pick an existing catalogue material (with its
-                        saved specs) or flag a new one + upload its spec. */}
-                    <div className="flex items-center gap-1.5 px-1.5 pb-1 pt-0.5">
-                      <button
-                        type="button"
-                        onClick={() => setPicker({ idx, mode: 'existing' })}
-                        className="text-[10px] px-1.5 py-0.5 rounded border border-navy-300 text-navy-700 hover:bg-navy-50"
-                      >
-                        Existing
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPicker({ idx, mode: 'new' })}
-                        className="text-[10px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
-                      >
-                        New
-                      </button>
-                      {item.productId && (
-                        <span className="text-[9px] text-green-600 font-medium inline-flex items-center gap-0.5" title="Linked to an existing catalogue material">
-                          <CheckCircle size={9} /> linked
-                        </span>
-                      )}
-                    </div>
+                    {/* Just type: catalogue matches drop down as you go — pick one
+                        to link the row, or keep typing and it rides as a new material. */}
+                    <MaterialNameInput
+                      value={item.productName}
+                      productId={item.productId}
+                      onChange={(text) => typeProductName(idx, text)}
+                      onPick={(p) => pickProduct(idx, p)}
+                      onUnlink={() => updateItem(idx, 'productId', null)}
+                      className={cellInput}
+                      placeholder="Start typing description..."
+                    />
                   </td>
                 ))}
               </tr>
@@ -621,6 +708,9 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                 {items.map((item, idx) => {
                   const st = specUpload[idx] || {};
                   const files = item.attachments || [];
+                  // Specs already stored against the linked catalogue material —
+                  // tick to reuse instead of re-uploading the same drawing.
+                  const saved = (item.productId && productSpecs[item.productId]) || [];
                   return (
                     <td key={idx} className={dataCell}>
                       <div className="px-1.5 py-1 space-y-1">
@@ -658,6 +748,35 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                           />
                         </label>
                         {st.error && <div className="text-[10px] text-red-600">{st.error}</div>}
+                        {saved.length > 0 && (
+                          <div className="mt-1 pt-1 border-t border-dashed border-gray-200">
+                            <div className="text-[10px] font-semibold text-gray-500 mb-0.5">
+                              Saved specs for this material
+                            </div>
+                            <div className="space-y-0.5">
+                              {saved.map((s) => (
+                                <label key={s.id || s.url} className="flex items-center gap-1 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    className="h-3 w-3 flex-shrink-0"
+                                    checked={files.some((f) => f.url === s.url)}
+                                    onChange={() => toggleSavedSpec(idx, s)}
+                                  />
+                                  <span className="text-[11px] text-gray-700 truncate flex-1" title={s.name}>{s.name}</span>
+                                  <a
+                                    href={s.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-[10px] text-navy-700 hover:underline flex-shrink-0"
+                                  >
+                                    view
+                                  </a>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </td>
                   );
@@ -836,15 +955,6 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
         </div>
       </div>
 
-      {picker && (
-        <MaterialSpecPicker
-          isOpen
-          mode={picker.mode}
-          initial={items[picker.idx] || {}}
-          onClose={() => setPicker(null)}
-          onApply={applyPicker}
-        />
-      )}
     </Modal>
   );
 }
@@ -1033,6 +1143,10 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
             </tbody>
           </table>
         </div>
+
+        {/* Any required-by date that was moved after the PR was raised — Admin
+            approves against the deadline, so the change must be visible here. */}
+        <RequiredByHistoryPanel entries={request.dateHistory} />
 
         {/* Admin Notes */}
         <div>
@@ -1362,6 +1476,10 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
           </tbody>
         </table>
 
+        {/* Purchase buys against the required-by date — every change to it, and
+            who made it, is shown here so nobody orders to a stale deadline. */}
+        <RequiredByHistoryPanel entries={request.dateHistory} />
+
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={processing}>
@@ -1389,7 +1507,7 @@ function ProcurementJourney({ request }) {
   // PRs raised by LAB / METROLOGY / NDT carry an extra QC-approval gate before
   // they reach ADMIN. Show that stage in the tracker only for those PRs so the
   // existing flow remains unchanged for everyone else.
-  const isQcGated = ['LAB', 'METROLOGY', 'NDT'].includes(request?.manager?.role);
+  const isQcGated = ['LAB', 'METROLOGY', 'NDT', 'INWARD_QC'].includes(request?.manager?.role);
   const statusOrder = [
     isQcGated
       ? { key: 'PENDING_QC', label: 'Submitted (QC Review)', detail: request?.createdAt ? formatDateTime(request.createdAt) : null }
@@ -1481,6 +1599,10 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
   const [editingRbId, setEditingRbId] = useState(null);
   const [rbDraft, setRbDraft] = useState('');
   const [rbSaving, setRbSaving] = useState(false);
+  // The PR returned by the last date save. The parent refetches the list, but the
+  // `request` prop it handed this modal stays as it was — so the new date and the
+  // freshly recorded change entry are read from here while the modal is open.
+  const [rbSaved, setRbSaved] = useState(null);
   // Remark editing, allowed at ANY stage — the PR-level note and each line's
   // remark. `remarkTarget` is what is open: { scope: 'PR' } or
   // { scope: 'ITEM', id }. Saved text is kept in `remarkEdits` (keyed 'PR' or
@@ -1500,6 +1622,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
     setRemarkEdits({});
     setEditingRbId(null);
     setRbDraft('');
+    setRbSaved(null);
   }, [request?.id]);
 
   // Who may retime a PR: the raiser, plus Admin and the purchase officer chasing
@@ -1508,9 +1631,20 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
     !!request &&
     (['ADMIN', 'PURCHASE_OFFICER'].includes(user?.role) || request.managerId === user?.id);
 
+  // Date + change trail always read through the last save, so an edit made in
+  // this modal is visible without reopening it.
+  const dateHistory = (rbSaved?.id === request?.id ? rbSaved.dateHistory : request?.dateHistory) || [];
+  const requiredByOf = (item) => {
+    const saved = rbSaved?.id === request?.id
+      ? (rbSaved.items || []).find((i) => i.id === item.id)
+      : null;
+    return saved ? saved.requiredByDate : item.requiredByDate;
+  };
+
   const openRbEdit = (item) => {
+    const current = requiredByOf(item);
     setEditingRbId(item.id);
-    setRbDraft(item.requiredByDate ? new Date(item.requiredByDate).toISOString().split('T')[0] : '');
+    setRbDraft(current ? new Date(current).toISOString().split('T')[0] : '');
   };
 
   const saveRequiredBy = async (itemId) => {
@@ -1520,9 +1654,10 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
     }
     setRbSaving(true);
     try {
-      await api.put(`/purchase-requests/${request.id}/required-by`, {
+      const { data } = await api.put(`/purchase-requests/${request.id}/required-by`, {
         items: [{ id: itemId, requiredByDate: rbDraft || null }],
       });
+      setRbSaved(data);
       setEditingRbId(null);
       setRbDraft('');
       onReload?.();
@@ -1589,7 +1724,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
     request &&
     !['COMPLETED', 'REJECTED'].includes(request.status) &&
     (user?.role === 'ADMIN' ||
-      (['MANAGER', 'DESIGNS', 'RND', 'QC', 'STORE_MANAGER', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'].includes(user?.role) &&
+      (['MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'STORE_MANAGER', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'].includes(user?.role) &&
         request.managerId === user.id));
 
   const submitClose = async () => {
@@ -1949,18 +2084,23 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                           <span className="text-[10px] text-gray-500">On or after {requiredByMin()}</span>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1">
-                          <span>{item.requiredByDate ? formatDate(item.requiredByDate) : '—'}</span>
-                          {canEditRequiredBy && (
-                            <button
-                              type="button"
-                              onClick={() => openRbEdit(item)}
-                              title="Change the required-by date"
-                              className="text-navy-700 hover:text-navy-900"
-                            >
-                              <Pencil size={12} />
-                            </button>
-                          )}
+                        <div>
+                          <div className="flex items-center gap-1">
+                            <span>{requiredByOf(item) ? formatDate(requiredByOf(item)) : '—'}</span>
+                            {canEditRequiredBy && (
+                              <button
+                                type="button"
+                                onClick={() => openRbEdit(item)}
+                                title="Change the required-by date"
+                                className="text-navy-700 hover:text-navy-900"
+                              >
+                                <Pencil size={12} />
+                              </button>
+                            )}
+                          </div>
+                          {/* Who last moved this date, when, and from what — a
+                              changed deadline must never look like the original. */}
+                          <RequiredByChangeNote entries={rbHistoryFor(dateHistory, item.id)} />
                         </div>
                       )}
                     </td>
@@ -1985,6 +2125,8 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
             </tbody>
           </table>
         </div>
+
+        <RequiredByHistoryPanel entries={dateHistory} />
 
         <div className="flex justify-end gap-2 pt-2">
           {canCloseThisPR && (
@@ -2201,27 +2343,47 @@ export default function PurchaseRequests() {
   const [tab, setTab] = useState('ALL');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  // Server-side paging — the list holds one page at a time. Status tab and date
+  // range are applied on the server too, so `total` counts the whole filtered
+  // set, not just what is on screen.
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
-  const isManager = ['MANAGER', 'STORE_MANAGER', 'QC', 'RND', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'].includes(user?.role);
+  const isManager = ['MANAGER', 'STORE_MANAGER', 'QC', 'INWARD_QC', 'RND', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'].includes(user?.role);
   const isStoreManager = user?.role === 'STORE_MANAGER';
   const isAdmin = user?.role === 'ADMIN';
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isAccounting = ['ACCOUNTING', 'FINANCE'].includes(user?.role);
   const isQC = user?.role === 'QC';
   // Sub-roles whose PRs must clear QC first before reaching ADMIN.
-  const isQcManaged = ['LAB', 'METROLOGY', 'NDT'].includes(user?.role);
+  const isQcManaged = ['LAB', 'METROLOGY', 'NDT', 'INWARD_QC'].includes(user?.role);
 
   const fetchRequests = () => {
     setLoading(true);
-    const params = { limit: 50, fromDate: fromDate || undefined, toDate: toDate || undefined };
-    if (tab !== 'ALL' && !isPO) params.status = tab;
+    const params = { page, limit: PR_PAGE_SIZE, fromDate: fromDate || undefined, toDate: toDate || undefined };
+    if (tab !== 'ALL') params.status = tab;
     api.get('/purchase-requests', { params })
-      .then(({ data }) => setRequests(data.requests))
+      .then(({ data }) => {
+        setRequests(data.requests);
+        setTotal(data.total || 0);
+        const pages = Math.max(1, data.totalPages || 1);
+        setTotalPages(pages);
+        // Cancelling / closing the last PR on the last page can leave the current
+        // page past the end — fall back to the new last page (this refetches).
+        if (page > pages) setPage(pages);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchRequests(); }, [tab, fromDate, toDate]);
+  useEffect(() => { fetchRequests(); }, [tab, fromDate, toDate, page]);
+
+  // Changing a filter always restarts at page 1 — staying on page 4 of a list
+  // that just shrank to one page shows nothing.
+  const changeTab = (t) => { setTab(t); setPage(1); };
+  const changeFromDate = (v) => { setFromDate(v); setPage(1); };
+  const changeToDate = (v) => { setToDate(v); setPage(1); };
 
   // Low-stock products — only fetched for STORE_MANAGER to surface the "Raise PR for low stock" quick action.
   const fetchLowStock = () => {
@@ -2291,7 +2453,21 @@ export default function PurchaseRequests() {
     ? ['ALL', 'PENDING_QC', 'PENDING_ADMIN', 'APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED', 'REJECTED']
     : ['ALL', 'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED', 'REJECTED'];
 
+  // The status tab is applied server-side; this is a belt-and-braces filter for
+  // the moment between switching tabs and the new page arriving.
   const filteredRequests = tab === 'ALL' ? requests : requests.filter(r => r.status === tab);
+
+  // Filters handed to the Excel export — everything the list is narrowed by
+  // except paging, so the workbook covers the whole filtered set.
+  const exportParams = {
+    status: tab !== 'ALL' ? tab : undefined,
+    fromDate: fromDate || undefined,
+    toDate: toDate || undefined,
+  };
+
+  // "Showing 51–100 of 237" — position within the whole filtered set, not the page.
+  const rangeStart = total === 0 ? 0 : (page - 1) * PR_PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PR_PAGE_SIZE, total);
 
   return (
     <div className="space-y-6">
@@ -2307,6 +2483,14 @@ export default function PurchaseRequests() {
             <Button variant="secondary" onClick={fetchRequests} disabled={loading}>
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
             </Button>
+            {/* Exports every PR matching the current status tab and date range —
+                not just the page on screen. */}
+            <ExportExcelButton
+              endpoint="/purchase-requests/export"
+              params={exportParams}
+              fileName="RAPS_Purchase_Requests.xlsx"
+              disabled={loading || total === 0}
+            />
             {isManager && (
               <Button onClick={() => { setCreatePrefill({ items: null, notes: '' }); setShowCreate(true); }}>
                 <Plus size={16} /> New Purchase Request
@@ -2385,7 +2569,7 @@ export default function PurchaseRequests() {
         {tabs.length > 1 && (
           <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit flex-wrap">
             {tabs.map(t => (
-              <button key={t} onClick={() => setTab(t)}
+              <button key={t} onClick={() => changeTab(t)}
                 className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
                   tab === t ? 'bg-white text-navy-700 font-medium shadow-sm' : 'text-gray-500 hover:text-gray-700'
                 }`}
@@ -2393,7 +2577,7 @@ export default function PurchaseRequests() {
             ))}
           </div>
         )}
-        <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
+        <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={changeFromDate} onToChange={changeToDate} />
       </div>
 
       <Card>
@@ -2406,6 +2590,12 @@ export default function PurchaseRequests() {
             {isPO ? 'No purchase assignments available.' : 'No purchase requests found.'}
           </div>
         ) : (
+          <>
+          <div className="px-4 pt-3 text-[13px] text-gray-500">
+            Showing <span className="font-semibold text-navy-700">{rangeStart}–{rangeEnd}</span> of{' '}
+            <span className="font-semibold text-navy-700">{total}</span>{' '}
+            {tab === 'ALL' ? 'purchase requests' : `${statusLabel(tab)} purchase requests`}
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -2497,6 +2687,8 @@ export default function PurchaseRequests() {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+          </>
         )}
       </Card>
 
