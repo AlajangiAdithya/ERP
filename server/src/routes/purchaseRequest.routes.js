@@ -247,6 +247,7 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
           workOrder: { select: { id: true, workOrderNumber: true, supplyOrderNo: true } },
           qcApprovedBy: { select: { id: true, name: true } },
           adminApprovedBy: { select: { id: true, name: true } },
+          heldBy: { select: { id: true, name: true } },
           noteAttachments: { orderBy: { createdAt: 'asc' } },
           // Required-by change trail (newest first) — the PR detail modal shows
           // who moved each line's date, when, and from what to what.
@@ -393,6 +394,7 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
 const PR_STATUS_LABEL = {
   PENDING_QC: 'Pending QC',
   PENDING_ADMIN: 'Pending Admin',
+  ON_HOLD: 'On Hold (clarification)',
   APPROVED: 'Approved',
   IN_PROGRESS: 'In Progress',
   QUOTATION_SUBMITTED: 'Quotation Submitted',
@@ -678,7 +680,7 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
     // PO exists (QUOTATION_APPROVED onwards), the PR's procurement work is done;
     // the PO list owns the rest of the lifecycle.
     const prInProgressStatuses = [
-      'PENDING_QC', 'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS',
+      'PENDING_QC', 'PENDING_ADMIN', 'ON_HOLD', 'APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS',
     ];
     const poInProgressStatuses = [
       'PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PLACED', 'ADVANCE_PAID',
@@ -837,7 +839,7 @@ router.get('/unit-dashboard', authenticate, async (req, res) => {
     // "Open" = still moving through the PR pipeline with no PO created yet.
     const prOpenWhere = {
       unitId,
-      status: { in: ['PENDING_QC', 'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS'] },
+      status: { in: ['PENDING_QC', 'PENDING_ADMIN', 'ON_HOLD', 'APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS'] },
       purchaseOrders: { none: {} },
       purchaseOrderSources: { none: {} },
     };
@@ -927,6 +929,7 @@ router.get('/dashboard-stats', authenticate, async (req, res) => {
     res.json({
       pendingQc: counts['PENDING_QC'] || 0,
       pendingAdmin: counts['PENDING_ADMIN'] || 0,
+      onHold: counts['ON_HOLD'] || 0,
       approved: counts['APPROVED'] || 0,
       quotationSubmitted: counts['QUOTATION_SUBMITTED'] || 0,
       quotationApproved: counts['QUOTATION_APPROVED'] || 0,
@@ -956,6 +959,7 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
         workOrder: { select: { id: true, workOrderNumber: true, supplyOrderNo: true } },
         qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
+        heldBy: { select: { id: true, name: true } },
         noteAttachments: { orderBy: { createdAt: 'asc' } },
         // Required-by change trail (newest first) — who moved a line's date, when,
         // and from what to what.
@@ -1308,7 +1312,9 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
     if (req.user.role !== 'ADMIN' && request.managerId !== req.user.id) {
       return res.status(403).json({ error: 'You can only edit your own requests' });
     }
-    if (request.status !== 'PENDING_ADMIN' && request.status !== 'PENDING_QC') {
+    // ON_HOLD is editable too — the whole point of an admin hold is that the
+    // raiser goes back and fixes what was queried before resending.
+    if (!['PENDING_ADMIN', 'PENDING_QC', 'ON_HOLD'].includes(request.status)) {
       return res.status(400).json({ error: 'Only pending requests can be edited' });
     }
 
@@ -1608,7 +1614,7 @@ router.put(
       const unitLabel = updated.unit?.name || updated.unit?.code || 'No unit';
       const approverRole =
         updated.status === 'PENDING_QC' ? 'QC'
-          : updated.status === 'PENDING_ADMIN' ? 'ADMIN'
+          : ['PENDING_ADMIN', 'ON_HOLD'].includes(updated.status) ? 'ADMIN'
             : 'PURCHASE_OFFICER';
       // Spell out the actual move in the notification — the reader has to know
       // the new deadline without opening the PR.
@@ -2157,6 +2163,215 @@ router.put('/:id/admin-reject', authenticate, authorize('ADMIN'), async (req, re
   }
 });
 
+// ──── ADMIN HOLD — "send back for clarification" ────
+// Admin has a doubt but doesn't want to reject: the remark goes to the raiser,
+// the PR parks in ON_HOLD, and the raiser answers (and may fix the lines, since
+// PUT /:id accepts ON_HOLD) before resending. Each round is appended to
+// holdHistory so a PR held twice keeps both exchanges.
+// Same shape as the QC-inward hold (materialInward.routes.js /qc-review).
+
+// PUT /api/purchase-requests/:id/admin-hold — Admin holds the PR for clarification
+router.put('/:id/admin-hold', authenticate, authorize('ADMIN'), async (req, res) => {
+  try {
+    const { holdRemark } = req.body;
+
+    const request = await prisma.purchaseRequest.findUnique({
+      where: { id: req.params.id },
+      include: { manager: { select: { id: true, name: true } }, unit: { select: { name: true } } },
+    });
+    if (!request) return res.status(404).json({ error: 'Purchase request not found' });
+    if (request.status !== 'PENDING_ADMIN') {
+      return res.status(400).json({
+        error: request.status === 'ON_HOLD'
+          ? 'This request is already on hold, waiting for the raiser to respond.'
+          : 'Only requests pending admin approval can be put on hold.',
+      });
+    }
+
+    const check = validateReason(holdRemark, { fieldLabel: 'clarification you need' });
+    if (!check.ok) return res.status(400).json({ error: check.error });
+
+    const remark = check.cleaned || holdRemark.trim();
+    const history = Array.isArray(request.holdHistory) ? request.holdHistory : [];
+    // One timestamp for both the column and the history entry, so the thread
+    // and the heldAt column can never disagree by a few milliseconds.
+    const heldAt = new Date();
+
+    const updated = await prisma.purchaseRequest.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'ON_HOLD',
+        holdRemark: remark,
+        heldAt,
+        heldById: req.user.id,
+        holdCount: { increment: 1 },
+        // The open round is appended now (without a response) so the thread reads
+        // in order even while the raiser hasn't answered yet.
+        holdHistory: [
+          ...history,
+          {
+            round: (request.holdCount || 0) + 1,
+            remark,
+            heldById: req.user.id,
+            heldByName: req.user.name || null,
+            heldAt: heldAt.toISOString(),
+            response: null,
+            respondedById: null,
+            respondedByName: null,
+            respondedAt: null,
+          },
+        ],
+      },
+      include: {
+        manager: { select: { id: true, name: true } },
+        unit: { select: { id: true, name: true, code: true } },
+        qcApprovedBy: { select: { id: true, name: true } },
+        adminApprovedBy: { select: { id: true, name: true } },
+        heldBy: { select: { id: true, name: true } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'ADMIN_HOLD',
+        entity: 'PurchaseRequest',
+        entityId: request.id,
+        details: { requestNumber: request.requestNumber, action: 'ON_HOLD', holdRemark: remark, round: (request.holdCount || 0) + 1 },
+        ipAddress: req.ip,
+      },
+    });
+
+    if (request.managerId) {
+      await prisma.notification.create({
+        data: {
+          type: 'PURCHASE_REQUEST_HELD',
+          title: `Clarification needed on ${request.requestNumber}`,
+          message: `${req.user.name} has put your purchase request ${request.requestNumber} on hold and needs a clarification: "${remark}" — answer it (edit the request if needed) and resend for approval.`,
+          targetUserId: request.managerId,
+          sentById: req.user.id,
+        },
+      });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Admin hold error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/purchase-requests/:id/hold-response — raiser answers and resends to Admin
+router.put(
+  '/:id/hold-response',
+  authenticate,
+  authorize(...REQUESTER_ROLES, 'ADMIN'),
+  async (req, res) => {
+    try {
+      const { response } = req.body;
+
+      const request = await prisma.purchaseRequest.findUnique({
+        where: { id: req.params.id },
+        include: {
+          manager: { select: { id: true, name: true } },
+          unit: { select: { name: true } },
+          heldBy: { select: { id: true, name: true } },
+        },
+      });
+      if (!request) return res.status(404).json({ error: 'Purchase request not found' });
+      if (request.status !== 'ON_HOLD') {
+        return res.status(400).json({ error: 'This request is not on hold.' });
+      }
+      // The raiser answers their own PR; ADMIN can answer on their behalf (e.g.
+      // the clarification came through over the phone).
+      if (req.user.role !== 'ADMIN' && request.managerId !== req.user.id) {
+        return res.status(403).json({ error: 'You can only respond to a hold on your own requests' });
+      }
+
+      const check = validateReason(response, { fieldLabel: 'clarification' });
+      if (!check.ok) return res.status(400).json({ error: check.error });
+
+      const answer = check.cleaned || response.trim();
+      const history = Array.isArray(request.holdHistory) ? [...request.holdHistory] : [];
+      const openRound = history.length ? history[history.length - 1] : null;
+      const respondedAt = new Date().toISOString();
+
+      if (openRound && !openRound.response) {
+        history[history.length - 1] = {
+          ...openRound,
+          response: answer,
+          respondedById: req.user.id,
+          respondedByName: req.user.name || null,
+          respondedAt,
+        };
+      } else {
+        // Defensive: a hold with no open round (data written before this feature
+        // or an admin answering twice) still records the response rather than
+        // dropping it.
+        history.push({
+          round: request.holdCount || history.length + 1,
+          remark: request.holdRemark || null,
+          heldById: request.heldById,
+          heldByName: request.heldBy?.name || null,
+          heldAt: request.heldAt ? request.heldAt.toISOString() : null,
+          response: answer,
+          respondedById: req.user.id,
+          respondedByName: req.user.name || null,
+          respondedAt,
+        });
+      }
+
+      const updated = await prisma.purchaseRequest.update({
+        where: { id: req.params.id },
+        data: {
+          // Straight back into the admin queue. heldAt/heldById are kept as the
+          // record of the last hold; holdRemark is cleared because the open
+          // question has now been answered (the thread lives in holdHistory).
+          status: 'PENDING_ADMIN',
+          holdRemark: null,
+          holdHistory: history,
+        },
+        include: {
+          manager: { select: { id: true, name: true } },
+          unit: { select: { id: true, name: true, code: true } },
+          qcApprovedBy: { select: { id: true, name: true } },
+          adminApprovedBy: { select: { id: true, name: true } },
+          heldBy: { select: { id: true, name: true } },
+          items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+        },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'HOLD_RESPONSE',
+          entity: 'PurchaseRequest',
+          entityId: request.id,
+          details: { requestNumber: request.requestNumber, action: 'PENDING_ADMIN', response: answer, round: request.holdCount },
+          ipAddress: req.ip,
+        },
+      });
+
+      // Back to whoever held it; ADMIN as a group if that user is gone.
+      await prisma.notification.create({
+        data: {
+          type: 'PURCHASE_REQUEST_HOLD_ANSWERED',
+          title: `Clarification received on ${request.requestNumber}`,
+          message: `${req.user.name} answered the hold on purchase request ${request.requestNumber}${request.unit ? ` (${request.unit.name})` : ''}: "${answer}" — it is back in your approval queue.`,
+          ...(request.heldById ? { targetUserId: request.heldById } : { targetRole: 'ADMIN' }),
+          sentById: req.user.id,
+        },
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error('Hold response error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+);
+
 // PUT /api/purchase-requests/:id/admin-update-notes — Admin updates notes on any request
 router.put('/:id/admin-update-notes', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
@@ -2289,7 +2504,7 @@ router.put('/:id/cancel', authenticate, authorize(...REQUESTER_ROLES), async (re
     if (request.managerId !== req.user.id) {
       return res.status(403).json({ error: 'You can only cancel your own requests' });
     }
-    if (request.status !== 'PENDING_ADMIN' && request.status !== 'PENDING_QC') {
+    if (!['PENDING_ADMIN', 'PENDING_QC', 'ON_HOLD'].includes(request.status)) {
       return res.status(400).json({ error: 'Only pending requests can be cancelled' });
     }
 

@@ -29,6 +29,7 @@ model User {
   purchaseRequests           PurchaseRequest[]                @relation("PurchaseRequestManager")
   purchaseRequestApprovals   PurchaseRequest[]                @relation("PurchaseRequestApprover")
   purchaseRequestQcApprovals PurchaseRequest[]                @relation("PurchaseRequestQcApprover")
+  purchaseRequestHolds       PurchaseRequest[]                @relation("PurchaseRequestHolder")
   // New relations for procurement workflow
   targetedNotifications      Notification[]                   @relation("TargetUser")
   quotationsCreated          Quotation[]                      @relation("QuotationCreator")
@@ -533,6 +534,18 @@ model PurchaseRequest {
   adminApprovedById    String?
   adminApprovedBy      User?                        @relation("PurchaseRequestApprover", fields: [adminApprovedById], references: [id])
   adminApprovedAt      DateTime?
+  // ── Admin hold ("send back for clarification") ──
+  // Admin has a doubt: writes a remark, the PR goes ON_HOLD and lands back with
+  // the raiser, who answers (and may edit the lines) and resends. `holdRemark`
+  // is the CURRENT open question and is cleared when the raiser responds;
+  // `holdHistory` keeps every round so nothing is lost across repeat holds.
+  // Mirrors MaterialInwardRegister.holdReason/holdCount/qcHistory on QC inward.
+  holdRemark           String?
+  heldAt               DateTime?
+  heldById             String?
+  heldBy               User?                        @relation("PurchaseRequestHolder", fields: [heldById], references: [id])
+  holdCount            Int                          @default(0)
+  holdHistory          Json? // [{ round, remark, heldById, heldByName, heldAt, response, respondedById, respondedByName, respondedAt }]
   createdAt            DateTime                     @default(now())
   updatedAt            DateTime                     @updatedAt
   items                PurchaseRequestItem[]
@@ -660,6 +673,10 @@ enum PurchaseRequestStatus {
   // PRs from LAB / METROLOGY / NDT start here so QC can approve before ADMIN.
   PENDING_QC
   PENDING_ADMIN
+  // Admin had a doubt and sent the PR back to the raiser for clarification.
+  // Not a rejection — the raiser answers (and may fix the lines) and resends,
+  // which puts it back at PENDING_ADMIN. Mirrors the QC-inward ON_HOLD stage.
+  ON_HOLD
   APPROVED
   QUOTATION_SUBMITTED
   QUOTATION_APPROVED
@@ -1072,6 +1089,32 @@ model PurchaseOrder {
   paymentRequests       PaymentRequest[]
   qcInspections         QCInspection[]
   sourceRequests        PurchaseOrderSource[]
+  numberHistory         PurchaseOrderNumberHistory[]
+}
+
+// ──── TEMPORARY (rollout): PO re-numbering trail ────
+// Purchase may correct the running count on a PO number while the team is still
+// reconciling the manual register against the system (RAPS/PO/<FY>/<n> — only
+// <n> changes). One row per rename: who did it, from → to, why, and how many
+// downstream records the cascade rewrote (batch numbers, stock notes, …).
+//
+// The EDIT ACCESS is temporary and will be removed — see PO_NUMBER_EDIT_UNTIL in
+// server/src/middleware/rbac.js. This TABLE is permanent: once a number has been
+// changed, the trail has to outlive the feature that changed it.
+model PurchaseOrderNumberHistory {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  fromNumber      String
+  toNumber        String
+  reason          String?
+  cascade         Json? // { batchNumbers, qcInspections, productBatches, stockMovements, mivItems, inwardRows, notifications }
+  changedById     String?
+  changedByName   String?
+  changedByRole   String?
+  createdAt       DateTime      @default(now())
+
+  @@index([purchaseOrderId, createdAt])
 }
 
 // Junction: links a union PurchaseOrder to its source PurchaseRequests

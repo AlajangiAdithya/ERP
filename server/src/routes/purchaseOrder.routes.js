@@ -4,12 +4,12 @@ const fs = require('fs');
 const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
-const { authorize } = require('../middleware/rbac');
+const { authorize, authorizePoNumberEdit } = require('../middleware/rbac');
 const { poDocumentUpload, goodsArrivedUpload, publicUrlFor, UPLOAD_ROOT } = require('../middleware/upload');
 const {
   generateSequentialNumber, generateMirNumber, generateProductSku,
   normalizeMaterialType, paginate, applyDateFilter, isUniqueViolation,
-  DEPT_BY_ROLE, computeTax,
+  DEPT_BY_ROLE, computeTax, parsePoNumber, buildPoNumber,
 } = require('../utils/helpers');
 const { cancelLeftoverPRItems } = require('../utils/prClosure');
 const { validateReason } = require('../utils/reasonValidation');
@@ -156,6 +156,10 @@ const ORDER_INCLUDE = {
     },
     orderBy: { createdAt: 'desc' },
   },
+  // TEMPORARY-feature trail (PO re-numbering). The panel it feeds is permanent —
+  // it only renders when a PO has actually been renumbered, so it costs nothing
+  // once the edit button is gone. See PATCH /:id/order-number at the bottom.
+  numberHistory: { orderBy: { createdAt: 'desc' }, take: 50 },
 };
 
 // Role-based status visibility (intersected with the tab/status filter).
@@ -2024,5 +2028,320 @@ router.put('/:id/po-creation-delay-remark', authenticate, authorize('PURCHASE_OF
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// TEMPORARY FEATURE — PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
+// ════════════════════════════════════════════════════════════════════════════
+// PATCH /api/purchase-orders/:id/order-number
+//
+// Purchase is still reconciling the old manual PO register against the system,
+// so they may correct the running COUNT on a PO number. The shape is fixed:
+// RAPS/PO/<FY>/<n> — the prefix and financial year come from the number the PO
+// already has and are never editable; only <n> changes.
+//
+// The PO number is denormalised into a handful of places, so a rename has to
+// carry into all of them or the two halves of the system stop agreeing:
+//
+//   • Batch numbers derived from it (RAPS/PO/26-27/101-B1 → …/55-B1). These are
+//     the lot's identity across QCInspection.batchNo, ProductBatch.batchNo,
+//     StockMovement.batchNumber, RequestItem.materialBatchNo (MIV lines) and
+//     MaterialInwardRegister.batchNo — all five move together or FIFO, MIV
+//     matching and the inward register break apart. Batch numbers that were
+//     typed by hand (i.e. don't start with the old PO number) are left alone.
+//   • StockMovement.notes / ProductBatch.notes, which embed "PO <number> — …".
+//   • Notification titles/messages that quote the number.
+//
+// Deliberately NOT rewritten: AuditLog.details — an audit trail records what was
+// true at the time and must not be retconned. The rename is itself audit-logged
+// and recorded in PurchaseOrderNumberHistory.
+//
+// Everything else (PR chain, payment requests, QC, inward register, dashboards,
+// exports, PDFs) reads the number through a relation, so it follows on its own.
+//
+// NOTE: already-printed stickers and paperwork keep the OLD batch number. That
+// was an accepted trade-off when this was requested — the system is treated as
+// the source of truth and physical labels are re-printed as needed.
+
+const renumberSchema = z.object({
+  count: z.coerce.number().int().min(1, 'Number must be at least 1').max(999999, 'Number is too large'),
+  reason: z.string().trim().min(1, 'Reason is required').max(500),
+});
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Matches the PO number only where it isn't followed by another digit, so
+// renaming "RAPS/PO/26-27/10" never chews into "RAPS/PO/26-27/101".
+const poNumberOccurrenceRe = (poNumber) => new RegExp(`${escapeRe(poNumber)}(?!\\d)`, 'g');
+
+// True when `batch` is a batch number derived from `poNumber` (e.g. "<po>-B1")
+// or the bare number itself — and not a longer, unrelated PO's batch.
+const isDerivedBatch = (batch, poNumber) =>
+  !!batch && new RegExp(`^${escapeRe(poNumber)}(?!\\d)`).test(String(batch).trim());
+
+router.patch('/:id/order-number', authenticate, authorizePoNumberEdit, async (req, res) => {
+  try {
+    const { count, reason } = renumberSchema.parse(req.body || {});
+
+    const check = validateReason(reason, { fieldLabel: 'reason for changing the PO number' });
+    if (!check.ok) return res.status(400).json({ error: check.error });
+
+    const order = await prisma.purchaseOrder.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true, orderNumber: true, customName: true, supplierName: true,
+        purchaseRequest: { select: { id: true, managerId: true, requestNumber: true } },
+        sourceRequests: {
+          select: { purchaseRequest: { select: { id: true, managerId: true, requestNumber: true } } },
+        },
+      },
+    });
+    if (!order) return res.status(404).json({ error: 'Purchase order not found' });
+
+    const oldNumber = order.orderNumber;
+    const parsed = parsePoNumber(oldNumber);
+    if (!parsed) {
+      return res.status(400).json({
+        error: `"${oldNumber}" is not in the RAPS/PO/<FY>/<number> format, so its number can't be changed here.`,
+      });
+    }
+    if (parsed.count === count) {
+      return res.status(400).json({ error: `This purchase order is already numbered ${oldNumber}.` });
+    }
+
+    const newNumber = buildPoNumber(parsed.fy, count);
+    const clash = await prisma.purchaseOrder.findFirst({
+      where: { orderNumber: newNumber, id: { not: order.id } },
+      select: { id: true, customName: true },
+    });
+    if (clash) {
+      return res.status(409).json({
+        error: `${newNumber} is already used by another purchase order ("${clash.customName}"). Pick a different number.`,
+      });
+    }
+
+    // A fresh regex per call — poNumberOccurrenceRe is global, so a shared
+    // instance would carry lastIndex across calls and match inconsistently.
+    const rename = (text) => (text ? String(text).replace(poNumberOccurrenceRe(oldNumber), newNumber) : text);
+
+    // ── Gather every record carrying a copy of the number, before touching anything ──
+    const [inspections, movements, inwardRows] = await Promise.all([
+      prisma.qCInspection.findMany({
+        where: { purchaseOrderId: order.id },
+        select: { id: true, batchNo: true },
+      }),
+      prisma.stockMovement.findMany({
+        where: { referenceType: 'PurchaseOrder', referenceId: order.id },
+        select: { id: true, batchNumber: true, notes: true },
+      }),
+      prisma.materialInwardRegister.findMany({
+        where: { purchaseOrderId: order.id },
+        select: { id: true, batchNo: true },
+      }),
+    ]);
+
+    // ProductBatch rows point at the StockMovement that created them, not the PO.
+    const batches = movements.length
+      ? await prisma.productBatch.findMany({
+        where: { referenceType: 'PurchaseOrder', referenceId: { in: movements.map((m) => m.id) } },
+        select: { id: true, batchNo: true, notes: true },
+      })
+      : [];
+
+    // old batch number → new batch number, for every batch derived from this PO.
+    const batchMap = new Map();
+    const noteDerived = (value) => {
+      if (isDerivedBatch(value, oldNumber) && !batchMap.has(value)) {
+        batchMap.set(value, rename(value));
+      }
+    };
+    inspections.forEach((i) => noteDerived(i.batchNo));
+    movements.forEach((m) => noteDerived(m.batchNumber));
+    batches.forEach((b) => noteDerived(b.batchNo));
+    inwardRows.forEach((r) => noteDerived(r.batchNo));
+
+    const oldBatchNos = [...batchMap.keys()];
+
+    // MIV lines are matched to a lot purely by the batch string — no PO link —
+    // so they're found through the batch map rather than through the order.
+    const mivItems = oldBatchNos.length
+      ? await prisma.requestItem.findMany({
+        where: { materialBatchNo: { in: oldBatchNos } },
+        select: { id: true, materialBatchNo: true },
+      })
+      : [];
+
+    const cascade = {
+      qcInspections: 0,
+      productBatches: 0,
+      stockMovements: 0,
+      mivItems: 0,
+      inwardRows: 0,
+      batchNumbers: batchMap.size,
+      notifications: 0,
+    };
+
+    const { updated, historyId } = await prisma.$transaction(async (tx) => {
+      await tx.purchaseOrder.update({
+        where: { id: order.id },
+        data: { orderNumber: newNumber },
+      });
+
+      for (const insp of inspections) {
+        if (!batchMap.has(insp.batchNo)) continue;
+        await tx.qCInspection.update({
+          where: { id: insp.id },
+          data: { batchNo: batchMap.get(insp.batchNo) },
+        });
+        cascade.qcInspections++;
+      }
+
+      for (const mv of movements) {
+        const data = {};
+        if (batchMap.has(mv.batchNumber)) data.batchNumber = batchMap.get(mv.batchNumber);
+        const notes = rename(mv.notes);
+        if (notes !== mv.notes) data.notes = notes;
+        if (!Object.keys(data).length) continue;
+        await tx.stockMovement.update({ where: { id: mv.id }, data });
+        cascade.stockMovements++;
+      }
+
+      for (const b of batches) {
+        const data = {};
+        if (batchMap.has(b.batchNo)) data.batchNo = batchMap.get(b.batchNo);
+        const notes = rename(b.notes);
+        if (notes !== b.notes) data.notes = notes;
+        if (!Object.keys(data).length) continue;
+        await tx.productBatch.update({ where: { id: b.id }, data });
+        cascade.productBatches++;
+      }
+
+      for (const mi of mivItems) {
+        await tx.requestItem.update({
+          where: { id: mi.id },
+          data: { materialBatchNo: batchMap.get(mi.materialBatchNo) },
+        });
+        cascade.mivItems++;
+      }
+
+      for (const row of inwardRows) {
+        if (!batchMap.has(row.batchNo)) continue;
+        await tx.materialInwardRegister.update({
+          where: { id: row.id },
+          data: { batchNo: batchMap.get(row.batchNo) },
+        });
+        cascade.inwardRows++;
+      }
+
+      const history = await tx.purchaseOrderNumberHistory.create({
+        data: {
+          purchaseOrderId: order.id,
+          fromNumber: oldNumber,
+          toNumber: newNumber,
+          reason: check.cleaned || reason.trim(),
+          cascade,
+          changedById: req.user.id,
+          changedByName: req.user.name || null,
+          changedByRole: req.user.role || null,
+        },
+      });
+
+      // Read back only after the cascade, so the caller gets the renamed batch
+      // numbers on the QC inspections rather than the pre-rename ones.
+      const po = await tx.purchaseOrder.findUnique({
+        where: { id: order.id },
+        include: ORDER_INCLUDE,
+      });
+
+      return { updated: po, historyId: history.id };
+    }, { maxWait: 10000, timeout: 30000 });
+
+    // ── Post-commit, best-effort: rewrite the number where it was quoted in text ──
+    // Notifications are a running commentary, not an audit record, so a stale
+    // number there just misleads. Scoped by `contains` then re-checked with the
+    // digit-boundary regex so a shorter number can't match a longer one.
+    try {
+      const stale = await prisma.notification.findMany({
+        where: { OR: [{ title: { contains: oldNumber } }, { message: { contains: oldNumber } }] },
+        select: { id: true, title: true, message: true },
+      });
+      for (const n of stale) {
+        const title = rename(n.title);
+        const message = rename(n.message);
+        if (title === n.title && message === n.message) continue;
+        await prisma.notification.update({ where: { id: n.id }, data: { title, message } });
+        cascade.notifications++;
+      }
+      if (cascade.notifications) {
+        await prisma.purchaseOrderNumberHistory.update({
+          where: { id: historyId },
+          data: { cascade },
+        });
+      }
+    } catch (err) {
+      console.error('[PO RENUMBER NOTIFICATION REWRITE FAIL]', err?.code, err?.message);
+    }
+
+    // Tell the people who work off the number that it moved. Stores hold the
+    // material, QC hold the inspection, and each source PR's raiser tracks it.
+    const linkedPRs = [
+      ...(order.purchaseRequest ? [order.purchaseRequest] : []),
+      ...order.sourceRequests.map((s) => s.purchaseRequest).filter(Boolean),
+    ].filter((pr, i, arr) => arr.findIndex((x) => x.id === pr.id) === i);
+
+    const changeLine = `Purchase order "${order.customName}" (${order.supplierName}) has been renumbered from ${oldNumber} to ${newNumber} by ${req.user.name}. Reason: ${check.cleaned || reason.trim()}`;
+    const batchLine = batchMap.size
+      ? ` ${batchMap.size} batch number(s) derived from it were updated to match.`
+      : '';
+
+    const targets = [
+      { targetRole: 'STORE_MANAGER' },
+      ...(inspections.length ? [{ targetRole: 'QC' }] : []),
+      ...linkedPRs.filter((pr) => pr.managerId).map((pr) => ({ targetUserId: pr.managerId })),
+    ];
+    for (const target of targets) {
+      await prisma.notification.create({
+        data: {
+          type: 'PO_RENUMBERED',
+          title: `PO renumbered: ${oldNumber} → ${newNumber}`,
+          message: `${changeLine}.${batchLine} Please use the new number from now on.`,
+          sentById: req.user.id,
+          ...target,
+        },
+      }).catch(() => {});
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'RENUMBER_PO',
+        entity: 'PurchaseOrder',
+        entityId: order.id,
+        // The old number is kept verbatim here — audit rows are never rewritten
+        // by the cascade, so this stays a true record of what the PO was called.
+        details: {
+          fromNumber: oldNumber,
+          toNumber: newNumber,
+          orderNumber: newNumber,
+          reason: check.cleaned || reason.trim(),
+          cascade,
+          renamedBatchNumbers: Object.fromEntries(batchMap),
+        },
+        ipAddress: req.ip,
+      },
+    }).catch((err) => console.error('[PO RENUMBER AUDIT FAIL]', err?.code, err?.message));
+
+    res.json({ order: updated, fromNumber: oldNumber, toNumber: newNumber, cascade });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors?.[0]?.message || 'Invalid input', details: error.errors });
+    }
+    if (isUniqueViolation(error)) {
+      return res.status(409).json({ error: 'That purchase order number is already taken. Pick a different number.' });
+    }
+    console.error('Renumber PO error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+// ════════════════ END TEMPORARY FEATURE — PO RE-NUMBERING ═══════════════════
 
 module.exports = router;

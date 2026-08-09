@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Truck, CreditCard, CheckCircle, Eye, PackagePlus,
   ChevronRight, ChevronDown, Phone, Building2, FileText, Package, Layers, Clock,
-  Upload, Trash2, Handshake, XCircle, AlertTriangle,
+  Upload, Trash2, Handshake, XCircle, AlertTriangle, Pencil, History,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -14,6 +14,7 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
+import { canEditPoNumber, parsePoNumber } from '../utils/roles';
 import { slaRemarkState } from '../utils/sla';
 import { SlaNotice, SlaDelayRemark } from '../components/shared/SlaGate';
 import TatBadge from '../components/shared/TatBadge';
@@ -793,8 +794,149 @@ function TaxSummary({ amount, taxChoice, customTax }) {
   );
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// TEMPORARY FEATURE — PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
+// ════════════════════════════════════════════════════════════════════════════
+// Purchase are still reconciling the old manual PO register against the system,
+// so they may correct the running COUNT on a PO number. The prefix and financial
+// year are fixed — only the number after the last slash is editable.
+//
+// The server rewrites every downstream copy of the number (derived batch
+// numbers, stock/batch notes, MIV lines, inward register, notification text);
+// everything else follows the PO by relation. To remove the feature: delete this
+// component, the pencil button in the header block below, and the
+// canEditPoNumber/parsePoNumber block in client/src/utils/roles.js. Keep the
+// "Number history" panel — past renames must stay visible.
+function RenumberPoForm({ order, onCancel, onDone }) {
+  const parsed = parsePoNumber(order.orderNumber);
+  const [count, setCount] = useState(parsed ? String(parsed.count) : '');
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const trimmed = count.trim();
+  const isNumeric = /^\d+$/.test(trimmed) && Number(trimmed) >= 1;
+  const preview = parsed && isNumeric ? `${parsed.prefix}${Number(trimmed)}` : null;
+  const unchanged = parsed && isNumeric && Number(trimmed) === parsed.count;
+  const canSubmit = !!parsed && isNumeric && !unchanged && reason.trim().length >= 12 && !saving;
+
+  const submit = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const { data } = await api.patch(`/purchase-orders/${order.id}/order-number`, {
+        count: Number(trimmed),
+        reason: reason.trim(),
+      });
+      onDone(data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to change the purchase order number');
+      setSaving(false);
+    }
+  };
+
+  if (!parsed) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-start gap-2 bg-amber-50 border-l-4 border-amber-500 rounded-md p-3 text-sm text-amber-900">
+          <AlertTriangle size={18} className="text-amber-700 mt-0.5 shrink-0" />
+          <div>
+            <span className="font-mono font-semibold">{order.orderNumber}</span> isn't in the
+            standard <span className="font-mono">RAPS/PO/&lt;FY&gt;/&lt;number&gt;</span> format,
+            so it can't be renumbered here.
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={onCancel}>Close</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-2 bg-amber-50 border-l-4 border-amber-500 rounded-md p-3 text-sm text-amber-900">
+        <AlertTriangle size={18} className="text-amber-700 mt-0.5 shrink-0" />
+        <div>
+          <div className="font-semibold">This changes the PO number everywhere.</div>
+          <div className="text-xs mt-0.5">
+            Batch numbers taken from this PO number, stock and inward records, MIV lines and
+            past notifications are all rewritten to match. Material already labelled with the
+            old batch number will need re-printed stickers. Audit logs keep the old number.
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
+        <div>
+          <label className="block text-[13px] font-semibold text-navy-700 mb-1.5">
+            New number <span className="font-normal text-gray-500">(only the count changes)</span>
+          </label>
+          <div className="flex items-stretch">
+            <span className="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-navy-200 bg-navy-50 text-sm font-mono text-gray-600">
+              {parsed.prefix}
+            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={count}
+              onChange={(e) => setCount(e.target.value.replace(/[^\d]/g, ''))}
+              maxLength={6}
+              autoFocus
+              className="w-28 px-3.5 py-2 bg-white border border-navy-200 rounded-r-lg text-sm font-mono text-navy-800 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-600"
+            />
+          </div>
+        </div>
+        <div className="text-sm pb-2">
+          <span className="text-gray-500">Current: </span>
+          <span className="font-mono text-gray-700">{order.orderNumber}</span>
+        </div>
+      </div>
+
+      {preview && !unchanged && (
+        <div className="text-sm bg-navy-50 border border-navy-200 rounded-md px-3 py-2">
+          <span className="text-gray-600">Will become </span>
+          <span className="font-mono font-bold text-navy-800">{preview}</span>
+        </div>
+      )}
+      {unchanged && (
+        <div className="text-sm text-gray-500">That is the number this order already has.</div>
+      )}
+
+      <div>
+        <label className="block text-[13px] font-semibold text-navy-700 mb-1.5">
+          Reason for the change <span className="text-brand-red">*</span>
+        </label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={2}
+          maxLength={500}
+          placeholder="e.g. Corrected to match the number already issued in the manual PO register"
+          className="w-full px-3.5 py-2 bg-white border border-navy-200 rounded-lg text-sm text-navy-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-600"
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          Recorded against the order permanently. Write a real reason — at least 12 characters.
+        </p>
+      </div>
+
+      {error && (
+        <div className="text-sm bg-red-50 border border-red-200 rounded-md px-3 py-2 text-red-800">{error}</div>
+      )}
+
+      <div className="flex gap-2 justify-end">
+        <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
+        <Button onClick={submit} disabled={!canSubmit}>
+          {saving ? 'Changing…' : 'Change PO number'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+// ════════════════ END TEMPORARY FEATURE — PO RE-NUMBERING ═══════════════════
+
 // ─── Order Detail Modal ───
-function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
+function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }) {
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentType, setPaymentType] = useState('ADVANCE');
@@ -819,6 +961,8 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
   const [closePending, setClosePending] = useState(null);
   const [closeReason, setCloseReason] = useState('');
   const [closing, setClosing] = useState(false);
+  // TEMPORARY (rollout): PO number correction — see RenumberPoForm above.
+  const [showRenumber, setShowRenumber] = useState(false);
   const [iir, setIir] = useState({
     batchNumber: '',
     invoiceNo: '',
@@ -1328,6 +1472,18 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
           <div className="flex items-center gap-2">
             <span className="text-gray-500">Order #:</span> <span className="font-medium">{order.orderNumber}</span>
             {order.isUnion && <Badge color="purple"><Layers size={10} className="inline mr-0.5" /> UNION</Badge>}
+            {/* TEMPORARY (rollout): change the running count on the PO number. */}
+            {canEditPoNumber({ role: userRole }) && (
+              <button
+                type="button"
+                onClick={() => setShowRenumber(true)}
+                title="Change PO number"
+                aria-label="Change PO number"
+                className="p-1 rounded-md text-gray-400 hover:text-navy-700 hover:bg-navy-100/70 transition-colors"
+              >
+                <Pencil size={13} />
+              </button>
+            )}
           </div>
           <div><span className="text-gray-500">Supplier:</span> <span className="font-medium">{order.supplierName}</span></div>
           <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(order.status)}>{statusLabel(order.status)}</Badge></div>
@@ -1350,6 +1506,37 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
             </>
           )}
         </div>
+
+        {/* Number history — only ever rendered for a PO that was actually
+            renumbered, so it stays out of the way and outlives the temporary
+            edit button that creates these rows. */}
+        {(order.numberHistory || []).length > 0 && (
+          <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm">
+            <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+              <History size={12} /> PO number history
+            </div>
+            <div className="space-y-1.5">
+              {order.numberHistory.map((h) => (
+                <div key={h.id} className="text-xs text-gray-700">
+                  <span className="font-mono line-through text-gray-500">{h.fromNumber}</span>
+                  <span className="mx-1.5 text-gray-400">→</span>
+                  <span className="font-mono font-semibold text-navy-800">{h.toNumber}</span>
+                  <span className="text-gray-500">
+                    {' '}· {h.changedByName || 'Unknown'}
+                    {h.changedByRole ? ` (${h.changedByRole})` : ''} · {formatDateTime(h.createdAt)}
+                  </span>
+                  {h.reason && <div className="italic text-gray-600 mt-0.5">Reason: {h.reason}</div>}
+                  {Number(h.cascade?.batchNumbers || 0) > 0 && (
+                    <div className="text-[11px] text-gray-500 mt-0.5">
+                      {h.cascade.batchNumbers} batch number(s) renamed to match — material labelled
+                      with the old batch number needs re-printed stickers.
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {order.delayNote && (
           <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm">
@@ -1942,6 +2129,29 @@ function OrderDetailModal({ order, onClose, onUpdated, userRole }) {
         </Modal>
       )}
 
+      {/* TEMPORARY (rollout): PO number correction. Remove with RenumberPoForm. */}
+      {showRenumber && (
+        <Modal
+          isOpen
+          onClose={() => setShowRenumber(false)}
+          title="Change PO number"
+          size="md"
+        >
+          <RenumberPoForm
+            order={order}
+            onCancel={() => setShowRenumber(false)}
+            onDone={(result) => {
+              setShowRenumber(false);
+              // Refresh the list behind the modal and re-pull this order so the
+              // header, IIR form and batch suggestions all pick up the new number.
+              onUpdated();
+              onReloadOrder?.();
+              alert(`PO renumbered: ${result.fromNumber} → ${result.toNumber}`);
+            }}
+          />
+        </Modal>
+      )}
+
       {showIirForm && (
         <Modal
           isOpen
@@ -2382,6 +2592,7 @@ export default function PurchaseOrders() {
         order={selectedOrder}
         onClose={() => setSelectedOrder(null)}
         onUpdated={fetchData}
+        onReloadOrder={() => selectedOrder && openDetail(selectedOrder)}
         userRole={user?.role}
       />
     </div>

@@ -91,6 +91,20 @@ export default function PRPdf({ request }) {
           <View style={[styles.cellLabel, { width: '15%' }]}><Text>Status</Text></View>
           <View style={[styles.cell, { width: '35%' }]}><Text>{request?.status || '—'}</Text></View>
         </View>
+        {/* The work order this PR is raised against, and the customer supply
+            order behind it. Purchase and the customer both reference material
+            by the SO number, so it has to be on the printed requisition.
+            An R&D requisition has no work order — it says so instead. */}
+        <View style={styles.row}>
+          <View style={[styles.cellLabel, { width: '15%' }]}><Text>Work Order No.</Text></View>
+          <View style={[styles.cell, { width: '35%' }]}>
+            <Text>{request?.workOrder?.workOrderNumber || (request?.isRnd ? 'R&D — no work order' : '—')}</Text>
+          </View>
+          <View style={[styles.cellLabel, { width: '15%' }]}><Text>Supply Order No.</Text></View>
+          <View style={[styles.cell, { width: '35%' }]}>
+            <Text>{request?.workOrder?.supplyOrderNo || '—'}</Text>
+          </View>
+        </View>
       </View>
     </>
   );

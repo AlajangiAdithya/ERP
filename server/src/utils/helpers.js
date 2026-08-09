@@ -158,6 +158,22 @@ const generateSequentialNumber = async (prisma, kind, date = new Date()) => {
   return `${prefix}${next}`;
 };
 
+// ──── PO number parsing (used by the TEMPORARY re-numbering feature) ────
+// Splits "RAPS/PO/26-27/101" into { prefix: 'RAPS/PO/26-27/', fy: '26-27', count: 101 }.
+// Returns null for anything that isn't in that exact shape (legacy / hand-entered
+// numbers), so callers can refuse to renumber what they can't safely rebuild.
+const PO_NUMBER_RE = /^RAPS\/PO\/(\d{2}-\d{2})\/(\d+)$/;
+
+const parsePoNumber = (value) => {
+  const m = PO_NUMBER_RE.exec(String(value || '').trim());
+  if (!m) return null;
+  return { prefix: `RAPS/PO/${m[1]}/`, fy: m[1], count: parseInt(m[2], 10) };
+};
+
+// Rebuilds a PO number from its FY and a new running count. Plain number, no
+// zero-padding — same as generateSequentialNumber produces.
+const buildPoNumber = (fy, count) => `RAPS/PO/${fy}/${count}`;
+
 // MIR uses the same FY-scoped scheme but lives on PurchaseOrder.mirNo.
 const generateMirNumber = async (prisma, date = new Date()) => {
   const prefix = `RAPS/MIR/${getFinancialYear(date)}/`;
@@ -375,6 +391,8 @@ module.exports = {
   generateGatePassNumber,
   generateSequentialNumber,
   generateProductSku,
+  parsePoNumber,
+  buildPoNumber,
   isUniqueViolation,
   withDocRetry,
   GST_RATES,

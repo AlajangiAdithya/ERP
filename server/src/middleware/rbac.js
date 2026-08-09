@@ -118,6 +118,51 @@ const authorizeProductEdit = (req, res, next) => {
   return res.status(403).json({ error: 'Insufficient permissions' });
 };
 
+// ════════════════════════════════════════════════════════════════════════════
+// TEMPORARY FEATURE — PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
+// ════════════════════════════════════════════════════════════════════════════
+// The Purchase team is still reconciling the old manual PO register against the
+// system, so they may correct the running count on a PO number
+// (RAPS/PO/<FY>/<n> — only <n> changes; the prefix and financial year are fixed).
+// Changing it rewrites every downstream copy of the number: derived batch
+// numbers, stock/batch notes, MIV lines, inward-register rows and notification
+// text. Audit logs are deliberately left untouched.
+//
+// This is NOT a permanent capability. To switch it off, set PO_NUMBER_EDIT_UNTIL
+// to a date (it then dies on its own, like STORE_PRODUCT_EDIT_UNTIL above).
+// To delete it outright, remove: this block, PATCH /purchase-orders/:id/order-number
+// in server/src/routes/purchaseOrder.routes.js, and the client mirror
+// (canEditPoNumber in client/src/utils/roles.js + the pencil button and
+// RenumberPoModal in client/src/pages/PurchaseOrders.jsx). The
+// PurchaseOrderNumberHistory table and its "Number history" panel stay — past
+// renames must remain traceable after the button is gone.
+//
+// null = no expiry set yet (the date will be fixed later). The client mirror is
+// PO_NUMBER_EDIT_UNTIL in client/src/utils/roles.js — keep both in sync.
+const PO_NUMBER_EDIT_UNTIL = null;
+const PO_NUMBER_EDIT_ROLES = ['PURCHASE_OFFICER', 'ADMIN', 'SUPERADMIN'];
+
+const poNumberEditWindowOpen = () =>
+  !PO_NUMBER_EDIT_UNTIL || Date.now() <= PO_NUMBER_EDIT_UNTIL.getTime();
+
+const canEditPoNumber = (user) =>
+  !!user && PO_NUMBER_EDIT_ROLES.includes(user.role) && poNumberEditWindowOpen();
+
+// Guards PATCH /purchase-orders/:id/order-number only.
+const authorizePoNumberEdit = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  if (!poNumberEditWindowOpen()) {
+    return res.status(403).json({ error: 'PO re-numbering is no longer available' });
+  }
+  if (!canEditPoNumber(req.user)) {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
+  return next();
+};
+// ════════════════ END TEMPORARY FEATURE — PO RE-NUMBERING ═══════════════════
+
 module.exports = {
   authorize,
   authorizeMinRole,
@@ -125,4 +170,8 @@ module.exports = {
   authorizeProductEdit,
   isProductMasterRole,
   STORE_PRODUCT_EDIT_UNTIL,
+  PO_NUMBER_EDIT_UNTIL,
+  poNumberEditWindowOpen,
+  canEditPoNumber,
+  authorizePoNumberEdit,
 };

@@ -146,7 +146,7 @@ async function syncPRStatusAfterChange(tx, prId) {
   // computed `target` below only knows the quotation-stage statuses and would
   // otherwise wipe progress recorded by PO placement, goods receipt, QC, etc.
   if ([
-    'PENDING_QC', 'PENDING_ADMIN', 'REJECTED',
+    'PENDING_QC', 'PENDING_ADMIN', 'ON_HOLD', 'REJECTED',
     'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED',
     'CASH_PURCHASE',
   ].includes(pr.status)) return;

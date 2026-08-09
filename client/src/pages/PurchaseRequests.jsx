@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw, GitMerge, Unlink, Upload, Lock, Paperclip, Pencil, History, ArrowRight } from 'lucide-react';
+import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw, GitMerge, Unlink, Upload, Lock, Paperclip, Pencil, History, ArrowRight, PauseCircle, Send } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -164,8 +164,54 @@ function RequiredByHistoryPanel({ entries }) {
   );
 }
 
+// The admin-hold conversation: every round of "Admin asked → raiser answered".
+// The last round is left open (no response yet) while the PR sits ON_HOLD.
+// Shown to both sides — Admin in the review modal, the raiser in the detail view.
+function HoldThread({ request }) {
+  const rounds = Array.isArray(request?.holdHistory) ? request.holdHistory : [];
+  if (rounds.length === 0) return null;
+  const isHeld = request.status === 'ON_HOLD';
+  return (
+    <div className={`border rounded-lg p-3 ${isHeld ? 'border-orange-300 bg-orange-50' : 'border-gray-200 bg-gray-50'}`}>
+      <div className={`flex items-center gap-1.5 mb-2 text-sm font-semibold ${isHeld ? 'text-orange-900' : 'text-gray-700'}`}>
+        <PauseCircle size={14} />
+        {isHeld ? 'On hold — clarification needed' : `Clarification history (${rounds.length})`}
+      </div>
+      <ul className="space-y-2">
+        {rounds.map((r, idx) => (
+          <li key={idx} className="text-xs bg-white border border-gray-200 rounded px-2 py-1.5 space-y-1">
+            <div>
+              <span className="font-semibold text-orange-800">Admin asked</span>
+              <span className="text-gray-500">
+                {' '}· {r.heldByName || 'Admin'}{r.heldAt ? ` · ${formatDateTime(r.heldAt)}` : ''}
+              </span>
+              <div className="text-gray-800 mt-0.5">{r.remark}</div>
+            </div>
+            {r.response ? (
+              <div className="border-t border-gray-100 pt-1">
+                <span className="font-semibold text-green-800">Answered</span>
+                <span className="text-gray-500">
+                  {' '}· {r.respondedByName || 'Requester'}{r.respondedAt ? ` · ${formatDateTime(r.respondedAt)}` : ''}
+                </span>
+                <div className="text-gray-800 mt-0.5">{r.response}</div>
+              </div>
+            ) : (
+              <div className="border-t border-gray-100 pt-1 text-[11px] italic text-orange-700">
+                Waiting on {request.manager?.name || 'the requester'} to respond.
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // When a PR is waiting for a decision, this is when the wait started — drives
 // the turnaround ageing badge (yellow ≥24h, red ≥48h) in the list.
+// Pending-since drives the TAT badge. A PR that Admin sent back for
+// clarification is waiting on the RAISER, not on an approver, so the approval
+// clock stops until they respond and it returns to PENDING_ADMIN.
 const prPendingSince = (r) =>
   r?.status === 'PENDING_QC' ? r.createdAt
     : r?.status === 'PENDING_ADMIN' ? (r.qcApprovedAt || r.createdAt)
@@ -174,6 +220,7 @@ const prPendingSince = (r) =>
 const statusColor = (s) => ({
   PENDING_QC: 'yellow',
   PENDING_ADMIN: 'yellow',
+  ON_HOLD: 'orange',
   APPROVED: 'blue',
   QUOTATION_SUBMITTED: 'purple',
   QUOTATION_APPROVED: 'navy',
@@ -190,6 +237,7 @@ const statusColor = (s) => ({
 const statusLabel = (s) => ({
   PENDING_QC: 'Pending QC',
   PENDING_ADMIN: 'Pending Admin',
+  ON_HOLD: 'On Hold',
   APPROVED: 'Approved',
   QUOTATION_SUBMITTED: 'Quotation Submitted',
   QUOTATION_APPROVED: 'Quotation Approved',
@@ -965,6 +1013,10 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
   const [adminDelayRemark, setAdminDelayRemark] = useState('');
   const [adjustedItems, setAdjustedItems] = useState([]);
   const [processing, setProcessing] = useState(false);
+  // Hold ("send back for clarification") — the remark is the question the raiser
+  // has to answer, so it's kept separate from the internal Admin Notes field.
+  const [showHold, setShowHold] = useState(false);
+  const [holdRemark, setHoldRemark] = useState('');
 
   const slaStart = request?.qcApprovedAt ? new Date(request.qcApprovedAt) : request ? new Date(request.createdAt) : null;
   const isDelayed = slaStart && (Date.now() - slaStart.getTime()) > 48 * 60 * 60 * 1000;
@@ -973,6 +1025,8 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
     if (request) {
       setAdminNotes(request.adminNotes || '');
       setAdminDelayRemark('');
+      setShowHold(false);
+      setHoldRemark('');
       setAdjustedItems(request.items.map(i => ({
         id: i.id,
         adminApprovedQty: i.adminApprovedQty != null ? i.adminApprovedQty : i.requestedQty,
@@ -982,6 +1036,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
 
   const delayErr = isDelayed ? reasonError(adminDelayRemark, { fieldLabel: 'delay remark' }) : '';
   const rejectErr = reasonError(adminNotes, { fieldLabel: 'reason for rejection' });
+  const holdErr = reasonError(holdRemark, { fieldLabel: 'clarification you need' });
 
   const approve = async () => {
     if (isDelayed && !adminDelayRemark.trim()) {
@@ -1013,6 +1068,22 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
       onUpdated();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to reject');
+    }
+    setProcessing(false);
+  };
+
+  // Send back for clarification instead of approving or rejecting. The PR goes
+  // ON_HOLD to the raiser, who answers (and may edit it) and resends.
+  const hold = async () => {
+    if (!holdRemark.trim()) return alert('Please write what you need clarified');
+    if (holdErr) return alert(holdErr);
+    setProcessing(true);
+    try {
+      await api.put(`/purchase-requests/${request.id}/admin-hold`, { holdRemark: holdRemark.trim() });
+      onClose();
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to put the request on hold');
     }
     setProcessing(false);
   };
@@ -1144,6 +1215,10 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
           </table>
         </div>
 
+        {/* Every clarification round on this PR. Once the raiser has answered,
+            Admin reads the reply here before approving. */}
+        <HoldThread request={request} />
+
         {/* Any required-by date that was moved after the PR was raised — Admin
             approves against the deadline, so the change must be visible here. */}
         <RequiredByHistoryPanel entries={request.dateHistory} />
@@ -1195,6 +1270,30 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
           </div>
         )}
 
+        {/* Hold form — opens under the buttons so the question is written in
+            full before the PR leaves the queue. Deliberately not the Admin
+            Notes box: this text is sent TO the raiser, not kept internally. */}
+        {isPending && showHold && (
+          <div className="rounded-lg border border-orange-300 bg-orange-50 p-3 space-y-2">
+            <p className="text-xs font-semibold text-orange-900 flex items-center gap-1.5">
+              <PauseCircle size={14} /> Send back for clarification
+            </p>
+            <p className="text-[11px] text-orange-800">
+              {request.manager?.name || 'The requester'} gets this question, can edit the request,
+              and resends it for approval. The PR is not rejected — it moves to the On Hold tab.
+            </p>
+            <textarea
+              value={holdRemark}
+              onChange={(e) => setHoldRemark(e.target.value)}
+              className={`w-full px-3 py-2 border rounded-md text-sm bg-white focus:ring-2 ${holdRemark.trim() && holdErr ? 'border-red-400 focus:ring-red-400' : 'border-orange-300 focus:ring-orange-500'}`}
+              rows={3}
+              maxLength={1000}
+              placeholder="What do you need clarified? e.g. Why is 200 kg needed when the last PR for this material was 20 kg?"
+            />
+            {holdRemark.trim() && holdErr && <p className="text-xs font-medium text-brand-red">{holdErr}</p>}
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="flex justify-between items-center pt-2 gap-3">
           <DownloadPdfButton
@@ -1206,11 +1305,92 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
               <Button variant="danger" onClick={reject} disabled={processing || !adminNotes.trim() || !!rejectErr}>
                 <XCircle size={16} className="mr-1" /> Reject
               </Button>
-              <Button onClick={approve} disabled={processing || (isDelayed && (!adminDelayRemark.trim() || !!delayErr))}>
-                <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Approve'}
-              </Button>
+              {showHold ? (
+                <>
+                  <Button variant="secondary" onClick={() => { setShowHold(false); setHoldRemark(''); }} disabled={processing}>
+                    Cancel Hold
+                  </Button>
+                  <Button onClick={hold} disabled={processing || !holdRemark.trim() || !!holdErr}>
+                    <PauseCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Send Back for Clarification'}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="secondary" onClick={() => setShowHold(true)} disabled={processing}>
+                    <PauseCircle size={16} className="mr-1" /> Hold for Clarification
+                  </Button>
+                  <Button onClick={approve} disabled={processing || (isDelayed && (!adminDelayRemark.trim() || !!delayErr))}>
+                    <CheckCircle size={16} className="mr-1" /> {processing ? 'Processing...' : 'Approve'}
+                  </Button>
+                </>
+              )}
             </div>
           )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Raiser: answer an admin hold and resend for approval ───
+// The PR is editable while it sits ON_HOLD, so the usual flow is: read the
+// question → Edit the request if the answer is a change → come back here and
+// reply. Submitting puts it straight back at PENDING_ADMIN.
+function HoldResponseModal({ request, onClose, onUpdated }) {
+  const [response, setResponse] = useState('');
+  const [processing, setProcessing] = useState(false);
+
+  useEffect(() => { if (request) setResponse(''); }, [request]);
+
+  const err = reasonError(response, { fieldLabel: 'clarification' });
+
+  const submit = async () => {
+    if (!response.trim()) return alert('Please write your clarification');
+    if (err) return alert(err);
+    setProcessing(true);
+    try {
+      await api.put(`/purchase-requests/${request.id}/hold-response`, { response: response.trim() });
+      onClose();
+      onUpdated();
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to send the clarification');
+    }
+    setProcessing(false);
+  };
+
+  if (!request) return null;
+
+  return (
+    <Modal isOpen={!!request} onClose={onClose} title={`Respond to hold — ${request.requestNumber}`} size="lg">
+      <div className="space-y-4">
+        <HoldThread request={request} />
+
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+          If the answer means changing the request itself (quantity, specification, dates),
+          close this and use <span className="font-semibold">Edit</span> first — a held PR is
+          still editable. Then come back and reply.
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Your clarification <span className="text-brand-red">*</span>
+          </label>
+          <textarea
+            value={response}
+            onChange={(e) => setResponse(e.target.value)}
+            className={`w-full px-3 py-2 border rounded-md text-sm focus:ring-2 ${response.trim() && err ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-navy-500'}`}
+            rows={4}
+            maxLength={1000}
+            placeholder="Answer the question above…"
+          />
+          {response.trim() && err && <p className="mt-1 text-xs font-medium text-brand-red">{err}</p>}
+        </div>
+
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={onClose} disabled={processing}>Cancel</Button>
+          <Button onClick={submit} disabled={processing || !response.trim() || !!err}>
+            <Send size={16} className="mr-1" /> {processing ? 'Sending…' : 'Send & Resubmit for Approval'}
+          </Button>
         </div>
       </div>
     </Modal>
@@ -2132,6 +2312,10 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           </table>
         </div>
 
+        {/* Admin's clarification thread — visible to everyone on the chain so
+            the reason a PR paused is never a private exchange. */}
+        <HoldThread request={request} />
+
         <RequiredByHistoryPanel entries={dateHistory} />
 
         <div className="flex justify-end gap-2 pt-2">
@@ -2346,6 +2530,7 @@ export default function PurchaseRequests() {
   const [selectedForPurchase, setSelectedForPurchase] = useState(null);
   const [selectedForDetail, setSelectedForDetail] = useState(null);
   const [selectedForEdit, setSelectedForEdit] = useState(null);
+  const [selectedForHoldResponse, setSelectedForHoldResponse] = useState(null);
   const [tab, setTab] = useState('ALL');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -2449,15 +2634,18 @@ export default function PurchaseRequests() {
     }
   };
 
+  // ON_HOLD sits right after PENDING_ADMIN everywhere the approval stages are
+  // shown — it is a branch off admin approval, not a stage of its own. Purchase
+  // and Accounting never see it: a held PR hasn't reached them yet.
   const tabs = isPO
     ? ['ALL', 'APPROVED', 'CASH_PURCHASE', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED']
     : isAccounting
     ? ['ALL', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'COMPLETED']
     : isQC
-    ? ['ALL', 'PENDING_QC', 'PENDING_ADMIN', 'APPROVED', 'GOODS_ARRIVED', 'QC_PASSED']
+    ? ['ALL', 'PENDING_QC', 'PENDING_ADMIN', 'ON_HOLD', 'APPROVED', 'GOODS_ARRIVED', 'QC_PASSED']
     : isQcManaged
-    ? ['ALL', 'PENDING_QC', 'PENDING_ADMIN', 'APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED', 'REJECTED']
-    : ['ALL', 'PENDING_ADMIN', 'APPROVED', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED', 'REJECTED'];
+    ? ['ALL', 'PENDING_QC', 'PENDING_ADMIN', 'ON_HOLD', 'APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED', 'REJECTED']
+    : ['ALL', 'PENDING_ADMIN', 'ON_HOLD', 'APPROVED', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED', 'REJECTED'];
 
   // The status tab is applied server-side; this is a belt-and-braces filter for
   // the moment between switching tabs and the new page arriving.
@@ -2677,12 +2865,17 @@ export default function PurchaseRequests() {
                               <ShoppingCart size={14} className="mr-1" /> Update
                             </Button>
                           )}
-                          {isManager && (r.status === 'PENDING_ADMIN' || r.status === 'PENDING_QC') && r.managerId === user.id && (
+                          {r.status === 'ON_HOLD' && (isAdmin || r.managerId === user.id) && (
+                            <Button size="sm" onClick={() => setSelectedForHoldResponse(r)}>
+                              <PauseCircle size={14} className="mr-1" /> Respond
+                            </Button>
+                          )}
+                          {isManager && ['PENDING_ADMIN', 'PENDING_QC', 'ON_HOLD'].includes(r.status) && r.managerId === user.id && (
                             <Button size="sm" variant="secondary" onClick={() => setSelectedForEdit(r)}>
                               <Pencil size={14} className="mr-1" /> Edit
                             </Button>
                           )}
-                          {isManager && (r.status === 'PENDING_ADMIN' || r.status === 'PENDING_QC') && r.managerId === user.id && (
+                          {isManager && ['PENDING_ADMIN', 'PENDING_QC', 'ON_HOLD'].includes(r.status) && r.managerId === user.id && (
                             <Button size="sm" variant="danger" onClick={() => cancelRequest(r.id)}>Cancel</Button>
                           )}
                         </div>
@@ -2713,6 +2906,7 @@ export default function PurchaseRequests() {
         requestToEdit={selectedForEdit}
       />
       <AdminReviewModal request={selectedForReview} onClose={() => setSelectedForReview(null)} onUpdated={fetchRequests} />
+      <HoldResponseModal request={selectedForHoldResponse} onClose={() => setSelectedForHoldResponse(null)} onUpdated={fetchRequests} />
       <QcReviewModal request={selectedForQcReview} onClose={() => setSelectedForQcReview(null)} onUpdated={fetchRequests} />
       <RecordPurchaseModal request={selectedForPurchase} onClose={() => setSelectedForPurchase(null)} onUpdated={fetchRequests} />
       <DetailModal

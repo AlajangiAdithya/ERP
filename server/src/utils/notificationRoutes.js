@@ -51,6 +51,8 @@ const NOTIFICATION_ROUTES = {
   NEW_PURCHASE_REQUEST: '/purchase-requests',
   PURCHASE_REQUEST_APPROVED: '/purchase-requests',
   PURCHASE_REQUEST_REJECTED: '/purchase-requests',
+  PURCHASE_REQUEST_HELD: '/purchase-requests',
+  PURCHASE_REQUEST_HOLD_ANSWERED: '/purchase-requests',
   NEW_PURCHASE_ASSIGNMENT: '/purchase-requests',
   PURCHASE_COMPLETED: '/purchase-requests',
   PR_CLOSED: '/purchase-requests',

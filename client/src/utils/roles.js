@@ -39,3 +39,37 @@ export function canEditProductDetails(user) {
   if (isProductMasterEditor(user)) return true;
   return user.role === 'STORE_MANAGER' && storeProductEditWindowOpen();
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// TEMPORARY FEATURE — PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
+// ════════════════════════════════════════════════════════════════════════════
+// While Purchase reconcile the old manual PO register against the system, they
+// may correct the running count on a PO number (RAPS/PO/<FY>/<n> — only <n>
+// changes). Mirror of PO_NUMBER_EDIT_UNTIL / PO_NUMBER_EDIT_ROLES in
+// server/src/middleware/rbac.js — keep both in sync; the server is the real
+// gate, this only decides whether the pencil button is drawn.
+//
+// null = no expiry set yet (the date will be fixed later). Set a Date here (and
+// on the server) to retire it, or delete this block plus the RenumberPoModal in
+// client/src/pages/PurchaseOrders.jsx to remove it outright.
+export const PO_NUMBER_EDIT_UNTIL = null;
+const PO_NUMBER_EDIT_ROLES = ['PURCHASE_OFFICER', 'ADMIN', 'SUPERADMIN'];
+
+export function poNumberEditWindowOpen(now = new Date()) {
+  return !PO_NUMBER_EDIT_UNTIL || now.getTime() <= PO_NUMBER_EDIT_UNTIL.getTime();
+}
+
+export function canEditPoNumber(user) {
+  if (!user) return false;
+  return PO_NUMBER_EDIT_ROLES.includes(user.role) && poNumberEditWindowOpen();
+}
+
+// "RAPS/PO/26-27/101" → { prefix: 'RAPS/PO/26-27/', fy: '26-27', count: 101 }.
+// null for legacy / hand-entered numbers, which can't be renumbered. Mirror of
+// parsePoNumber in server/src/utils/helpers.js.
+export function parsePoNumber(value) {
+  const m = /^RAPS\/PO\/(\d{2}-\d{2})\/(\d+)$/.exec(String(value || '').trim());
+  if (!m) return null;
+  return { prefix: `RAPS/PO/${m[1]}/`, fy: m[1], count: parseInt(m[2], 10) };
+}
+// ════════════════ END TEMPORARY FEATURE — PO RE-NUMBERING ═══════════════════

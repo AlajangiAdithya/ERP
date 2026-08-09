@@ -250,8 +250,8 @@ const WORKFLOW_STEPS = [
     title: 'Purchase Request (PR)',
     actor: 'Manager / QC / Designs / R&D / Lab / Metrology / NDT',
     to: '/purchase-requests',
-    summary: 'Department raises a request for material or services. Lab / Metrology / NDT PRs clear QC first.',
-    statuses: ['PENDING_QC', 'PENDING_ADMIN', 'APPROVED'],
+    summary: 'Department raises a request for material or services. Lab / Metrology / NDT PRs clear QC first. Admin can send one back on hold for clarification instead of rejecting it.',
+    statuses: ['PENDING_QC', 'PENDING_ADMIN', 'ON_HOLD', 'APPROVED'],
     docs: [
       { label: 'PR PDF', detail: 'Open the PR row → "Download PDF" → PR-<requestNumber>.pdf' },
       { label: 'Item spec attachments', detail: 'Each item can carry a spec file (.pdf / image) viewable from the PR detail view.' },

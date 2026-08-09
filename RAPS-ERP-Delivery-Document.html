@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>RAPS ERP - Handover and Operating Note</title>
+<style>
+  @page { size: A4; margin: 9mm 10mm 7mm 10mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", -apple-system, Roboto, Helvetica, Arial, sans-serif; color: #1f2937; font-size: 7.6pt; line-height: 1.28; }
+
+  .head { border-bottom: 2.5px solid #2563eb; padding-bottom: 2mm; margin-bottom: 2.5mm; display: flex; justify-content: space-between; align-items: flex-end; }
+  .head .brand { font-size: 20pt; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; line-height: 1; }
+  .head .brand span { color: #2563eb; }
+  .head .sub { font-size: 9.5pt; color: #0f172a; font-weight: 600; margin-top: 1mm; }
+  .head .r { text-align: right; font-size: 7.3pt; color: #475569; line-height: 1.4; }
+  .head .r b { color: #0f172a; }
+
+  h1 { font-size: 9pt; color: #fff; background: #0f172a; padding: 1mm 2.5mm; margin: 2.2mm 0 1.3mm 0; border-radius: 2.5px; page-break-after: avoid; }
+  h2 { font-size: 8.1pt; color: #1e3a8a; margin: 1.7mm 0 0.6mm 0; page-break-after: avoid; }
+  p { margin: 0 0 1.1mm 0; }
+  ul, ol { margin: 0 0 1.2mm 0; padding-left: 4mm; }
+  li { margin-bottom: 0.3mm; }
+  .page-break { page-break-before: always; }
+
+  table { width: 100%; border-collapse: collapse; margin: 0.8mm 0 1.3mm 0; font-size: 7.2pt; }
+  th { background: #1e293b; color: #fff; text-align: left; padding: 0.9mm 1.6mm; font-weight: 600; }
+  td { padding: 0.85mm 1.6mm; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  tr { page-break-inside: avoid; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  td.num, th.num { text-align: right; }
+  tr.total td { font-weight: 700; background: #dbeafe !important; border-top: 1.3px solid #0f172a; }
+
+  .box { border: 1px solid #e2e8f0; border-left: 3px solid #2563eb; background: #f8fafc; padding: 1.4mm 2.2mm; border-radius: 2.5px; margin: 1.2mm 0 1.5mm 0; page-break-inside: avoid; font-size: 7.5pt; }
+  .box.warn { border-left-color: #d97706; background: #fffbeb; }
+  .box.ok { border-left-color: #059669; background: #ecfdf5; }
+  .box.cred { border-left-color: #b91c1c; background: #fef2f2; }
+  .box p:last-child, .box ul:last-child { margin-bottom: 0; }
+  .box b.lbl { display: block; color: #0f172a; margin-bottom: 0.6mm; }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 3.5mm; }
+
+  .kpi { display: grid; grid-template-columns: repeat(6,1fr); gap: 1.5mm; margin: 1.2mm 0 1.5mm 0; }
+  .kpi .k { border: 1px solid #e2e8f0; border-top: 2px solid #2563eb; border-radius: 2.5px; padding: 1.1mm 0.5mm; text-align: center; }
+  .kpi .k .v { font-size: 11.5pt; font-weight: 800; color: #0f172a; line-height: 1.05; }
+  .kpi .k .l { font-size: 6.4pt; color: #64748b; margin-top: 0.4mm; line-height: 1.15; }
+
+  .hero { background: linear-gradient(135deg,#0f172a,#1e3a8a); color: #fff; border-radius: 4px; padding: 2.5mm; text-align: center; margin: 1.5mm 0 2mm 0; }
+  .hero .amt { font-size: 18pt; font-weight: 800; line-height: 1.05; }
+  .hero .amt small { font-size: 9pt; font-weight: 400; opacity: .85; }
+  .hero .sub { font-size: 7.4pt; opacity: .9; }
+
+  .credtbl td { font-family: Consolas, "Courier New", monospace; font-size: 8.2pt; }
+  .credtbl td.lbl { font-family: "Segoe UI", sans-serif; font-weight: 600; color: #0f172a; width: 30%; }
+  .credtbl th { background: #7f1d1d; }
+  .blank { color: #94a3b8; }
+
+  .sign { margin-top: 5mm; display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; }
+  .sign .line { height: 11mm; }
+  .sign .b { border-top: 1px solid #94a3b8; padding-top: 1.2mm; font-size: 7.5pt; }
+  .sign .b b { display: block; color: #0f172a; }
+
+  .foot { margin-top: 3mm; padding-top: 1.5mm; border-top: 1px solid #e2e8f0; text-align: center; color: #64748b; font-size: 6.9pt; }
+</style>
+</head>
+<body>
+
+<!-- ═════════ PAGE 1 ═════════ -->
+<h1>1. What Has Been Delivered</h1>
+
+<p>One web-based system covering procurement, stores, quality, work orders, logistics and people. It runs in an ordinary browser. Nothing is installed on any computer or phone. Every user opens one address, signs in, and sees only what their role permits.</p>
+
+<div class="kpi">
+  <div class="k"><div class="v">63</div><div class="l">screens</div></div>
+  <div class="k"><div class="v">18</div><div class="l">roles in use</div></div>
+  <div class="k"><div class="v">32</div><div class="l">users live</div></div>
+  <div class="k"><div class="v">17</div><div class="l">units</div></div>
+  <div class="k"><div class="v">545</div><div class="l">documents held</div></div>
+  <div class="k"><div class="v">382 MB</div><div class="l">business data</div></div>
+</div>
+
+<table>
+  <tr><th style="width:18%">Area</th><th>What it covers</th></tr>
+  <tr><td><b>Procurement</b></td><td>Purchase requests with specifications and attachments, quotations and comparison, purchase orders, payment requests, supplier register with annual assessment, vendor evaluation and performance rating.</td></tr>
+  <tr><td><b>Stores</b></td><td>Product catalogue, batch-wise stock on first-in-first-out, unit and department stock, stock movements, material issue vouchers, inter-unit transfers, material inward register.</td></tr>
+  <tr><td><b>Quality</b></td><td>Incoming inspection, material inward receipt, supplier document review, calibration register, QMS certifications and documents, quality KPI records.</td></tr>
+  <tr><td><b>Work Orders</b></td><td>Register, extensions, delivery-date changes, invoices, bank guarantees, insurance entries, hold requests, alarms, weekly follow-up, closure with documents.</td></tr>
+  <tr><td><b>Logistics, Assets</b></td><td>Gate passes returnable and non-returnable, vehicles, drivers, trips, machinery register, machine allocation, downtime, fire extinguisher register.</td></tr>
+  <tr><td><b>People</b></td><td>Employee register, skill matrix, annual training plan, training sessions with attendance, attendance register with monthly submission.</td></tr>
+  <tr><td><b>General</b></td><td>Dashboard, notifications with browser alerts, internal messaging, calendar, inter-office notes, full audit log, reports, user and unit management.</td></tr>
+</table>
+
+<p><b>Controls built in.</b> Every creation, approval, rejection, edit and deletion is recorded permanently in an audit log with the user name and exact time, and cannot be edited or cleared by any user including an administrator. Role-based access is enforced on the server, not merely hidden on screen, so it cannot be bypassed from a browser. Higher-value and cross-unit actions require more than one sign-off. Where a record is corrected after release, the original value, new value, person and time are all retained.</p>
+
+<h1>2. Ownership and Control</h1>
+
+<p>The system runs on Amazon Web Services. <b>The AWS account is registered in the company&rsquo;s name under admin@rameshs.ind.in, with the company&rsquo;s own billing details and payment instrument.</b> The consequences are the most important statements in this note:</p>
+
+<div class="box ok">
+  <ul>
+    <li>The company, not the developer, is the account holder. AWS invoices the company directly. The developer is not in the payment path and cannot alter the bill. No charge can be raised without the company&rsquo;s own payment instrument, and removing it stops the service.</li>
+    <li>The database, all documents and all backups sit inside that account, on servers physically in India. No component stores data outside India.</li>
+    <li><b>There is no hosting fee, licence fee, per-user fee or subscription payable to the developer.</b> The entire cost of running the system is the AWS invoice in Section 4.</li>
+    <li>If the relationship with the developer ended today, the system would keep running and the company would retain complete control of it.</li>
+  </ul>
+</div>
+
+<p>The site is served over an encrypted connection. Passwords are stored scrambled and cannot be read by anyone, including the developer. The database is not reachable from the internet, and the backup storage is private and rejects all public access.</p>
+
+<h1>3. Access and Credentials</h1>
+
+<div class="box cred">
+  <b class="lbl">Handling</b>
+  <p>This section contains live passwords. Keep this document with the company&rsquo;s confidential records. Change every password on first sign-in and record the new ones separately. Do not send passwords by WhatsApp, SMS or email.</p>
+</div>
+
+<p><b>AWS account.</b> This single login controls the invoice, the servers, the storage and the backups. It is the company&rsquo;s ultimate control over the system.</p>
+
+<table class="credtbl">
+  <tr><th colspan="2">AWS Console (root account)</th></tr>
+  <tr><td class="lbl">Sign-in page</td><td>https://console.aws.amazon.com</td></tr>
+  <tr><td class="lbl">Email address</td><td><b>admin@rameshs.ind.in</b></td></tr>
+  <tr><td class="lbl">Password</td><td><b>Rameshs@2018</b></td></tr>
+  <tr><td class="lbl">Region</td><td>Asia Pacific (Hyderabad), India</td></tr>
+</table>
+
+<table class="credtbl">
+  <tr><th colspan="2">RAPS ERP</th></tr>
+  <tr><td class="lbl">Web address</td><td><b>https://18.61.93.179.sslip.io/</b></td></tr>
+  <tr><td class="lbl">Administrator 1</td><td>user: <b>rameshbabu</b> &nbsp;&nbsp; password: <b>Admin@123</b></td></tr>
+  <tr><td class="lbl">Administrator 2</td><td>user: <b>madhubabu</b> &nbsp;&nbsp; password: <b>Admin@123</b></td></tr>
+  <tr><td class="lbl">Administrator 3</td><td>user: <b>sureshbabu</b> &nbsp;&nbsp; password: <b>Admin@123</b></td></tr>
+</table>
+
+<p>The three administrator accounts are protected and cannot be deactivated or deleted, even by another administrator. Any one of them can reset any user&rsquo;s password and create new users from the Management screen, without involving the developer.</p>
+
+<!-- ═════════ PAGE 2 ═════════ -->
+<h1 class="page-break">4. What the System Costs to Run</h1>
+
+<p>There are exactly four billable items and nothing else. The rates below are Amazon&rsquo;s published prices for the Hyderabad region, public and checkable by anyone.</p>
+
+<table>
+  <tr><th style="width:20%">Item</th><th style="width:34%">What it is</th><th class="num" style="width:18%">Rate</th><th class="num" style="width:12%">Quantity</th><th class="num" style="width:16%">Per month</th></tr>
+  <tr><td><b>Server</b></td><td>The computer running the system, 2 processors, 2 GB memory</td><td class="num">$0.0112 / hour</td><td class="num">730 hrs</td><td class="num">$8.18</td></tr>
+  <tr><td><b>Disk</b></td><td>30 GB holding the system, database and all documents</td><td class="num">$0.0912 / GB / month</td><td class="num">30 GB</td><td class="num">$2.74</td></tr>
+  <tr><td><b>Fixed address</b></td><td>Permanent address so the URL never changes</td><td class="num">$0.005 / hour</td><td class="num">730 hrs</td><td class="num">$3.65</td></tr>
+  <tr><td><b>Backup storage</b></td><td>Separate archive holding the weekly backups</td><td class="num">$0.025 / GB / month</td><td class="num">0.77 GB</td><td class="num">$0.02</td></tr>
+  <tr><td><b>Data transfer</b></td><td>Information sent to users&rsquo; browsers</td><td class="num">First 100 GB free</td><td class="num">3.55 GB</td><td class="num">$0.00</td></tr>
+  <tr class="total"><td colspan="4">Total to run the entire system</td><td class="num">$14.59</td></tr>
+</table>
+
+<div class="hero">
+  <div class="sub">TOTAL RUNNING COST</div>
+  <div class="amt">$14.59 <small>per month</small></div>
+  <div class="sub">Approximately &#8377;1,284 per month. AWS invoices in US dollars, so the rupee figure moves with the exchange rate.</div>
+</div>
+
+<div class="cols">
+  <div>
+    <h2>What has actually been charged</h2>
+    <table>
+      <tr><th>Period</th><th class="num">Metered</th><th class="num">Paid</th></tr>
+      <tr><td>21 to 31 May 2026</td><td class="num">$2.08</td><td class="num">$0.00</td></tr>
+      <tr><td>June 2026</td><td class="num">$6.34</td><td class="num">$0.00</td></tr>
+      <tr><td>July 2026</td><td class="num">$6.47</td><td class="num">$0.00</td></tr>
+      <tr><td>01 to 03 Aug 2026</td><td class="num">$0.61</td><td class="num">$0.00</td></tr>
+      <tr class="total"><td>To date</td><td class="num">$15.50</td><td class="num">$0.00</td></tr>
+    </table>
+    <p>Nothing has been paid to date. Promotional credits have absorbed all metered usage, and the server charge is separately metered at zero under an introductory allowance. Neither is permanent.</p>
+  </div>
+  <div>
+    <h2>What does not increase the cost</h2>
+    <p>None of the following adds any amount to the invoice: adding users, of any role, in any number (this is <b>not</b> a per-seat licence); adding units; raising more purchase requests, orders, work orders, gate passes or inspections; staff logging in more often; running reports; receiving notifications. The only thing that raises the invoice is enlarging the disk, per Section 5.</p>
+  </div>
+</div>
+
+<div class="box warn">
+  <b class="lbl">Budget on this figure</b>
+  <p>Budget <b>$14.59 per month, approximately &#8377;1,284</b>, and treat the present zero charge as a temporary benefit. If the credits and the server allowance both ended tomorrow, the invoice would move from &#8377;0 to approximately &#8377;1,284 per month <b>and no further</b>. There is no cliff, no penalty and no other charge waiting behind them.</p>
+</div>
+
+<h1>5. Storage: How Long It Lasts, and the Cost After That</h1>
+
+<div class="cols">
+  <div>
+    <h2>Present position</h2>
+    <table>
+      <tr><th>Item</th><th class="num">Size</th></tr>
+      <tr><td>Disk paid for</td><td class="num">30 GB</td></tr>
+      <tr><td>Usable after formatting</td><td class="num">29 GB</td></tr>
+      <tr><td>In use today</td><td class="num">9.2 GB (33&#37;)</td></tr>
+      <tr class="total"><td>Free</td><td class="num">19 GB</td></tr>
+    </table>
+    <p>Of the 9.2 GB used, about 8.8 GB is operating system, reserved space and the application itself, none of which grows. Only business data grows: database 18 MB plus documents 364 MB, being <b>382 MB after two and a half months of live use</b>.</p>
+  </div>
+  <div>
+    <h2>Measured rate of consumption</h2>
+    <table>
+      <tr><th>Period</th><th class="num">Files</th><th class="num">Storage</th></tr>
+      <tr><td>21 to 31 May 2026 (part)</td><td class="num">33</td><td class="num">33.2 MB</td></tr>
+      <tr><td>June 2026</td><td class="num">273</td><td class="num">169.3 MB</td></tr>
+      <tr><td>July 2026</td><td class="num">208</td><td class="num">140.0 MB</td></tr>
+      <tr class="total"><td>Average, full months</td><td class="num">241</td><td class="num">154.7 MB</td></tr>
+    </table>
+    <p>With database growth of about 10 MB per month, the measured rate is <b>about 165 MB per month</b>. These are file dates read from the server, not estimates.</p>
+  </div>
+</div>
+
+<p>Nineteen gigabytes are free. Setting aside 3 GB for backup working space and system updates leaves 16 GB for growth. <b>The monthly cost stays flat at $14.59 for the whole of that period</b>, because nothing on the invoice changes as users and documents are added.</p>
+
+<table>
+  <tr><th>If documents are added at</th><th class="num">Growth per month</th><th class="num">Disk lasts</th><th class="num">Approx. date full</th><th class="num">Total cost over that period</th></tr>
+  <tr><td>the rate measured in June and July 2026</td><td class="num">165 MB</td><td class="num">99 months (8 yr 3 mo)</td><td class="num">November 2034</td><td class="num">$1,444 (&#8377;1,27,108)</td></tr>
+  <tr><td>twice the measured rate</td><td class="num">330 MB</td><td class="num">49 months (4 yr 1 mo)</td><td class="num">September 2030</td><td class="num">$715 (&#8377;62,912)</td></tr>
+  <tr><td>five times the measured rate</td><td class="num">825 MB</td><td class="num">19 months (1 yr 7 mo)</td><td class="num">March 2028</td><td class="num">$277 (&#8377;24,394)</td></tr>
+  <tr><td>ten times the measured rate</td><td class="num">1,650 MB</td><td class="num">9 months</td><td class="num">May 2027</td><td class="num">$131 (&#8377;11,555)</td></tr>
+</table>
+
+<p><b>Cost after the disk is enlarged.</b> Exactly one line on the invoice changes; everything else stays at $11.85 per month. Each additional 20 GB costs <b>$1.82 per month</b>: going from 30 GB to 100 GB adds <b>$6.38 per month, about &#8377;562</b>, and buys roughly thirty-six years of headroom. Enlarging happens while the system is running, with no downtime and no change to the address staff type. A disk can be enlarged but never reduced. Enlarge at 80&#37; full; there is no advantage in buying space early, as AWS charges only for the size provisioned.</p>
+
+<table>
+  <tr><th>Disk size</th><th class="num">Disk charge</th><th class="num">Everything else</th><th class="num">New total per month</th><th class="num">Indicative INR</th><th class="num">Space gained</th><th class="num">Extra life at measured rate</th></tr>
+  <tr><td><b>30 GB (present)</b></td><td class="num">$2.74</td><td class="num">$11.85</td><td class="num"><b>$14.59</b></td><td class="num">&#8377;1,284</td><td class="num">present position</td><td class="num">see above</td></tr>
+  <tr><td>50 GB</td><td class="num">$4.56</td><td class="num">$11.85</td><td class="num"><b>$16.41</b></td><td class="num">&#8377;1,444</td><td class="num">20 GB</td><td class="num">about 10 years</td></tr>
+  <tr><td>100 GB</td><td class="num">$9.12</td><td class="num">$11.85</td><td class="num"><b>$20.97</b></td><td class="num">&#8377;1,845</td><td class="num">70 GB</td><td class="num">about 36 years</td></tr>
+  <tr><td>200 GB</td><td class="num">$18.24</td><td class="num">$11.85</td><td class="num"><b>$30.09</b></td><td class="num">&#8377;2,648</td><td class="num">170 GB</td><td class="num">about 87 years</td></tr>
+</table>
+
+<!-- ═════════ PAGE 3 ═════════ -->
+<h1 class="page-break">6. Backups</h1>
+
+<p>A backup runs automatically <b>every Sunday at 00:30 India Standard Time</b>. Nobody has to remember it and nobody can forget it. Each run takes a complete copy of the database and of every uploaded document, seals them into one file with a manifest, and uploads it to separate private storage in the Hyderabad region.</p>
+
+<div class="cols">
+  <div>
+    <h2>How long each copy is kept</h2>
+    <table>
+      <tr><th>Tier</th><th>Taken</th><th>Kept</th></tr>
+      <tr><td>Weekly</td><td>Every Sunday</td><td>Until next Sunday</td></tr>
+      <tr><td>Monthly</td><td>Last Sunday of the month</td><td>Until the quarter closes</td></tr>
+      <tr><td>Quarterly</td><td>Last Sun of Jun, Sep, Dec, Mar</td><td>Until the half-year closes</td></tr>
+      <tr><td>Half-yearly</td><td>Last Sunday of Sep and Mar</td><td>Until the financial year closes</td></tr>
+      <tr class="total"><td>Yearly</td><td>Last Sunday of March</td><td><b>Permanently</b></td></tr>
+    </table>
+    <p>Aligned to the Indian financial year, 1 April to 31 March. <b>One complete permanent copy exists for every financial year</b>, for as long as the account exists. An overwritten file is also recoverable for 30 days.</p>
+  </div>
+  <div>
+    <h2>Evidence it is working</h2>
+    <table>
+      <tr><th>Last run</th><th>Recorded</th></tr>
+      <tr><td>Date and time</td><td>Sunday 01 August 2026, 00:30 IST</td></tr>
+      <tr><td>Database copied</td><td>Yes, 492 KB compressed</td></tr>
+      <tr><td>Documents copied</td><td>519 files</td></tr>
+      <tr><td>Sealed file size</td><td>324 MB</td></tr>
+      <tr><td>Result</td><td>Completed successfully in 36 seconds</td></tr>
+    </table>
+    <p>The archive holds 13 files totalling 788 MB. Every Sunday since 30 May 2026 completed successfully and is recorded in the log. A documented restore procedure exists and returns records and their attachments together.</p>
+  </div>
+</div>
+
+<div class="box warn">
+  <b class="lbl">Stated plainly</b>
+  <p>The cycle is weekly, not daily. If the server and its disk were lost completely at the same moment, work entered since the previous Sunday would have to be re-entered. If the company wants that exposure reduced, the backup can be run daily instead. It is a scheduling change only and adds roughly $0.10 to $0.20 per month.</p>
+</div>
+
+<h1>7. How the Company Verifies All of This for Itself</h1>
+
+<p>Nothing here requires taking the developer&rsquo;s word for it. Each item below is checked from a source the company controls and the developer does not.</p>
+
+<table>
+  <tr><th style="width:20%">To check</th><th style="width:38%">Do this</th><th>Why it settles the question</th></tr>
+  <tr><td><b>The cost</b></td><td>Sign in at console.aws.amazon.com with admin@rameshs.ind.in, open Billing, then Cost Explorer.</td><td>Every charge since the account opened, itemised by Amazon, month by month. The figures in Section 4 are read there directly.</td></tr>
+  <tr><td><b>Future cost</b></td><td>In the same Billing screen, set a budget of say $20 per month with an email alert.</td><td>Costs nothing, takes two minutes. AWS emails the company if spending is forecast to exceed it, turning the estimates here into something monitored automatically.</td></tr>
+  <tr><td><b>The rates</b></td><td>Compare Section 4 against Amazon&rsquo;s public pricing pages for the Hyderabad region.</td><td>They are Amazon&rsquo;s own published prices, not the developer&rsquo;s.</td></tr>
+  <tr><td><b>The backups</b></td><td>Two independent ways: the Backups page in the ERP under the system-owner login, and the storage browser in the AWS console. Then download any backup file and open it.</td><td>The two views are independent and must agree. If a Sunday backup did not happen it appears in neither. Opening a downloaded file is the only conclusive test, and the company may do it at any time without notice.</td></tr>
+  <tr><td><b>Users and actions</b></td><td>Open the Management screen for the user list, and the Audit Log screen for activity. Perform any action, then find it in the log.</td><td>Management lists every account with role and status: the figure of 32 is that list, counted. The audit log records the person and exact time and cannot be edited or cleared from within the application by anyone.</td></tr>
+  <tr><td><b>That the company is in control</b></td><td>Sign in to AWS with admin@rameshs.ind.in and change the account password.</td><td>The single most direct test. If the company can do this, and it can, no other party can override the company on the servers, the data, the backups or the billing.</td></tr>
+</table>
+
+<h1 class="page-break">8. How Changes Are Made From Here</h1>
+
+<p>This is one central system running one version for everybody. Nothing is ever downloaded, installed or updated by a user. A change is made once, in one place, and everyone has it.</p>
+
+<div class="cols">
+  <div>
+    <h2>The sequence</h2>
+    <ol>
+      <li><b>Requested in writing</b>, stating the screen, what it does today and what it should do instead. This fixes the scope and avoids disagreement later about what was asked for.</li>
+      <li><b>Written and tested on a separate copy.</b> The live system staff are using is never edited directly and never used as a testing ground.</li>
+      <li><b>Recorded</b> in the version control history with date and description, giving a permanent dated record of what changed and when.</li>
+      <li><b>Deployed</b> to the live server, and <b>received by users</b> at their next page refresh. No action required from anyone.</li>
+    </ol>
+  </div>
+  <div>
+    <h2>Time to reach users</h2>
+    <table>
+      <tr><th>Kind of change</th><th class="num">Time</th><th class="num">Interruption</th></tr>
+      <tr><td>Wording, labels, layout, corrections</td><td class="num">2 to 5 min</td><td class="num">None</td></tr>
+      <tr><td>New screen or feature</td><td class="num">5 to 10 min</td><td class="num">None</td></tr>
+      <tr><td>Change to stored data structure</td><td class="num">5 to 15 min</td><td class="num">A few seconds</td></tr>
+      <tr><td>Major upgrade</td><td class="num">Scheduled</td><td class="num">Planned window</td></tr>
+    </table>
+    <p>Work that may interrupt use is notified at least 24 hours ahead to admin@rameshs.ind.in and scheduled outside working hours, ordinarily Sunday between 22:00 and 06:00 IST.</p>
+  </div>
+</div>
+
+<div class="box ok">
+  <b class="lbl">Protections that apply to every change</b>
+  <p><b>Data is never overwritten by an update.</b> An update replaces programme code. It does not replace, reset or clear business records: purchase orders, work orders, stock, documents and the audit log all survive. Structural changes are applied as numbered ordered revisions, 107 to date, and the system refuses to start against a database that has not received them in the correct order, so a half-applied change can never go live. The Sunday backup is scheduled independently of any deployment, so a copy from before every change always exists. Any change can be reversed from the version control history.</p>
+</div>
+
+<h1>9. What Is Not Included in the Monthly Cost</h1>
+
+<table>
+  <tr><th style="width:22%">Item</th><th>Position</th></tr>
+  <tr><td><b>A custom web address</b></td><td>If the company wants the system on an address at its own domain, the domain is paid annually to a registrar, not to AWS and not to the developer. Typically &#8377;700 to &#8377;1,500 per year. The encryption certificate for it costs nothing and renews automatically.</td></tr>
+  <tr><td><b>Email or SMS sending</b></td><td>Notifications inside the system and browser alerts cost nothing and already work. Sending email or text messages to people outside the system would carry per-message gateway charges.</td></tr>
+  <tr><td><b>Migrating old data</b></td><td>Bringing historical records in from spreadsheets or legacy software is separate work, quoted once the source data has been seen.</td></tr>
+  <tr><td><b>Enlarging the disk</b></td><td>The AWS charge for the larger size, per Section 5. There is no separate charge for making the change.</td></tr>
+  <tr><td><b>Equipment and tax</b></td><td>Computers, phones, browsers and connectivity at the company&rsquo;s premises. Any tax AWS applies, shown separately on its invoice.</td></tr>
+</table>
+
+<h1>10. Important Points and Disclaimer</h1>
+
+<div class="cols">
+  <div>
+    <p><b>1. Prices can change.</b> Every rate in this note is Amazon&rsquo;s published price for the Hyderabad region as at 04 August 2026. Amazon may revise its prices at any time and is not contractually prevented from raising them, although historically it has reduced cloud prices far more often than raised them. The AWS console always shows the current position and should be treated as the authority over any figure printed here.</p>
+
+    <p><b>2. The rupee figures are indicative.</b> AWS invoices this account in US dollars. Rupee amounts throughout are converted at &#8377;88 to one dollar purely for readability. The rupee sum actually debited will move up or down with the exchange rate on each invoice date. The dollar figures are the real ones.</p>
+
+    <p><b>3. The present zero charge is not permanent.</b> Nothing has been paid so far only because promotional credits and an introductory server allowance are absorbing the cost. Both are granted by Amazon at its discretion. Neither the company nor the developer controls them or can extend them. Budget on $14.59 per month as though they had already ended.</p>
+
+    <p><b>4. A month is counted as 730 hours.</b> Months of 31 days meter about 2&#37; higher, at $14.81 rather than $14.59.</p>
+  </div>
+  <div>
+    <p><b>5. Storage projections are arithmetic, not a promise.</b> They extend the growth measured across June and July 2026, which is a two-month base. If working patterns change, in particular if large drawings or high-resolution photographs begin to be stored, consumption will rise and the scenario rows in Section 5 should be read instead of the headline figure.</p>
+
+    <p><b>6. The passwords in Section 3 are live as at this date.</b> Change them on first sign-in. Once changed, this document is deliberately out of date on that point, and the new passwords should be recorded separately and kept confidential.</p>
+
+    <p><b>7. Counts rise with use.</b> Users, documents, records and storage figures are measured values read on 04 August 2026. All of them will read higher when checked later. That is normal and is not a discrepancy.</p>
+
+    <p><b>8. The backup cycle is weekly, not daily.</b> The exposure that follows from this is stated in full in Section 6 and has not been softened anywhere in this note.</p>
+
+    <p><b>9. Status of this note.</b> It records the position of the system and how it is operated, verified against the live system and AWS billing records on 04 August 2026. It is an information document. It is not a contract and does not vary any separate agreement between the parties.</p>
+  </div>
+</div>
+
+<div class="box cred">
+  <p><b>Confidential.</b> Prepared for Ramesh&rsquo;s Aerospace Products &amp; Services Pvt. Ltd. only. Contains live account passwords in Section 3. Keep with the company&rsquo;s confidential records and do not circulate.</p>
+</div>
+
+</body>
+</html>
