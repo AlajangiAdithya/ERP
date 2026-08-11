@@ -636,6 +636,10 @@ function FimStatusView({ user, onOpenProduct }) {
   // only route back when a FIM ends up on the wrong unit or accepted in error.
   const [statusTarget, setStatusTarget] = useState(null); // batch
   const [statusForm, setStatusForm] = useState({ status: '', unitId: '', remark: '', note: '', reason: '' });
+  // Probable return date — lives on the source inward gate pass line, and drives
+  // the overdue countdown, so changing it is reasoned + logged.
+  const [returnTarget, setReturnTarget] = useState(null); // batch
+  const [returnForm, setReturnForm] = useState({ date: '', reason: '' });
   const [assigningUnitId, setAssigningUnitId] = useState('');
   const [acceptRemark, setAcceptRemark] = useState('');
   const [editRemarkText, setEditRemarkText] = useState('');
@@ -774,6 +778,31 @@ function FimStatusView({ user, onOpenProduct }) {
       fetchBatches();
     } catch (err) {
       setActionError(err.response?.data?.error || 'Failed to change status');
+    }
+    setActionBusy(false);
+  };
+
+  const openReturnEdit = (b) => {
+    const existing = b.sourceInwardGatePassItem?.probableReturnDate;
+    setReturnTarget(b);
+    setReturnForm({ date: existing ? String(existing).slice(0, 10) : '', reason: '' });
+    setActionError('');
+  };
+
+  const submitReturnDate = async () => {
+    setActionError('');
+    setActionBusy(true);
+    try {
+      await api.put(`/gatepasses/fim-batches/${returnTarget.id}/probable-return`, {
+        probableReturnDate: returnForm.date || null,
+        reason: returnForm.reason.trim(),
+      });
+      setReturnTarget(null);
+      setFlash('Probable return date updated — the unit and Stores have been notified.');
+      setTimeout(() => setFlash(''), 6000);
+      fetchBatches();
+    } catch (err) {
+      setActionError(err.response?.data?.error || 'Failed to change the return date');
     }
     setActionBusy(false);
   };
@@ -917,6 +946,9 @@ function FimStatusView({ user, onOpenProduct }) {
                   const outwardLinks = Array.isArray(it.outwardLinkedItems) ? it.outwardLinkedItems : [];
                   const lastOutward = outwardLinks[0]?.gatePass;
                   const alreadySentOut = outwardLinks.length > 0;
+                  // Stores own the return leg; Admin oversees. Pointless once the
+                  // material has physically gone back to the customer.
+                  const canEditReturnDate = isStores && !!it.id && !lastOutward?.actualReturnDate;
                   const isReady = !!b.readyToSendOutAt;
                   // Unit manager (or admin) marks the FIM ready first.
                   const canMarkReady = isReturnable
@@ -1035,9 +1067,20 @@ function FimStatusView({ user, onOpenProduct }) {
 
                       {/* ── Return Tracking ── */}
                       <td className="px-3 py-3">
-                        {it.probableReturnDate ? (
-                          <div className="text-[11px] text-gray-800">{new Date(it.probableReturnDate).toLocaleDateString()}</div>
-                        ) : <span className="text-gray-400 text-[11px]">—</span>}
+                        <div className="flex items-start gap-1">
+                          {it.probableReturnDate ? (
+                            <div className="text-[11px] text-gray-800">{new Date(it.probableReturnDate).toLocaleDateString()}</div>
+                          ) : <span className="text-gray-400 text-[11px]">—</span>}
+                          {canEditReturnDate && (
+                            <button
+                              onClick={() => openReturnEdit(b)}
+                              title="Change probable return date"
+                              className="p-0.5 rounded hover:bg-navy-50 text-navy-700 shrink-0"
+                            >
+                              <Pencil size={11} />
+                            </button>
+                          )}
+                        </div>
                         {cd && (
                           <div
                             className={`mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
@@ -1382,6 +1425,60 @@ function FimStatusView({ user, onOpenProduct }) {
               <Button variant="secondary" onClick={() => setReadyTarget(null)} disabled={actionBusy}>Cancel</Button>
               <Button onClick={submitMarkReady} disabled={actionBusy}>
                 <PackageCheck size={14} /> {actionBusy ? 'Saving…' : 'Mark Ready to Collect'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Probable return date. Stored on the source inward gate pass line, so a
+          change here also moves the overdue countdown on this register. */}
+      {returnTarget && (
+        <Modal isOpen onClose={() => setReturnTarget(null)} title="Change probable return date">
+          <div className="space-y-4">
+            {actionError && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{actionError}</div>}
+
+            <div className="text-sm text-gray-700">
+              <strong>{returnTarget.product?.name}</strong>
+              <span className="text-gray-500"> · currently </span>
+              <span className="font-medium">
+                {returnTarget.sourceInwardGatePassItem?.probableReturnDate
+                  ? new Date(returnTarget.sourceInwardGatePassItem.probableReturnDate).toLocaleDateString()
+                  : 'not set'}
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">New probable return date</label>
+              <input
+                type="date"
+                value={returnForm.date}
+                onChange={(e) => setReturnForm((f) => ({ ...f, date: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
+              />
+              <p className="text-[11px] text-gray-500 mt-1">Leave empty to clear the date and stop the countdown.</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Reason for the change</label>
+              <textarea
+                rows={2}
+                value={returnForm.reason}
+                onChange={(e) => setReturnForm((f) => ({ ...f, reason: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
+                placeholder="e.g. Customer extended the loan period by one month over email"
+              />
+            </div>
+
+            <p className="text-[11px] text-gray-500">
+              This date drives the overdue countdown on the register, so the old and new dates are recorded in the
+              audit log with your reason, and the assigned unit and Stores are notified.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
+              <Button variant="secondary" onClick={() => setReturnTarget(null)} disabled={actionBusy}>Cancel</Button>
+              <Button onClick={submitReturnDate} disabled={actionBusy}>
+                {actionBusy ? 'Saving…' : 'Save date'}
               </Button>
             </div>
           </div>

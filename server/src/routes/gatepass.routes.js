@@ -1962,6 +1962,109 @@ router.put('/fim-batches/:id/status', authenticate, authorize('ADMIN'), async (r
   }
 });
 
+// PUT /api/gatepasses/fim-batches/:id/probable-return — change the customer's
+// expected return date for a FIM line.
+//
+// The date lives on the source INWARD GatePassItem, not the batch, so it is
+// reached through sourceInwardGatePassItemId. It drives the overdue countdown
+// on the FIM register — pushing it out makes an overdue item look healthy —
+// so the change carries a reason and is audit-logged with the old and new date.
+//
+// Body: { probableReturnDate (ISO date, or null to clear), reason }
+router.put('/fim-batches/:id/probable-return', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const { probableReturnDate, reason } = req.body || {};
+
+    const check = validateReason(reason, { fieldLabel: 'reason for the date change' });
+    if (!check.ok) return res.status(400).json({ error: check.error });
+
+    let nextDate = null;
+    if (probableReturnDate) {
+      nextDate = new Date(probableReturnDate);
+      if (Number.isNaN(nextDate.getTime())) return res.status(400).json({ error: 'Invalid date' });
+    }
+
+    const batch = await prisma.productBatch.findUnique({
+      where: { id: req.params.id },
+      include: {
+        product: { select: { id: true, name: true } },
+        assignedToUnit: { select: { id: true, name: true, code: true } },
+        sourceInwardGatePassItem: { select: { id: true, description: true, probableReturnDate: true } },
+      },
+    });
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+    if (!batch.isFim) return res.status(400).json({ error: 'Only FIM batches have a probable return date' });
+
+    const item = batch.sourceInwardGatePassItem;
+    if (!item) {
+      return res.status(400).json({
+        error: 'This FIM batch is not linked to an inward gate pass line, so it has no return date to change.',
+      });
+    }
+
+    const previous = item.probableReturnDate;
+    await prisma.gatePassItem.update({
+      where: { id: item.id },
+      data: { probableReturnDate: nextDate },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'FIM_PROBABLE_RETURN_CHANGE',
+        entity: 'GatePassItem',
+        entityId: item.id,
+        details: {
+          batchId: batch.id,
+          productId: batch.productId,
+          from: previous ? previous.toISOString() : null,
+          to: nextDate ? nextDate.toISOString() : null,
+          reason: check.cleaned,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    // The assigned unit is holding the material against this date, and Stores
+    // plan the return leg from it — both need to know it moved.
+    const fmt = (d) => (d ? new Date(d).toLocaleDateString('en-GB') : 'not set');
+    const message = `${req.user.name} changed the probable return date for FIM ${batch.product.name} from ${fmt(previous)} to ${fmt(nextDate)}. Reason: ${check.cleaned}`;
+
+    if (batch.assignedToUnitId) {
+      const managers = await prisma.user.findMany({
+        where: { role: 'MANAGER', unitId: batch.assignedToUnitId, isActive: true },
+        select: { id: true },
+      });
+      for (const m of managers) {
+        await notify({
+          type: 'GATE_PASS_INWARD',
+          title: `FIM return date changed: ${batch.product.name}`,
+          message,
+          targetUserId: m.id,
+          sentById: req.user.id,
+        });
+      }
+    }
+    await notify({
+      type: 'GATE_PASS_INWARD',
+      title: `FIM return date changed: ${batch.product.name}`,
+      message,
+      targetRole: 'STORE_MANAGER',
+      sentById: req.user.id,
+    });
+
+    // Return the refreshed batch so the register can re-render in place.
+    const updated = await prisma.productBatch.findUnique({
+      where: { id: batch.id },
+      include: BATCH_FIM_INCLUDE,
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('FIM probable-return change error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // PUT /api/gatepasses/fim-batches/:id/assign — Stores assigns a FIM batch to a unit.
 // Cannot be changed once the unit has accepted.
 router.put('/fim-batches/:id/assign', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
