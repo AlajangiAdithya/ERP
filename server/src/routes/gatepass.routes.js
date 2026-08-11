@@ -1802,6 +1802,166 @@ const BATCH_FIM_INCLUDE = {
   },
 };
 
+// The FIM lifecycle, in order. Each stage is defined by which columns are set,
+// so a batch's stage is always derivable from the row rather than stored twice.
+const FIM_STAGES = ['IN_STORES', 'ASSIGNED', 'ACCEPTED', 'READY_TO_SEND'];
+
+const fimStageOf = (batch) => {
+  if (batch.readyToSendOutAt) return 'READY_TO_SEND';
+  if (batch.unitAcceptedAt) return 'ACCEPTED';
+  if (batch.assignedToUnitId) return 'ASSIGNED';
+  return 'IN_STORES';
+};
+
+// PUT /api/gatepasses/fim-batches/:id/status — ADMIN status override.
+//
+// The normal transitions are deliberately one-way: assignment locks on
+// acceptance, acceptance is final, ready can only follow acceptance. That is
+// right for day-to-day use but leaves no way to correct a mistake — a FIM
+// accepted by the wrong unit was stuck there permanently. This lets an admin
+// set the batch to any stage and writes EVERY dependent column to match, so the
+// row can never end up half-way between two stages (accepted with no unit,
+// ready without acceptance, and so on).
+//
+// Body: { status, unitId?, remark?, note?, reason }
+router.put('/fim-batches/:id/status', authenticate, authorize('ADMIN'), async (req, res) => {
+  try {
+    const { status, unitId, remark, note, reason } = req.body || {};
+    if (!FIM_STAGES.includes(status)) {
+      return res.status(400).json({ error: `status must be one of: ${FIM_STAGES.join(', ')}` });
+    }
+
+    // An override rewrites someone else's recorded action, so it has to say why.
+    const check = validateReason(reason, { fieldLabel: 'reason for the status change' });
+    if (!check.ok) return res.status(400).json({ error: check.error });
+
+    const batch = await prisma.productBatch.findUnique({
+      where: { id: req.params.id },
+      include: {
+        product: { select: { id: true, name: true } },
+        assignedToUnit: { select: { id: true, name: true, code: true } },
+        sourceInwardGatePassItem: { include: { outwardLinkedItems: { select: { id: true } } } },
+      },
+    });
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+    if (!batch.isFim) return res.status(400).json({ error: 'Only FIM batches have a FIM status' });
+
+    // Once Stores has raised the return gate pass the material is on its way
+    // back to the customer. Rewinding the batch would leave that outward pass
+    // pointing at a batch that claims it was never sent, so this is refused
+    // rather than silently allowed.
+    if ((batch.sourceInwardGatePassItem?.outwardLinkedItems || []).length > 0) {
+      return res.status(400).json({
+        error: 'Return gate pass already created for this FIM — cancel that gate pass before changing the status.',
+      });
+    }
+
+    const from = fimStageOf(batch);
+    const targetUnitId = unitId || batch.assignedToUnitId;
+    const unitChanged = !!(unitId && unitId !== batch.assignedToUnitId);
+
+    if (status !== 'IN_STORES') {
+      if (!targetUnitId) return res.status(400).json({ error: 'A unit is required for this status' });
+      const unit = await prisma.unit.findUnique({ where: { id: targetUnitId } });
+      if (!unit) return res.status(400).json({ error: 'Unit not found' });
+    }
+
+    // Acceptance carries a remark; keep the original when one already exists so
+    // an override doesn't wipe what the unit actually wrote.
+    const acceptRemark = (remark && String(remark).trim()) || batch.unitAcceptedRemarks;
+    if ((status === 'ACCEPTED' || status === 'READY_TO_SEND') && !acceptRemark) {
+      return res.status(400).json({ error: 'An acceptance remark is required for this status' });
+    }
+
+    const now = new Date();
+    const wantAssigned = status !== 'IN_STORES';
+    const wantAccepted = status === 'ACCEPTED' || status === 'READY_TO_SEND';
+    const wantReady = status === 'READY_TO_SEND';
+
+    // Preserve who did what when a stage was already reached and stays reached —
+    // an override should correct the record, not rewrite genuine history. A
+    // change of unit makes the assignment new, so that one is re-attributed.
+    const keepAssignment = batch.assignedToUnitId && !unitChanged;
+    const keepAcceptance = batch.unitAcceptedAt && wantAccepted && !unitChanged;
+    const keepReady = batch.readyToSendOutAt && wantReady;
+
+    const data = {
+      assignedToUnitId: wantAssigned ? targetUnitId : null,
+      assignedAt: wantAssigned ? (keepAssignment ? batch.assignedAt : now) : null,
+      assignedById: wantAssigned ? (keepAssignment ? batch.assignedById : req.user.id) : null,
+
+      unitAcceptedAt: wantAccepted ? (keepAcceptance ? batch.unitAcceptedAt : now) : null,
+      unitAcceptedById: wantAccepted ? (keepAcceptance ? batch.unitAcceptedById : req.user.id) : null,
+      unitAcceptedRemarks: wantAccepted ? acceptRemark : null,
+
+      readyToSendOutAt: wantReady ? (keepReady ? batch.readyToSendOutAt : now) : null,
+      readyToSendOutById: wantReady ? (keepReady ? batch.readyToSendOutById : req.user.id) : null,
+      readyToSendOutNote: wantReady
+        ? ((note && String(note).trim()) || batch.readyToSendOutNote || null)
+        : null,
+    };
+
+    const updated = await prisma.productBatch.update({
+      where: { id: batch.id },
+      data,
+      include: BATCH_FIM_INCLUDE,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'FIM_STATUS_OVERRIDE',
+        entity: 'ProductBatch',
+        entityId: updated.id,
+        details: {
+          productId: updated.productId,
+          from,
+          to: status,
+          fromUnitId: batch.assignedToUnitId || null,
+          toUnitId: updated.assignedToUnitId || null,
+          reason: check.cleaned,
+        },
+        ipAddress: req.ip,
+      },
+    });
+
+    // Tell everyone whose view of this FIM just changed: the unit it left, the
+    // unit it landed on, and Stores (who own the return leg).
+    const affectedUnitIds = [...new Set([batch.assignedToUnitId, updated.assignedToUnitId].filter(Boolean))];
+    const managers = affectedUnitIds.length
+      ? await prisma.user.findMany({
+          where: { role: 'MANAGER', unitId: { in: affectedUnitIds }, isActive: true },
+          select: { id: true },
+        })
+      : [];
+    const stageLabel = { IN_STORES: 'back to Stores', ASSIGNED: 'Assigned', ACCEPTED: 'Accepted', READY_TO_SEND: 'Ready to send out' };
+    const unitLabel = updated.assignedToUnit?.name || updated.assignedToUnit?.code || 'Stores';
+    const message = `${req.user.name} changed FIM ${updated.product.name} (qty ${updated.quantity}) from ${stageLabel[from]} to ${stageLabel[status]}${wantAssigned ? ` (${unitLabel})` : ''}. Reason: ${check.cleaned}`;
+
+    for (const m of managers) {
+      await notify({
+        type: 'GATE_PASS_INWARD',
+        title: `FIM status changed: ${updated.product.name}`,
+        message,
+        targetUserId: m.id,
+        sentById: req.user.id,
+      });
+    }
+    await notify({
+      type: 'GATE_PASS_INWARD',
+      title: `FIM status changed: ${updated.product.name}`,
+      message,
+      targetRole: 'STORE_MANAGER',
+      sentById: req.user.id,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('FIM status override error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // PUT /api/gatepasses/fim-batches/:id/assign — Stores assigns a FIM batch to a unit.
 // Cannot be changed once the unit has accepted.
 router.put('/fim-batches/:id/assign', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {

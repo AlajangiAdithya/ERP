@@ -608,6 +608,16 @@ export default function Products() {
   );
 }
 
+// FIM lifecycle stages, in order. Mirrors FIM_STAGES on the server — a batch's
+// stage is derived from which columns are set, never stored separately.
+const FIM_STATUS_ORDER = ['IN_STORES', 'ASSIGNED', 'ACCEPTED', 'READY_TO_SEND'];
+const FIM_STATUS_LABELS = {
+  IN_STORES: 'In stores (unassigned)',
+  ASSIGNED: 'Assigned to unit — awaiting acceptance',
+  ACCEPTED: 'Accepted by unit',
+  READY_TO_SEND: 'Ready to collect / send out',
+};
+
 // ──── FIM Status tab ────
 // Lists every FIM batch (customer-owned material inwarded via INWARD gate pass)
 // with assignment + acceptance controls and a red return-date countdown.
@@ -622,6 +632,10 @@ function FimStatusView({ user, onOpenProduct }) {
   const [editRemarkTarget, setEditRemarkTarget] = useState(null); // { batchId, productName, existing }
   const [readyTarget, setReadyTarget] = useState(null); // batch (unit manager marks ready)
   const [sendOutTarget, setSendOutTarget] = useState(null); // batch (stores ships)
+  // ADMIN status override — the normal transitions are one-way, so this is the
+  // only route back when a FIM ends up on the wrong unit or accepted in error.
+  const [statusTarget, setStatusTarget] = useState(null); // batch
+  const [statusForm, setStatusForm] = useState({ status: '', unitId: '', remark: '', note: '', reason: '' });
   const [assigningUnitId, setAssigningUnitId] = useState('');
   const [acceptRemark, setAcceptRemark] = useState('');
   const [editRemarkText, setEditRemarkText] = useState('');
@@ -715,6 +729,53 @@ function FimStatusView({ user, onOpenProduct }) {
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to withdraw ready flag');
     }
+  };
+
+  // Current lifecycle stage of a batch, mirroring the server's fimStageOf().
+  const stageOf = (b) => {
+    if (b.readyToSendOutAt) return 'READY_TO_SEND';
+    if (b.unitAcceptedAt) return 'ACCEPTED';
+    if (b.assignedToUnitId) return 'ASSIGNED';
+    return 'IN_STORES';
+  };
+
+  const openStatusOverride = (b) => {
+    setStatusTarget(b);
+    setStatusForm({
+      status: stageOf(b),
+      unitId: b.assignedToUnitId || '',
+      remark: b.unitAcceptedRemarks || '',
+      note: b.readyToSendOutNote || '',
+      reason: '',
+    });
+    setActionError('');
+  };
+
+  const submitStatusOverride = async () => {
+    setActionError('');
+    const { status, unitId, remark, note, reason } = statusForm;
+    if (!status) return setActionError('Choose a status');
+    if (status !== 'IN_STORES' && !unitId) return setActionError('Choose the unit this FIM sits with');
+    if ((status === 'ACCEPTED' || status === 'READY_TO_SEND') && !remark.trim()) {
+      return setActionError('An acceptance remark is required for this status');
+    }
+    setActionBusy(true);
+    try {
+      await api.put(`/gatepasses/fim-batches/${statusTarget.id}/status`, {
+        status,
+        unitId: status === 'IN_STORES' ? undefined : unitId,
+        remark: remark.trim() || undefined,
+        note: note.trim() || undefined,
+        reason: reason.trim(),
+      });
+      setStatusTarget(null);
+      setFlash('FIM status updated — the unit and Stores have been notified.');
+      setTimeout(() => setFlash(''), 6000);
+      fetchBatches();
+    } catch (err) {
+      setActionError(err.response?.data?.error || 'Failed to change status');
+    }
+    setActionBusy(false);
   };
 
   const submitSendOut = async () => {
@@ -1135,6 +1196,18 @@ function FimStatusView({ user, onOpenProduct }) {
                               <ArrowRightLeft size={10} /> {lastOutward?.passNumber}
                             </span>
                           )}
+                          {/* Admin override — the only way back once a stage has
+                              been passed. Hidden once the return gate pass exists,
+                              since the server refuses to rewind past that. */}
+                          {user?.role === 'ADMIN' && !alreadySentOut && (
+                            <button
+                              onClick={() => openStatusOverride(b)}
+                              className="text-[11px] px-2 py-1 rounded border border-purple-500 text-purple-700 hover:bg-purple-50 inline-flex items-center gap-1 justify-center"
+                              title="Set this FIM to any status"
+                            >
+                              <Pencil size={11} /> Change Status
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1309,6 +1382,99 @@ function FimStatusView({ user, onOpenProduct }) {
               <Button variant="secondary" onClick={() => setReadyTarget(null)} disabled={actionBusy}>Cancel</Button>
               <Button onClick={submitMarkReady} disabled={actionBusy}>
                 <PackageCheck size={14} /> {actionBusy ? 'Saving…' : 'Mark Ready to Collect'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ADMIN status override. Sets the batch to any stage and rewrites every
+          dependent field to match, so it can't be left half-way between two. */}
+      {statusTarget && (
+        <Modal isOpen onClose={() => setStatusTarget(null)} title="Change FIM status">
+          <div className="space-y-4">
+            {actionError && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{actionError}</div>}
+
+            <div className="text-sm text-gray-700">
+              <strong>{statusTarget.product?.name}</strong>
+              <span className="text-gray-500"> · currently </span>
+              <span className="font-medium">{FIM_STATUS_LABELS[stageOf(statusTarget)]}</span>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">New status</label>
+              <Select
+                value={statusForm.status}
+                onChange={(e) => setStatusForm((f) => ({ ...f, status: e.target.value }))}
+              >
+                {FIM_STATUS_ORDER.map((s) => (
+                  <option key={s} value={s}>{FIM_STATUS_LABELS[s]}</option>
+                ))}
+              </Select>
+            </div>
+
+            {statusForm.status !== 'IN_STORES' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
+                <Select
+                  value={statusForm.unitId}
+                  onChange={(e) => setStatusForm((f) => ({ ...f, unitId: e.target.value }))}
+                >
+                  <option value="">Select a unit…</option>
+                  {units.map((u) => <option key={u.id} value={u.id}>{u.name || u.code}</option>)}
+                </Select>
+              </div>
+            )}
+
+            {(statusForm.status === 'ACCEPTED' || statusForm.status === 'READY_TO_SEND') && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Acceptance remark</label>
+                <textarea
+                  rows={2}
+                  value={statusForm.remark}
+                  onChange={(e) => setStatusForm((f) => ({ ...f, remark: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
+                  placeholder="What the unit recorded on acceptance"
+                />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  The unit&apos;s original remark is kept unless you change it here.
+                </p>
+              </div>
+            )}
+
+            {statusForm.status === 'READY_TO_SEND' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Note for Stores (optional)</label>
+                <textarea
+                  rows={2}
+                  value={statusForm.note}
+                  onChange={(e) => setStatusForm((f) => ({ ...f, note: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Reason for the change</label>
+              <textarea
+                rows={2}
+                value={statusForm.reason}
+                onChange={(e) => setStatusForm((f) => ({ ...f, reason: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
+                placeholder="e.g. Assigned to Unit 2 by mistake, material was physically received by Unit 3"
+              />
+            </div>
+
+            <p className="text-[11px] text-gray-500">
+              Every field behind this status is rewritten to match, so the record stays consistent everywhere it
+              appears. Whoever originally assigned or accepted the FIM stays credited unless that stage changes.
+              The unit and Stores are notified, and the change is recorded in the audit log.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
+              <Button variant="secondary" onClick={() => setStatusTarget(null)} disabled={actionBusy}>Cancel</Button>
+              <Button onClick={submitStatusOverride} disabled={actionBusy}>
+                {actionBusy ? 'Saving…' : 'Change status'}
               </Button>
             </div>
           </div>
