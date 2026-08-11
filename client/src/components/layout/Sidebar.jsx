@@ -5,7 +5,7 @@ import {
   BarChart3, Settings, Menu, X,
   CheckSquare, ClipboardCheck, ScrollText,
   Building2, ShieldCheck, Crown, Boxes, Ruler,
-  ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation, Gauge, Table2,
+  ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation, Gauge, Table2, FileInput,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -86,6 +86,8 @@ const buildAllItems = () => {
     { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
     // Admin-only.
     { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },
+    // Admin-only — full edit access over FIM / customer-property records.
+    { to: '/fim-data', icon: FileInput, label: 'FIM Data', roles: ['ADMIN'] },
     // SUPERADMIN-only owner hatch — invisible to everyone else. One entry
     // takes the owner to the hub; deeper pages link from there.
     { to: '/superadmin', icon: Crown, label: 'Control Hub', roles: ['SUPERADMIN'] },

@@ -40,6 +40,7 @@ import SuperAdminUsers from './pages/superadmin/Users';
 import SuperAdminBroadcast from './pages/superadmin/Broadcast';
 import SuperAdminActivity from './pages/superadmin/Activity';
 import DataEditor from './pages/DataEditor';
+import FimDataEditor from './pages/FimDataEditor';
 import Metrology from './pages/Metrology';
 import PressureGauges from './pages/metrology/PressureGauges';
 import VacuumGauges from './pages/metrology/VacuumGauges';
@@ -385,6 +386,11 @@ export default function App() {
               {/* DATA_EDITOR — edit-only "Edit Data" table corrector (SUPERADMIN too). */}
               <Route path="/data-editor" element={
                 <PrivateRoute allowedRoles={['DATA_EDITOR', 'SUPERADMIN']}><DataEditor /></PrivateRoute>
+              } />
+
+              {/* ADMIN — full edit access over FIM / customer-property records only. */}
+              <Route path="/fim-data" element={
+                <PrivateRoute allowedRoles={['ADMIN', 'SUPERADMIN']}><FimDataEditor /></PrivateRoute>
               } />
 
               {/* All roles */}

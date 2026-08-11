@@ -228,11 +228,23 @@ async function mapPool(items, concurrency, fn) {
   return out;
 }
 
-// The table list both editors render: curated views first, then every real
-// model in business-area order. `countRows(key, where)` does the counting so
-// each route keeps its own error handling.
-async function listTables(realTables, countRows) {
-  const virtual = Object.entries(VIRTUAL_TABLES).map(([name, v]) => ({
+// Everything that makes up FIM / customer-property data. This is the whole
+// surface the admin-facing FIM editor exposes — the register entries, their
+// lines, the stock batches they produced, and the customer test certificates.
+const FIM_TABLES = [
+  ...Object.keys(VIRTUAL_TABLES).filter((n) => VIRTUAL_TABLES[n].group === FIM_GROUP),
+  ...GROUPS[FIM_GROUP],
+];
+
+// The table list the editors render: curated views first, then every real model
+// in business-area order. `countRows(key, where)` does the counting so each
+// route keeps its own error handling. `only` restricts the catalogue to a named
+// subset (the FIM editor passes FIM_TABLES).
+async function listTables(realTables, countRows, { only } = {}) {
+  const allow = only ? new Set(only) : null;
+  const keep = (name) => !allow || allow.has(name);
+
+  const virtual = Object.entries(VIRTUAL_TABLES).filter(([name]) => keep(name)).map(([name, v]) => ({
     name,
     label: v.label,
     hint: v.hint,
@@ -244,7 +256,7 @@ async function listTables(realTables, countRows) {
 
   // Grouped models in catalogue order; anything unlisted lands in "Other" so a
   // newly added model is still editable the moment it exists.
-  const ordered = [...realTables].sort((a, b) => {
+  const ordered = realTables.filter(keep).sort((a, b) => {
     const oa = TABLE_ORDER[a] ?? Number.MAX_SAFE_INTEGER;
     const ob = TABLE_ORDER[b] ?? Number.MAX_SAFE_INTEGER;
     return oa - ob || a.localeCompare(b);
@@ -271,6 +283,6 @@ function ungroupedTables(realTables) {
 }
 
 module.exports = {
-  VIRTUAL_TABLES, GROUPS, TABLE_GROUP, TABLE_HINTS,
+  VIRTUAL_TABLES, GROUPS, TABLE_GROUP, TABLE_HINTS, FIM_TABLES, FIM_GROUP,
   resolveTable, scopedWhere, listTables, modelKey, prettyTableLabel, ungroupedTables,
 };
