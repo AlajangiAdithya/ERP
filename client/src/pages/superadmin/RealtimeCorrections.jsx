@@ -20,6 +20,10 @@ export default function RealtimeCorrections() {
   const [loadingTables, setLoadingTables] = useState(true);
   const [active, setActive] = useState(null);
   const [rows, setRows] = useState([]);
+  // Column allowlist the server sends for curated views (FIM …), so the listing
+  // isn't a wall of blank cells from columns that view never populates. Null for
+  // ordinary tables, which keep showing everything.
+  const [serverColumns, setServerColumns] = useState(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -99,11 +103,13 @@ export default function RealtimeCorrections() {
       const qs = `page=${p}&limit=50${q ? `&q=${encodeURIComponent(q)}` : ''}`;
       const { data } = await api.get(`/superadmin/table/${name}?${qs}`);
       setRows(data.rows || []);
+      setServerColumns(data.columns || null);
       setTotalPages(data.totalPages || 1);
       setTotal(data.total || 0);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
       setRows([]);
+      setServerColumns(null);
       setTotal(0);
     } finally {
       setLoadingRows(false);
@@ -131,7 +137,9 @@ export default function RealtimeCorrections() {
     setPage(1);
   }
 
-  const columns = useMemo(() => {
+  // Every column present on the loaded rows. Drives the insert form, so a
+  // curated view's shorter listing never stops you setting a hidden field.
+  const allColumns = useMemo(() => {
     if (rows.length === 0) return [];
     const keys = new Set();
     // Skip the server's resolved-label helper keys (_labels, _rowLabel).
@@ -140,11 +148,15 @@ export default function RealtimeCorrections() {
     return ['id', ...Array.from(keys).filter((k) => k !== 'id')];
   }, [rows]);
 
+  // What the rows table actually renders: the view's allowlist when there is
+  // one, otherwise every column.
+  const columns = serverColumns?.length ? serverColumns : allColumns;
+
   // Field descriptors for the per-field create form, inferred from loaded rows.
   // Every column is offered, id/timestamps included — left blank they are simply
   // omitted from the insert and Prisma applies its own defaults.
   const createFields = useMemo(() => {
-    return columns.map((c) => {
+    return allColumns.map((c) => {
       const sample = rows.find((r) => r[c] != null)?.[c];
       return {
         key: c,
@@ -154,7 +166,7 @@ export default function RealtimeCorrections() {
         system: AUTO_FIELDS.includes(c),
       };
     });
-  }, [columns, rows]);
+  }, [allColumns, rows]);
 
   async function saveEdit(payload) {
     setSaving(true);

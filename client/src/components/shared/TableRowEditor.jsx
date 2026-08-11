@@ -14,11 +14,43 @@ import { Save, X } from 'lucide-react';
 // a row is genuinely editable.
 export const AUTO_FIELDS = ['id', 'createdAt', 'updatedAt'];
 
+// Prisma DateTime columns arrive as ISO-8601 strings over JSON, so they are
+// indistinguishable from text unless we look at the shape.
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+export const isIsoDate = (v) => typeof v === 'string' && ISO_DATE_RE.test(v);
+
 export function inferType(val) {
   if (typeof val === 'boolean') return 'boolean';
   if (typeof val === 'number') return 'number';
+  if (isIsoDate(val)) return 'datetime';
   if (val !== null && typeof val === 'object') return 'json';
   return 'text';
+}
+
+// ISO → the "YYYY-MM-DDTHH:mm" a datetime-local input wants, in local time.
+export function isoToLocalInput(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// …and back again on save. Returns null for a cleared field.
+export function localInputToIso(local) {
+  if (!local) return null;
+  const d = new Date(local);
+  return Number.isNaN(d.getTime()) ? local : d.toISOString();
+}
+
+// Readable date for the rows list. Midnight-local values are date-only in
+// practice (probableReturnDate, customerGatePassDate…), so the time is dropped
+// rather than printing a meaningless 00:00.
+export function formatDateCell(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  const datePart = d.toLocaleDateString();
+  if (d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0) return datePart;
+  return `${datePart} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 // Build the field descriptors for editing an existing row. Always skips the
@@ -59,6 +91,12 @@ export function buildPayload(fields, values, omitEmpty) {
     const raw = values[f.key];
     if (f.type === 'boolean') { out[f.key] = !!raw; continue; }
     let v;
+    if (f.type === 'datetime') {
+      v = localInputToIso(raw);
+      if (omitEmpty && v === null) continue;
+      out[f.key] = v;
+      continue;
+    }
     if (f.type === 'number') {
       if (raw === '' || raw == null) v = null;
       else { const n = Number(raw); v = Number.isNaN(n) ? raw : n; }
@@ -79,6 +117,7 @@ export function buildPayload(fields, values, omitEmpty) {
 export function renderCell(val) {
   if (val === null || val === undefined) return <span className="text-gray-400">∅</span>;
   if (typeof val === 'boolean') return <span className={val ? 'text-green-700' : 'text-red-700'}>{String(val)}</span>;
+  if (isIsoDate(val)) return <span className="whitespace-nowrap">{formatDateCell(val)}</span>;
   if (typeof val === 'object') return <span className="text-xs font-mono text-gray-600">{JSON.stringify(val).slice(0, 80)}</span>;
   const s = String(val);
   return s.length > 80 ? s.slice(0, 80) + '…' : s;
@@ -92,6 +131,16 @@ export function FieldInput({ field, value, onChange }) {
         <option value="true">Yes (true)</option>
         <option value="false">No (false)</option>
       </select>
+    );
+  }
+  if (field.type === 'datetime') {
+    return (
+      <div className="flex items-center gap-2">
+        <input type="datetime-local" value={value ?? ''} onChange={(e) => onChange(e.target.value)} className={base} />
+        {value && (
+          <button type="button" onClick={() => onChange('')} className="text-xs text-gray-500 hover:text-red-600 shrink-0">Clear</button>
+        )}
+      </div>
     );
   }
   if (field.type === 'number') {
@@ -115,6 +164,7 @@ export function RowEditor({ title, subtitle, fields, omitEmpty, submitLabel, bus
     fields.forEach((f) => {
       if (f.type === 'boolean') init[f.key] = !!f.value;
       else if (f.type === 'json') init[f.key] = f.value == null ? '' : JSON.stringify(f.value);
+      else if (f.type === 'datetime') init[f.key] = f.value == null ? '' : isoToLocalInput(f.value);
       else init[f.key] = f.value == null ? '' : String(f.value);
     });
     return init;

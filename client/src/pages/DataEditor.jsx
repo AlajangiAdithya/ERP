@@ -17,6 +17,9 @@ export default function DataEditor() {
   const [loadingTables, setLoadingTables] = useState(true);
   const [active, setActive] = useState(null);
   const [rows, setRows] = useState([]);
+  // Column allowlist the server sends for curated views (FIM …) so the listing
+  // isn't a wall of blank cells. Null for ordinary tables.
+  const [serverColumns, setServerColumns] = useState(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -50,11 +53,13 @@ export default function DataEditor() {
       const qs = `page=${p}&limit=50${q ? `&q=${encodeURIComponent(q)}` : ''}`;
       const { data } = await api.get(`/data-editor/table/${name}?${qs}`);
       setRows(data.rows || []);
+      setServerColumns(data.columns || null);
       setTotalPages(data.totalPages || 1);
       setTotal(data.total || 0);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
       setRows([]);
+      setServerColumns(null);
       setTotal(0);
     } finally {
       setLoadingRows(false);
@@ -99,11 +104,14 @@ export default function DataEditor() {
   // Columns to show: skip the raw id and the server's "_labels"/"_rowLabel"
   // helper keys. The friendly row label stands in for the id.
   const columns = useMemo(() => {
+    // Curated views ship their own column list; the raw id stays out either way
+    // (the friendly row label stands in for it).
+    if (serverColumns?.length) return serverColumns.filter((c) => c !== 'id');
     if (rows.length === 0) return [];
     const keys = new Set();
     rows.forEach((r) => Object.keys(r).forEach((k) => { if (k !== 'id' && !k.startsWith('_')) keys.add(k); }));
     return Array.from(keys);
-  }, [rows]);
+  }, [rows, serverColumns]);
 
   async function saveEdit(payload) {
     setSaving(true);

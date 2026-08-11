@@ -9,8 +9,8 @@ const { Prisma } = require('@prisma/client');
 const { authenticate } = require('../middleware/auth');
 const { superadminOnly } = require('../middleware/superadminOnly');
 const { generateAccessToken } = require('../utils/jwt');
-const { toOneRelations, relationInclude, decorateRow } = require('../utils/rowLabels');
-const { resolveTable, scopedWhere, listTables } = require('../utils/virtualTables');
+const { resolveTable, listTables } = require('../utils/virtualTables');
+const { readTablePage, prismaErrorMessage } = require('../utils/tableRead');
 const prisma = require('../config/db');
 const {
   listBackupTree, signBackupUrl, previewBackup,
@@ -48,22 +48,6 @@ const modelKey = (table) => table.charAt(0).toLowerCase() + table.slice(1);
 // URL carries onto the real model plus the scope every query must stay inside.
 const resolve = (name) => resolveTable(name, TABLES);
 
-// Scalar String fields of a model, cached — used to build the case-insensitive
-// "search this table" OR filter for the row editor. id is a String too, so an
-// exact/partial id search works for free.
-const _searchFieldCache = {};
-const searchableFields = (modelName) => {
-  if (_searchFieldCache[modelName]) return _searchFieldCache[modelName];
-  const model = Prisma.dmmf.datamodel.models.find((m) => m.name === modelName);
-  const fields = model
-    ? model.fields
-        .filter((f) => f.kind === 'scalar' && f.type === 'String' && !f.isList)
-        .map((f) => f.name)
-    : [];
-  _searchFieldCache[modelName] = fields;
-  return fields;
-};
-
 // Best-effort physical delete of a locally-stored upload. Only touches files
 // under UPLOAD_ROOT served at /uploads/* — external/absolute URLs are ignored,
 // and path-traversal outside the uploads root is refused. Missing files are fine.
@@ -74,24 +58,6 @@ const unlinkLocalUpload = (url) => {
   const root = path.resolve(UPLOAD_ROOT);
   if (target !== root && !target.startsWith(root + path.sep)) return; // traversal guard
   fs.promises.unlink(target).catch(() => {}); // blob may already be gone — ignore
-};
-
-// Raw Prisma errors are multi-line stack-like blobs; translate the common
-// codes into something readable in the Realtime Corrections error banner.
-const prismaErrorMessage = (e) => {
-  switch (e.code) {
-    case 'P2002': {
-      const fields = Array.isArray(e.meta?.target) ? e.meta.target.join(', ') : e.meta?.target;
-      return `Unique constraint failed${fields ? ` on: ${fields}` : ''} — another row already has this value.`;
-    }
-    case 'P2003':
-      return 'Row is referenced by other records (foreign key constraint). Delete or re-point the dependent rows first.';
-    case 'P2025':
-      return 'Row not found — it may have been deleted already.';
-    default:
-      // Validation errors: keep only the explanation after the last newline block.
-      return (e.message || 'Operation failed').split('\n').filter(Boolean).pop().trim();
-  }
 };
 
 // GET /api/superadmin/tables — curated views + every model, with row counts
@@ -118,46 +84,16 @@ router.get('/tables', async (req, res) => {
 router.get('/table/:name', async (req, res) => {
   const t = resolve(req.params.name);
   if (!t) return res.status(404).json({ error: 'Unknown table' });
-  const { key } = t;
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
-  const q = (req.query.q || '').trim();
-
-  let search;
-  if (q) {
-    const fields = searchableFields(t.model);
-    if (fields.length) {
-      search = { OR: fields.map((f) => ({ [f]: { contains: q, mode: 'insensitive' } })) };
-    }
-  }
-  // A curated view's scope is non-negotiable — the search only narrows it.
-  const where = scopedWhere(t.where, search);
-  // Resolve foreign-key ids to readable names (productId → "Acetone", etc.).
-  const rels = toOneRelations(t.model);
-  const include = relationInclude(rels);
-  const findArgs = { skip: (page - 1) * limit, take: limit, ...(where && { where }), ...(include && { include }) };
-  const countArgs = where ? { where } : undefined;
 
   try {
-    const [rows, total] = await Promise.all([
-      prisma[key].findMany({ ...findArgs, orderBy: { createdAt: 'desc' } }),
-      prisma[key].count(countArgs),
-    ]);
-    rows.forEach((r) => decorateRow(r, rels));
-    res.json({ rows, total, page, totalPages: Math.ceil(total / limit) });
+    res.json(await readTablePage(prisma, t, { page, limit, q: req.query.q }));
   } catch (e) {
-    // Tables without createdAt fall back to no ordering
-    try {
-      const [rows, total] = await Promise.all([
-        prisma[key].findMany(findArgs),
-        prisma[key].count(countArgs),
-      ]);
-      rows.forEach((r) => decorateRow(r, rels));
-      res.json({ rows, total, page, totalPages: Math.ceil(total / limit) });
-    } catch (e2) {
-      console.error(`superadmin/table/${t.name} error:`, e2);
-      res.status(500).json({ error: 'Failed to read table' });
-    }
+    // Report why, not just that — a bare "Failed to read table" is impossible
+    // to act on and reads like an empty table.
+    console.error(`superadmin/table/${t.name} error:`, e);
+    res.status(500).json({ error: `Could not read ${t.name}: ${prismaErrorMessage(e)}` });
   }
 });
 

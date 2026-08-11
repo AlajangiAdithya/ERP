@@ -33,6 +33,24 @@ const VIRTUAL_TABLES = {
     group: FIM_GROUP,
     where: FIM_GATEPASS_WHERE,
     createDefaults: { direction: 'INWARD' },
+    // GatePass carries ~60 columns because OUTWARD dispatch, job-work, logistics
+    // and the multi-stage approval trail all live on the same model. On a FIM row
+    // those are permanently null — gatepass.routes.js writes NULL to kind /
+    // jobWorkNo / requestedById for inward and never touches dispatchedAt,
+    // logisticsAt, reachedDate, siteOfficeAckAt, approvedAt, localReturnedAt…
+    // Listing them just produced a wall of blank cells, so the table shows the
+    // columns a FIM entry actually uses, in register order. Editing still offers
+    // every column on the row.
+    columns: [
+      'fimNumber', 'passNumber', 'date', 'status', 'passType',
+      'customerName', 'customerGatePassNo', 'customerGatePassDate', 'customerGpDocType',
+      'gpRequisitionNo', 'requisitionNo',
+      'vehicleNo', 'driverName', 'driverPhone',
+      'inwardKind', 'destinationUnitId', 'collectedAt', 'collectedById',
+      'actualReturnDate', 'returnedBy',
+      'siteName', 'purpose', 'remarks', 'customerGpPdfUrl',
+      'createdById', 'createdAt', 'updatedAt',
+    ],
   },
   FimEntryItem: {
     model: 'GatePassItem',
@@ -42,6 +60,13 @@ const VIRTUAL_TABLES = {
     where: { gatePass: FIM_GATEPASS_WHERE },
     // A line can only be attached to a gate pass that is itself a FIM entry.
     parent: { fk: 'gatePassId', model: 'GatePass', where: FIM_GATEPASS_WHERE },
+    // sourceInwardGatePassItemId is the OUTWARD side of the return cycle and is
+    // always null on an inward line, so it is left out of the listing.
+    columns: [
+      'gatePassId', 'description', 'quantity', 'unit', 'inwardedQty',
+      'itemPassType', 'itemPurpose', 'dispatchedTo', 'probableReturnDate',
+      'workOrderId', 'gatePassDetails', 'transportation', 'contactPersonDetails', 'remarks',
+    ],
   },
   FimBatch: {
     model: 'ProductBatch',
@@ -50,6 +75,16 @@ const VIRTUAL_TABLES = {
     group: FIM_GROUP,
     where: { isFim: true },
     createDefaults: { isFim: true },
+    // Drops the direct/cash-purchase columns (supplier*, unitCost, expiry, QC lot
+    // linkage) — those belong to bought stock, never to customer property.
+    columns: [
+      'productId', 'batchNo', 'receivedDate', 'quantity', 'remaining',
+      'sourceInwardGatePassId', 'sourceInwardGatePassItemId',
+      'assignedToUnitId', 'assignedAt', 'assignedById',
+      'unitAcceptedAt', 'unitAcceptedById', 'unitAcceptedRemarks',
+      'readyToSendOutAt', 'readyToSendOutById', 'readyToSendOutNote',
+      'notes', 'createdById', 'createdAt',
+    ],
   },
 };
 
@@ -152,8 +187,20 @@ const modelKey = (table) => table.charAt(0).toLowerCase() + table.slice(1);
 // `realTables` is the DMMF-derived list of genuine model names.
 function resolveTable(name, realTables) {
   const v = VIRTUAL_TABLES[name];
-  if (v) return { name, model: v.model, key: modelKey(v.model), where: v.where, createDefaults: v.createDefaults, parent: v.parent, virtual: true };
-  if (realTables.includes(name)) return { name, model: name, key: modelKey(name), where: undefined, createDefaults: undefined, parent: undefined, virtual: false };
+  if (v) {
+    return {
+      name, model: v.model, key: modelKey(v.model),
+      where: v.where, createDefaults: v.createDefaults, parent: v.parent,
+      columns: v.columns, virtual: true,
+    };
+  }
+  if (realTables.includes(name)) {
+    return {
+      name, model: name, key: modelKey(name),
+      where: undefined, createDefaults: undefined, parent: undefined,
+      columns: undefined, virtual: false,
+    };
+  }
   return null;
 }
 
@@ -164,22 +211,36 @@ function scopedWhere(scope, extra) {
   return scope || extra;
 }
 
+// Run `fn` over items with a fixed number in flight. The list is ~87 entries
+// and each one is a COUNT(*); doing them one after another made the table list
+// slow enough to risk a proxy timeout on a busy database, while firing all 87
+// at once would just exhaust the Prisma connection pool (P2024).
+async function mapPool(items, concurrency, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return out;
+}
+
 // The table list both editors render: curated views first, then every real
 // model in business-area order. `countRows(key, where)` does the counting so
 // each route keeps its own error handling.
 async function listTables(realTables, countRows) {
-  const out = [];
-  for (const [name, v] of Object.entries(VIRTUAL_TABLES)) {
-    out.push({
-      name,
-      label: v.label,
-      hint: v.hint,
-      group: v.group,
-      virtual: true,
-      model: v.model, // the real table underneath, shown in the editor banner
-      rows: await countRows(modelKey(v.model), v.where),
-    });
-  }
+  const virtual = Object.entries(VIRTUAL_TABLES).map(([name, v]) => ({
+    name,
+    label: v.label,
+    hint: v.hint,
+    group: v.group,
+    virtual: true,
+    model: v.model, // the real table underneath, shown in the editor banner
+    _count: () => countRows(modelKey(v.model), v.where),
+  }));
 
   // Grouped models in catalogue order; anything unlisted lands in "Other" so a
   // newly added model is still editable the moment it exists.
@@ -189,17 +250,18 @@ async function listTables(realTables, countRows) {
     return oa - ob || a.localeCompare(b);
   });
 
-  for (const t of ordered) {
-    out.push({
-      name: t,
-      label: prettyTableLabel(t),
-      hint: TABLE_HINTS[t],
-      group: TABLE_GROUP[t] || OTHER_GROUP,
-      virtual: false,
-      rows: await countRows(modelKey(t)),
-    });
-  }
-  return out;
+  const real = ordered.map((t) => ({
+    name: t,
+    label: prettyTableLabel(t),
+    hint: TABLE_HINTS[t],
+    group: TABLE_GROUP[t] || OTHER_GROUP,
+    virtual: false,
+    _count: () => countRows(modelKey(t)),
+  }));
+
+  const all = [...virtual, ...real];
+  const counts = await mapPool(all, 6, (entry) => entry._count());
+  return all.map(({ _count, ...entry }, i) => ({ ...entry, rows: counts[i] }));
 }
 
 // Which models the catalogue doesn't file anywhere. Used by the catalogue test
