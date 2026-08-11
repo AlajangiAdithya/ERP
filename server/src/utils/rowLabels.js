@@ -13,9 +13,15 @@ const { Prisma } = require('@prisma/client');
 const LABEL_FIELDS = [
   'name', 'fullName', 'displayName',
   'requestNumber', 'workOrderNumber', 'orderNumber', 'quotationNumber',
-  'passNumber', 'mirNo', 'inspectionNumber', 'sessionNumber', 'certificateNo',
+  // fimNumber before passNumber: a FIM gate pass is known by its FIM register
+  // number everywhere else in the app, so it should read that way here too.
+  'fimNumber', 'passNumber', 'mirNo', 'inspectionNumber', 'sessionNumber', 'certificateNo',
+  'batchNo',
   'sku', 'title', 'subject', 'docNo', 'regNumber', 'rapsId', 'rapsplSerialNo',
   'username', 'empCode', 'label', 'code', 'email',
+  // Last resort before falling back to the raw id — line-item rows (gate pass
+  // items, FIM lines) have nothing else name-like on them.
+  'description',
 ];
 
 function pickLabel(obj) {

@@ -10,6 +10,7 @@ const { Prisma } = require('@prisma/client');
 const { authenticate } = require('../middleware/auth');
 const { dataEditorOnly } = require('../middleware/dataEditorOnly');
 const { toOneRelations, relationInclude, decorateRow } = require('../utils/rowLabels');
+const { resolveTable, scopedWhere, listTables } = require('../utils/virtualTables');
 const prisma = require('../config/db');
 
 const router = express.Router();
@@ -19,8 +20,9 @@ router.use(authenticate, dataEditorOnly);
 // is present and the URL can never drive `prisma[undefined]`.
 const TABLES = Prisma.dmmf.datamodel.models.map((m) => m.name);
 
-// PascalCase table name → camelCase Prisma model accessor.
-const modelKey = (table) => table.charAt(0).toLowerCase() + table.slice(1);
+// Plus the same curated views the SUPERADMIN editor publishes (e.g. "FIM Entry"
+// = the FIM subset of GatePass) — see utils/virtualTables.js.
+const resolve = (name) => resolveTable(name, TABLES);
 
 // Scalar String fields of a model, cached — drives the case-insensitive
 // "search this table" OR filter.
@@ -53,19 +55,16 @@ const prismaErrorMessage = (e) => {
   }
 };
 
-// GET /api/data-editor/tables — table names with row counts
+// GET /api/data-editor/tables — curated views + every model, with row counts
 router.get('/tables', async (req, res) => {
   try {
-    const out = [];
-    for (const t of TABLES) {
-      const key = modelKey(t);
+    const out = await listTables(TABLES, async (key, where) => {
       try {
-        const count = await prisma[key].count();
-        out.push({ name: t, rows: count });
+        return await prisma[key].count(where ? { where } : undefined);
       } catch {
-        out.push({ name: t, rows: null });
+        return null;
       }
-    }
+    });
     res.json({ tables: out });
   } catch (e) {
     console.error('data-editor/tables error:', e);
@@ -75,22 +74,24 @@ router.get('/tables', async (req, res) => {
 
 // GET /api/data-editor/table/:name?page=1&limit=50&q=text
 router.get('/table/:name', async (req, res) => {
-  const { name } = req.params;
-  if (!TABLES.includes(name)) return res.status(404).json({ error: 'Unknown table' });
-  const key = modelKey(name);
+  const t = resolve(req.params.name);
+  if (!t) return res.status(404).json({ error: 'Unknown table' });
+  const { key } = t;
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
   const q = (req.query.q || '').trim();
 
-  let where;
+  let search;
   if (q) {
-    const fields = searchableFields(name);
+    const fields = searchableFields(t.model);
     if (fields.length) {
-      where = { OR: fields.map((f) => ({ [f]: { contains: q, mode: 'insensitive' } })) };
+      search = { OR: fields.map((f) => ({ [f]: { contains: q, mode: 'insensitive' } })) };
     }
   }
+  // A curated view's scope is non-negotiable — the search only narrows it.
+  const where = scopedWhere(t.where, search);
   // Resolve foreign-key ids to readable names (productId → "Acetone", etc.).
-  const rels = toOneRelations(name);
+  const rels = toOneRelations(t.model);
   const include = relationInclude(rels);
   const findArgs = { skip: (page - 1) * limit, take: limit, ...(where && { where }), ...(include && { include }) };
   const countArgs = where ? { where } : undefined;
@@ -112,7 +113,7 @@ router.get('/table/:name', async (req, res) => {
       rows.forEach((r) => decorateRow(r, rels));
       res.json({ rows, total, page, totalPages: Math.ceil(total / limit) });
     } catch (e2) {
-      console.error(`data-editor/table/${name} error:`, e2);
+      console.error(`data-editor/table/${t.name} error:`, e2);
       res.status(500).json({ error: 'Failed to read table' });
     }
   }
@@ -120,16 +121,22 @@ router.get('/table/:name', async (req, res) => {
 
 // PUT /api/data-editor/table/:name/row/:id — partial update (the only write)
 router.put('/table/:name/row/:id', async (req, res) => {
-  const { name, id } = req.params;
-  if (!TABLES.includes(name)) return res.status(404).json({ error: 'Unknown table' });
-  const key = modelKey(name);
+  const { id } = req.params;
+  const t = resolve(req.params.name);
+  if (!t) return res.status(404).json({ error: 'Unknown table' });
   // id/createdAt/updatedAt are managed by Prisma — never let them be overwritten.
   const { id: _id, createdAt, updatedAt, ...data } = req.body || {};
   try {
-    const updated = await prisma[key].update({ where: { id }, data });
+    // A curated view only reaches its own rows — no editing an outward gate
+    // pass through the FIM view.
+    if (t.where) {
+      const hit = await prisma[t.key].findFirst({ where: { AND: [t.where, { id }] }, select: { id: true } });
+      if (!hit) return res.status(404).json({ error: 'Row not found in this view' });
+    }
+    const updated = await prisma[t.key].update({ where: { id }, data });
     res.json(updated);
   } catch (e) {
-    console.error(`data-editor update ${name}/${id} error:`, e);
+    console.error(`data-editor update ${t.name}/${id} error:`, e);
     res.status(400).json({ error: prismaErrorMessage(e) });
   }
 });

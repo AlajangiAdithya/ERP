@@ -10,6 +10,7 @@ const { authenticate } = require('../middleware/auth');
 const { superadminOnly } = require('../middleware/superadminOnly');
 const { generateAccessToken } = require('../utils/jwt');
 const { toOneRelations, relationInclude, decorateRow } = require('../utils/rowLabels');
+const { resolveTable, scopedWhere, listTables } = require('../utils/virtualTables');
 const prisma = require('../config/db');
 const {
   listBackupTree, signBackupUrl, previewBackup,
@@ -41,6 +42,11 @@ const TABLES = Prisma.dmmf.datamodel.models.map((m) => m.name);
 
 // Convert PascalCase table name to camelCase Prisma model accessor.
 const modelKey = (table) => table.charAt(0).toLowerCase() + table.slice(1);
+
+// The editor also publishes curated views (e.g. "FIM Entry" = the FIM subset of
+// GatePass) — see utils/virtualTables.js. resolveTable maps whichever name the
+// URL carries onto the real model plus the scope every query must stay inside.
+const resolve = (name) => resolveTable(name, TABLES);
 
 // Scalar String fields of a model, cached — used to build the case-insensitive
 // "search this table" OR filter for the row editor. id is a String too, so an
@@ -88,19 +94,16 @@ const prismaErrorMessage = (e) => {
   }
 };
 
-// GET /api/superadmin/tables — table names with row counts
+// GET /api/superadmin/tables — curated views + every model, with row counts
 router.get('/tables', async (req, res) => {
   try {
-    const out = [];
-    for (const t of TABLES) {
-      const key = modelKey(t);
+    const out = await listTables(TABLES, async (key, where) => {
       try {
-        const count = await prisma[key].count();
-        out.push({ name: t, rows: count });
+        return await prisma[key].count(where ? { where } : undefined);
       } catch {
-        out.push({ name: t, rows: null });
+        return null;
       }
-    }
+    });
     res.json({ tables: out });
   } catch (e) {
     console.error('superadmin/tables error:', e);
@@ -113,22 +116,24 @@ router.get('/tables', async (req, res) => {
 // substring) so the operator can jump straight to the row they need instead of
 // paging through everything. Pagination + total reflect the filtered set.
 router.get('/table/:name', async (req, res) => {
-  const { name } = req.params;
-  if (!TABLES.includes(name)) return res.status(404).json({ error: 'Unknown table' });
-  const key = modelKey(name);
+  const t = resolve(req.params.name);
+  if (!t) return res.status(404).json({ error: 'Unknown table' });
+  const { key } = t;
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
   const q = (req.query.q || '').trim();
 
-  let where;
+  let search;
   if (q) {
-    const fields = searchableFields(name);
+    const fields = searchableFields(t.model);
     if (fields.length) {
-      where = { OR: fields.map((f) => ({ [f]: { contains: q, mode: 'insensitive' } })) };
+      search = { OR: fields.map((f) => ({ [f]: { contains: q, mode: 'insensitive' } })) };
     }
   }
+  // A curated view's scope is non-negotiable — the search only narrows it.
+  const where = scopedWhere(t.where, search);
   // Resolve foreign-key ids to readable names (productId → "Acetone", etc.).
-  const rels = toOneRelations(name);
+  const rels = toOneRelations(t.model);
   const include = relationInclude(rels);
   const findArgs = { skip: (page - 1) * limit, take: limit, ...(where && { where }), ...(include && { include }) };
   const countArgs = where ? { where } : undefined;
@@ -150,50 +155,69 @@ router.get('/table/:name', async (req, res) => {
       rows.forEach((r) => decorateRow(r, rels));
       res.json({ rows, total, page, totalPages: Math.ceil(total / limit) });
     } catch (e2) {
-      console.error(`superadmin/table/${name} error:`, e2);
+      console.error(`superadmin/table/${t.name} error:`, e2);
       res.status(500).json({ error: 'Failed to read table' });
     }
   }
 });
 
+// Rows reached through a curated view must actually belong to that view —
+// otherwise the FIM tables would be a back door onto every other gate pass.
+// Returns true for real tables (nothing to scope).
+async function inScope(t, id) {
+  if (!t.where) return true;
+  const hit = await prisma[t.key].findFirst({ where: { AND: [t.where, { id }] }, select: { id: true } });
+  return !!hit;
+}
+
 // PUT /api/superadmin/table/:name/row/:id — partial update
 router.put('/table/:name/row/:id', async (req, res) => {
-  const { name, id } = req.params;
-  if (!TABLES.includes(name)) return res.status(404).json({ error: 'Unknown table' });
-  const key = modelKey(name);
+  const { id } = req.params;
+  const t = resolve(req.params.name);
+  if (!t) return res.status(404).json({ error: 'Unknown table' });
   try {
-    const updated = await prisma[key].update({ where: { id }, data: req.body });
+    if (!(await inScope(t, id))) return res.status(404).json({ error: 'Row not found in this view' });
+    const updated = await prisma[t.key].update({ where: { id }, data: req.body });
     res.json(updated);
   } catch (e) {
-    console.error(`superadmin update ${name}/${id} error:`, e);
+    console.error(`superadmin update ${t.name}/${id} error:`, e);
     res.status(400).json({ error: prismaErrorMessage(e) });
   }
 });
 
 // POST /api/superadmin/table/:name/row — insert
 router.post('/table/:name/row', async (req, res) => {
-  const { name } = req.params;
-  if (!TABLES.includes(name)) return res.status(404).json({ error: 'Unknown table' });
-  const key = modelKey(name);
+  const t = resolve(req.params.name);
+  if (!t) return res.status(404).json({ error: 'Unknown table' });
   try {
-    const created = await prisma[key].create({ data: req.body });
+    // A new row created from a curated view has to land inside it, so the
+    // view's defining columns are forced on last and the parent (if the view is
+    // scoped through a relation) is checked first.
+    if (t.parent) {
+      const parentId = req.body?.[t.parent.fk];
+      const ok = parentId && await prisma[modelKey(t.parent.model)]
+        .findFirst({ where: { AND: [t.parent.where, { id: parentId }] }, select: { id: true } });
+      if (!ok) return res.status(400).json({ error: `${t.parent.fk} must reference a row that belongs to this view` });
+    }
+    const created = await prisma[t.key].create({ data: { ...req.body, ...(t.createDefaults || {}) } });
     res.status(201).json(created);
   } catch (e) {
-    console.error(`superadmin create ${name} error:`, e);
+    console.error(`superadmin create ${t.name} error:`, e);
     res.status(400).json({ error: prismaErrorMessage(e) });
   }
 });
 
 // DELETE /api/superadmin/table/:name/row/:id
 router.delete('/table/:name/row/:id', async (req, res) => {
-  const { name, id } = req.params;
-  if (!TABLES.includes(name)) return res.status(404).json({ error: 'Unknown table' });
-  const key = modelKey(name);
+  const { id } = req.params;
+  const t = resolve(req.params.name);
+  if (!t) return res.status(404).json({ error: 'Unknown table' });
   try {
-    await prisma[key].delete({ where: { id } });
+    if (!(await inScope(t, id))) return res.status(404).json({ error: 'Row not found in this view' });
+    await prisma[t.key].delete({ where: { id } });
     res.json({ ok: true });
   } catch (e) {
-    console.error(`superadmin delete ${name}/${id} error:`, e);
+    console.error(`superadmin delete ${t.name}/${id} error:`, e);
     res.status(400).json({ error: prismaErrorMessage(e) });
   }
 });

@@ -141,13 +141,19 @@ export default function RealtimeCorrections() {
   }, [rows]);
 
   // Field descriptors for the per-field create form, inferred from loaded rows.
+  // Every column is offered, id/timestamps included — left blank they are simply
+  // omitted from the insert and Prisma applies its own defaults.
   const createFields = useMemo(() => {
-    return columns
-      .filter((c) => !AUTO_FIELDS.includes(c))
-      .map((c) => {
-        const sample = rows.find((r) => r[c] != null)?.[c];
-        return { key: c, type: sample !== undefined ? inferType(sample) : 'text', value: null, wasNull: true };
-      });
+    return columns.map((c) => {
+      const sample = rows.find((r) => r[c] != null)?.[c];
+      return {
+        key: c,
+        type: sample !== undefined ? inferType(sample) : 'text',
+        value: null,
+        wasNull: true,
+        system: AUTO_FIELDS.includes(c),
+      };
+    });
   }, [columns, rows]);
 
   async function saveEdit(payload) {
@@ -191,6 +197,22 @@ export default function RealtimeCorrections() {
       setError(e.response?.data?.error || e.message);
     }
   }
+
+  // The server sends every table already filed under a business area and in
+  // display order, so grouping here just preserves that order (a Map keeps
+  // insertion order). Flat schema names were the reason data like FIM was
+  // effectively unreachable.
+  const tableGroups = useMemo(() => {
+    const groups = new Map();
+    tables.forEach((t) => {
+      const g = t.group || 'Other';
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(t);
+    });
+    return [...groups.entries()];
+  }, [tables]);
+
+  const activeTable = useMemo(() => tables.find((t) => t.name === active), [tables, active]);
 
   const uploadTableOptions = useMemo(() => {
     const set = new Set(uploads.map((u) => u.table));
@@ -462,8 +484,12 @@ export default function RealtimeCorrections() {
               className="flex-1 px-3 py-2.5 text-sm border border-gray-300 rounded-lg bg-white"
             >
               <option value="">{loadingTables ? 'Loading…' : 'Select a table…'}</option>
-              {tables.map((t) => (
-                <option key={t.name} value={t.name}>{t.name} ({t.rows ?? '?'})</option>
+              {tableGroups.map(([group, list]) => (
+                <optgroup key={group} label={group}>
+                  {list.map((t) => (
+                    <option key={t.name} value={t.name}>{t.label || t.name} ({t.rows ?? '?'})</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <button onClick={fetchTables} className="px-3 border border-gray-300 rounded-lg text-gray-500" title="Refresh">
@@ -483,15 +509,23 @@ export default function RealtimeCorrections() {
             </div>
             <div className="max-h-[70vh] overflow-y-auto">
               {loadingTables && <div className="p-3 text-sm text-gray-400">Loading…</div>}
-              {tables.map((t) => (
-                <button
-                  key={t.name}
-                  onClick={() => selectTable(t.name)}
-                  className={`w-full px-3 py-2 text-left text-sm flex justify-between items-center border-b border-gray-100 hover:bg-purple-50 ${active === t.name ? 'bg-purple-100 font-semibold' : ''}`}
-                >
-                  <span className="truncate">{t.name}</span>
-                  <span className="text-xs text-gray-500 ml-2">{t.rows ?? '?'}</span>
-                </button>
+              {tableGroups.map(([group, list]) => (
+                <div key={group}>
+                  <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-[10px] font-semibold uppercase tracking-wider text-gray-500 sticky top-0">
+                    {group}
+                  </div>
+                  {list.map((t) => (
+                    <button
+                      key={t.name}
+                      onClick={() => selectTable(t.name)}
+                      title={t.hint || t.name}
+                      className={`w-full px-3 py-2 text-left text-sm flex justify-between items-center border-b border-gray-100 hover:bg-purple-50 ${active === t.name ? 'bg-purple-100 font-semibold' : ''}`}
+                    >
+                      <span className="truncate">{t.label || t.name}</span>
+                      <span className="text-xs text-gray-500 ml-2">{t.rows ?? '?'}</span>
+                    </button>
+                  ))}
+                </div>
               ))}
             </div>
           </div>
@@ -505,7 +539,7 @@ export default function RealtimeCorrections() {
                 <div className="px-3 sm:px-4 py-3 border-b bg-gray-50 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-baseline gap-2 min-w-0">
-                      <span className="font-semibold text-gray-900 truncate">{active}</span>
+                      <span className="font-semibold text-gray-900 truncate">{activeTable?.label || active}</span>
                       <span className="text-xs text-gray-500 shrink-0">
                         {rowQuery ? `${total} match${total === 1 ? '' : 'es'}` : `${total} row${total === 1 ? '' : 's'}`}
                       </span>
@@ -522,6 +556,13 @@ export default function RealtimeCorrections() {
                       </button>
                     </div>
                   </div>
+
+                  {activeTable?.virtual && (
+                    <div className="text-[11px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-2 py-1">
+                      {activeTable.hint} — a filtered view of the <span className="font-mono">{activeTable.model}</span> table.
+                      Edits, inserts and deletes here stay inside this view.
+                    </div>
+                  )}
 
                   <form onSubmit={runRowSearch} className="flex items-center gap-1">
                     <div className="relative flex-1">
@@ -661,8 +702,8 @@ export default function RealtimeCorrections() {
       {editRow && (
         <RowEditor
           title={`Edit row #${String(editRow.id)}`}
-          subtitle={active}
-          fields={editFieldsFor(editRow)}
+          subtitle={activeTable?.label || active}
+          fields={editFieldsFor(editRow, { includeSystem: true })}
           omitEmpty={false}
           submitLabel="Save changes"
           busy={saving}
@@ -675,7 +716,7 @@ export default function RealtimeCorrections() {
       {creating && (
         <RowEditor
           title="Insert new row"
-          subtitle={active}
+          subtitle={activeTable?.label || active}
           fields={createFields}
           omitEmpty
           submitLabel="Insert row"

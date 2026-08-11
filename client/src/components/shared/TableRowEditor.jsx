@@ -9,7 +9,9 @@
 import { useState } from 'react';
 import { Save, X } from 'lucide-react';
 
-// Fields Prisma manages itself — never offered for manual editing.
+// Columns Prisma manages itself. The DATA_EDITOR page keeps these off-limits;
+// the SUPERADMIN page offers them (flagged as system fields) so every column in
+// a row is genuinely editable.
 export const AUTO_FIELDS = ['id', 'createdAt', 'updatedAt'];
 
 export function inferType(val) {
@@ -19,14 +21,22 @@ export function inferType(val) {
   return 'text';
 }
 
-// Build the field descriptors for editing an existing row. Skips id/timestamps
-// and the server's resolved-label helper keys (anything starting with "_"). When
-// a column is a foreign key whose name we resolved, that name rides along as a
-// `hint` so the editor can show "productId = Acetone".
-export function editFieldsFor(row) {
+// Build the field descriptors for editing an existing row. Always skips the
+// server's resolved-label helper keys (anything starting with "_"); id/timestamps
+// are included only when `includeSystem` is set, and carry a `system` flag so the
+// form can mark them. When a column is a foreign key whose name we resolved, that
+// name rides along as a `hint` so the editor can show "productId = Acetone".
+export function editFieldsFor(row, { includeSystem = false } = {}) {
   return Object.keys(row)
-    .filter((k) => !AUTO_FIELDS.includes(k) && !k.startsWith('_'))
-    .map((k) => ({ key: k, type: inferType(row[k]), value: row[k], wasNull: row[k] == null, hint: row._labels?.[k] || null }));
+    .filter((k) => !k.startsWith('_') && (includeSystem || !AUTO_FIELDS.includes(k)))
+    .map((k) => ({
+      key: k,
+      type: inferType(row[k]),
+      value: row[k],
+      wasNull: row[k] == null,
+      hint: row._labels?.[k] || null,
+      system: AUTO_FIELDS.includes(k),
+    }));
 }
 
 // "productId" → "Product", "workOrderId" → "Work Order". Display only.
@@ -148,6 +158,14 @@ export function RowEditor({ title, subtitle, fields, omitEmpty, submitLabel, bus
             <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800">{localErr || error}</div>
           )}
 
+          {!advanced && fields.some((f) => f.system) && (
+            <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-900">
+              System columns are editable here. Changing <span className="font-mono">id</span> is rejected by the
+              database if another row references it, and <span className="font-mono">updatedAt</span> is always
+              re-stamped on save.
+            </div>
+          )}
+
           {advanced ? (
             <div>
               <div className="text-xs text-gray-600 mb-1">{omitEmpty ? 'JSON for new row (omit id/createdAt):' : 'Partial JSON — only the fields you change:'}</div>
@@ -164,6 +182,9 @@ export function RowEditor({ title, subtitle, fields, omitEmpty, submitLabel, bus
                   {f.key}
                   {f.hint && <span className="ml-1.5 text-purple-700 font-normal">= {f.hint}</span>}
                   <span className="ml-1.5 text-[10px] uppercase tracking-wide text-gray-400">{f.type}</span>
+                  {f.system && (
+                    <span className="ml-1.5 text-[10px] uppercase tracking-wide text-amber-700 bg-amber-100 rounded px-1">system</span>
+                  )}
                 </label>
                 <FieldInput field={f} value={values[f.key]} onChange={(v) => set(f.key, v)} />
               </div>
