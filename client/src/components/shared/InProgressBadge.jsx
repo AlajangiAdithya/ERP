@@ -89,7 +89,7 @@ export default function InProgressBadge() {
               </div>
               {(summary.poSamples || []).slice(0, 3).map(po => (
                 <div key={po.id} className="text-xs text-gray-500 truncate">
-                  • {po.orderNumber} — {po.status}
+                  • {po.orderNumber || 'PO number pending'} — {po.status}
                 </div>
               ))}
               {poCount > (summary.poSamples?.length || 0) && (

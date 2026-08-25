@@ -455,9 +455,9 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
             where: { supersededAt: null },
             select: { quotationNumber: true, supplierName: true, totalAmount: true, isSelected: true },
           },
-          purchaseOrders: { select: { orderNumber: true, totalAmount: true, totalPaid: true, status: true } },
+          purchaseOrders: { select: { id: true, orderNumber: true, totalAmount: true, totalPaid: true, status: true } },
           purchaseOrderSources: {
-            select: { purchaseOrder: { select: { orderNumber: true, totalAmount: true, totalPaid: true, status: true } } },
+            select: { purchaseOrder: { select: { id: true, orderNumber: true, totalAmount: true, totalPaid: true, status: true } } },
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -471,11 +471,13 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
     for (const r of requests) {
       const items = r.items || [];
       // A PR reaches its PO either directly or through the union pivot — both
-      // carry the same order, so merge and de-dupe by order number.
+      // carry the same order, so merge and de-dupe by id. (Not by order number:
+      // Purchase type those in by hand, so two different drafts can both be
+      // waiting for one and would collapse into a single row.)
       const orders = [
         ...(r.purchaseOrders || []),
         ...(r.purchaseOrderSources || []).map((s) => s.purchaseOrder).filter(Boolean),
-      ].filter((o, i, arr) => arr.findIndex((x) => x.orderNumber === o.orderNumber) === i);
+      ].filter((o, i, arr) => arr.findIndex((x) => x.id === o.id) === i);
       const selectedQuote = (r.quotations || []).find((q) => q.isSelected) || null;
       const unitLabel = r.unit?.code ? `${r.unit.code}${r.unit.name ? ` — ${r.unit.name}` : ''}` : 'Central / Non-unit';
       const workOrderLabel = r.isRnd

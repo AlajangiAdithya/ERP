@@ -29,6 +29,8 @@ const typeColors = {
   ITEM_STATUS_UPDATE: 'yellow',
   ORDER_PLACED: 'green',
   ORDER_PLACED_ON_CREDIT: 'orange',
+  PO_NUMBER_ASSIGNED: 'blue',
+  PO_RENUMBERED: 'orange',
   PO_FORCE_CLOSED: 'orange',
   INSPECTION_REQUEST: 'yellow',
   QC_PASSED: 'green',

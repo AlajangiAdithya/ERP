@@ -180,7 +180,11 @@ function InProgressButton() {
                         || (unionUnits.length ? unionUnits.join(', ') : '—');
                       return (
                         <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
-                          <td className="px-2 py-1.5 font-medium text-navy-700">{po.orderNumber}</td>
+                          {/* Purchase fill the PO number in by hand, so a newly
+                              created order may not have one yet. */}
+                          <td className="px-2 py-1.5 font-medium text-navy-700">
+                            {po.orderNumber || <span className="italic text-gray-400">number pending</span>}
+                          </td>
                           <td className="px-2 py-1.5"><Badge color="blue">{unitLabel}</Badge></td>
                           <td className="px-2 py-1.5 text-gray-600">{po.supplierName || '—'}</td>
                           <td className="px-2 py-1.5 text-gray-700">{po.totalAmount != null ? `₹${Number(po.totalAmount).toLocaleString('en-IN')}` : '—'}</td>
@@ -293,7 +297,10 @@ function ActivePOOverview() {
                 const unitLabel = directUnit?.code || directUnit?.name || (unionUnits.length ? unionUnits.join(', ') : '—');
                 return (
                   <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/purchase-orders')}>
-                    <td className="px-3 py-2 font-medium text-navy-700">{po.orderNumber}</td>
+                    {/* Purchase fill the PO number in by hand — may be blank. */}
+                    <td className="px-3 py-2 font-medium text-navy-700">
+                      {po.orderNumber || <span className="italic text-gray-400">number pending</span>}
+                    </td>
                     <td className="px-3 py-2"><Badge color="blue">{unitLabel}</Badge></td>
                     <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-700">{po.totalAmount != null ? `₹${Number(po.totalAmount).toLocaleString('en-IN')}` : '—'}</td>
@@ -1550,7 +1557,11 @@ function PurchaseOfficerDashboard() {
               <tbody>
                 {feed.overdue.map((po, i) => (
                   <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/purchase-orders')}>
-                    <td className="px-3 py-2 font-medium text-navy-700">{po.orderNumber}</td>
+                    {/* Overdue orders include ones still awaiting placement, which
+                        may not have had their number filled in yet. */}
+                    <td className="px-3 py-2 font-medium text-navy-700">
+                      {po.orderNumber || <span className="italic text-gray-400">number pending</span>}
+                    </td>
                     <td className="px-3 py-2 text-gray-600">{po.customName || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
                     <td className="px-3 py-2 text-gray-500 text-xs">{new Date(po.requiredByDate).toLocaleDateString()}</td>

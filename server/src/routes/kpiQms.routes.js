@@ -955,7 +955,9 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
     });
     const poRecords = [
       ...posDirect.filter((p) => p.purchaseRequest?.adminApprovedAt).map((p) => ({
-        ref: p.orderNumber,
+        // Purchase type the PO number in by hand, so a just-created order has
+        // none yet — label it rather than leaving the KPI row blank.
+        ref: p.orderNumber || '(PO number pending)',
         bucketDate: p.createdAt,
         gapMs: new Date(p.createdAt) - new Date(p.purchaseRequest.adminApprovedAt),
         unit: unitLabelOf(p.purchaseRequest.unit, null),
@@ -967,7 +969,7 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
         if (!prs.length) return null;
         const earliest = new Date(Math.min(...prs.map((pr) => new Date(pr.adminApprovedAt).getTime())));
         return {
-          ref: p.orderNumber,
+          ref: p.orderNumber || '(PO number pending)',
           bucketDate: p.createdAt,
           gapMs: new Date(p.createdAt) - earliest,
           unit: unitLabelOf(prs[0].unit, 'Union'),

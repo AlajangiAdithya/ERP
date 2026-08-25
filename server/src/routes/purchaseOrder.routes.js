@@ -4,12 +4,13 @@ const fs = require('fs');
 const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
-const { authorize, authorizePoNumberEdit } = require('../middleware/rbac');
+const { authorize, authorizePoNumberEdit, authorizePoNumberAssign } = require('../middleware/rbac');
 const { poDocumentUpload, goodsArrivedUpload, publicUrlFor, UPLOAD_ROOT } = require('../middleware/upload');
 const {
   generateSequentialNumber, generateMirNumber, generateProductSku,
   normalizeMaterialType, paginate, applyDateFilter, isUniqueViolation,
   DEPT_BY_ROLE, computeTax, parsePoNumber, buildPoNumber,
+  getFinancialYear, isValidFinancialYear, nextPoCountForFy,
 } = require('../utils/helpers');
 const { cancelLeftoverPRItems } = require('../utils/prClosure');
 const { validateReason } = require('../utils/reasonValidation');
@@ -74,10 +75,21 @@ const OWN_SCOPED_PO_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'INWARD_QC', 
 // non-unit PR is inwarded we both stamp ProductBatch.assignedDept (lot provenance)
 // and reserve the qty in ProductDeptStock so only that department can issue it.
 
+// An approved quotation creates its purchase orders WITHOUT a number — Purchase
+// type RAPS/PO/<FY>/<n> in by hand (PATCH /:id/assign-number). Until they do, the
+// row is a draft: it shows on the PO page so Purchase can see what is waiting,
+// but nothing may act on it. The number is what the supplier, the batch labels,
+// the payment requests and every downstream document are keyed to, so letting an
+// order move without one would leave records that can never be reconciled.
+const NEEDS_NUMBER_ERROR = 'Fill in the PO number before this order can proceed.';
+
+const isUnnumbered = (order) => !order || !order.orderNumber;
+
 const ORDER_INCLUDE = {
   createdBy: { select: { id: true, name: true } },
   creditPlacedBy: { select: { id: true, name: true } },
   closedBy: { select: { id: true, name: true } },
+  numberAssignedBy: { select: { id: true, name: true } },
   quotation: {
     select: {
       id: true, quotationNumber: true, supplierName: true, supplierContact: true,
@@ -172,9 +184,16 @@ const QC_STATUSES = ['GOODS_ARRIVED', 'QC_PENDING'];
 // Visibility + filter clause for the PO list. Shared by the paged list endpoint
 // and the Excel export so an export can never widen what a role is allowed to
 // see, and can never disagree with the list the user is looking at.
-function buildPoListWhere(user, { status, fromDate, toDate }) {
+function buildPoListWhere(user, { status, fromDate, toDate, awaitingNumber }) {
   const where = {};
   applyDateFilter(where, { fromDate, toDate });
+
+  // The Purchase team's "Awaiting PO number" tab: drafts created by an approved
+  // quotation that nobody has typed a number into yet. Not a status, so it is a
+  // filter of its own rather than another entry in the tab list.
+  if (awaitingNumber === 'true' || awaitingNumber === '1' || awaitingNumber === true) {
+    where.orderNumber = null;
+  }
 
   if (user.role === 'QC') {
     where.status = { in: QC_STATUSES };
@@ -208,10 +227,10 @@ function buildPoListWhere(user, { status, fromDate, toDate }) {
 // GET /api/purchase-orders — role-filtered list
 router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
-    const { status, page, limit, fromDate, toDate } = req.query;
+    const { status, page, limit, fromDate, toDate, awaitingNumber } = req.query;
     const { skip, take } = paginate(page, limit);
 
-    const where = buildPoListWhere(req.user, { status, fromDate, toDate });
+    const where = buildPoListWhere(req.user, { status, fromDate, toDate, awaitingNumber });
 
     const [orders, total] = await Promise.all([
       prisma.purchaseOrder.findMany({
@@ -280,8 +299,8 @@ const sourcePrsOf = (order) => {
 // Must stay ABOVE `GET /:id` or that route swallows "export".
 router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
-    const { status, fromDate, toDate } = req.query;
-    const where = buildPoListWhere(req.user, { status, fromDate, toDate });
+    const { status, fromDate, toDate, awaitingNumber } = req.query;
+    const where = buildPoListWhere(req.user, { status, fromDate, toDate, awaitingNumber });
 
     const [total, orders] = await Promise.all([
       prisma.purchaseOrder.count({ where }),
@@ -343,7 +362,8 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
       const balance = (Number(o.totalAmount) || 0) - (Number(o.totalPaid) || 0);
 
       orderRows.push({
-        orderNumber: o.orderNumber,
+        // Numbers are typed in by Purchase, so a draft still has none.
+        orderNumber: o.orderNumber || '(number pending)',
         customName: o.customName || '',
         status: poStatusLabel(o.status),
         isUnion: yesNo(o.isUnion),
@@ -382,7 +402,7 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
         // so material can be traced back to the indent that asked for it.
         const linePrs = joinUnique((i.allocations || []).map((a) => a.purchaseRequestItem?.request?.requestNumber));
         itemRows.push({
-          orderNumber: o.orderNumber,
+          orderNumber: o.orderNumber || '(number pending)',
           poStatus: poStatusLabel(o.status),
           supplier: o.supplierName || o.supplier?.name || '',
           prNumbers: linePrs || prNumbers,
@@ -500,7 +520,7 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
 // GET /api/purchase-orders/dashboard — PO dashboard stats
 router.get('/dashboard', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), async (req, res) => {
   try {
-    const [groups, orders] = await Promise.all([
+    const [groups, orders, awaitingNumber] = await Promise.all([
       prisma.purchaseOrder.groupBy({
         by: ['status'],
         _count: true,
@@ -509,6 +529,9 @@ router.get('/dashboard', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), a
         where: { status: { not: 'COMPLETED' } },
         select: { totalAmount: true, totalPaid: true, advancePaid: true },
       }),
+      // Drafts still waiting for Purchase to type their number in. This is the
+      // Purchase team's first queue of the day, so it gets its own tile.
+      prisma.purchaseOrder.count({ where: { orderNumber: null } }),
     ]);
 
     const counts = {};
@@ -540,6 +563,7 @@ router.get('/dashboard', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), a
         completed: counts['COMPLETED'] || 0,
       },
       paymentSummary: { totalOrderValue, totalPaidAmount, totalAdvancePaid, pendingPayment: totalOrderValue - totalPaidAmount },
+      awaitingNumber,
       total,
     });
   } catch (error) {
@@ -667,6 +691,28 @@ router.get('/po-dashboard-feed', authenticate, authorize('PURCHASE_OFFICER', 'AD
   }
 });
 
+// GET /api/purchase-orders/next-number?fy=26-27
+//
+// Feeds the "fill in the PO number" form with the current financial year and the
+// next unused count in it. Purely a convenience — Purchase are typing the number
+// off their own register and may enter anything; the unique index on
+// orderNumber is what actually stops a duplicate.
+//
+// Declared before /:id so the literal path isn't swallowed by the id param.
+router.get('/next-number', authenticate, authorizePoNumberAssign, async (req, res) => {
+  try {
+    const fy = (req.query.fy || '').toString().trim() || getFinancialYear();
+    if (!isValidFinancialYear(fy)) {
+      return res.status(400).json({ error: 'Financial year must be two consecutive years, e.g. 26-27.' });
+    }
+    const count = await nextPoCountForFy(prisma, fy);
+    res.json({ fy, count, prefix: `RAPS/PO/${fy}/`, suggestion: buildPoNumber(fy, count) });
+  } catch (error) {
+    console.error('Next PO number error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/purchase-orders/:id
 router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
@@ -759,6 +805,7 @@ router.put('/:id/place-on-credit', authenticate, authorize('PURCHASE_OFFICER'), 
     });
 
     if (!order) return res.status(404).json({ error: 'Purchase order not found' });
+    if (isUnnumbered(order)) return res.status(400).json({ error: NEEDS_NUMBER_ERROR });
     if (order.status !== 'PENDING_ACCOUNTING') {
       return res.status(400).json({
         error: `Cannot place on credit — order status is ${order.status}. Only orders awaiting accounting can be placed on credit.`,
@@ -917,6 +964,13 @@ router.put('/:id/goods-arrived', authenticate, authorize('STORE_MANAGER', 'ADMIN
     if (!order) {
       cleanupUploads();
       return res.status(404).json({ error: 'Purchase order not found' });
+    }
+    // Unreachable in practice (an order can't be placed unnumbered, so goods
+    // can't arrive against one) — but the lot's batch number is derived from the
+    // PO number, so refuse rather than mint a batch called "null-B1".
+    if (isUnnumbered(order)) {
+      cleanupUploads();
+      return res.status(400).json({ error: NEEDS_NUMBER_ERROR });
     }
 
     const allowedStatuses = ['ORDERED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'PARTIAL'];
@@ -1576,6 +1630,7 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
     });
 
     if (!order) return res.status(404).json({ error: 'Purchase order not found' });
+    if (isUnnumbered(order)) return res.status(400).json({ error: NEEDS_NUMBER_ERROR });
     if (order.status !== 'PENDING_ACCOUNTING') {
       return res.status(400).json({ error: 'Order can only be placed when it is pending accounting approval' });
     }
@@ -1772,6 +1827,12 @@ router.post('/:id/po-document', authenticate, authorize('PURCHASE_OFFICER', 'ADM
     if (!order) {
       unlinkPublicFile(publicUrlFor('po-docs', req.file.filename));
       return res.status(404).json({ error: 'Purchase order not found' });
+    }
+    // The signed PDF carries the PO number on its face, so there is nothing
+    // sensible to upload before the number exists.
+    if (isUnnumbered(order)) {
+      unlinkPublicFile(publicUrlFor('po-docs', req.file.filename));
+      return res.status(400).json({ error: NEEDS_NUMBER_ERROR });
     }
 
     const newUrl = publicUrlFor('po-docs', req.file.filename);
@@ -2029,6 +2090,124 @@ router.put('/:id/po-creation-delay-remark', authenticate, authorize('PURCHASE_OF
   }
 });
 
+// ──── PATCH /api/purchase-orders/:id/assign-number ────
+//
+// Turns a numberless draft into a real purchase order. Purchase supply the
+// financial year and the running count; the RAPS/PO/ prefix and the shape are
+// fixed so the number stays parseable by everything that derives from it (batch
+// numbers, the register, the re-numbering cascade below).
+//
+// Nothing is suggested-and-committed here: the count the form pre-fills is only
+// a hint. Purchase are copying the number off their own PO register, so gaps and
+// out-of-order numbers are legitimate. The only hard rule is that no two orders
+// may carry the same number — enforced by the unique index, checked up front so
+// the user gets a readable message instead of a constraint error.
+//
+// Assigning is one-way: once a number exists this route refuses, and corrections
+// go through the re-numbering route below, which carries the change into every
+// downstream copy of the number.
+const assignNumberSchema = z.object({
+  fy: z.string().trim().optional(),
+  count: z.coerce.number().int().min(1, 'Number must be at least 1').max(999999, 'Number is too large'),
+});
+
+router.patch('/:id/assign-number', authenticate, authorizePoNumberAssign, async (req, res) => {
+  try {
+    const { fy: rawFy, count } = assignNumberSchema.parse(req.body || {});
+    const fy = rawFy || getFinancialYear();
+    if (!isValidFinancialYear(fy)) {
+      return res.status(400).json({ error: 'Financial year must be two consecutive years, e.g. 26-27.' });
+    }
+
+    const order = await prisma.purchaseOrder.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true, orderNumber: true, customName: true, supplierName: true, totalAmount: true,
+        purchaseRequest: { select: { id: true, managerId: true, requestNumber: true } },
+        sourceRequests: {
+          select: { purchaseRequest: { select: { id: true, managerId: true, requestNumber: true } } },
+        },
+      },
+    });
+    if (!order) return res.status(404).json({ error: 'Purchase order not found' });
+
+    if (order.orderNumber) {
+      return res.status(409).json({
+        error: `This order is already numbered ${order.orderNumber}. Use "Change PO number" to correct it.`,
+      });
+    }
+
+    const orderNumber = buildPoNumber(fy, count);
+    const clash = await prisma.purchaseOrder.findFirst({
+      where: { orderNumber },
+      select: { id: true, customName: true, supplierName: true },
+    });
+    if (clash) {
+      return res.status(409).json({
+        error: `${orderNumber} is already used by another purchase order ("${clash.customName}" — ${clash.supplierName}). Pick a different number.`,
+      });
+    }
+
+    const updated = await prisma.purchaseOrder.update({
+      where: { id: order.id },
+      data: {
+        orderNumber,
+        numberAssignedAt: new Date(),
+        numberAssignedById: req.user.id,
+      },
+      include: ORDER_INCLUDE,
+    });
+
+    // Tell each source PR's raiser their request now has a PO number to quote.
+    const linkedPRs = [
+      ...(order.purchaseRequest ? [order.purchaseRequest] : []),
+      ...order.sourceRequests.map((s) => s.purchaseRequest).filter(Boolean),
+    ].filter((pr, i, arr) => arr.findIndex((x) => x.id === pr.id) === i);
+
+    for (const pr of linkedPRs) {
+      if (!pr.managerId) continue;
+      await prisma.notification.create({
+        data: {
+          type: 'PO_NUMBER_ASSIGNED',
+          title: `PO number issued: ${orderNumber}`,
+          message: `Your purchase request ${pr.requestNumber} is now covered by purchase order ${orderNumber} ("${order.customName}", ${order.supplierName}). Quote this number on any correspondence about the order.`,
+          targetUserId: pr.managerId,
+          sentById: req.user.id,
+        },
+      }).catch(() => {});
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'ASSIGN_PO_NUMBER',
+        entity: 'PurchaseOrder',
+        entityId: order.id,
+        details: {
+          orderNumber,
+          fy,
+          count,
+          customName: order.customName,
+          supplierName: order.supplierName,
+          totalAmount: order.totalAmount,
+        },
+        ipAddress: req.ip,
+      },
+    }).catch((err) => console.error('[PO ASSIGN NUMBER AUDIT FAIL]', err?.code, err?.message));
+
+    res.json({ order: updated, orderNumber });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors?.[0]?.message || 'Invalid input', details: error.errors });
+    }
+    if (isUniqueViolation(error)) {
+      return res.status(409).json({ error: 'That purchase order number was just taken. Pick a different number.' });
+    }
+    console.error('Assign PO number error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 // TEMPORARY FEATURE — PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
 // ════════════════════════════════════════════════════════════════════════════
@@ -2098,6 +2277,11 @@ router.patch('/:id/order-number', authenticate, authorizePoNumberEdit, async (re
     if (!order) return res.status(404).json({ error: 'Purchase order not found' });
 
     const oldNumber = order.orderNumber;
+    if (!oldNumber) {
+      return res.status(400).json({
+        error: 'This order has no PO number yet — fill it in first, then it can be corrected here.',
+      });
+    }
     const parsed = parsePoNumber(oldNumber);
     if (!parsed) {
       return res.status(400).json({

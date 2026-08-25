@@ -76,6 +76,8 @@ const normalizeMaterialType = (value) => {
 // On unique-constraint collision we retry — handles concurrent inserts.
 const DOC_NUMBER_MAP = {
   PR:  { model: 'purchaseRequest',          field: 'requestNumber' },
+  // PO is listed for the shared max+1 lookup only — a PO number is never issued
+  // automatically. Purchase type it in; see nextPoCountForFy below.
   PO:  { model: 'purchaseOrder',            field: 'orderNumber' },
   MIV: { model: 'productRequest',           field: 'requestNumber' },
   GP:  { model: 'gatePass',                 field: 'passNumber' },
@@ -158,10 +160,10 @@ const generateSequentialNumber = async (prisma, kind, date = new Date()) => {
   return `${prefix}${next}`;
 };
 
-// ──── PO number parsing (used by the TEMPORARY re-numbering feature) ────
+// ──── PO number parsing ────
 // Splits "RAPS/PO/26-27/101" into { prefix: 'RAPS/PO/26-27/', fy: '26-27', count: 101 }.
-// Returns null for anything that isn't in that exact shape (legacy / hand-entered
-// numbers), so callers can refuse to renumber what they can't safely rebuild.
+// Returns null for anything that isn't in that exact shape (legacy numbers), so
+// callers can refuse to renumber what they can't safely rebuild.
 const PO_NUMBER_RE = /^RAPS\/PO\/(\d{2}-\d{2})\/(\d+)$/;
 
 const parsePoNumber = (value) => {
@@ -170,9 +172,29 @@ const parsePoNumber = (value) => {
   return { prefix: `RAPS/PO/${m[1]}/`, fy: m[1], count: parseInt(m[2], 10) };
 };
 
-// Rebuilds a PO number from its FY and a new running count. Plain number, no
-// zero-padding — same as generateSequentialNumber produces.
+// Rebuilds a PO number from its FY and a running count. Plain number, no
+// zero-padding — the same shape every other document number uses.
 const buildPoNumber = (fy, count) => `RAPS/PO/${fy}/${count}`;
+
+// A financial-year label is two consecutive 2-digit years, e.g. "26-27".
+// "26-28" and "26-25" are rejected — a typo there would silently start a whole
+// parallel numbering series that nobody notices until the register is audited.
+const isValidFinancialYear = (fy) => {
+  const m = /^(\d{2})-(\d{2})$/.exec(String(fy || '').trim());
+  if (!m) return false;
+  return (parseInt(m[1], 10) + 1) % 100 === parseInt(m[2], 10);
+};
+
+// The next free running count for a hand-entered PO number in `fy`. Purchase are
+// free to type anything, so this is only ever a SUGGESTION shown in the form —
+// the real guard is the unique index on orderNumber. Same max+1 rule the old
+// auto-numbering used (including the live-cutover start), but the year comes from
+// the caller: Purchase may still be numbering into a closed financial year.
+const nextPoCountForFy = async (prisma, fy) => {
+  const prefix = `RAPS/PO/${fy}/`;
+  const start = DOC_NUMBER_START[fy]?.PO;
+  return nextFyCount(prisma, 'purchaseOrder', 'orderNumber', prefix, start ? start - 1 : 0);
+};
 
 // MIR uses the same FY-scoped scheme but lives on PurchaseOrder.mirNo.
 const generateMirNumber = async (prisma, date = new Date()) => {
@@ -393,6 +415,8 @@ module.exports = {
   generateProductSku,
   parsePoNumber,
   buildPoNumber,
+  isValidFinancialYear,
+  nextPoCountForFy,
   isUniqueViolation,
   withDocRetry,
   GST_RATES,

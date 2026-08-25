@@ -1533,7 +1533,6 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
       const orders = [];
       for (const g of groups.values()) {
         const groupTotal = g.items.reduce((sum, it) => sum + it.totalPrice, 0);
-        const orderNumber = await generateSequentialNumber(tx, 'PO');
 
         // Build per-item create payload. For union items the quotation item carries `sourceAllocations`;
         // those become PurchaseOrderItemAllocation rows. Non-union falls back to the existing
@@ -1570,7 +1569,10 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
 
         const po = await tx.purchaseOrder.create({
           data: {
-            orderNumber,
+            // No number yet. Purchase type RAPS/PO/<FY>/<n> in on the PO page
+            // before this draft can be placed — see PATCH
+            // /api/purchase-orders/:id/assign-number.
+            orderNumber: null,
             customName: orderName,
             // For union POs, leave purchaseRequestId null and rely on sourceRequests; for single, keep legacy link
             purchaseRequestId: quotation.isUnion ? null : sourcePRs[0].id,
@@ -1659,8 +1661,10 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
       return orders;
     });
 
+    // The orders have no number yet — Purchase fill that in — so the summary is
+    // keyed on the supplier and value instead.
     const supplierSummary = createdOrders
-      .map(o => `${o.supplierName} (₹${o.totalAmount.toLocaleString('en-IN')}, ${o.orderNumber})`)
+      .map(o => `${o.supplierName} (₹${o.totalAmount.toLocaleString('en-IN')})`)
       .join('; ');
 
     if (quotation.isUnion) {
@@ -1669,7 +1673,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         data: {
           type: 'QUOTATION_APPROVED',
           title: `Union Quotation Approved: ${quotation.quotationNumber}`,
-          message: `Admin approved union quotation covering ${sourcePRs.length} PRs. ${createdOrders.length} union purchase order(s) created — ${supplierSummary}. Place the orders to trigger payment requests.`,
+          message: `Admin approved union quotation covering ${sourcePRs.length} PRs. ${createdOrders.length} union purchase order(s) created — ${supplierSummary}. Fill in the PO number for each order before placing it.`,
           targetRole: 'PURCHASE_OFFICER',
           sentById: req.user.id,
         },
@@ -1680,7 +1684,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
           data: {
             type: 'PURCHASE_REQUEST_APPROVED',
             title: `Your PR ${pr.requestNumber} is now under a Union PO`,
-            message: `Your purchase request ${pr.requestNumber} has been consolidated into union order(s) ${createdOrders.map(o => o.orderNumber).join(', ')} alongside ${sourcePRs.length - 1} other unit(s). Suppliers: ${[...new Set(createdOrders.map(o => o.supplierName))].join(', ')}.`,
+            message: `Your purchase request ${pr.requestNumber} has been consolidated into ${createdOrders.length} union order(s) alongside ${sourcePRs.length - 1} other unit(s). Suppliers: ${[...new Set(createdOrders.map(o => o.supplierName))].join(', ')}. Purchase will issue the PO number(s) shortly.`,
             targetUserId: pr.managerId,
             sentById: req.user.id,
           },
@@ -1691,7 +1695,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         data: {
           type: 'QUOTATION_APPROVED',
           title: `Quotation Approved: ${quotation.purchaseRequest.requestNumber}`,
-          message: `Admin approved quotation for order "${orderName}". ${createdOrders.length} purchase order(s) created — ${supplierSummary}. Place the orders to trigger payment requests.`,
+          message: `Admin approved quotation for order "${orderName}". ${createdOrders.length} purchase order(s) created — ${supplierSummary}. Fill in the PO number for each order before placing it.`,
           targetRole: 'PURCHASE_OFFICER',
           sentById: req.user.id,
         },
@@ -1711,7 +1715,8 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
           orderName,
           sourcePurchaseRequests: sourcePRs.map(p => ({ id: p.id, requestNumber: p.requestNumber })),
           purchaseOrders: createdOrders.map(o => ({
-            orderNumber: o.orderNumber,
+            id: o.id,
+            orderNumber: o.orderNumber, // null — Purchase fill it in afterwards
             supplierName: o.supplierName,
             totalAmount: o.totalAmount,
           })),

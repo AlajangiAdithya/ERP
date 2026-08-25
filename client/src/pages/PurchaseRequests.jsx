@@ -1680,7 +1680,7 @@ function ProcurementJourney({ request }) {
   const activePO = activeUnionPO || request?.purchaseOrders?.[0];
   const poDetail = activePO
     ? (activePO.isUnion
-      ? `Union PO ${activePO.orderNumber} with ${(activePO.sourceRequests?.length || 0)} units`
+      ? `Union PO ${activePO.orderNumber || '(number pending)'} with ${(activePO.sourceRequests?.length || 0)} units`
       : `PO: ${activePO.customName}`)
     : null;
 
@@ -2019,7 +2019,11 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           {primaryPO && (
             <div className="col-span-2 flex items-center gap-2 flex-wrap">
               <span className="text-gray-500">PO:</span>
-              <span className="font-medium">{primaryPO.orderNumber}</span>
+              {/* Purchase type the PO number in by hand, so a freshly approved
+                  quotation shows an order that has no number yet. */}
+              {primaryPO.orderNumber
+                ? <span className="font-medium">{primaryPO.orderNumber}</span>
+                : <span className="italic text-gray-500">number pending from Purchase</span>}
               <Badge color="gray">₹{primaryPO.totalAmount?.toLocaleString('en-IN')}</Badge>
               {primaryPO.isUnion && (
                 <Badge color="purple">
@@ -2121,8 +2125,8 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                           <Badge color="gray" title="Product SKU">{item.product.sku}</Badge>
                         )}
                         {unionRef && (
-                          <Badge color="purple" title={`Part of Union PO ${unionRef.po.orderNumber}`}>
-                            <Layers size={10} className="inline mr-0.5" /> Union {unionRef.po.orderNumber}
+                          <Badge color="purple" title={`Part of Union PO ${unionRef.po.orderNumber || '(number pending)'}`}>
+                            <Layers size={10} className="inline mr-0.5" /> Union {unionRef.po.orderNumber || '· number pending'}
                           </Badge>
                         )}
                         {pool && !unionRef && (

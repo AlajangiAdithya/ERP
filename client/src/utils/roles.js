@@ -40,6 +40,32 @@ export function canEditProductDetails(user) {
   return user.role === 'STORE_MANAGER' && storeProductEditWindowOpen();
 }
 
+// ──── PO numbering (permanent) ────
+// PO numbers are typed in by Purchase, not generated. An approved quotation
+// creates its orders with no number; they sit on the PO page as drafts until
+// Purchase fill RAPS/PO/<FY>/<n> in, and only then can be placed. Mirror of
+// PO_NUMBER_ASSIGN_ROLES in server/src/middleware/rbac.js — the server is the
+// real gate, this only decides whether the form is drawn.
+const PO_NUMBER_ASSIGN_ROLES = ['PURCHASE_OFFICER', 'ADMIN', 'SUPERADMIN'];
+
+export function canAssignPoNumber(user) {
+  if (!user) return false;
+  return PO_NUMBER_ASSIGN_ROLES.includes(user.role);
+}
+
+// What every screen shows in place of the number while an order is still a
+// draft, so "no number yet" never reads as a rendering bug.
+export const PO_NUMBER_PENDING_LABEL = 'PO number pending';
+
+// Indian financial year label for a date: Apr 1 starts a new year.
+// e.g. 25 Aug 2026 → "26-27". Mirror of getFinancialYear in
+// server/src/utils/helpers.js — used to pre-fill the FY on the numbering form.
+export function currentFinancialYear(date = new Date()) {
+  const y = date.getFullYear();
+  const startYear = date.getMonth() >= 3 ? y : y - 1; // 0-indexed: 3 = April
+  return `${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // TEMPORARY FEATURE — PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
 // ════════════════════════════════════════════════════════════════════════════

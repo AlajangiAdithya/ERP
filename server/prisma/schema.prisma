@@ -37,6 +37,7 @@ model User {
   purchaseOrdersCreated      PurchaseOrder[]                  @relation("POCreator")
   purchaseOrdersCreditPlaced PurchaseOrder[]                  @relation("POCreditPlacer")
   purchaseOrdersClosed       PurchaseOrder[]                  @relation("POCloser")
+  purchaseOrdersNumbered     PurchaseOrder[]                  @relation("PONumberAssigner")
   paymentRequestsCreated     PaymentRequest[]                 @relation("PaymentCreator")
   paymentRequestsProcessed   PaymentRequest[]                 @relation("PaymentProcessor")
   qcInspections              QCInspection[]                   @relation("QCInspector")
@@ -1043,7 +1044,14 @@ model QuotationItem {
 // ──── PURCHASE ORDERS (created when quotation is selected) ────
 model PurchaseOrder {
   id                    String                @id @default(uuid())
-  orderNumber           String                @unique
+  // Filled in BY HAND by Purchase — RAPS/PO/<FY>/<n>, never auto-generated.
+  // Null from the moment the approved quotation creates this row until Purchase
+  // type the number in; an unnumbered order is a draft and cannot be placed.
+  // See PATCH /api/purchase-orders/:id/assign-number.
+  orderNumber           String?               @unique
+  numberAssignedAt      DateTime?
+  numberAssignedById    String?
+  numberAssignedBy      User?                 @relation("PONumberAssigner", fields: [numberAssignedById], references: [id])
   customName            String
   purchaseRequestId     String?
   purchaseRequest       PurchaseRequest?      @relation(fields: [purchaseRequestId], references: [id])

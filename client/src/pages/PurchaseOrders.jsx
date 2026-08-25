@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Truck, CreditCard, CheckCircle, Eye, PackagePlus,
   ChevronRight, ChevronDown, Phone, Building2, FileText, Package, Layers, Clock,
-  Upload, Trash2, Handshake, XCircle, AlertTriangle, Pencil, History,
+  Upload, Trash2, Handshake, XCircle, AlertTriangle, Pencil, History, Hash,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -14,7 +14,10 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
-import { canEditPoNumber, parsePoNumber } from '../utils/roles';
+import {
+  canAssignPoNumber, canEditPoNumber, currentFinancialYear, parsePoNumber,
+  PO_NUMBER_PENDING_LABEL,
+} from '../utils/roles';
 import { slaRemarkState } from '../utils/sla';
 import { SlaNotice, SlaDelayRemark } from '../components/shared/SlaGate';
 import TatBadge from '../components/shared/TatBadge';
@@ -794,6 +797,153 @@ function TaxSummary({ amount, taxChoice, customTax }) {
   );
 }
 
+// ─── Fill in the PO number ───
+// An approved quotation creates its purchase orders WITHOUT a number. Purchase
+// type it in here — financial year + running count — and only then does the
+// draft become a real PO that can be placed. The prefix is fixed so the number
+// stays parseable by everything downstream (batch numbers, the register).
+//
+// The count is pre-filled with the next unused one for that year, but it is only
+// a suggestion: Purchase are copying from their own PO register, where gaps and
+// out-of-order numbers are normal. Duplicates are what the server refuses.
+function AssignPoNumberForm({ order, onCancel, onDone }) {
+  const [fy, setFy] = useState(currentFinancialYear());
+  const [count, setCount] = useState('');
+  const [suggested, setSuggested] = useState(null);
+  const [loadingSuggestion, setLoadingSuggestion] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const fyValid = /^(\d{2})-(\d{2})$/.test(fy.trim()) &&
+    (parseInt(fy.trim().slice(0, 2), 10) + 1) % 100 === parseInt(fy.trim().slice(3), 10);
+
+  // Ask the server for the next free count whenever the year is complete and
+  // valid. Only pre-fills an untouched box — never overwrites what was typed.
+  useEffect(() => {
+    if (!fyValid) { setSuggested(null); return; }
+    let cancelled = false;
+    setLoadingSuggestion(true);
+    api.get('/purchase-orders/next-number', { params: { fy: fy.trim() } })
+      .then(({ data }) => {
+        if (cancelled) return;
+        setSuggested(data.count);
+        setCount((c) => (c === '' ? String(data.count) : c));
+      })
+      .catch(() => { if (!cancelled) setSuggested(null); })
+      .finally(() => { if (!cancelled) setLoadingSuggestion(false); });
+    return () => { cancelled = true; };
+  }, [fy, fyValid]);
+
+  const trimmedCount = count.trim();
+  const countValid = /^\d+$/.test(trimmedCount) && Number(trimmedCount) >= 1;
+  const preview = fyValid && countValid ? `RAPS/PO/${fy.trim()}/${Number(trimmedCount)}` : null;
+  const canSubmit = fyValid && countValid && !saving;
+
+  const submit = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const { data } = await api.patch(`/purchase-orders/${order.id}/assign-number`, {
+        fy: fy.trim(),
+        count: Number(trimmedCount),
+      });
+      onDone(data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to save the purchase order number');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Which order this is — the modal can be opened from a long list, so name
+          it before asking for anything. */}
+      <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm">
+        <div className="font-semibold text-navy-800">{order.customName}</div>
+        <div className="text-xs text-gray-600 mt-0.5">
+          {order.supplierName} · {formatCurrency(order.totalAmount)}
+          {order.purchaseRequest?.requestNumber && <> · PR {order.purchaseRequest.requestNumber}</>}
+        </div>
+      </div>
+
+      <div className="flex items-start gap-2 bg-blue-50 border-l-4 border-blue-500 rounded-md p-3 text-sm text-blue-900">
+        <Hash size={18} className="text-blue-700 mt-0.5 shrink-0" />
+        <div>
+          <div className="font-semibold">Enter the number from your PO register.</div>
+          <div className="text-xs mt-0.5">
+            Nothing on this order can move until it has a number — it is what the supplier,
+            the payment requests and every batch label are keyed to. The count below is only
+            a suggestion; type the number you actually issued.
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[13px] font-semibold text-navy-700 mb-1.5">
+            Financial year <span className="text-brand-red">*</span>
+          </label>
+          <input
+            type="text"
+            value={fy}
+            onChange={(e) => setFy(e.target.value.replace(/[^\d-]/g, '').slice(0, 5))}
+            placeholder="26-27"
+            className="w-32 px-3.5 py-2 bg-white border border-navy-200 rounded-lg text-sm font-mono text-navy-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-600"
+          />
+          {!fyValid && fy.trim() !== '' && (
+            <p className="mt-1 text-xs text-brand-red">Two consecutive years, e.g. 26-27.</p>
+          )}
+        </div>
+        <div>
+          <label className="block text-[13px] font-semibold text-navy-700 mb-1.5">
+            PO number <span className="text-brand-red">*</span>
+          </label>
+          <div className="flex items-stretch">
+            <span className="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-navy-200 bg-navy-50 text-sm font-mono text-gray-600">
+              {fyValid ? `RAPS/PO/${fy.trim()}/` : 'RAPS/PO/…/'}
+            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={count}
+              onChange={(e) => setCount(e.target.value.replace(/[^\d]/g, ''))}
+              onKeyDown={(e) => { if (e.key === 'Enter' && canSubmit) submit(); }}
+              maxLength={6}
+              autoFocus
+              className="w-28 px-3.5 py-2 bg-white border border-navy-200 rounded-r-lg text-sm font-mono text-navy-800 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-600"
+            />
+          </div>
+          <p className="mt-1 text-xs text-gray-500">
+            {loadingSuggestion
+              ? 'Checking the last number used…'
+              : suggested != null
+                ? `Next unused in ${fy.trim()}: ${suggested}`
+                : 'Type the count from your register.'}
+          </p>
+        </div>
+      </div>
+
+      {preview && (
+        <div className="text-sm bg-navy-50 border border-navy-200 rounded-md px-3 py-2">
+          <span className="text-gray-600">This order will become </span>
+          <span className="font-mono font-bold text-navy-800">{preview}</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="text-sm bg-red-50 border border-red-200 rounded-md px-3 py-2 text-red-800">{error}</div>
+      )}
+
+      <div className="flex gap-2 justify-end">
+        <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
+        <Button onClick={submit} disabled={!canSubmit}>
+          {saving ? 'Saving…' : 'Save PO number'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // TEMPORARY FEATURE — PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
 // ════════════════════════════════════════════════════════════════════════════
@@ -961,6 +1111,8 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
   const [closePending, setClosePending] = useState(null);
   const [closeReason, setCloseReason] = useState('');
   const [closing, setClosing] = useState(false);
+  // Filling in the PO number on a draft order — see AssignPoNumberForm above.
+  const [showAssignNumber, setShowAssignNumber] = useState(false);
   // TEMPORARY (rollout): PO number correction — see RenumberPoForm above.
   const [showRenumber, setShowRenumber] = useState(false);
   const [iir, setIir] = useState({
@@ -1067,6 +1219,12 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
   const remaining = order.totalAmount - order.totalPaid;
   const isPendingAccounting = order.status === 'PENDING_ACCOUNTING';
   const isCreditPlaced = order.status === 'CREDIT_PLACED';
+
+  // Drafts created by an approved quotation have no number until Purchase fill
+  // one in. Every action on the order is held back until they do — the server
+  // enforces the same rule, this just stops the buttons being offered.
+  const needsNumber = !order.orderNumber;
+  const canFillNumber = canAssignPoNumber({ role: userRole });
 
   // 48-hour placement SLA — measured from when the PO became "awaiting placement"
   // (createdAt), matching the ageing badge in the list. Past 48h the Purchase
@@ -1417,8 +1575,29 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
           </div>
         )}
 
+        {/* Fill-in-the-number banner. Sits above everything else because until
+            it is dealt with, nothing else on this order can happen. */}
+        {needsNumber && (
+          <div className="bg-blue-50 border-l-4 border-blue-600 rounded-md p-3 flex items-start gap-2">
+            <Hash size={18} className="text-blue-700 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <div className="text-sm font-bold text-blue-900">Fill PO number to proceed</div>
+              <div className="text-xs text-blue-800">
+                {canFillNumber
+                  ? 'This order has no PO number yet. Enter the financial year and the number from your PO register — until it has one the order cannot be placed, paid against or documented.'
+                  : 'Purchase have not issued a number for this order yet. It cannot move forward until they do.'}
+              </div>
+              {canFillNumber && (
+                <Button size="sm" className="mt-2" onClick={() => setShowAssignNumber(true)}>
+                  <Hash size={14} className="mr-1" /> Fill PO number
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Awaiting Accounting banner — visible to everyone viewing the order */}
-        {isPendingAccounting && (
+        {!needsNumber && isPendingAccounting && (
           <div className="bg-amber-50 border-l-4 border-amber-500 rounded-md p-3 flex items-start gap-2">
             <Clock size={18} className="text-amber-700 mt-0.5 shrink-0" />
             <div>
@@ -1470,10 +1649,24 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
         {/* Header Info */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm bg-gray-50 rounded-md p-4">
           <div className="flex items-center gap-2">
-            <span className="text-gray-500">Order #:</span> <span className="font-medium">{order.orderNumber}</span>
+            <span className="text-gray-500">Order #:</span>
+            {needsNumber ? (
+              <button
+                type="button"
+                onClick={() => canFillNumber && setShowAssignNumber(true)}
+                disabled={!canFillNumber}
+                className={`text-xs font-semibold rounded px-1.5 py-0.5 border border-blue-300 bg-blue-50 text-blue-800 ${
+                  canFillNumber ? 'hover:bg-blue-100' : 'cursor-default'
+                }`}
+              >
+                {canFillNumber ? 'Fill PO number to proceed' : PO_NUMBER_PENDING_LABEL}
+              </button>
+            ) : (
+              <span className="font-medium">{order.orderNumber}</span>
+            )}
             {order.isUnion && <Badge color="purple"><Layers size={10} className="inline mr-0.5" /> UNION</Badge>}
             {/* TEMPORARY (rollout): change the running count on the PO number. */}
-            {canEditPoNumber({ role: userRole }) && (
+            {!needsNumber && canEditPoNumber({ role: userRole }) && (
               <button
                 type="button"
                 onClick={() => setShowRenumber(true)}
@@ -1506,6 +1699,16 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
             </>
           )}
         </div>
+
+        {/* Who issued the number. Absent on orders numbered automatically before
+            manual numbering came in, so the line simply doesn't render for them. */}
+        {order.numberAssignedAt && (
+          <div className="text-xs text-gray-500">
+            PO number issued by{' '}
+            <span className="font-medium text-gray-700">{order.numberAssignedBy?.name || 'Purchase'}</span>
+            {' '}on {formatDateTime(order.numberAssignedAt)}.
+          </div>
+        )}
 
         {/* Number history — only ever rendered for a PO that was actually
             renumbered, so it stays out of the way and outlives the temporary
@@ -1603,9 +1806,11 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
             isPO ? (
               <div className="space-y-1">
                 <p className="text-xs text-gray-600">
-                  Upload the final signed PO PDF. Until uploaded, no one (including QC) can see the PO document.
+                  {needsNumber
+                    ? 'The signed PO carries its number on the face of it — fill the PO number in first, then upload the PDF.'
+                    : 'Upload the final signed PO PDF. Until uploaded, no one (including QC) can see the PO document.'}
                 </p>
-                <Button size="sm" onClick={() => poFileInputRef.current?.click()} disabled={uploadingPo}>
+                <Button size="sm" onClick={() => poFileInputRef.current?.click()} disabled={uploadingPo || needsNumber}>
                   <Upload size={14} className="mr-1" /> {uploadingPo ? 'Uploading...' : 'Upload PO PDF'}
                 </Button>
               </div>
@@ -1916,8 +2121,27 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
           </div>
         )}
 
-        {/* Action Buttons */}
+        {/* Action Buttons.
+            A draft with no number offers exactly one action — fill the number in.
+            Everything else is withheld until it has one. */}
         <div className="flex flex-wrap gap-3 pt-2 border-t items-center">
+          {needsNumber ? (
+            canFillNumber ? (
+              <>
+                <Button onClick={() => setShowAssignNumber(true)}>
+                  <Hash size={16} className="mr-1" /> Fill PO number to proceed
+                </Button>
+                <span className="text-xs text-gray-500">
+                  Placing, payments and the signed PDF unlock once the number is saved.
+                </span>
+              </>
+            ) : (
+              <span className="text-xs text-gray-500">
+                Waiting for Purchase to issue the PO number.
+              </span>
+            )
+          ) : (
+            <>
           {isPO && isPendingAccounting && (
             <>
               {!showPaymentForm && !showCreditForm ? (
@@ -2055,8 +2279,33 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
               <XCircle size={16} className="mr-1" /> {closing ? 'Closing…' : 'Close PO'}
             </Button>
           )}
+            </>
+          )}
         </div>
       </div>
+
+      {/* Fill in the PO number on a draft order. */}
+      {showAssignNumber && (
+        <Modal
+          isOpen
+          onClose={() => setShowAssignNumber(false)}
+          title="Fill PO number"
+          size="md"
+        >
+          <AssignPoNumberForm
+            order={order}
+            onCancel={() => setShowAssignNumber(false)}
+            onDone={(data) => {
+              // Patch the open modal straight away so the header stops asking for
+              // a number, then refresh the list and re-pull the order behind it.
+              Object.assign(order, data.order);
+              setShowAssignNumber(false);
+              onUpdated();
+              onReloadOrder?.();
+            }}
+          />
+        </Modal>
+      )}
 
       {/* Force-close confirmation: server returned 409 with what is still pending. */}
       {closePending && (
@@ -2231,9 +2480,14 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
                       onClick={() => onOpenOrder(o)}
-                      className="font-mono text-xs text-navy-700 hover:underline font-semibold"
+                      className={`text-xs hover:underline font-semibold ${
+                        o.orderNumber
+                          ? 'font-mono text-navy-700'
+                          : 'text-blue-800 bg-blue-50 border border-blue-300 rounded px-1.5 py-0.5'
+                      }`}
                     >
-                      {o.orderNumber}
+                      {/* No number yet: the row itself is the call to action. */}
+                      {o.orderNumber || 'Fill PO number to proceed'}
                     </button>
                     <Badge color={statusColor(o.status)}>{statusLabel(o.status)}</Badge>
                     {o.status === 'PENDING_ACCOUNTING' && <TatBadge since={o.createdAt} label="awaiting placement" />}
@@ -2397,6 +2651,10 @@ function PRGroup({ prNumber, prInfo, isUnion = false, sourceRequests = [], order
 }
 
 // ─── Main Page ───
+// Pseudo-tab for the drafts Purchase still have to number. Not a PO status, so
+// it travels to the server as its own filter rather than as `status`.
+const NEEDS_NUMBER_TAB = 'AWAITING_PO_NUMBER';
+
 export default function PurchaseOrders() {
   const { user } = useAuth();
   const [orders, setOrders] = useState([]);
@@ -2410,13 +2668,21 @@ export default function PurchaseOrders() {
 
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isAdmin = user?.role === 'ADMIN';
+  const canFillNumber = canAssignPoNumber(user);
   const refreshKey = useAutoRefresh();
+
+  // How many drafts are still waiting for a number. Comes from the dashboard
+  // endpoint (Purchase/Admin only) so the count covers every order, not just the
+  // page currently loaded.
+  const awaitingNumber = dashboard?.awaitingNumber || 0;
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const params = { limit: 100, fromDate: fromDate || undefined, toDate: toDate || undefined };
-      if (tab !== 'ALL') params.status = tab;
+      // "Awaiting PO number" isn't a status — it's the drafts with no number yet.
+      if (tab === NEEDS_NUMBER_TAB) params.awaitingNumber = '1';
+      else if (tab !== 'ALL') params.status = tab;
       const [ordersRes, dashRes] = await Promise.all([
         api.get('/purchase-orders', { params }),
         (isPO || isAdmin) ? api.get('/purchase-orders/dashboard') : Promise.resolve({ data: null }),
@@ -2475,14 +2741,27 @@ export default function PurchaseOrders() {
     });
   }, [orders, search]);
 
+  // Purchase (and Admin) get the numbering queue as their first tab — it is the
+  // gate every new order has to pass through before anything else can happen.
   const tabs = user?.role === 'STORE_MANAGER'
     ? ['ALL', 'ORDERED', 'CREDIT_PLACED', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED']
-    : ['ALL', 'PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PAID', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED'];
+    : [
+      'ALL',
+      ...(canFillNumber ? [NEEDS_NUMBER_TAB] : []),
+      'PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PAID', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED',
+    ];
+
+  const tabLabel = (t) => {
+    if (t === 'ALL') return 'All';
+    if (t === NEEDS_NUMBER_TAB) return 'Awaiting PO number';
+    return statusLabel(t);
+  };
 
   // Server-side filters handed to the Excel export, so the workbook covers every
   // matching PO rather than only the 100 loaded here.
   const exportParams = {
-    status: tab !== 'ALL' ? tab : undefined,
+    status: (tab !== 'ALL' && tab !== NEEDS_NUMBER_TAB) ? tab : undefined,
+    awaitingNumber: tab === NEEDS_NUMBER_TAB ? '1' : undefined,
     fromDate: fromDate || undefined,
     toDate: toDate || undefined,
   };
@@ -2506,6 +2785,29 @@ export default function PurchaseOrders() {
           />
         }
       />
+
+      {/* Numbering queue. PO numbers are typed in by Purchase, so a freshly
+          approved quotation leaves orders that cannot move until someone does.
+          This is the first thing on the page for exactly that reason. */}
+      {canFillNumber && awaitingNumber > 0 && (
+        <div className="bg-blue-50 border-l-4 border-blue-600 rounded-md p-4 flex items-start gap-3">
+          <Hash size={20} className="text-blue-700 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <div className="text-sm font-bold text-blue-900">
+              {awaitingNumber} order{awaitingNumber > 1 ? 's' : ''} waiting for a PO number
+            </div>
+            <div className="text-xs text-blue-800 mt-0.5">
+              Open each one and enter the number from your PO register. Until then it cannot be
+              placed with the supplier, paid against, or given a signed PO PDF.
+            </div>
+          </div>
+          {tab !== NEEDS_NUMBER_TAB && (
+            <Button size="sm" onClick={() => setTab(NEEDS_NUMBER_TAB)}>
+              Show them
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Dashboard Stats */}
       {dashboard && (
@@ -2545,7 +2847,14 @@ export default function PurchaseOrders() {
               className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
                 tab === t ? 'bg-white text-navy-700 font-medium shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
-            >{t === 'ALL' ? 'All' : statusLabel(t)}</button>
+            >
+              {tabLabel(t)}
+              {t === NEEDS_NUMBER_TAB && awaitingNumber > 0 && (
+                <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold">
+                  {awaitingNumber}
+                </span>
+              )}
+            </button>
           ))}
         </div>
         <input
@@ -2568,7 +2877,11 @@ export default function PurchaseOrders() {
       ) : grouped.length === 0 ? (
         <Card>
           <div className="text-center py-8 text-gray-400">
-            {search ? 'No orders match your search.' : 'No purchase orders found.'}
+            {search
+              ? 'No orders match your search.'
+              : tab === NEEDS_NUMBER_TAB
+                ? 'Every order has a PO number. Nothing waiting here.'
+                : 'No purchase orders found.'}
           </div>
         </Card>
       ) : (
@@ -2576,7 +2889,9 @@ export default function PurchaseOrders() {
           {grouped.map(([groupKey, { isUnion, prInfo, sourceRequests, orders: prOrders }], idx) => (
             <PRGroup
               key={groupKey}
-              prNumber={isUnion ? prOrders[0]?.orderNumber : groupKey}
+              // A union group is titled by its PO number, which a draft doesn't
+              // have yet — fall back so the header never renders blank.
+              prNumber={isUnion ? (prOrders[0]?.orderNumber || PO_NUMBER_PENDING_LABEL) : groupKey}
               prInfo={prInfo}
               isUnion={isUnion}
               sourceRequests={sourceRequests}

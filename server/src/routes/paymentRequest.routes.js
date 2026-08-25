@@ -119,6 +119,12 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
 
     if (!order) return res.status(404).json({ error: 'Purchase order not found' });
 
+    // Accounting settle against the PO number, so an order still waiting for
+    // Purchase to fill its number in can't raise a payment request.
+    if (!order.orderNumber) {
+      return res.status(400).json({ error: 'Fill in the PO number before this order can proceed.' });
+    }
+
     // Validate amount doesn't exceed remaining
     const remaining = order.totalAmount - order.totalPaid;
     if (data.amount > remaining) {

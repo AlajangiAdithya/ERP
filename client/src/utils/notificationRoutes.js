@@ -35,6 +35,8 @@ export const NOTIFICATION_ROUTES = {
   ORDER_PLACED_ON_CREDIT: '/purchase-orders',
   PO_FORCE_CLOSED: '/purchase-orders',
   PO_CLOSED: '/purchase-orders',
+  PO_NUMBER_ASSIGNED: '/purchase-orders',
+  PO_RENUMBERED: '/purchase-orders',
 
   // Inward entry + QC
   INSPECTION_REQUEST: '/inward-entry',
