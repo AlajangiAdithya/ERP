@@ -4,6 +4,7 @@ import { Activity, ShoppingCart, FileText, X } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { useAutoRefresh } from '../../context/NotificationContext';
+import { poNumberLabel } from '../../utils/roles';
 
 // Floating, always-visible badge for the in-progress PR and PO counts.
 // Mounted once at the layout level. Hidden when there is nothing in flight.
@@ -89,7 +90,7 @@ export default function InProgressBadge() {
               </div>
               {(summary.poSamples || []).slice(0, 3).map(po => (
                 <div key={po.id} className="text-xs text-gray-500 truncate">
-                  • {po.orderNumber || 'PO number pending'} — {po.status}
+                  • {poNumberLabel(po)} — {po.status}
                 </div>
               ))}
               {poCount > (summary.poSamples?.length || 0) && (

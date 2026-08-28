@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, CheckCircle, XCircle, ShoppingCart, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw, GitMerge, Unlink, Upload, Lock, Paperclip, Pencil, History, ArrowRight, PauseCircle, Send } from 'lucide-react';
+import { Plus, CheckCircle, XCircle, ShoppingCart, Package, PackageCheck, X, FileText, TrendingUp, Layers, Eye, RefreshCw, GitMerge, Unlink, Upload, Lock, Paperclip, Pencil, History, ArrowRight, PauseCircle, Send } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -9,7 +9,7 @@ import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
-import Input from '../components/ui/Input';
+import Input, { Select } from '../components/ui/Input';
 import { formatDate, formatDateTime } from '../utils/formatters';
 import { UOM_OPTIONS } from '../utils/units';
 import { reasonError } from '../utils/reasonValidation';
@@ -22,6 +22,9 @@ import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import MaterialNameInput from '../components/shared/MaterialNameInput';
 import ExportExcelButton from '../components/shared/ExportExcelButton';
 import WorkOrderPicker from '../components/shared/WorkOrderPicker';
+import { PO_NUMBER_PENDING_LABEL, poNumberLabel, canCreateProduct } from '../utils/roles';
+import SearchBar from '../components/shared/SearchBar';
+import AddMasterMaterialModal from '../components/shared/AddMasterMaterialModal';
 
 // Allowed spec / note attachment formats — any common document or drawing type.
 // Validated by extension (DWG/office/zip mime types vary across browsers).
@@ -382,6 +385,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
       specsFetched.current = new Set();
       setNoteAttachments(isEdit ? (requestToEdit.noteAttachments || []).map((a) => ({ url: a.url, name: a.name })) : []);
       setNoteUpload({ uploading: false, error: '' });
+      setAddMaterialFor(null);
     }
   }, [isOpen, prefillItems, prefillNotes, requestToEdit]);
 
@@ -497,20 +501,32 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   };
   const updateItem = (idx, field, value) => updateItemFields(idx, { [field]: value });
 
-  // ── Catalogue linking (material description type-ahead) ──
-  // Picking a suggestion ties the row to that catalogue material and adopts its
-  // UOM; typing over the description again drops the link, so the text stands on
-  // its own as a new material. Nothing about this shows on the PR table / PDF.
+  // ── Master data linking (material picker) ──
+  // A line may only ask for a material that already exists in Master Data.
+  // Picking a suggestion ties the row to that material and adopts its UOM and
+  // material type; typing over the description again drops the link, and an
+  // unlinked line is refused at submit.
   const pickProduct = (idx, p) => {
     updateItemFields(idx, {
       productId: p.id,
       productName: p.name,
       productUnit: p.unit || items[idx].productUnit,
+      materialType: items[idx].materialType || p.category || '',
     });
     loadProductSpecs(p.id);
   };
   const typeProductName = (idx, text) =>
     updateItemFields(idx, { productName: text, productId: null });
+
+  // "Add to Master Data" from a line: the new material is created for real (under
+  // this user's name), then linked to the row that asked for it.
+  const [addMaterialFor, setAddMaterialFor] = useState(null); // { idx, name }
+  const canAddMaterial = canCreateProduct(user);
+  const openAddMaterial = (idx, name) => setAddMaterialFor({ idx, name });
+  const onMaterialCreated = (product) => {
+    if (addMaterialFor) pickProduct(addMaterialFor.idx, product);
+    setAddMaterialFor(null);
+  };
 
   // Tick / untick one of the linked material's saved specs onto this line.
   const toggleSavedSpec = (idx, spec) => {
@@ -525,7 +541,19 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
 
   const submit = async () => {
     const validItems = items.filter(i => i.productName.trim());
-    if (validItems.length === 0) return alert('Enter at least one material description');
+    if (validItems.length === 0) return alert('Pick at least one material from Master Data');
+    // Every line must be linked to a Master Data material — the server refuses
+    // an unlinked one, so catch it here where we can name the offending row.
+    const unlinked = validItems.find(i => !i.productId);
+    if (unlinked) {
+      return alert(
+        `"${unlinked.productName.trim()}" is not in Master Data.\n\n` +
+        'A requisition can only ask for a material that is already in Master Data. ' +
+        (canAddMaterial
+          ? 'Pick it from the suggestions, or use "Add to Master Data" on that line.'
+          : 'Pick it from the suggestions, or ask a unit manager to add it to Master Data first.')
+      );
+    }
     // The picker's `min` only guards clicks — a typed date still needs checking.
     const tooSoon = validItems.find(i => requiredByTooSoon(i.requiredByDate));
     if (tooSoon) {
@@ -546,7 +574,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
         items: validItems.map(i => ({
           productName: i.productName.trim(),
           productUnit: i.productUnit || 'pcs',
-          productId: i.productId || undefined,
+          productId: i.productId,
           requestedQty: parseFloat(i.requestedQty) || 1,
           materialType: i.materialType || undefined,
           materialSpecification: i.materialSpecification || undefined,
@@ -577,6 +605,13 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const unitOptions = UOM_OPTIONS;
   const today = new Date().toISOString().split('T')[0];
 
+  // Lines with text typed but no Master Data material behind them. These block
+  // the submit, so they are named on screen rather than only in the alert.
+  const unlinkedNames = items
+    .filter((i) => i.productName.trim() && !i.productId)
+    .map((i) => i.productName.trim());
+  const linkedCount = items.filter((i) => i.productId).length;
+
   // Paper-form cell styles
   const cellInput = "w-full px-1.5 py-1 text-xs border-0 focus:outline-none focus:bg-yellow-50";
   const cellSelect = "w-full px-1.5 py-1 text-xs border-0 bg-white focus:outline-none focus:bg-yellow-50";
@@ -585,6 +620,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const headerCell = "border border-gray-400 bg-gray-200 px-2 py-1 text-xs font-bold text-center";
 
   return (
+    <>
     <Modal isOpen={isOpen} onClose={onClose} title={isEdit ? `Edit Purchase Requisition — ${requestToEdit.requestNumber}` : 'New Purchase Requisition Form'} size="full">
       <div className="space-y-3">
         {/* Paper form header */}
@@ -666,6 +702,18 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
           </Button>
         </div>
 
+        {/* The master-data rule, stated before the first line is filled in. */}
+        <div className="flex items-start gap-2 border border-navy-200 bg-navy-50 px-3 py-2 rounded text-[11px] text-navy-900">
+          <Package size={12} className="mt-0.5 flex-shrink-0" />
+          <div>
+            <strong>Materials come from Master Data.</strong> Type in <em>Material Description</em> to
+            search and pick the material — free text is not accepted.
+            {canAddMaterial
+              ? ' If it isn’t there yet, use "Add to Master Data" in the suggestion list; it is saved under your name and you can complete its details later.'
+              : ' If it isn’t there yet, ask a unit manager to add it to Master Data first.'}
+          </div>
+        </div>
+
         {/* Confidentiality disclaimer for the per-item spec attachment row. */}
         <div className="flex items-start gap-2 border border-amber-300 bg-amber-50 px-3 py-2 rounded text-[11px] text-amber-900">
           <Lock size={12} className="mt-0.5 flex-shrink-0" />
@@ -701,16 +749,17 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                 <td className={labelCell}>Material Description *</td>
                 {items.map((item, idx) => (
                   <td key={idx} className={dataCell}>
-                    {/* Just type: catalogue matches drop down as you go — pick one
-                        to link the row, or keep typing and it rides as a new material. */}
+                    {/* Type to search Master Data and pick a material. Anything
+                        not picked from the list is refused at submit. */}
                     <MaterialNameInput
                       value={item.productName}
                       productId={item.productId}
                       onChange={(text) => typeProductName(idx, text)}
                       onPick={(p) => pickProduct(idx, p)}
-                      onUnlink={() => updateItem(idx, 'productId', null)}
+                      onUnlink={() => updateItemFields(idx, { productId: null, productName: '' })}
+                      onAddToMasterData={canAddMaterial ? (name) => openAddMaterial(idx, name) : undefined}
                       className={cellInput}
-                      placeholder="Start typing description..."
+                      placeholder="Search master data..."
                     />
                   </td>
                 ))}
@@ -991,19 +1040,43 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
           </div>
         </div>
 
+        {/* Unlinked lines can't be submitted — say so before the button is hit. */}
+        {unlinkedNames.length > 0 && (
+          <div className="flex items-start gap-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-[11px] text-red-900">
+            <Lock size={13} className="mt-0.5 shrink-0" />
+            <div>
+              <span className="font-semibold">
+                Not in Master Data: {unlinkedNames.map((n) => `"${n}"`).join(', ')}.
+              </span>{' '}
+              A requisition can only ask for a material that is already in Master Data — pick it
+              from the suggestions{canAddMaterial ? ', or use “Add to Master Data” on that line' : ''}.
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving || items.every(i => !i.productName.trim())}>
+          <Button onClick={submit} disabled={saving || linkedCount === 0 || unlinkedNames.length > 0}>
             {saving
               ? (isEdit ? 'Saving...' : 'Submitting...')
               : isEdit
-                ? `Save Changes (${items.filter(i => i.productName.trim()).length} material${items.filter(i => i.productName.trim()).length === 1 ? '' : 's'})`
-                : `Submit Request (${items.filter(i => i.productName.trim()).length} material${items.filter(i => i.productName.trim()).length === 1 ? '' : 's'})`}
+                ? `Save Changes (${linkedCount} material${linkedCount === 1 ? '' : 's'})`
+                : `Submit Request (${linkedCount} material${linkedCount === 1 ? '' : 's'})`}
           </Button>
         </div>
       </div>
-
     </Modal>
+
+    {/* Sibling, not a child, of the requisition modal — a `position: fixed`
+        panel nested inside another modal's scroll container is fragile. */}
+    {isOpen && addMaterialFor && (
+      <AddMasterMaterialModal
+        initialName={addMaterialFor.name}
+        onClose={() => setAddMaterialFor(null)}
+        onCreated={onMaterialCreated}
+      />
+    )}
+    </>
   );
 }
 
@@ -1680,7 +1753,7 @@ function ProcurementJourney({ request }) {
   const activePO = activeUnionPO || request?.purchaseOrders?.[0];
   const poDetail = activePO
     ? (activePO.isUnion
-      ? `Union PO ${activePO.orderNumber || '(number pending)'} with ${(activePO.sourceRequests?.length || 0)} units`
+      ? `Union PO ${poNumberLabel(activePO)} with ${(activePO.sourceRequests?.length || 0)} units`
       : `PO: ${activePO.customName}`)
     : null;
 
@@ -2020,10 +2093,10 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
             <div className="col-span-2 flex items-center gap-2 flex-wrap">
               <span className="text-gray-500">PO:</span>
               {/* Purchase type the PO number in by hand, so a freshly approved
-                  quotation shows an order that has no number yet. */}
+                  quotation shows an order still on the 000 placeholder. */}
               {primaryPO.orderNumber
                 ? <span className="font-medium">{primaryPO.orderNumber}</span>
-                : <span className="italic text-gray-500">number pending from Purchase</span>}
+                : <span className="font-mono text-gray-500" title="PO number not issued yet">{PO_NUMBER_PENDING_LABEL}</span>}
               <Badge color="gray">₹{primaryPO.totalAmount?.toLocaleString('en-IN')}</Badge>
               {primaryPO.isUnion && (
                 <Badge color="purple">
@@ -2125,8 +2198,8 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                           <Badge color="gray" title="Product SKU">{item.product.sku}</Badge>
                         )}
                         {unionRef && (
-                          <Badge color="purple" title={`Part of Union PO ${unionRef.po.orderNumber || '(number pending)'}`}>
-                            <Layers size={10} className="inline mr-0.5" /> Union {unionRef.po.orderNumber || '· number pending'}
+                          <Badge color="purple" title={`Part of Union PO ${poNumberLabel(unionRef.po)}`}>
+                            <Layers size={10} className="inline mr-0.5" /> Union {poNumberLabel(unionRef.po)}
                           </Badge>
                         )}
                         {pool && !unionRef && (
@@ -2538,9 +2611,18 @@ export default function PurchaseRequests() {
   const [tab, setTab] = useState('ALL');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
-  // Server-side paging — the list holds one page at a time. Status tab and date
-  // range are applied on the server too, so `total` counts the whole filtered
-  // set, not just what is on screen.
+  // Unit-wise filter + free-text search. Both are applied on the SERVER (like
+  // the status tab and the date range) so they narrow every matching PR, not
+  // just the page currently loaded.
+  const [units, setUnits] = useState([]);
+  const [unitFilter, setUnitFilter] = useState('');
+  const [search, setSearch] = useState('');
+  // What is actually sent to the server — the box is debounced so typing a
+  // request number doesn't fire a query per keystroke.
+  const [searchQuery, setSearchQuery] = useState('');
+  // Server-side paging — the list holds one page at a time. Status tab, unit,
+  // search and date range are applied on the server too, so `total` counts the
+  // whole filtered set, not just what is on screen.
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -2556,7 +2638,14 @@ export default function PurchaseRequests() {
 
   const fetchRequests = () => {
     setLoading(true);
-    const params = { page, limit: PR_PAGE_SIZE, fromDate: fromDate || undefined, toDate: toDate || undefined };
+    const params = {
+      page,
+      limit: PR_PAGE_SIZE,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      unitId: unitFilter || undefined,
+      search: searchQuery || undefined,
+    };
     if (tab !== 'ALL') params.status = tab;
     api.get('/purchase-requests', { params })
       .then(({ data }) => {
@@ -2572,13 +2661,41 @@ export default function PurchaseRequests() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchRequests(); }, [tab, fromDate, toDate, page]);
+  useEffect(() => { fetchRequests(); }, [tab, fromDate, toDate, unitFilter, searchQuery, page]);
+
+  // Units for the unit-wise dropdown. Every authenticated role may read them.
+  useEffect(() => {
+    api.get('/units')
+      .then(({ data }) => setUnits(Array.isArray(data) ? data : (data?.units || [])))
+      .catch(() => setUnits([]));
+  }, []);
+
+  // Debounce the search box; the settled term is what the server sees. The term
+  // and the page reset are set together so the list is fetched once, not twice.
+  useEffect(() => {
+    const next = search.trim();
+    if (next === searchQuery) return undefined;
+    const t = setTimeout(() => { setSearchQuery(next); setPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [search, searchQuery]);
 
   // Changing a filter always restarts at page 1 — staying on page 4 of a list
   // that just shrank to one page shows nothing.
   const changeTab = (t) => { setTab(t); setPage(1); };
   const changeFromDate = (v) => { setFromDate(v); setPage(1); };
   const changeToDate = (v) => { setToDate(v); setPage(1); };
+  const changeUnit = (v) => { setUnitFilter(v); setPage(1); };
+
+  const filtersActive = tab !== 'ALL' || !!fromDate || !!toDate || !!unitFilter || !!search.trim();
+  const clearFilters = () => {
+    setTab('ALL');
+    setFromDate('');
+    setToDate('');
+    setUnitFilter('');
+    setSearch('');
+    setSearchQuery('');
+    setPage(1);
+  };
 
   // Low-stock products — only fetched for STORE_MANAGER to surface the "Raise PR for low stock" quick action.
   const fetchLowStock = () => {
@@ -2604,6 +2721,9 @@ export default function PurchaseRequests() {
     const items = source.map(p => {
       const deficit = Math.max(1, Math.ceil((p.minStockLevel || 0) - (p.currentStock || 0)));
       return {
+        // Low-stock rows come straight from the catalogue, so they arrive
+        // already linked to their Master Data material.
+        productId: p.id,
         productName: p.name,
         productUnit: p.unit || 'pcs',
         requestedQty: String(deficit),
@@ -2661,6 +2781,8 @@ export default function PurchaseRequests() {
     status: tab !== 'ALL' ? tab : undefined,
     fromDate: fromDate || undefined,
     toDate: toDate || undefined,
+    unitId: unitFilter || undefined,
+    search: searchQuery || undefined,
   };
 
   // "Showing 51–100 of 237" — position within the whole filtered set, not the page.
@@ -2762,8 +2884,8 @@ export default function PurchaseRequests() {
         </Card>
       )}
 
-      <div className="flex flex-wrap items-end gap-4">
-        {/* Tabs */}
+      <div className="space-y-3">
+        {/* Status tabs */}
         {tabs.length > 1 && (
           <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit flex-wrap">
             {tabs.map(t => (
@@ -2775,7 +2897,37 @@ export default function PurchaseRequests() {
             ))}
           </div>
         )}
-        <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={changeFromDate} onToChange={changeToDate} />
+
+        {/* Search + unit + date range. All three are server-side, so they narrow
+            the whole list (and the export), not just the loaded page. */}
+        <Card className="p-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[220px]">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+              <SearchBar
+                value={search}
+                onChange={setSearch}
+                placeholder="PR number, material, raised by, work order…"
+              />
+            </div>
+            <div className="w-full sm:w-56">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Unit</label>
+              <Select value={unitFilter} onChange={(e) => changeUnit(e.target.value)}>
+                <option value="">All units</option>
+                {units.map(u => (
+                  <option key={u.id} value={u.id}>{u.name || u.code}</option>
+                ))}
+                <option value="NONE">Central / no unit</option>
+              </Select>
+            </div>
+            <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={changeFromDate} onToChange={changeToDate} />
+            {filtersActive && (
+              <Button variant="secondary" size="sm" onClick={clearFilters}>
+                <X size={14} className="mr-1" /> Clear filters
+              </Button>
+            )}
+          </div>
+        </Card>
       </div>
 
       <Card>
@@ -2785,7 +2937,12 @@ export default function PurchaseRequests() {
           </div>
         ) : filteredRequests.length === 0 ? (
           <div className="text-center py-8 text-gray-400">
-            {isPO ? 'No purchase assignments available.' : 'No purchase requests found.'}
+            <div>{isPO ? 'No purchase assignments available.' : 'No purchase requests found.'}</div>
+            {filtersActive && (
+              <button onClick={clearFilters} className="mt-2 text-sm text-navy-600 hover:text-navy-800 underline">
+                Clear the filters
+              </button>
+            )}
           </div>
         ) : (
           <>

@@ -1,11 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Plus, Trash2, RotateCcw, CheckCircle2, Truck, PackageCheck,
   Send, ShieldCheck, Calculator, Stamp, XCircle, Clock, AlertCircle, LayoutList,
   DoorOpen, FileText, Upload, FileDown, ClipboardList, Briefcase,
   GitBranch, ArrowRight, ArrowDown, User, Workflow, Eye, Filter, Pencil,
+  PackageSearch,
 } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
+import FimStatusRegister from '../components/fim/FimStatusRegister';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -33,14 +36,17 @@ const gpPendingSince = (g) =>
     : g?.status === 'PENDING_ACCOUNTS' ? (g.storeInchargeAt || g.createdAt)
       : null;
 
-// The two formats a gate pass can take. The toggle at the top of the page
-// switches which register format (columns + workflow) is shown, and seeds the
-// kind chosen when a new gate pass is created.
+// The registers reachable from this page. The toggle at the top switches which
+// one is shown, and seeds the kind chosen when a new gate pass is created.
 //  • OUTSIDE   → Outward register (RAMS/GPR/01) — delivered to a site office.
 //  • LOCAL_JOB → Local Job Work register (RAPS/JL-JW) — returns to stores.
+//  • FIM       → FIM / Customer Property register. Not an outward gate pass of
+//    its own: customer material arrives on an INWARD gate pass and leaves on an
+//    OUTWARD one, so its lifecycle sits beside the two registers that move it.
 const KIND_VIEWS = [
   { key: 'OUTSIDE',   label: 'Outward (RAMS/GPR/01)',   Icon: DoorOpen },
   { key: 'LOCAL_JOB', label: 'Local Job (RAPS/JL-JW)',  Icon: Briefcase },
+  { key: 'FIM',       label: 'FIM Status',              Icon: PackageSearch },
 ];
 
 const STATUS_TABS = [
@@ -200,6 +206,7 @@ const ACTION_DEFS = {
 
 export default function GatePass() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const role = user?.role;
   // Stores raises its own outward passes too — those skip the stores-approval
   // stage entirely (the server releases them straight to Accounts / Logistics).
@@ -208,7 +215,7 @@ export default function GatePass() {
   // never has a PENDING_STORE pass of its own to edit, and the server's /edit
   // endpoint does not authorise STORE_MANAGER.
   const canEdit = ['MANAGER', 'ADMIN', 'PLANNING', 'QC'].includes(role);
-  const [view, setView] = useState('OUTSIDE'); // 'OUTSIDE' | 'LOCAL_JOB'
+  const [view, setView] = useState('OUTSIDE'); // 'OUTSIDE' | 'LOCAL_JOB' | 'FIM'
   const [activeTab, setActiveTab] = useState(DEFAULT_TAB_BY_ROLE[role] || 'PENDING_STORE');
   const [gatePasses, setGatePasses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -221,7 +228,14 @@ export default function GatePass() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
+  // The FIM register is not a gate pass list — it renders its own table off
+  // /products/fim-status, so the tabs, date filter and sheet below don't apply.
+  const isFimView = view === 'FIM';
+
   const load = () => {
+    // The FIM register loads its own rows; don't pull 500 gate passes for a
+    // sheet that isn't on screen.
+    if (isFimView) return;
     setLoading(true);
     api.get('/gatepasses', {
       params: {
@@ -235,7 +249,7 @@ export default function GatePass() {
       .catch(() => setGatePasses([]))
       .finally(() => setLoading(false));
   };
-  useEffect(load, [refreshKey, fromDate, toDate]);
+  useEffect(load, [refreshKey, fromDate, toDate, view]);
 
   // Rows belonging to the chosen register format. Outward also picks up legacy
   // (kind=null) FIM send-out rows so they stay visible somewhere.
@@ -260,8 +274,10 @@ export default function GatePass() {
     <div className="space-y-6">
       <PageHero
         title="Gate Pass"
-        subtitle="OUTWARD movement in one register sheet — pick Outward (delivered to a site office) or Local Job (returns to stores). Every step is actioned right in the row."
-        eyebrow="Outward Movement"
+        subtitle={isFimView
+          ? 'Customer property (FIM) from the day it is inwarded to the day it goes back — assignment, unit acceptance, return dates and send-out.'
+          : 'OUTWARD movement in one register sheet — pick Outward (delivered to a site office) or Local Job (returns to stores). Every step is actioned right in the row.'}
+        eyebrow={isFimView ? 'Customer Property' : 'Outward Movement'}
         icon={DoorOpen}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -277,7 +293,8 @@ export default function GatePass() {
         }
       />
 
-      {/* Register format toggle — swaps the sheet columns + workflow. */}
+      {/* Register toggle — swaps the sheet columns + workflow, or hands the page
+          over to the FIM register. */}
       <div className="flex flex-wrap gap-2 border-b border-gray-200">
         {KIND_VIEWS.map(({ key, label, Icon }) => (
           <button
@@ -291,6 +308,10 @@ export default function GatePass() {
         ))}
       </div>
 
+      {isFimView ? (
+        <FimStatusRegister user={user} onOpenProduct={(id) => navigate(`/products/${id}`)} />
+      ) : (
+      <>
       <Card className="p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 text-xs font-medium text-navy-500">
@@ -340,10 +361,12 @@ export default function GatePass() {
           onAction={(gatePass, type) => setActionFor({ gatePass, type })}
         />
       )}
+      </>
+      )}
 
       {showCreate && (
         <CreateGatePassModal
-          defaultKind={view}
+          defaultKind={isFimView ? 'OUTSIDE' : view}
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); refresh(); }}
         />
@@ -351,7 +374,7 @@ export default function GatePass() {
 
       {editTarget && (
         <CreateGatePassModal
-          defaultKind={editTarget.kind || view}
+          defaultKind={editTarget.kind || (isFimView ? 'OUTSIDE' : view)}
           initialData={editTarget}
           editId={editTarget.id}
           onClose={() => setEditTarget(null)}

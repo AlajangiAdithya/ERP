@@ -32,12 +32,44 @@ export function storeProductEditWindowOpen(now = new Date()) {
   return now.getTime() <= STORE_PRODUCT_EDIT_UNTIL.getTime();
 }
 
-// Who may edit a product's descriptive details from the Stock Details list.
-// Master owners always; Stores only while the temporary rollout window is open.
-export function canEditProductDetails(user) {
+// ──── Master data: who may ADD, who may EDIT ────
+// A purchase-request line can only name a material that is already in Master
+// Data, so everyone who raises PRs must be able to put one there — otherwise a
+// Lab / Designs / Safety request is blocked until somebody else acts. Adding is
+// open to every requester role; Product.createdBy records who did it.
+// Mirror of PRODUCT_CREATE_ROLES in server/src/middleware/rbac.js.
+const PRODUCT_CREATE_ROLES = [
+  'ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'STORE_MANAGER',
+  'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING',
+];
+
+export function canCreateProduct(user) {
+  if (!user) return false;
+  return user.role === 'SUPERADMIN' || PRODUCT_CREATE_ROLES.includes(user.role);
+}
+
+// Editing master data stays narrow: the Unit 1–5 managers own it, plus the
+// person who entered that particular material. Everyone else is read-only.
+// `product` must be the loaded record (it carries createdById).
+export function canEditProductMasterData(user, product) {
   if (!user) return false;
   if (isProductMasterEditor(user)) return true;
+  return !!product?.createdById && product.createdById === user.id;
+}
+
+// Who may edit a product's descriptive details from the Stock Details list.
+// Master owners and the material's author always; Stores only while the
+// temporary rollout window is open.
+export function canEditProductDetails(user, product) {
+  if (!user) return false;
+  if (canEditProductMasterData(user, product)) return true;
   return user.role === 'STORE_MANAGER' && storeProductEditWindowOpen();
+}
+
+// Could this user edit at least SOME products? Decides whether an Edit column or
+// button is drawn at all — each row still runs the per-product check above.
+export function canEditAnyProductDetails(user) {
+  return canEditProductDetails(user, null) || canCreateProduct(user);
 }
 
 // ──── PO numbering (permanent) ────
@@ -54,8 +86,16 @@ export function canAssignPoNumber(user) {
 }
 
 // What every screen shows in place of the number while an order is still a
-// draft, so "no number yet" never reads as a rendering bug.
-export const PO_NUMBER_PENDING_LABEL = 'PO number pending';
+// draft. Purchase asked for a literal placeholder rather than a phrase, so an
+// un-numbered order reads as "000" everywhere it appears — the same way it sits
+// in their paper register until the real number is written against it.
+export const PO_NUMBER_PENDING_LABEL = '000';
+
+// The call to action shown next to that placeholder for whoever may fill it in.
+export const PO_NUMBER_FILL_LABEL = 'Update PO number';
+
+// Number as it should be displayed anywhere a PO is referenced.
+export const poNumberLabel = (order) => order?.orderNumber || PO_NUMBER_PENDING_LABEL;
 
 // Indian financial year label for a date: Apr 1 starts a new year.
 // e.g. 25 Aug 2026 → "26-27". Mirror of getFinancialYear in

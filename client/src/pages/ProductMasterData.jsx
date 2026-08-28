@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
-import { isProductMasterEditor } from '../utils/roles';
+import { canCreateProduct } from '../utils/roles';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Table from '../components/ui/Table';
@@ -28,7 +28,11 @@ const blankForm = () => ({
 export default function ProductMasterData({ embedded = false }) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canEdit = isProductMasterEditor(user);
+  // Adding is open to every requester role — a PR line can only name a material
+  // that is already here, so whoever raises the PR has to be able to enter it.
+  // Editing an entry is decided per product (Unit 1–5 managers, or whoever added
+  // it) and lives on the product's own master-data page.
+  const canAdd = canCreateProduct(user);
 
   const [products, setProducts] = useState([]);
   const [total, setTotal] = useState(0);
@@ -131,6 +135,12 @@ export default function ProductMasterData({ embedded = false }) {
       render: (v) => v ? <span className="text-sm text-gray-700">{v}</span> : <span className="text-xs text-gray-400">—</span>,
     },
     {
+      key: 'createdBy', label: 'Added By',
+      render: (v) => v?.name
+        ? <span className="text-sm text-gray-700">{v.name}</span>
+        : <span className="text-xs text-gray-400" title="Added before authorship was recorded">—</span>,
+    },
+    {
       key: 'masterDataComplete', label: 'Master Data',
       render: (v) => v === false
         ? <Badge color="yellow"><span className="inline-flex items-center gap-1"><AlertTriangle size={11} /> Needs master data</span></Badge>
@@ -176,19 +186,20 @@ export default function ProductMasterData({ embedded = false }) {
       {embedded ? (
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <p className="text-sm text-gray-500">
-            Define products with their specifications and shelf life. Only Unit 1–5 managers can edit master data.
+            Every material a purchase request can ask for lives here. Anyone who raises PRs can add
+            one; only Unit 1–5 managers and whoever added a material can change it.
           </p>
-          {canEdit && (
+          {canAdd && (
             <Button onClick={openCreate}><Plus size={16} /> Add Product</Button>
           )}
         </div>
       ) : (
         <PageHero
           title="Product Master Data"
-          subtitle="Define products with their specifications and shelf life. Stock and batches are managed separately under Stock Details."
+          subtitle="Every material a purchase request can ask for, with its specification and shelf life. Stock and batches are managed separately under Stock Details."
           eyebrow="Master Data"
           icon={Package}
-          actions={canEdit ? (
+          actions={canAdd ? (
             <Button onClick={openCreate}><Plus size={16} /> Add Product</Button>
           ) : null}
         />
@@ -227,9 +238,10 @@ export default function ProductMasterData({ embedded = false }) {
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span>
-              These products exist (usually auto-created when a PR was raised) but their master data
-              hasn't been added yet. Stores can't inward them into stock until a unit head or QC fills
-              the specification / shelf life here. You can add the minimum now and complete the rest later.
+              These products exist but their master data was never completed — most were auto-created
+              by a purchase request back when a PR line could name a material that wasn't here yet.
+              They can still be picked on a requisition, but Stores can't inward them into stock until
+              someone fills in the specification / shelf life. Add the minimum now and finish later.
             </span>
           </div>
         )}
@@ -252,13 +264,14 @@ export default function ProductMasterData({ embedded = false }) {
       </Card>
 
       {/* Create modal */}
-      {canEdit && (
+      {canAdd && (
         <Modal isOpen={showCreate} onClose={closeModals} title="Add Product to Master Data" size="lg">
           <form onSubmit={handleSave} className="space-y-4">
             {formError && <p className="text-sm text-brand-red">{formError}</p>}
             {formFields}
             <p className="text-xs text-gray-500">
-              After creating, open the product to add its specification PDF, MSDS and other details.
+              Saved under your name — you and the Unit 1–5 managers can open it afterwards to add its
+              specification PDF, MSDS and the rest of its details.
             </p>
             <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
               <Button variant="secondary" type="button" onClick={closeModals}>Cancel</Button>

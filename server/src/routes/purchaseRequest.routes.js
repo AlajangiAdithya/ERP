@@ -5,7 +5,7 @@ const { authenticate } = require('../middleware/auth');
 const { authorize } = require('../middleware/rbac');
 const { prSpecsUpload, publicUrlFor } = require('../middleware/upload');
 const {
-  generateSequentialNumber, generateProductSku, normalizeMaterialType,
+  generateSequentialNumber, normalizeMaterialType,
   paginate, applyDateFilter, isUniqueViolation, validateWorkOrderLink,
   validateRequiredByDate, validateRequiredByDates,
 } = require('../utils/helpers');
@@ -143,6 +143,9 @@ const createSchema = z.object({
   items: z.array(z.object({
     productName: z.string().min(1),
     productUnit: z.string().min(1).default('pcs'),
+    // The Master Data material this line is for. Optional in the schema only so
+    // a missing link produces the readable "add it to Master Data first" message
+    // from resolvePrItemProducts() below instead of a raw validation error.
     productId: z.string().uuid().optional().nullable(),
     requestedQty: z.number().positive(),
     // PRF form fields
@@ -163,6 +166,62 @@ const createSchema = z.object({
     itemRemarks: z.string().optional(),
   })).min(1),
 });
+
+// ──── Master data gate on requisition lines ────
+// Every line must name a material that is ALREADY in Master Data. The free-text
+// "new material" route is gone, and with it the product this route used to
+// auto-create at PR time: those rows landed in the catalogue with no ID number,
+// no specification and nobody's name on them. The requester now adds the
+// material on the Master Data screen first (every requester role may — see
+// PRODUCT_CREATE_ROLES in middleware/rbac.js), then picks it here.
+//
+// Any active catalogue material is pickable, including the ones still flagged
+// "needs master data" — those pre-date this rule and are deliberately not
+// blocked, so an existing backlog can't stall today's requisitions.
+//
+// Returns { ok: true, items } with each row's name stamped from the catalogue so
+// a PR can never disagree with master data, or { ok: false, error }.
+async function resolvePrItemProducts(items) {
+  const unlinked = items.find((i) => !i.productId);
+  if (unlinked) {
+    const label = (unlinked.productName || '').trim();
+    return {
+      ok: false,
+      error: `${label ? `"${label}"` : 'One of the materials'} is not in Master Data. Add it there first, then pick it on the requisition.`,
+    };
+  }
+
+  const ids = [...new Set(items.map((i) => i.productId))];
+  const products = await prisma.product.findMany({
+    where: { id: { in: ids }, isActive: true },
+    select: { id: true, name: true, unit: true, category: true },
+  });
+  const byId = new Map(products.map((p) => [p.id, p]));
+
+  const missing = items.find((i) => !byId.has(i.productId));
+  if (missing) {
+    const label = (missing.productName || '').trim();
+    return {
+      ok: false,
+      error: `${label ? `"${label}"` : 'A material'} is no longer in Master Data. Pick it again from the catalogue.`,
+    };
+  }
+
+  return {
+    ok: true,
+    items: items.map((item) => {
+      const product = byId.get(item.productId);
+      return {
+        ...item,
+        // Name and UOM come from master data, not from what was typed, so the
+        // requisition, the PO and the stock ledger all say the same thing.
+        productName: product.name,
+        productUnit: item.productUnit || product.unit || 'pcs',
+        materialType: normalizeMaterialType(item.materialType || product.category),
+      };
+    }),
+  };
+}
 
 // POST /api/purchase-requests/upload-spec — uploads one or more material-spec /
 // note files (any common format) and returns { files: [{url,name,mimeType}] } so
@@ -193,9 +252,40 @@ router.post(
 // Visibility + filter clause for the PR list. Shared by the paged list endpoint
 // and the Excel export so an export can never widen what a role is allowed to
 // see, and can never disagree with the list the user is looking at.
-function buildPrListWhere(user, { status, fromDate, toDate }) {
+// `unitId=NONE` picks the PRs that belong to no unit at all — Stores, QC,
+// Designs, Planning and the other central departments raise them, and they are
+// otherwise impossible to isolate from a unit-wise list.
+const NO_UNIT_FILTER = 'NONE';
+
+function buildPrListWhere(user, { status, fromDate, toDate, unitId, search }) {
   const where = {};
   applyDateFilter(where, { fromDate, toDate });
+
+  // Unit-wise filter. Applied on the server so it narrows the whole result set
+  // (and therefore the page count and the export) rather than one loaded page.
+  if (unitId) {
+    where.unitId = unitId === NO_UNIT_FILTER ? null : unitId;
+  }
+
+  // Free-text search across everything a PR is looked up by: its number, who
+  // raised it, its unit, its work order and the materials on it. Kept in `AND`
+  // so it never collides with the role-scoping `OR` set below.
+  const q = String(search || '').trim();
+  if (q) {
+    where.AND = [
+      ...(where.AND || []),
+      {
+        OR: [
+          { requestNumber: { contains: q, mode: 'insensitive' } },
+          { manager: { name: { contains: q, mode: 'insensitive' } } },
+          { unit: { name: { contains: q, mode: 'insensitive' } } },
+          { unit: { code: { contains: q, mode: 'insensitive' } } },
+          { workOrder: { workOrderNumber: { contains: q, mode: 'insensitive' } } },
+          { items: { some: { productName: { contains: q, mode: 'insensitive' } } } },
+        ],
+      },
+    ];
+  }
 
   // Role-based filtering — requester roles see only their own.
   // QC is special: in addition to their own PRs they also oversee PRs raised
@@ -233,10 +323,10 @@ function buildPrListWhere(user, { status, fromDate, toDate }) {
 
 router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
-    const { status, page, limit, fromDate, toDate } = req.query;
+    const { status, page, limit, fromDate, toDate, unitId, search } = req.query;
     const { skip, take } = paginate(page, limit);
 
-    const where = buildPrListWhere(req.user, { status, fromDate, toDate });
+    const where = buildPrListWhere(req.user, { status, fromDate, toDate, unitId, search });
 
     const [requests, total] = await Promise.all([
       prisma.purchaseRequest.findMany({
@@ -425,15 +515,15 @@ const earliest = (dates) => {
 const joinUnique = (list) => Array.from(new Set(list.filter(Boolean))).join(', ');
 
 // GET /api/purchase-requests/export — the current PR list as a formatted .xlsx.
-// Takes the same `status` / `fromDate` / `toDate` filters as the list endpoint and
-// runs through the identical visibility clause, so what downloads is exactly what
-// the user can see on screen — just unpaged. Two sheets: one row per PR, and one
-// row per material line for anyone who needs to pivot on materials.
+// Takes the same `status` / `fromDate` / `toDate` / `unitId` / `search` filters as
+// the list endpoint and runs through the identical visibility clause, so what
+// downloads is exactly what the user can see on screen — just unpaged. Two sheets:
+// one row per PR, and one row per material line for anyone pivoting on materials.
 // Must stay ABOVE `GET /:id` or that route swallows "export".
 router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
-    const { status, fromDate, toDate } = req.query;
-    const where = buildPrListWhere(req.user, { status, fromDate, toDate });
+    const { status, fromDate, toDate, unitId, search } = req.query;
+    const where = buildPrListWhere(req.user, { status, fromDate, toDate, unitId, search });
 
     const [total, requests] = await Promise.all([
       prisma.purchaseRequest.count({ where }),
@@ -1143,49 +1233,10 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
     const isRnd = !!data.isRnd;
     const workOrderId = isRnd ? null : woLink.workOrderId;
 
-    // Resolve productId for each item BEFORE the transactional create:
-    //   - if productId given, use it
-    //   - else look up an existing product by case-insensitive name
-    //   - else create an NRE Product with category-prefixed SKU based on materialType
-    // This guarantees every PR item is linked to a Product from day one, so the
-    // ownership/category trail is intact through PO → QC → inward.
-    const itemsResolved = [];
-    for (const item of data.items) {
-      const matType = normalizeMaterialType(item.materialType);
-      let productId = item.productId || null;
-      if (!productId) {
-        const existing = await prisma.product.findFirst({
-          where: { name: { equals: item.productName, mode: 'insensitive' }, isActive: true },
-          select: { id: true, category: true },
-        });
-        if (existing) {
-          productId = existing.id;
-        } else {
-          // Create NRE product now so SKU is traceable from PR-time onward.
-          let createdProduct = null;
-          for (let attempt = 0; attempt < 5; attempt++) {
-            try {
-              const sku = await generateProductSku(prisma, matType);
-              createdProduct = await prisma.product.create({
-                data: {
-                  name: item.productName,
-                  sku,
-                  unit: item.productUnit || 'pcs',
-                  category: matType,
-                  currentStock: 0,
-                  isActive: true,
-                },
-              });
-              break;
-            } catch (err) {
-              if (!isUniqueViolation(err) || attempt === 4) throw err;
-            }
-          }
-          productId = createdProduct.id;
-        }
-      }
-      itemsResolved.push({ ...item, productId, materialType: matType });
-    }
+    // Every line must name a material that is already in Master Data.
+    const resolved = await resolvePrItemProducts(data.items);
+    if (!resolved.ok) return res.status(400).json({ error: resolved.error });
+    const itemsResolved = resolved.items;
 
     // PRs raised by LAB / METROLOGY / NDT / INWARD_QC enter the QC-approval gate
     // first. Every other requester role goes straight to ADMIN as before.
@@ -1330,44 +1381,11 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
     // R&D and a Work Order are mutually exclusive — R&D always clears the WO link.
     const isRnd = !!data.isRnd;
 
-    // Re-resolve each item's productId — same rules as create so new rows are
-    // linked to a Product (existing match by name, else NRE product created).
-    const itemsResolved = [];
-    for (const item of data.items) {
-      const matType = normalizeMaterialType(item.materialType);
-      let productId = item.productId || null;
-      if (!productId) {
-        const existing = await prisma.product.findFirst({
-          where: { name: { equals: item.productName, mode: 'insensitive' }, isActive: true },
-          select: { id: true },
-        });
-        if (existing) {
-          productId = existing.id;
-        } else {
-          let createdProduct = null;
-          for (let attempt = 0; attempt < 5; attempt++) {
-            try {
-              const sku = await generateProductSku(prisma, matType);
-              createdProduct = await prisma.product.create({
-                data: {
-                  name: item.productName,
-                  sku,
-                  unit: item.productUnit || 'pcs',
-                  category: matType,
-                  currentStock: 0,
-                  isActive: true,
-                },
-              });
-              break;
-            } catch (err) {
-              if (!isUniqueViolation(err) || attempt === 4) throw err;
-            }
-          }
-          productId = createdProduct.id;
-        }
-      }
-      itemsResolved.push({ ...item, productId, materialType: matType });
-    }
+    // Re-resolve each line against Master Data — same rule as create, so a row
+    // added during an edit can't slip in as free text either.
+    const resolved = await resolvePrItemProducts(data.items);
+    if (!resolved.ok) return res.status(400).json({ error: resolved.error });
+    const itemsResolved = resolved.items;
 
     // Swap items in a transaction so a partial failure can't leave the PR with
     // an empty items list. Safe to delete + recreate because PENDING_ADMIN PRs

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowDown, ArrowUp, ArrowRight, Layers, History, Send, ShoppingBag, FileQuestion, FileInput, Link2, ArrowUpFromLine, FileText, GitBranch, Box, Paperclip, Upload, X, Pencil, FlaskConical } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
-import { isProductMasterEditor } from '../utils/roles';
+import { canEditProductMasterData } from '../utils/roles';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -1156,9 +1156,10 @@ export default function ProductDetail() {
     setRequoteOpen(true);
   };
 
-  // Spec library + MSDS are master data — owned by Unit 1–5 managers + QC (+ Admin),
-  // matching the server guard. Stores no longer edits these from the product page.
-  const canManageSpecs = isProductMasterEditor(user);
+  // Spec library + MSDS are master data: the Unit 1–5 managers (+ Admin), plus
+  // whoever entered this particular material. Matches the server guard
+  // (requireProductMasterDataEditor). Stores no longer edits these here.
+  const canManageSpecs = canEditProductMasterData(user, product);
 
   const uploadSpec = async (file) => {
     if (!file) return;

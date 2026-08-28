@@ -24,6 +24,7 @@ model User {
   sessions                   Session[]
   auditLogs                  AuditLog[]
   productRequests            ProductRequest[]
+  productsCreated            Product[]                        @relation("ProductCreator")
   sentNotifications          Notification[]                   @relation("SentBy")
   pushSubscriptions          PushSubscription[]
   purchaseRequests           PurchaseRequest[]                @relation("PurchaseRequestManager")
@@ -244,6 +245,13 @@ model Product {
   // this is true. Existing rows are backfilled to true by the migration; products
   // created afterward start false until enriched on the Master Data screen.
   masterDataComplete   Boolean                    @default(false)
+  // Who entered this material into Master Data. Anyone who raises purchase
+  // requests may add a material (a PR line can only name a material that is
+  // already in Master Data), so the entry has to carry its author: alongside the
+  // Unit 1–5 managers, the creator is the one other person allowed to correct it.
+  // NULL on every row that predates this and on products auto-created by old PRs.
+  createdById          String?
+  createdBy            User?                      @relation("ProductCreator", fields: [createdById], references: [id])
   isActive             Boolean                    @default(true)
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
@@ -259,6 +267,8 @@ model Product {
   materialPools        MaterialPool[]
   specs                ProductSpec[]
   editHistory          ProductEditHistory[]
+
+  @@index([createdById])
 }
 
 // ──── PRODUCT EDIT HISTORY (field-level audit of detail edits) ────

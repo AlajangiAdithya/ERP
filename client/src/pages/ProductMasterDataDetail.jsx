@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Package, FileText, Trash2, Upload, AlertTriangle, CheckCircle2, ArrowLeft, Save, Lock,
+  User as UserIcon,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
-import { isProductMasterEditor } from '../utils/roles';
+import { canEditProductMasterData } from '../utils/roles';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -21,12 +22,12 @@ const blankForm = () => ({
 // Dedicated master-data page for a single product. Opened from the Stock Details
 // → Master Data tab. Edits save straight to the product (PUT /products/:id) and
 // re-fetch immediately so the page always reflects the live state. Editing is
-// limited to Unit 1–5 managers (+ Admin); everyone else sees a read-only view.
+// limited to the Unit 1–5 managers (+ Admin) and the person who added this
+// particular material; everyone else sees a read-only view.
 export default function ProductMasterDataDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canEdit = isProductMasterEditor(user);
 
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -194,6 +195,10 @@ export default function ProductMasterDataDetail() {
 
   const specs = Array.isArray(product.specs) ? product.specs : [];
   const complete = product.masterDataComplete !== false;
+  // Decided per product: master owners always, plus whoever entered this one.
+  const canEdit = canEditProductMasterData(user, product);
+  const addedBy = product.createdBy;
+  const isOwnEntry = !!addedBy && addedBy.id === user?.id;
 
   return (
     <div className="space-y-4">
@@ -217,10 +222,31 @@ export default function ProductMasterDataDetail() {
         </div>
       )}
 
+      {/* Authorship — who put this material into master data, and therefore who
+          may correct it besides the unit managers. */}
+      <div className="rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-600 flex items-start gap-2">
+        <UserIcon size={14} className="mt-0.5 shrink-0 text-gray-400" />
+        <span>
+          {addedBy?.name ? (
+            <>
+              Added to master data by <strong className="text-navy-800">{addedBy.name}</strong>
+              {addedBy.role ? ` (${addedBy.role.replace(/_/g, ' ').toLowerCase()})` : ''}
+              {product.createdAt ? ` on ${new Date(product.createdAt).toLocaleDateString()}` : ''}
+              {isOwnEntry && ' — this is your entry.'}
+            </>
+          ) : (
+            <>No author recorded — this material predates authorship tracking, so only Unit 1–5 managers can change it.</>
+          )}
+        </span>
+      </div>
+
       {!canEdit && (
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 flex items-start gap-2">
           <Lock size={14} className="mt-0.5 shrink-0" />
-          <span>You're viewing master data in read-only mode. Only Unit 1–5 managers can edit it.</span>
+          <span>
+            You're viewing master data in read-only mode. Only the Unit 1–5 managers and
+            {addedBy?.name ? ` ${addedBy.name}, who added this material,` : ' whoever added a material'} can change it.
+          </span>
         </div>
       )}
 

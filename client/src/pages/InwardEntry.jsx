@@ -2356,7 +2356,7 @@ function FromGatePassMode({ canEdit }) {
       </div>
       <p className="text-xs text-gray-500 mb-3">
         Items recorded here are added to stock immediately — no separate acceptance step. They show up under
-        Products → FIM Status straight away.
+        Gate Pass → FIM Status straight away.
       </p>
       {loading ? (
         <p className="text-sm text-gray-500">Loading…</p>

@@ -1673,7 +1673,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         data: {
           type: 'QUOTATION_APPROVED',
           title: `Union Quotation Approved: ${quotation.quotationNumber}`,
-          message: `Admin approved union quotation covering ${sourcePRs.length} PRs. ${createdOrders.length} union purchase order(s) created — ${supplierSummary}. Fill in the PO number for each order before placing it.`,
+          message: `Admin approved union quotation covering ${sourcePRs.length} PRs. ${createdOrders.length} union purchase order(s) created — ${supplierSummary}. Each order is numbered 000 until you update it with the number from your PO register — do that before placing it.`,
           targetRole: 'PURCHASE_OFFICER',
           sentById: req.user.id,
         },
@@ -1695,7 +1695,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         data: {
           type: 'QUOTATION_APPROVED',
           title: `Quotation Approved: ${quotation.purchaseRequest.requestNumber}`,
-          message: `Admin approved quotation for order "${orderName}". ${createdOrders.length} purchase order(s) created — ${supplierSummary}. Fill in the PO number for each order before placing it.`,
+          message: `Admin approved quotation for order "${orderName}". ${createdOrders.length} purchase order(s) created — ${supplierSummary}. Each order is numbered 000 until you update it with the number from your PO register — do that before placing it.`,
           targetRole: 'PURCHASE_OFFICER',
           sentById: req.user.id,
         },

@@ -19,7 +19,7 @@ const express = require('express');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { qmsCertUpload, qmsDocUpload, publicUrlFor } = require('../middleware/upload');
-const { getFinancialYear } = require('../utils/helpers');
+const { getFinancialYear, poNumberLabel } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -955,9 +955,9 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
     });
     const poRecords = [
       ...posDirect.filter((p) => p.purchaseRequest?.adminApprovedAt).map((p) => ({
-        // Purchase type the PO number in by hand, so a just-created order has
-        // none yet — label it rather than leaving the KPI row blank.
-        ref: p.orderNumber || '(PO number pending)',
+        // Purchase type the PO number in by hand, so a just-created order
+        // still reads as the 000 placeholder rather than a blank KPI row.
+        ref: poNumberLabel(p),
         bucketDate: p.createdAt,
         gapMs: new Date(p.createdAt) - new Date(p.purchaseRequest.adminApprovedAt),
         unit: unitLabelOf(p.purchaseRequest.unit, null),
@@ -969,7 +969,7 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
         if (!prs.length) return null;
         const earliest = new Date(Math.min(...prs.map((pr) => new Date(pr.adminApprovedAt).getTime())));
         return {
-          ref: p.orderNumber || '(PO number pending)',
+          ref: poNumberLabel(p),
           bucketDate: p.createdAt,
           gapMs: new Date(p.createdAt) - earliest,
           unit: unitLabelOf(prs[0].unit, 'Union'),

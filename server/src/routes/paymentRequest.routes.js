@@ -122,7 +122,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
     // Accounting settle against the PO number, so an order still waiting for
     // Purchase to fill its number in can't raise a payment request.
     if (!order.orderNumber) {
-      return res.status(400).json({ error: 'Fill in the PO number before this order can proceed.' });
+      return res.status(400).json({ error: 'Update the PO number before this order can proceed.' });
     }
 
     // Validate amount doesn't exceed remaining

@@ -9,7 +9,7 @@ const { poDocumentUpload, goodsArrivedUpload, publicUrlFor, UPLOAD_ROOT } = requ
 const {
   generateSequentialNumber, generateMirNumber, generateProductSku,
   normalizeMaterialType, paginate, applyDateFilter, isUniqueViolation,
-  DEPT_BY_ROLE, computeTax, parsePoNumber, buildPoNumber,
+  DEPT_BY_ROLE, computeTax, parsePoNumber, buildPoNumber, poNumberLabel,
   getFinancialYear, isValidFinancialYear, nextPoCountForFy,
 } = require('../utils/helpers');
 const { cancelLeftoverPRItems } = require('../utils/prClosure');
@@ -76,12 +76,13 @@ const OWN_SCOPED_PO_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'INWARD_QC', 
 // and reserve the qty in ProductDeptStock so only that department can issue it.
 
 // An approved quotation creates its purchase orders WITHOUT a number — Purchase
-// type RAPS/PO/<FY>/<n> in by hand (PATCH /:id/assign-number). Until they do, the
-// row is a draft: it shows on the PO page so Purchase can see what is waiting,
-// but nothing may act on it. The number is what the supplier, the batch labels,
-// the payment requests and every downstream document are keyed to, so letting an
-// order move without one would leave records that can never be reconciled.
-const NEEDS_NUMBER_ERROR = 'Fill in the PO number before this order can proceed.';
+// type RAPS/PO/<FY>/<n> in by hand (PATCH /:id/assign-number). Until they do the
+// order reads as the placeholder "000" everywhere (poNumberLabel): it is visible
+// to the whole chain so everyone can see what is waiting, but nothing may act on
+// it. The number is what the supplier, the batch labels, the payment requests and
+// every downstream document are keyed to, so letting an order move without one
+// would leave records that can never be reconciled.
+const NEEDS_NUMBER_ERROR = 'Update the PO number before this order can proceed.';
 
 const isUnnumbered = (order) => !order || !order.orderNumber;
 
@@ -362,8 +363,8 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
       const balance = (Number(o.totalAmount) || 0) - (Number(o.totalPaid) || 0);
 
       orderRows.push({
-        // Numbers are typed in by Purchase, so a draft still has none.
-        orderNumber: o.orderNumber || '(number pending)',
+        // Numbers are typed in by Purchase, so a draft still reads as 000.
+        orderNumber: poNumberLabel(o),
         customName: o.customName || '',
         status: poStatusLabel(o.status),
         isUnion: yesNo(o.isUnion),
@@ -402,7 +403,7 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
         // so material can be traced back to the indent that asked for it.
         const linePrs = joinUnique((i.allocations || []).map((a) => a.purchaseRequestItem?.request?.requestNumber));
         itemRows.push({
-          orderNumber: o.orderNumber || '(number pending)',
+          orderNumber: poNumberLabel(o),
           poStatus: poStatusLabel(o.status),
           supplier: o.supplierName || o.supplier?.name || '',
           prNumbers: linePrs || prNumbers,

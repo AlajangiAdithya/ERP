@@ -1,14 +1,15 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { CheckCircle, X } from 'lucide-react';
+import { CheckCircle, X, AlertTriangle, Plus } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import api from '../../api/axios';
 
-// ─── Material description field for the PR form ───
-// One field, no modes. The requester just types the description; matching
-// catalogue materials drop down as they type. Picking one links the row to that
-// product (its id, its UOM and its saved spec library). Typing something with no
-// match is simply a new material — it rides on the PR as free text and Stores
-// creates it later. The PR table / PDF never show "existing" vs "new".
+// ─── Material picker for the PR form ───
+// A requisition line may only name a material that is already in Master Data, so
+// this is a picker, not a free-text box: the requester types, matching materials
+// drop down, and picking one links the row to that product (its id, its UOM and
+// its saved spec library). Text that isn't linked to a material is refused at
+// submit — the dropdown offers "Add to Master Data" instead, which creates the
+// entry (under the requester's name) and links the row straight away.
 //
 // The dropdown is portalled to <body> with fixed positioning because the PR
 // materials table lives inside an `overflow-x-auto` wrapper, which would
@@ -19,6 +20,10 @@ export default function MaterialNameInput({
   onChange,
   onPick,
   onUnlink,
+  // Opens the "add to Master Data" form pre-filled with what was typed. Omitted
+  // for roles that may not add materials — they only get the "not in Master
+  // Data" warning.
+  onAddToMasterData,
   className = '',
   placeholder = 'Start typing description…',
 }) {
@@ -134,8 +139,21 @@ export default function MaterialNameInput({
     >
       {searching && <div className="px-3 py-2 text-[11px] text-gray-400">Searching…</div>}
       {!searching && results.length === 0 && (
-        <div className="px-3 py-2 text-[11px] text-gray-500">
-          No match in the catalogue — <span className="font-medium text-amber-700">“{q}” goes through as a new material.</span>
+        <div className="px-3 py-2">
+          <div className="text-[11px] text-gray-600">
+            <span className="font-medium text-red-700">“{q}” is not in Master Data.</span>{' '}
+            A requisition can only ask for a material that is already there.
+          </div>
+          {onAddToMasterData && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { setOpen(false); onAddToMasterData(q); }}
+              className="mt-1.5 inline-flex items-center gap-1 rounded border border-navy-300 bg-navy-50 px-2 py-1 text-[11px] font-semibold text-navy-800 hover:bg-navy-100"
+            >
+              <Plus size={11} /> Add “{q}” to Master Data
+            </button>
+          )}
         </div>
       )}
       {results.map((p, i) => (
@@ -166,25 +184,28 @@ export default function MaterialNameInput({
         value={value}
         autoComplete="off"
         placeholder={placeholder}
-        className={className}
+        /* Unlinked text is not a valid line, so the field reads as an error. */
+        className={`${className}${q.length > 0 && !productId ? ' bg-red-50' : ''}`}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => { if (results.length > 0) setOpen(true); }}
         onKeyDown={onKeyDown}
       />
       {productId ? (
         <div className="flex items-center gap-1 px-1.5 pb-1 pt-0.5 text-[9px] font-medium text-green-600">
-          <CheckCircle size={9} /> existing material
+          <CheckCircle size={9} /> in master data
           <button
             type="button"
             onClick={onUnlink}
-            title="Unlink — raise this line as a new material instead"
+            title="Clear — pick a different material"
             className="text-gray-400 hover:text-red-600"
           >
             <X size={9} />
           </button>
         </div>
-      ) : q.length >= 2 && !searching && results.length === 0 ? (
-        <div className="px-1.5 pb-1 pt-0.5 text-[9px] italic text-amber-600">new material</div>
+      ) : q.length > 0 ? (
+        <div className="flex items-center gap-1 px-1.5 pb-1 pt-0.5 text-[9px] font-medium text-red-600">
+          <AlertTriangle size={9} /> not in master data — pick from the list
+        </div>
       ) : null}
       {menu && createPortal(menu, document.body)}
     </>

@@ -16,7 +16,7 @@ import Input from '../components/ui/Input';
 import { formatDateTime } from '../utils/formatters';
 import {
   canAssignPoNumber, canEditPoNumber, currentFinancialYear, parsePoNumber,
-  PO_NUMBER_PENDING_LABEL,
+  PO_NUMBER_PENDING_LABEL, PO_NUMBER_FILL_LABEL, poNumberLabel,
 } from '../utils/roles';
 import { slaRemarkState } from '../utils/sla';
 import { SlaNotice, SlaDelayRemark } from '../components/shared/SlaGate';
@@ -797,11 +797,12 @@ function TaxSummary({ amount, taxChoice, customTax }) {
   );
 }
 
-// ─── Fill in the PO number ───
-// An approved quotation creates its purchase orders WITHOUT a number. Purchase
-// type it in here — financial year + running count — and only then does the
-// draft become a real PO that can be placed. The prefix is fixed so the number
-// stays parseable by everything downstream (batch numbers, the register).
+// ─── Update the PO number ───
+// An approved quotation creates its purchase orders WITHOUT a number, so they
+// read as the placeholder "000" until Purchase type the real one in here —
+// financial year + running count. Only then does the order become a real PO that
+// can be placed. The prefix is fixed so the number stays parseable by everything
+// downstream (batch numbers, the register).
 //
 // The count is pre-filled with the next unused one for that year, but it is only
 // a suggestion: Purchase are copying from their own PO register, where gaps and
@@ -869,11 +870,13 @@ function AssignPoNumberForm({ order, onCancel, onDone }) {
       <div className="flex items-start gap-2 bg-blue-50 border-l-4 border-blue-500 rounded-md p-3 text-sm text-blue-900">
         <Hash size={18} className="text-blue-700 mt-0.5 shrink-0" />
         <div>
-          <div className="font-semibold">Enter the number from your PO register.</div>
+          <div className="font-semibold">
+            Currently <span className="font-mono">{PO_NUMBER_PENDING_LABEL}</span> — enter the number from your PO register.
+          </div>
           <div className="text-xs mt-0.5">
-            Nothing on this order can move until it has a number — it is what the supplier,
-            the payment requests and every batch label are keyed to. The count below is only
-            a suggestion; type the number you actually issued.
+            Nothing on this order can move while it is on the placeholder — the number is what
+            the supplier, the payment requests and every batch label are keyed to. The count
+            below is only a suggestion; type the number you actually issued.
           </div>
         </div>
       </div>
@@ -925,7 +928,8 @@ function AssignPoNumberForm({ order, onCancel, onDone }) {
 
       {preview && (
         <div className="text-sm bg-navy-50 border border-navy-200 rounded-md px-3 py-2">
-          <span className="text-gray-600">This order will become </span>
+          <span className="font-mono text-gray-500">{PO_NUMBER_PENDING_LABEL}</span>
+          <span className="text-gray-600"> → </span>
           <span className="font-mono font-bold text-navy-800">{preview}</span>
         </div>
       )}
@@ -1581,15 +1585,17 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
           <div className="bg-blue-50 border-l-4 border-blue-600 rounded-md p-3 flex items-start gap-2">
             <Hash size={18} className="text-blue-700 mt-0.5 shrink-0" />
             <div className="flex-1">
-              <div className="text-sm font-bold text-blue-900">Fill PO number to proceed</div>
+              <div className="text-sm font-bold text-blue-900">
+                This order is still <span className="font-mono">{PO_NUMBER_PENDING_LABEL}</span>
+              </div>
               <div className="text-xs text-blue-800">
                 {canFillNumber
-                  ? 'This order has no PO number yet. Enter the financial year and the number from your PO register — until it has one the order cannot be placed, paid against or documented.'
+                  ? 'It carries the placeholder number until you update it. Enter the financial year and the number from your PO register — until it has one the order cannot be placed, paid against or documented.'
                   : 'Purchase have not issued a number for this order yet. It cannot move forward until they do.'}
               </div>
               {canFillNumber && (
                 <Button size="sm" className="mt-2" onClick={() => setShowAssignNumber(true)}>
-                  <Hash size={14} className="mr-1" /> Fill PO number
+                  <Hash size={14} className="mr-1" /> {PO_NUMBER_FILL_LABEL}
                 </Button>
               )}
             </div>
@@ -1651,16 +1657,25 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
           <div className="flex items-center gap-2">
             <span className="text-gray-500">Order #:</span>
             {needsNumber ? (
-              <button
-                type="button"
-                onClick={() => canFillNumber && setShowAssignNumber(true)}
-                disabled={!canFillNumber}
-                className={`text-xs font-semibold rounded px-1.5 py-0.5 border border-blue-300 bg-blue-50 text-blue-800 ${
-                  canFillNumber ? 'hover:bg-blue-100' : 'cursor-default'
-                }`}
-              >
-                {canFillNumber ? 'Fill PO number to proceed' : PO_NUMBER_PENDING_LABEL}
-              </button>
+              /* The order reads as its placeholder number; whoever may issue the
+                 real one gets the "Update PO number" action right beside it. */
+              <>
+                <span
+                  className="font-mono font-semibold text-blue-800 bg-blue-50 border border-blue-300 rounded px-1.5 py-0.5"
+                  title="Placeholder — Purchase have not issued this order's number yet"
+                >
+                  {PO_NUMBER_PENDING_LABEL}
+                </span>
+                {canFillNumber && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAssignNumber(true)}
+                    className="text-xs font-semibold text-blue-700 hover:text-blue-900 underline underline-offset-2"
+                  >
+                    {PO_NUMBER_FILL_LABEL}
+                  </button>
+                )}
+              </>
             ) : (
               <span className="font-medium">{order.orderNumber}</span>
             )}
@@ -1807,7 +1822,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
               <div className="space-y-1">
                 <p className="text-xs text-gray-600">
                   {needsNumber
-                    ? 'The signed PO carries its number on the face of it — fill the PO number in first, then upload the PDF.'
+                    ? 'The signed PO carries its number on the face of it — update the PO number first, then upload the PDF.'
                     : 'Upload the final signed PO PDF. Until uploaded, no one (including QC) can see the PO document.'}
                 </p>
                 <Button size="sm" onClick={() => poFileInputRef.current?.click()} disabled={uploadingPo || needsNumber}>
@@ -2122,14 +2137,14 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
         )}
 
         {/* Action Buttons.
-            A draft with no number offers exactly one action — fill the number in.
-            Everything else is withheld until it has one. */}
+            An order still on 000 offers exactly one action — update the number.
+            Everything else is withheld until it has a real one. */}
         <div className="flex flex-wrap gap-3 pt-2 border-t items-center">
           {needsNumber ? (
             canFillNumber ? (
               <>
                 <Button onClick={() => setShowAssignNumber(true)}>
-                  <Hash size={16} className="mr-1" /> Fill PO number to proceed
+                  <Hash size={16} className="mr-1" /> {PO_NUMBER_FILL_LABEL}
                 </Button>
                 <span className="text-xs text-gray-500">
                   Placing, payments and the signed PDF unlock once the number is saved.
@@ -2284,12 +2299,12 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
         </div>
       </div>
 
-      {/* Fill in the PO number on a draft order. */}
+      {/* Replace the 000 placeholder with the real number. */}
       {showAssignNumber && (
         <Modal
           isOpen
           onClose={() => setShowAssignNumber(false)}
-          title="Fill PO number"
+          title={PO_NUMBER_FILL_LABEL}
           size="md"
         >
           <AssignPoNumberForm
@@ -2480,14 +2495,15 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
                       onClick={() => onOpenOrder(o)}
-                      className={`text-xs hover:underline font-semibold ${
+                      className={`text-xs hover:underline font-semibold font-mono ${
                         o.orderNumber
-                          ? 'font-mono text-navy-700'
+                          ? 'text-navy-700'
                           : 'text-blue-800 bg-blue-50 border border-blue-300 rounded px-1.5 py-0.5'
                       }`}
+                      title={o.orderNumber ? undefined : 'PO number not issued yet'}
                     >
-                      {/* No number yet: the row itself is the call to action. */}
-                      {o.orderNumber || 'Fill PO number to proceed'}
+                      {/* No number yet: the row reads 000 until it is updated. */}
+                      {poNumberLabel(o)}
                     </button>
                     <Badge color={statusColor(o.status)}>{statusLabel(o.status)}</Badge>
                     {o.status === 'PENDING_ACCOUNTING' && <TatBadge since={o.createdAt} label="awaiting placement" />}
@@ -2794,7 +2810,8 @@ export default function PurchaseOrders() {
           <Hash size={20} className="text-blue-700 mt-0.5 shrink-0" />
           <div className="flex-1">
             <div className="text-sm font-bold text-blue-900">
-              {awaitingNumber} order{awaitingNumber > 1 ? 's' : ''} waiting for a PO number
+              {awaitingNumber} order{awaitingNumber > 1 ? 's' : ''} still on{' '}
+              <span className="font-mono">{PO_NUMBER_PENDING_LABEL}</span>
             </div>
             <div className="text-xs text-blue-800 mt-0.5">
               Open each one and enter the number from your PO register. Until then it cannot be
@@ -2891,7 +2908,7 @@ export default function PurchaseOrders() {
               key={groupKey}
               // A union group is titled by its PO number, which a draft doesn't
               // have yet — fall back so the header never renders blank.
-              prNumber={isUnion ? (prOrders[0]?.orderNumber || PO_NUMBER_PENDING_LABEL) : groupKey}
+              prNumber={isUnion ? poNumberLabel(prOrders[0]) : groupKey}
               prInfo={prInfo}
               isUnion={isUnion}
               sourceRequests={sourceRequests}

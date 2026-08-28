@@ -16,6 +16,7 @@ import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
 import { formatDate, formatDateTime } from '../utils/formatters';
+import { PO_NUMBER_PENDING_LABEL } from '../utils/roles';
 import { useNavigate } from 'react-router-dom';
 
 const greet = (user, roleLabel) => {
@@ -183,7 +184,7 @@ function InProgressButton() {
                           {/* Purchase fill the PO number in by hand, so a newly
                               created order may not have one yet. */}
                           <td className="px-2 py-1.5 font-medium text-navy-700">
-                            {po.orderNumber || <span className="italic text-gray-400">number pending</span>}
+                            {po.orderNumber || <span className="font-mono text-gray-400" title="PO number not issued yet">{PO_NUMBER_PENDING_LABEL}</span>}
                           </td>
                           <td className="px-2 py-1.5"><Badge color="blue">{unitLabel}</Badge></td>
                           <td className="px-2 py-1.5 text-gray-600">{po.supplierName || '—'}</td>
@@ -299,7 +300,7 @@ function ActivePOOverview() {
                   <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/purchase-orders')}>
                     {/* Purchase fill the PO number in by hand — may be blank. */}
                     <td className="px-3 py-2 font-medium text-navy-700">
-                      {po.orderNumber || <span className="italic text-gray-400">number pending</span>}
+                      {po.orderNumber || <span className="font-mono text-gray-400" title="PO number not issued yet">{PO_NUMBER_PENDING_LABEL}</span>}
                     </td>
                     <td className="px-3 py-2"><Badge color="blue">{unitLabel}</Badge></td>
                     <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
@@ -1560,7 +1561,7 @@ function PurchaseOfficerDashboard() {
                     {/* Overdue orders include ones still awaiting placement, which
                         may not have had their number filled in yet. */}
                     <td className="px-3 py-2 font-medium text-navy-700">
-                      {po.orderNumber || <span className="italic text-gray-400">number pending</span>}
+                      {po.orderNumber || <span className="font-mono text-gray-400" title="PO number not issued yet">{PO_NUMBER_PENDING_LABEL}</span>}
                     </td>
                     <td className="px-3 py-2 text-gray-600">{po.customName || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>

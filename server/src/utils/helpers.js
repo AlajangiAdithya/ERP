@@ -176,6 +176,13 @@ const parsePoNumber = (value) => {
 // zero-padding — the same shape every other document number uses.
 const buildPoNumber = (fy, count) => `RAPS/PO/${fy}/${count}`;
 
+// What an order with no number yet reads as, everywhere it is printed or
+// exported. Purchase asked for the placeholder they use in their own register
+// rather than a sentence. Mirror of PO_NUMBER_PENDING_LABEL in
+// client/src/utils/roles.js — keep both in sync.
+const PO_NUMBER_PENDING_LABEL = '000';
+const poNumberLabel = (order) => order?.orderNumber || PO_NUMBER_PENDING_LABEL;
+
 // A financial-year label is two consecutive 2-digit years, e.g. "26-27".
 // "26-28" and "26-25" are rejected — a typo there would silently start a whole
 // parallel numbering series that nobody notices until the register is audited.
@@ -415,6 +422,8 @@ module.exports = {
   generateProductSku,
   parsePoNumber,
   buildPoNumber,
+  PO_NUMBER_PENDING_LABEL,
+  poNumberLabel,
   isValidFinancialYear,
   nextPoCountForFy,
   isUniqueViolation,

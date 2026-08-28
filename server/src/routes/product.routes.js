@@ -2,7 +2,10 @@ const express = require('express');
 const { z } = require('zod');
 const prisma = require('../config/db');
 const { authenticate } = require('../middleware/auth');
-const { authorizeProductMaster, authorizeProductEdit, isProductMasterRole } = require('../middleware/rbac');
+const {
+  authorizeProductMaster, authorizeProductCreate, isProductMasterRole,
+  canEditProductMasterData, canEditProductDetails, PRODUCT_EDIT_FORBIDDEN,
+} = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
 const { msdsUpload, prSpecsUpload, publicUrlFor } = require('../middleware/upload');
 const {
@@ -182,6 +185,9 @@ router.get('/', authenticate, async (req, res) => {
       : null;
 
     const include = {
+      // Always carried: the Master Data screen shows who entered each material,
+      // and the client uses it to decide whether the edit controls are drawn.
+      createdBy: { select: { id: true, name: true, role: true } },
       ...(wantUnitStock ? { unitStocks: { include: { unit: { select: { id: true, name: true, code: true } } } } } : {}),
       ...(batchInclude || {}),
     };
@@ -492,6 +498,27 @@ router.get('/:id/supplier-history', authenticate, async (req, res) => {
   }
 });
 
+// Per-product master-data gate for the document routes (spec PDFs, MSDS).
+// Master owners, or the person who entered this material — the same rule as the
+// detail edit, minus the Stores rollout window (Stores never owned the files).
+// Runs BEFORE the uploader so a refused request never writes a file to disk.
+const requireProductMasterDataEditor = async (req, res, next) => {
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, createdById: true },
+    });
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+    if (!canEditProductMasterData(req.user, product)) {
+      return res.status(403).json({ error: PRODUCT_EDIT_FORBIDDEN });
+    }
+    return next();
+  } catch (error) {
+    console.error('Product master-data gate error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 // ──── PRODUCT MATERIAL SPECS (reusable spec-PDF library) ────
 // GET /api/products/:id/specs — list a product's spec PDFs (newest first).
 // Open to any authenticated user (PR picker + Product Detail read it).
@@ -508,13 +535,12 @@ router.get('/:id/specs', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/products/:id/specs — Stores/Admin upload a spec PDF to the library.
+// POST /api/products/:id/specs — add a spec PDF to the library. Master owners,
+// or whoever entered this material in master data.
 // Reuses the pr-specs uploader so PR-time and product-page uploads share storage.
-router.post('/:id/specs', authenticate, authorizeProductMaster, prSpecsUpload.single('file'), async (req, res) => {
+router.post('/:id/specs', authenticate, requireProductMasterDataEditor, prSpecsUpload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const product = await prisma.product.findUnique({ where: { id: req.params.id }, select: { id: true } });
-    if (!product) return res.status(404).json({ error: 'Product not found' });
     const spec = await prisma.productSpec.create({
       data: {
         productId: req.params.id,
@@ -531,8 +557,8 @@ router.post('/:id/specs', authenticate, authorizeProductMaster, prSpecsUpload.si
   }
 });
 
-// DELETE /api/products/:id/specs/:specId — Stores/Admin remove a spec link.
-router.delete('/:id/specs/:specId', authenticate, authorizeProductMaster, async (req, res) => {
+// DELETE /api/products/:id/specs/:specId — remove a spec link.
+router.delete('/:id/specs/:specId', authenticate, requireProductMasterDataEditor, async (req, res) => {
   try {
     await prisma.productSpec.delete({ where: { id: req.params.specId } });
     res.json({ message: 'Spec removed' });
@@ -552,6 +578,9 @@ router.get('/:id', authenticate, async (req, res) => {
         stockMovements: { orderBy: { createdAt: 'desc' }, take: 50 },
         unitStocks: { include: { unit: { select: { id: true, name: true, code: true } } } },
         specs: { orderBy: { createdAt: 'desc' } },
+        // Who entered this material in master data — shown on the master-data
+        // page and used there to decide whether the form is editable.
+        createdBy: { select: { id: true, name: true, role: true } },
         // Full field-level edit trail (who changed what, when). Surfaced on the
         // Product Detail page's "Edit History" tab.
         editHistory: { orderBy: { createdAt: 'desc' }, take: 200 },
@@ -784,14 +813,19 @@ router.get('/:id', authenticate, async (req, res) => {
 // GET /api/products/material-types — fixed dropdown values for PR/inward forms.
 // MUST be declared before any `/:id`-style route — declared at top of file for safety.
 
-// POST /api/products — sku is just the materialCode (identification number)
-router.post('/', authenticate, authorizeProductMaster, auditLog('CREATE', 'Product'), async (req, res) => {
+// POST /api/products — sku is just the materialCode (identification number).
+// Open to every requester role: a PR line may only name a material that is
+// already in master data, so whoever raises the PR has to be able to enter it.
+// createdById stamps the author — they and the Unit 1–5 managers are the only
+// ones who can edit the entry afterwards.
+router.post('/', authenticate, authorizeProductCreate, auditLog('CREATE', 'Product'), async (req, res) => {
   try {
     const data = productSchema.parse(req.body);
     const category = normalizeMaterialType(data.category);
     const product = await prisma.product.create({
       // Created from the Master Data screen → master data is being added now.
-      data: { ...data, sku: data.materialCode, category, masterDataComplete: true },
+      data: { ...data, sku: data.materialCode, category, masterDataComplete: true, createdById: req.user.id },
+      include: { createdBy: { select: { id: true, name: true, role: true } } },
     });
     res.status(201).json(product);
   } catch (error) {
@@ -810,7 +844,7 @@ router.post('/', authenticate, authorizeProductMaster, auditLog('CREATE', 'Produ
 // enters a batch of new items together, so the form lets them add rows and
 // submit them at once. All-or-nothing: any invalid / duplicate row rolls back
 // the whole batch and names the offender.
-router.post('/bulk', authenticate, authorizeProductMaster, auditLog('CREATE', 'Product'), async (req, res) => {
+router.post('/bulk', authenticate, authorizeProductCreate, auditLog('CREATE', 'Product'), async (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) return res.status(400).json({ error: 'Add at least one product' });
@@ -818,7 +852,13 @@ router.post('/bulk', authenticate, authorizeProductMaster, auditLog('CREATE', 'P
     const parsed = items.map((it, i) => {
       try {
         const data = productSchema.parse(it);
-        return { ...data, sku: data.materialCode, category: normalizeMaterialType(data.category), masterDataComplete: true };
+        return {
+          ...data,
+          sku: data.materialCode,
+          category: normalizeMaterialType(data.category),
+          masterDataComplete: true,
+          createdById: req.user.id,
+        };
       } catch (e) {
         if (e instanceof z.ZodError) {
           throw new z.ZodError(e.errors.map((err) => ({ ...err, path: [`Item ${i + 1}`, ...err.path] })));
@@ -853,13 +893,35 @@ router.post('/bulk', authenticate, authorizeProductMaster, auditLog('CREATE', 'P
 
 
 // PUT /api/products/:id
-// Master owners can edit any product detail. The Stores team also gets temporary
-// edit access during the new-system rollout (authorizeProductEdit) — but only to
-// the descriptive details, never to stock numbers, and their edit does NOT flip
-// the master-data gate. Every change (by anyone) is recorded in ProductEditHistory.
-router.put('/:id', authenticate, authorizeProductEdit, auditLog('UPDATE', 'Product'), async (req, res) => {
+// Who may edit is decided per product, not per role alone:
+//   • master owners (Unit 1–5 managers + Admin) — any product
+//   • the person who entered it in master data  — their own entry
+//   • Stores — temporary rollout access, descriptive details only, and their
+//     edit does NOT flip the master-data gate
+// Everyone else is read-only. Every change (by anyone) goes to ProductEditHistory.
+router.put('/:id', authenticate, auditLog('UPDATE', 'Product'), async (req, res) => {
   try {
     const data = productSchema.partial().parse(req.body);
+
+    // Load first — the gate depends on who created this particular product.
+    const prev = await prisma.product.findUnique({
+      where: { id: req.params.id },
+      select: {
+        masterDataComplete: true, createdById: true,
+        materialCode: true, name: true, description: true, category: true,
+        unit: true, shelfLife: true, storageTemp: true, minStockLevel: true,
+      },
+    });
+    if (!prev) return res.status(404).json({ error: 'Product not found' });
+
+    if (!canEditProductDetails(req.user, prev)) {
+      return res.status(403).json({ error: PRODUCT_EDIT_FORBIDDEN });
+    }
+
+    // A master owner, or the author correcting their own master-data entry, is
+    // maintaining master data — their save completes the gate. Stores' temporary
+    // detail access is not master data and must never flip it.
+    const ownsMasterData = canEditProductMasterData(req.user, prev);
     const isMaster = isProductMasterRole(req.user);
     // Stores (temporary access) may only touch descriptive fields — never the
     // stock threshold. currentStock is not in the schema, so it can't be set here.
@@ -867,22 +929,13 @@ router.put('/:id', authenticate, authorizeProductEdit, auditLog('UPDATE', 'Produ
     // Keep sku mirrored to materialCode when the identification number changes.
     if (data.materialCode) data.sku = data.materialCode;
     // Saving on the Master Data screen counts as the master data being added —
-    // releases the inward hold. A Stores detail-edit must NOT change that gate.
-    if (isMaster) data.masterDataComplete = true;
-
-    const prev = await prisma.product.findUnique({
-      where: { id: req.params.id },
-      select: {
-        masterDataComplete: true,
-        materialCode: true, name: true, description: true, category: true,
-        unit: true, shelfLife: true, storageTemp: true, minStockLevel: true,
-      },
-    });
-    if (!prev) return res.status(404).json({ error: 'Product not found' });
+    // releases the inward hold.
+    if (ownsMasterData) data.masterDataComplete = true;
 
     const product = await prisma.product.update({
       where: { id: req.params.id },
       data,
+      include: { createdBy: { select: { id: true, name: true, role: true } } },
     });
 
     // Record a field-level edit-history entry for every detail that actually
@@ -910,8 +963,8 @@ router.put('/:id', authenticate, authorizeProductEdit, auditLog('UPDATE', 'Produ
     }
     // Master data just went from missing → added: tell Stores any inward entries
     // that were held for this product can now be inwarded into stock. Only a
-    // master-owner save flips the gate, so a Stores detail-edit never fires this.
-    if (isMaster && prev.masterDataComplete === false) {
+    // master-data save flips the gate, so a Stores detail-edit never fires this.
+    if (ownsMasterData && prev.masterDataComplete === false) {
       const heldCount = await prisma.materialInwardRegister.count({
         where: { productId: product.id, inwardedAt: null, status: { not: 'INWARDED' } },
       });
@@ -942,7 +995,7 @@ router.put('/:id', authenticate, authorizeProductEdit, auditLog('UPDATE', 'Produ
 });
 
 // POST /api/products/:id/msds — upload / replace the Material Safety Data Sheet.
-router.post('/:id/msds', authenticate, authorizeProductMaster, msdsUpload.single('msds'), async (req, res) => {
+router.post('/:id/msds', authenticate, requireProductMasterDataEditor, msdsUpload.single('msds'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const product = await prisma.product.update({
@@ -958,7 +1011,7 @@ router.post('/:id/msds', authenticate, authorizeProductMaster, msdsUpload.single
 });
 
 // DELETE /api/products/:id/msds — remove the MSDS link.
-router.delete('/:id/msds', authenticate, authorizeProductMaster, async (req, res) => {
+router.delete('/:id/msds', authenticate, requireProductMasterDataEditor, async (req, res) => {
   try {
     const product = await prisma.product.update({
       where: { id: req.params.id },
@@ -972,7 +1025,9 @@ router.delete('/:id/msds', authenticate, authorizeProductMaster, async (req, res
   }
 });
 
-// DELETE /api/products/:id (soft delete)
+// DELETE /api/products/:id (soft delete). Deliberately NOT opened to the person
+// who added the material: deactivating it can break other people's PRs, so it
+// stays with the master owners.
 router.delete('/:id', authenticate, authorizeProductMaster, auditLog('DELETE', 'Product'), async (req, res) => {
   try {
     await prisma.product.update({
