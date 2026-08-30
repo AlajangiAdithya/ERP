@@ -13,10 +13,10 @@ import Input, { Select } from '../ui/Input';
 import SearchBar from '../shared/SearchBar';
 
 // ──── FIM / Customer Property register ────
-// Lives on the Gate Pass page: a FIM only exists because Stores recorded an
-// INWARD gate pass for customer-owned material, and it leaves again on an
-// OUTWARD one, so the whole lifecycle belongs beside the two gate pass
-// registers rather than in the stock list.
+// Lives on the Material Inward page: a FIM only exists because Stores recorded
+// an INWARD gate pass for customer-owned material, so tracking what happened to
+// it afterwards belongs next to that intake rather than in the stock list or on
+// the outward gate pass registers.
 
 // Uploaded docs (customer GP scans, FIM test reports) are served from the API
 // origin, not the app origin — strip the trailing /api and prefix.

@@ -235,9 +235,12 @@ export default function App() {
 
               {/* Inward Entry — Stores does the work; Manager/QC/Designs/R&D/Safety
                   get read-only access for traceability. INWARD_QC lands here as its
-                only page and performs the QC review. */}
+                only page and performs the QC review.
+                LOGISTICS / SITE_OFFICE / PLANNING are here only for the FIM Status
+                tab, which moved off the Gate Pass page — the page itself hides the
+                register tabs from them (see INWARD_REGISTER_ROLES). */}
               <Route path="/inward-entry" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'SAFETY', 'ACCOUNTING', 'FINANCE']}><InwardEntry /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SITE_OFFICE', 'PLANNING']}><InwardEntry /></PrivateRoute>
               } />
               <Route path="/stock-movements" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY', 'ACCOUNTING', 'FINANCE']}><StockMovements /></PrivateRoute>

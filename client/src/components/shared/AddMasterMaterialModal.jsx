@@ -17,7 +17,7 @@ import { UOM_OPTIONS } from '../../utils/units';
 // the created product back so the caller can link the row straight away.
 const FALLBACK_TYPES = [
   'Raw Material', 'Consumable', 'Hand Tools', 'Fasteners',
-  'Tools & Fixtures', 'Machinery', 'Stationery', 'Others',
+  'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others',
 ];
 
 export default function AddMasterMaterialModal({ initialName = '', onClose, onCreated }) {

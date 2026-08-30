@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { CheckCircle, X, AlertTriangle, Plus } from 'lucide-react';
+import { CheckCircle, X, AlertTriangle, Plus, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import api from '../../api/axios';
 
@@ -10,6 +10,10 @@ import api from '../../api/axios';
 // its saved spec library). Text that isn't linked to a material is refused at
 // submit — the dropdown offers "Add to Master Data" instead, which creates the
 // entry (under the requester's name) and links the row straight away.
+//
+// `allowFreeText` turns that gate off for the one category that is exempt
+// (Tools & Fixtures): suggestions still drop down and picking one still links
+// the row, but leaving the text unlinked is a valid line rather than an error.
 //
 // The dropdown is portalled to <body> with fixed positioning because the PR
 // materials table lives inside an `overflow-x-auto` wrapper, which would
@@ -24,6 +28,11 @@ export default function MaterialNameInput({
   // for roles that may not add materials — they only get the "not in Master
   // Data" warning.
   onAddToMasterData,
+  // Set for material types that may be typed in directly. Suppresses the error
+  // styling and the "pick from the list" warning on unlinked text.
+  allowFreeText = false,
+  // Name of the exempt category, used in the hint text.
+  freeTextLabel = 'this material type',
   className = '',
   placeholder = 'Start typing description…',
 }) {
@@ -141,8 +150,18 @@ export default function MaterialNameInput({
       {!searching && results.length === 0 && (
         <div className="px-3 py-2">
           <div className="text-[11px] text-gray-600">
-            <span className="font-medium text-red-700">“{q}” is not in Master Data.</span>{' '}
-            A requisition can only ask for a material that is already there.
+            {allowFreeText ? (
+              <>
+                <span className="font-medium text-navy-800">“{q}” is not in Master Data.</span>{' '}
+                That’s fine for {freeTextLabel} — it will be catalogued when the material is
+                inwarded. Add it now only if you want it reusable.
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-red-700">“{q}” is not in Master Data.</span>{' '}
+                A requisition can only ask for a material that is already there.
+              </>
+            )}
           </div>
           {onAddToMasterData && (
             <button
@@ -184,8 +203,9 @@ export default function MaterialNameInput({
         value={value}
         autoComplete="off"
         placeholder={placeholder}
-        /* Unlinked text is not a valid line, so the field reads as an error. */
-        className={`${className}${q.length > 0 && !productId ? ' bg-red-50' : ''}`}
+        /* Unlinked text is not a valid line, so the field reads as an error —
+           except where free text is allowed for this material type. */
+        className={`${className}${q.length > 0 && !productId && !allowFreeText ? ' bg-red-50' : ''}`}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => { if (results.length > 0) setOpen(true); }}
         onKeyDown={onKeyDown}
@@ -203,9 +223,15 @@ export default function MaterialNameInput({
           </button>
         </div>
       ) : q.length > 0 ? (
-        <div className="flex items-center gap-1 px-1.5 pb-1 pt-0.5 text-[9px] font-medium text-red-600">
-          <AlertTriangle size={9} /> not in master data — pick from the list
-        </div>
+        allowFreeText ? (
+          <div className="flex items-center gap-1 px-1.5 pb-1 pt-0.5 text-[9px] font-medium text-navy-500">
+            <Pencil size={9} /> typed in — catalogued at inward
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 px-1.5 pb-1 pt-0.5 text-[9px] font-medium text-red-600">
+            <AlertTriangle size={9} /> not in master data — pick from the list
+          </div>
+        )
       ) : null}
       {menu && createPortal(menu, document.body)}
     </>

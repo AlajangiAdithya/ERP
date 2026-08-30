@@ -72,7 +72,7 @@ export default function ProductMasterDataDetail() {
   }, []);
 
   const typeOptions = materialTypes.length ? materialTypes
-    : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Stationery', 'Others'];
+    : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others'];
 
   const flashSaved = (msg = 'Master data saved.') => {
     setFlash(msg);

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import {
   DoorOpen, Truck, Route as RouteIcon, ArrowRight, Sparkles, Navigation,
+  PackageSearch,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Card from '../components/ui/Card';
@@ -22,6 +23,21 @@ const MODULES = [
     glow: 'group-hover:shadow-amber-500/40',
     iconBg: 'bg-gradient-to-br from-amber-100 to-orange-200 text-amber-700',
     ringColor: 'ring-amber-200/60',
+  },
+  {
+    // The FIM register moved onto Material Inward (a FIM only exists because
+    // Stores inwarded it). It is still reachable from here because customer
+    // property leaves the plant on an outward gate pass, and dispatch roles have
+    // no other route to that page.
+    to: '/inward-entry?tab=fim-status',
+    icon: PackageSearch,
+    title: 'FIM Status',
+    description: 'Customer property from inward to return — unit assignment, acceptance, return dates and send-out.',
+    roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE', 'PLANNING', 'QC'],
+    gradient: 'from-fuchsia-500 via-purple-500 to-indigo-500',
+    glow: 'group-hover:shadow-purple-500/40',
+    iconBg: 'bg-gradient-to-br from-fuchsia-100 to-purple-200 text-purple-700',
+    ringColor: 'ring-purple-200/60',
   },
   {
     to: '/logistics',

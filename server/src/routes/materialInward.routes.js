@@ -284,18 +284,33 @@ const PO_PICKER_INCLUDE = {
       purchaseRequestItemId: true,
       // Union PO lines carry per-PR-item allocations; each points back to the
       // raising unit so we can auto-split the received qty across every unit.
+      // materialType comes along so the register row can be categorised even
+      // when the line has no catalogue product behind it yet.
       allocations: {
         select: {
           allocatedQty: true,
           purchaseRequestItem: {
-            select: { request: { select: { unit: { select: { id: true, name: true, code: true } }, manager: USER_SELECT } } },
+            select: {
+              materialType: true,
+              request: { select: { unit: { select: { id: true, name: true, code: true } }, manager: USER_SELECT } },
+            },
           },
         },
       },
     },
   },
   supplier: { select: { id: true, name: true } },
-  purchaseRequest: { select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } }, manager: USER_SELECT } },
+  // `items` is the non-union counterpart of the allocation select above —
+  // PurchaseOrderItem.purchaseRequestItemId is a bare column (no relation), so
+  // the PR's lines are pulled in and matched by id.
+  purchaseRequest: {
+    select: {
+      id: true, requestNumber: true,
+      unit: { select: { id: true, name: true, code: true } },
+      manager: USER_SELECT,
+      items: { select: { id: true, materialType: true } },
+    },
+  },
   sourceRequests: {
     select: {
       purchaseRequest: { select: { id: true, requestNumber: true, unit: { select: { id: true, name: true, code: true } }, manager: USER_SELECT } },
@@ -328,6 +343,22 @@ function unitAllocsForPoItem(po, item) {
   return [...byUnit.values()];
 }
 
+// The material type behind a PO line, taken from the requisition that asked for
+// it. A union line reads it off its first allocation; a plain line matches the
+// PR item by id. Snapshotted onto the register row because a line need not have
+// a catalogue product yet — a Tools & Fixtures requisition may be free-typed
+// (see purchaseRequest.routes.js), and without this the row would be treated as
+// "Others": no T&F fast-path, and the product auto-created at inward would land
+// in the wrong category.
+function materialTypeForPoItem(po, item) {
+  const fromAllocation = (item?.allocations || [])
+    .map((a) => a.purchaseRequestItem?.materialType)
+    .find(Boolean);
+  if (fromAllocation) return normalizeMaterialType(fromAllocation);
+  const prItem = (po?.purchaseRequest?.items || []).find((i) => i.id === item?.purchaseRequestItemId);
+  return prItem?.materialType ? normalizeMaterialType(prItem.materialType) : null;
+}
+
 // Resolve the issued-to snapshot for a single PO line: prNumbers/indenter come
 // from the PO, but unit binding is per-line (drives the per-unit stock split).
 function issuedToForItem(po, item) {
@@ -348,10 +379,25 @@ function issuedToForItem(po, item) {
 }
 
 // Resolve the issued-to target for a direct / cash-purchase entry from what
-// Stores picked: a unit (issuedToUnitId), an owner department (issuedToDept),
-// or neither (the general / unassigned pool). The human label is derived
-// server-side so it always matches the chosen target — no trust in client text.
-// Mutates `target` (the create data or a PATCH patch) in place.
+// Stores picked: a unit (issuedToUnitId) or an owner department (issuedToDept).
+// The human label is derived server-side so it always matches the chosen target
+// — no trust in client text. Mutates `target` (the create data or a PATCH patch)
+// in place.
+//
+// An owner is REQUIRED. A PO row inherits its unit from the PR, so it always has
+// one; hand-entered material (cash purchase, an old PO typed in during rollout)
+// has nothing to inherit, and leaving it in the general pool meant the stock
+// never showed up against the unit that actually asked for and consumed it.
+// Returns { ok } / { ok: false, error }.
+const ASSIGN_REQUIRED_ERROR =
+  'Assign this entry to a unit or an owner department — hand-entered material cannot be left in the general pool.';
+
+// Same reasoning for the requisition behind a hand-entered receipt: a PO row
+// snapshots its PR number(s) off the order, a cash purchase or an old PO typed
+// in during rollout has nothing to read them from, so Stores must supply them.
+const PR_NUMBER_REQUIRED_ERROR =
+  'Enter the PR number(s) this material was bought against — required on cash purchases and existing POs entered by hand.';
+
 async function resolveDirectIssuedTo(target, b) {
   target.issuedToUnitId = null;
   target.issuedToDept = null;
@@ -362,17 +408,19 @@ async function resolveDirectIssuedTo(target, b) {
       where: { id: b.issuedToUnitId },
       select: { id: true, name: true, code: true },
     });
-    if (unit) {
-      target.issuedToUnitId = unit.id;
-      target.issuedToLabel = `${unit.name} (${unit.code})`;
-      return;
-    }
+    if (!unit) return { ok: false, error: 'The unit picked for this entry no longer exists.' };
+    target.issuedToUnitId = unit.id;
+    target.issuedToLabel = `${unit.name} (${unit.code})`;
+    return { ok: true };
   }
   const dept = (b.issuedToDept || '').trim();
-  if (dept && OWNER_DEPTS.includes(dept)) {
+  if (dept) {
+    if (!OWNER_DEPTS.includes(dept)) return { ok: false, error: `"${dept}" is not an owner department.` };
     target.issuedToDept = dept;
     target.issuedToLabel = dept;
+    return { ok: true };
   }
+  return { ok: false, error: ASSIGN_REQUIRED_ERROR };
 }
 
 // Split an accepted qty across the row's units at inward time. A single bound
@@ -804,13 +852,18 @@ router.post('/', authenticate, requireInwardWrite, async (req, res) => {
       if (item) {
         data.itemDescription = item.productName;
         data.uom = item.productUnit;
+        data.materialType = materialTypeForPoItem(po, item) || data.materialType;
         data.productId = item.productId || null;
       }
     } else {
       // Direct / cash purchase — Stores chooses where the material is bound
-      // (a unit, an owner department, or the general pool). Resolved + labelled
+      // (a unit or an owner department; required). Resolved + labelled
       // server-side so the assignment is trusted, mirroring the PO flow.
-      await resolveDirectIssuedTo(data, b);
+      const assigned = await resolveDirectIssuedTo(data, b);
+      if (!assigned.ok) return res.status(400).json({ error: assigned.error });
+      // A PO receipt snapshots its PR number(s) from the order above; a
+      // hand-entered one has no order to read them off, so Stores types them.
+      if (!data.prNumbers) return res.status(400).json({ error: PR_NUMBER_REQUIRED_ERROR });
     }
 
     if (!data.itemDescription) return res.status(400).json({ error: 'Item description is required' });
@@ -880,6 +933,7 @@ router.post('/bulk', authenticate, requireInwardWrite, async (req, res) => {
             prNumbers: prNumbers || null,
             itemDescription: item.productName,
             uom: item.productUnit,
+            materialType: materialTypeForPoItem(po, item),
             qtyReceived: qty,
             productId: item.productId || null,
             issuedToUnitId, issuedToDept, issuedToLabel, indenterId, indenterName, unitAllocations,
@@ -932,10 +986,11 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
 
     const docType = ['INVOICE', 'CASH_PURCHASE', 'DELIVERY_CHALLAN', 'GATE_PASS'].includes(b.docType) ? b.docType : 'CASH_PURCHASE';
 
-    // Shared assign-to for the whole cash batch (a unit, an owner department, or
-    // the general pool) — resolved + labelled server-side, mirroring the PO flow.
+    // Shared assign-to for the whole cash batch (a unit or an owner department;
+    // required) — resolved + labelled server-side, mirroring the PO flow.
     const issuedTo = {};
-    await resolveDirectIssuedTo(issuedTo, b);
+    const assigned = await resolveDirectIssuedTo(issuedTo, b);
+    if (!assigned.ok) return res.status(400).json({ error: assigned.error });
 
     // Validate the linked cash purchase PR if provided.
     const cashPrId = b.cashPurchaseRequestId?.trim() || null;
@@ -951,6 +1006,11 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
       }
     }
 
+    // The PR number is mandatory on a hand-entered receipt. A linked cash
+    // purchase PR supplies it when Stores didn't type one.
+    const prNumbers = b.prNumbers?.trim() || cashPr?.requestNumber || null;
+    if (!prNumbers) return res.status(400).json({ error: PR_NUMBER_REQUIRED_ERROR });
+
     const header = {
       inwardDate: b.inwardDate ? new Date(b.inwardDate) : new Date(),
       vehicleDetails: b.vehicleDetails?.trim() || null,
@@ -959,8 +1019,9 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
       documentDate: b.documentDate ? new Date(b.documentDate) : null,
       // Existing PO not yet in the system — typed by hand, shared across items.
       manualPoNumber: b.manualPoNumber?.trim() || null,
-      // Existing PR number(s), also typed by hand for a manual PO.
-      prNumbers: b.prNumbers?.trim() || null,
+      // The requisition behind the purchase — typed by hand, or taken from the
+      // linked cash purchase PR. Required (see above).
+      prNumbers,
       supplierName: b.supplierName?.trim() || null,
       purpose: b.purpose?.trim() || null,
       issuedToUnitId: issuedTo.issuedToUnitId,
@@ -1058,10 +1119,18 @@ router.patch('/:id', authenticate, async (req, res) => {
       if (b.productId !== undefined) patch.productId = b.productId || null;
       if (b.supplierName !== undefined) patch.supplierName = b.supplierName?.trim() || null;
       if (b.manualPoNumber !== undefined) patch.manualPoNumber = b.manualPoNumber?.trim() || null;
-      if (b.prNumbers !== undefined) patch.prNumbers = b.prNumbers?.trim() || null;
-      // Re-resolve the unit/dept + label server-side from what was picked.
+      // Mandatory on a hand-entered row — it can be corrected, never cleared.
+      if (b.prNumbers !== undefined) {
+        const pr = b.prNumbers?.trim() || null;
+        if (!pr) return res.status(400).json({ error: PR_NUMBER_REQUIRED_ERROR });
+        patch.prNumbers = pr;
+      }
+      // Re-resolve the unit/dept + label server-side from what was picked. An
+      // owner is required here too, so a legacy row still sitting in the general
+      // pool has to be assigned before any other edit to it will save.
       if (b.issuedToUnitId !== undefined || b.issuedToDept !== undefined) {
-        await resolveDirectIssuedTo(patch, b);
+        const assigned = await resolveDirectIssuedTo(patch, b);
+        if (!assigned.ok) return res.status(400).json({ error: assigned.error });
       }
     }
     // ── Stock fields — draft-only ──

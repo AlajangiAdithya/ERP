@@ -23,8 +23,8 @@ export default function Products() {
   const { user } = useAuth();
   // Master Data lives here as a second tab. Same viewers as the old standalone
   // screen; editing is restricted to Unit 1–5 managers (+ Admin).
-  // (The FIM Status register moved to the Gate Pass page — a FIM arrives and
-  // leaves on gate passes, so its lifecycle belongs with those registers.)
+  // (The FIM Status register moved to the Material Inward page — a FIM only
+  // exists because Stores inwarded it, so its lifecycle belongs with that intake.)
   const canSeeMasterData = ['ADMIN', 'MANAGER', 'QC', 'SUPERADMIN'].includes(user?.role);
   // Honor ?tab=master so the dedicated master-data page's "Back to Master Data"
   // link (and any deep link) lands on the right tab.
@@ -474,7 +474,7 @@ export default function Products() {
                   <Input label="Description" value={item.description} onChange={(e) => updateItem(idx, { description: e.target.value })} />
                   <div className="grid grid-cols-3 gap-4">
                     <Select label="Material Type *" value={item.category} onChange={(e) => updateItem(idx, { category: e.target.value })}>
-                      {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Stationery', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
+                      {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
                     </Select>
                     <Select label="Unit" value={item.unit} onChange={(e) => updateItem(idx, { unit: e.target.value })}>
                       {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
@@ -533,7 +533,7 @@ export default function Products() {
                 onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
               >
                 <option value="">—</option>
-                {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Stationery', 'Others']).map((mt) => <option key={mt} value={mt}>{mt}</option>)}
+                {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others']).map((mt) => <option key={mt} value={mt}>{mt}</option>)}
               </Select>
               <Select
                 label="Unit (UOM)"

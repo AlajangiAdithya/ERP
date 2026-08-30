@@ -23,7 +23,8 @@ const applyDateFilter = (where, { fromDate, toDate }, field = 'createdAt') => {
 // (no QC on inward) and 'Fasteners' (normal QC). The combined label is kept in
 // normalizeMaterialType() so legacy products keep their existing category.
 // 'Machinery' also skips QC on inward — it's inwarded straight into the store.
-const MATERIAL_TYPES = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Stationery', 'Others'];
+// 'Electrical Items' behaves like any ordinary category (normal QC on inward).
+const MATERIAL_TYPES = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others'];
 
 const materialTypeToSkuPrefix = (materialType) => {
   switch ((materialType || '').trim().toLowerCase()) {
@@ -38,6 +39,10 @@ const materialTypeToSkuPrefix = (materialType) => {
     case 'tools and fixtures':     return 'FIX';
     case 'machinery':              return 'MACH';
     case 'machineries':            return 'MACH';
+    case 'electrical items':       return 'ELEC';
+    case 'electrical item':        return 'ELEC';
+    case 'electrical':             return 'ELEC';
+    case 'electricals':            return 'ELEC';
     case 'stationery':             return 'STAT';
     case 'stationary':             return 'STAT';
     default:                       return 'OTH';
@@ -66,6 +71,14 @@ const normalizeMaterialType = (value) => {
     t === 'fixture'
   ) return 'Tools & Fixtures';
   if (t === 'machinery' || t === 'machineries' || t === 'machine') return 'Machinery';
+  if (
+    t === 'electrical items' ||
+    t === 'electrical item' ||
+    t === 'electrical' ||
+    t === 'electricals' ||
+    t === 'electric items' ||
+    t === 'electrical goods'
+  ) return 'Electrical Items';
   if (t === 'stationery' || t === 'stationary') return 'Stationery';
   return 'Others';
 };

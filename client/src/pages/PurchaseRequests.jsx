@@ -307,6 +307,14 @@ const requiredByMin = () => {
 // the field is optional.
 const requiredByTooSoon = (value) => !!value && value < requiredByMin();
 
+// The one material type a requisition line may name in free text instead of
+// picking from Master Data (kept in step with FREE_TEXT_MATERIAL_TYPE on the
+// server — purchaseRequest.routes.js).
+const FREE_TEXT_MATERIAL_TYPE = 'Tools & Fixtures';
+// A line that is allowed to stay unlinked: typed as Tools & Fixtures and not
+// already tied to a catalogue material.
+const isFreeTextLine = (item) => !item.productId && item.materialType === FREE_TEXT_MATERIAL_TYPE;
+
 // ─── Manager: Create or Edit Request (paper-table format) ───
 // Dual-mode form: when `requestToEdit` is provided, the modal pre-loads its
 // items + notes and submits a PUT instead of POST. Edit is gated server-side
@@ -506,6 +514,11 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   // Picking a suggestion ties the row to that material and adopts its UOM and
   // material type; typing over the description again drops the link, and an
   // unlinked line is refused at submit.
+  //
+  // Tools & Fixtures is the exception (mirrored on the server): a fixture is a
+  // one-off made to a drawing, so those lines may be free-typed and the
+  // catalogue entry is created at inward instead. Everything else on the line
+  // behaves exactly as it does for any other category.
   const pickProduct = (idx, p) => {
     updateItemFields(idx, {
       productId: p.id,
@@ -544,14 +557,16 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     if (validItems.length === 0) return alert('Pick at least one material from Master Data');
     // Every line must be linked to a Master Data material — the server refuses
     // an unlinked one, so catch it here where we can name the offending row.
-    const unlinked = validItems.find(i => !i.productId);
+    // Tools & Fixtures lines are the exception and may stay free text.
+    const unlinked = validItems.find(i => !i.productId && !isFreeTextLine(i));
     if (unlinked) {
       return alert(
         `"${unlinked.productName.trim()}" is not in Master Data.\n\n` +
         'A requisition can only ask for a material that is already in Master Data. ' +
         (canAddMaterial
           ? 'Pick it from the suggestions, or use "Add to Master Data" on that line.'
-          : 'Pick it from the suggestions, or ask a unit manager to add it to Master Data first.')
+          : 'Pick it from the suggestions, or ask a unit manager to add it to Master Data first.') +
+        `\n\nOnly "${FREE_TEXT_MATERIAL_TYPE}" lines may be typed in directly — set the Material Type row to that if this is a fixture.`
       );
     }
     // The picker's `min` only guards clicks — a typed date still needs checking.
@@ -607,10 +622,15 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
 
   // Lines with text typed but no Master Data material behind them. These block
   // the submit, so they are named on screen rather than only in the alert.
+  // Free-typed Tools & Fixtures lines are legitimate and don't count here.
   const unlinkedNames = items
-    .filter((i) => i.productName.trim() && !i.productId)
+    .filter((i) => i.productName.trim() && !i.productId && !isFreeTextLine(i))
     .map((i) => i.productName.trim());
-  const linkedCount = items.filter((i) => i.productId).length;
+  // Lines that will actually be submitted: catalogue-linked ones plus free-typed
+  // Tools & Fixtures.
+  const linkedCount = items.filter(
+    (i) => i.productId || (i.productName.trim() && isFreeTextLine(i)),
+  ).length;
 
   // Paper-form cell styles
   const cellInput = "w-full px-1.5 py-1 text-xs border-0 focus:outline-none focus:bg-yellow-50";
@@ -711,6 +731,12 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
             {canAddMaterial
               ? ' If it isn’t there yet, use "Add to Master Data" in the suggestion list; it is saved under your name and you can complete its details later.'
               : ' If it isn’t there yet, ask a unit manager to add it to Master Data first.'}
+            <div className="mt-1">
+              <strong>Exception — {FREE_TEXT_MATERIAL_TYPE}:</strong> set the <em>Material Type</em> row
+              to “{FREE_TEXT_MATERIAL_TYPE}” and you can simply type the fixture’s name. It is
+              catalogued automatically when the material is inwarded; the rest of the line works the
+              same as any other material.
+            </div>
           </div>
         </div>
 
@@ -750,16 +776,22 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                 {items.map((item, idx) => (
                   <td key={idx} className={dataCell}>
                     {/* Type to search Master Data and pick a material. Anything
-                        not picked from the list is refused at submit. */}
+                        not picked from the list is refused at submit — unless the
+                        line's Material Type is Tools & Fixtures, which may be
+                        free-typed. */}
                     <MaterialNameInput
                       value={item.productName}
                       productId={item.productId}
+                      allowFreeText={item.materialType === FREE_TEXT_MATERIAL_TYPE}
+                      freeTextLabel={FREE_TEXT_MATERIAL_TYPE}
                       onChange={(text) => typeProductName(idx, text)}
                       onPick={(p) => pickProduct(idx, p)}
                       onUnlink={() => updateItemFields(idx, { productId: null, productName: '' })}
                       onAddToMasterData={canAddMaterial ? (name) => openAddMaterial(idx, name) : undefined}
                       className={cellInput}
-                      placeholder="Search master data..."
+                      placeholder={item.materialType === FREE_TEXT_MATERIAL_TYPE
+                        ? 'Type the fixture name…'
+                        : 'Search master data...'}
                     />
                   </td>
                 ))}
@@ -776,8 +808,9 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                       <option value="Consumable">Consumable</option>
                       <option value="Hand Tools">Hand Tools</option>
                       <option value="Fasteners">Fasteners</option>
-                      <option value="Tools & Fixtures">Tools & Fixtures</option>
+                      <option value="Tools & Fixtures">Tools &amp; Fixtures</option>
                       <option value="Machinery">Machinery</option>
+                      <option value="Electrical Items">Electrical Items</option>
                       <option value="Others">Others</option>
                     </select>
                   </td>

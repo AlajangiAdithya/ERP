@@ -77,7 +77,7 @@ export default function ProductMasterData({ embedded = false }) {
   }, []);
 
   const typeOptions = materialTypes.length ? materialTypes
-    : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Stationery', 'Others'];
+    : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others'];
 
   const openCreate = () => { setForm(blankForm()); setFormError(''); setShowCreate(true); };
 

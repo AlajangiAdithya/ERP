@@ -179,26 +179,39 @@ const createSchema = z.object({
 // "needs master data" — those pre-date this rule and are deliberately not
 // blocked, so an existing backlog can't stall today's requisitions.
 //
+// ONE EXCEPTION — Tools & Fixtures. A fixture is normally a one-off made to a
+// drawing for a single job, so pre-cataloguing it is noise that never gets
+// reused. Those lines may be free-typed: the row is stored with productId null
+// and the catalogue entry is created at inward by the usual find-or-create path
+// (see purchaseOrder.routes.js), which also gives it its ID number. Everything
+// else about a Tools & Fixtures line — quotation, PO, QC, inward — is unchanged.
+// This mirrors the master-data-complete hold, which already exempts the category.
+const FREE_TEXT_MATERIAL_TYPE = 'Tools & Fixtures';
+const allowsFreeTextMaterial = (item) =>
+  normalizeMaterialType(item?.materialType) === FREE_TEXT_MATERIAL_TYPE;
+
 // Returns { ok: true, items } with each row's name stamped from the catalogue so
 // a PR can never disagree with master data, or { ok: false, error }.
 async function resolvePrItemProducts(items) {
-  const unlinked = items.find((i) => !i.productId);
+  const unlinked = items.find((i) => !i.productId && !allowsFreeTextMaterial(i));
   if (unlinked) {
     const label = (unlinked.productName || '').trim();
     return {
       ok: false,
-      error: `${label ? `"${label}"` : 'One of the materials'} is not in Master Data. Add it there first, then pick it on the requisition.`,
+      error: `${label ? `"${label}"` : 'One of the materials'} is not in Master Data. Add it there first, then pick it on the requisition. (Only "${FREE_TEXT_MATERIAL_TYPE}" lines may be typed in directly.)`,
     };
   }
 
-  const ids = [...new Set(items.map((i) => i.productId))];
-  const products = await prisma.product.findMany({
-    where: { id: { in: ids }, isActive: true },
-    select: { id: true, name: true, unit: true, category: true },
-  });
+  const ids = [...new Set(items.map((i) => i.productId).filter(Boolean))];
+  const products = ids.length
+    ? await prisma.product.findMany({
+      where: { id: { in: ids }, isActive: true },
+      select: { id: true, name: true, unit: true, category: true },
+    })
+    : [];
   const byId = new Map(products.map((p) => [p.id, p]));
 
-  const missing = items.find((i) => !byId.has(i.productId));
+  const missing = items.find((i) => i.productId && !byId.has(i.productId));
   if (missing) {
     const label = (missing.productName || '').trim();
     return {
@@ -207,10 +220,27 @@ async function resolvePrItemProducts(items) {
     };
   }
 
+  const freeTextUnnamed = items.find(
+    (i) => !i.productId && !(i.productName || '').trim(),
+  );
+  if (freeTextUnnamed) {
+    return { ok: false, error: `A ${FREE_TEXT_MATERIAL_TYPE} line needs a material description.` };
+  }
+
   return {
     ok: true,
     items: items.map((item) => {
-      const product = byId.get(item.productId);
+      const product = item.productId ? byId.get(item.productId) : null;
+      // Free-typed Tools & Fixtures line: keep what the requester wrote, there is
+      // no catalogue row to stamp it from yet.
+      if (!product) {
+        return {
+          ...item,
+          productName: (item.productName || '').trim(),
+          productUnit: item.productUnit || 'pcs',
+          materialType: FREE_TEXT_MATERIAL_TYPE,
+        };
+      }
       return {
         ...item,
         // Name and UOM come from master data, not from what was typed, so the

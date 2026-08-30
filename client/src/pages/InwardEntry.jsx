@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Package, Plus, FlaskConical, ClipboardCheck, CheckCircle2,
   Search, Filter, X, Pencil, Trash2, ArrowDownToLine, Building2,
   Paperclip, Upload, FileText, FileSearch, ExternalLink, UserRound,
   Send, FileInput, AlertTriangle, Wrench, FileWarning, Repeat, ShieldCheck,
+  PackageSearch,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -13,6 +15,7 @@ import Input, { Select, Textarea } from '../components/ui/Input';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import PageHero from '../components/shared/PageHero';
+import FimStatusRegister from '../components/fim/FimStatusRegister';
 import { formatDate } from '../utils/formatters';
 import { UOM_OPTIONS } from '../utils/units';
 import { checkFileSize } from '../utils/fileGuard';
@@ -147,13 +150,15 @@ const DOC_TYPES = [
 ];
 
 // Owner departments a direct / cash purchase can be assigned to (mirrors the
-// server's OWNER_DEPTS). Units come from /units; everything else stays the
-// general pool.
+// server's OWNER_DEPTS). Units come from /units. One or the other is required —
+// a hand-entered receipt can no longer be left in the general pool.
 const ASSIGN_DEPTS = ['Designs', 'QC', 'Lab', 'Metrology', 'NDT', 'Safety', 'Planning'];
 const docLabel = (v) => DOC_TYPES.find((d) => d.value === v)?.label || v;
 
-// Product / material type — same vocabulary as the PR form (PurchaseRequests).
-const MATERIAL_TYPE_OPTIONS = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Others'];
+// Product / material type — same vocabulary as the PR form (PurchaseRequests)
+// and MATERIAL_TYPES on the server. Whatever is picked here becomes the category
+// of the product created at inward, so the list has to stay complete.
+const MATERIAL_TYPE_OPTIONS = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others'];
 
 const STATUS_META = {
   DRAFT:           { label: 'Draft',            tone: 'gray' },
@@ -221,42 +226,89 @@ function splitPreview(allocs, qty) {
 
 // Two ways material comes inward: the PO/direct register (left tab) and
 // customer-supplied Free Issue Material recorded via inward gate passes (FIM tab).
+// The third tab tracks what happened to that FIM afterwards — assignment, unit
+// acceptance, return dates and send-out. It used to sit on the Gate Pass page,
+// but a FIM only exists because Stores inwarded it, so the whole lifecycle now
+// reads on this one page.
 const MAIN_TABS = [
-  { key: 'register', label: 'Inward Material Register', Icon: Package },
-  { key: 'fim',      label: 'Inward FIM / Customer Property', Icon: FileInput },
+  { key: 'register',   label: 'Inward Material Register', Icon: Package },
+  { key: 'fim',        label: 'Inward FIM / Customer Property', Icon: FileInput },
+  { key: 'fim-status', label: 'FIM Status', Icon: PackageSearch },
 ];
+
+// Moving FIM Status here widened the route's allowlist, so the two intake tabs
+// are gated back to the roles that could always see them. LOGISTICS /
+// SITE_OFFICE / PLANNING reach this page only for FIM Status — the register and
+// the FIM intake form stay out of their view, exactly as before the move.
+const INWARD_REGISTER_ROLES = [
+  'ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'SAFETY', 'ACCOUNTING', 'FINANCE',
+];
+// Conversely, FIM Status keeps the audience it had on the Gate Pass page — the
+// inward-only logins (INWARD_QC, Designs, R&D) gain nothing from the move.
+const FIM_STATUS_ROLES = [
+  'ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE', 'PLANNING', 'QC',
+];
+
+const TAB_SUBTITLES = {
+  register: 'Receive materials into stores — the inward register for PO / direct purchases, or customer-supplied Free Issue Material (FIM) via inward gate passes.',
+  fim: 'Receive materials into stores — the inward register for PO / direct purchases, or customer-supplied Free Issue Material (FIM) via inward gate passes.',
+  'fim-status': 'Customer property (FIM) from the day it is inwarded to the day it goes back — assignment, unit acceptance, return dates and send-out.',
+};
 
 export default function InwardEntry() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const role = user?.role;
   // FIM / customer-property intake stays Stores-only (the server rejects unit managers).
-  const canEditFim = WRITE_ROLES.includes(user?.role);
-  const [mainTab, setMainTab] = useState('register');
+  const canEditFim = WRITE_ROLES.includes(role);
+
+  const tabs = useMemo(() => MAIN_TABS.filter(({ key }) => (
+    key === 'fim-status' ? FIM_STATUS_ROLES.includes(role) : INWARD_REGISTER_ROLES.includes(role)
+  )), [role]);
+
+  // Honour ?tab=fim-status so the Dispatch hub's FIM Status card lands on the
+  // right tab for a role that also has the register. Otherwise open on the first
+  // tab this role actually has — a logistics / site-office / planning login only
+  // gets FIM Status.
+  const [searchParams] = useSearchParams();
+  const [mainTab, setMainTab] = useState(() => {
+    const asked = searchParams.get('tab');
+    if (asked && tabs.some((t) => t.key === asked)) return asked;
+    return tabs[0]?.key || 'fim-status';
+  });
+  const activeTab = tabs.some((t) => t.key === mainTab) ? mainTab : tabs[0]?.key;
+
+  if (!tabs.length) return null;
 
   return (
     <div className="space-y-6">
       <PageHero
         title="Material Inward"
-        subtitle="Receive materials into stores — the inward register for PO / direct purchases, or customer-supplied Free Issue Material (FIM) via inward gate passes."
-        eyebrow="Stores"
+        subtitle={TAB_SUBTITLES[activeTab]}
+        eyebrow={activeTab === 'fim-status' ? 'Customer Property' : 'Stores'}
         icon={Package}
       />
 
-      <div className="flex flex-wrap gap-2 border-b border-gray-200">
-        {MAIN_TABS.map(({ key, label, Icon }) => (
-          <button
-            key={key}
-            onClick={() => setMainTab(key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              mainTab === key ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}>
-            <Icon size={16} className="inline mr-2" />{label}
-          </button>
-        ))}
-      </div>
+      {tabs.length > 1 && (
+        <div className="flex flex-wrap gap-2 border-b border-gray-200">
+          {tabs.map(({ key, label, Icon }) => (
+            <button
+              key={key}
+              onClick={() => setMainTab(key)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === key ? 'border-navy-700 text-navy-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}>
+              <Icon size={16} className="inline mr-2" />{label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {mainTab === 'register'
-        ? <MaterialInwardRegister />
-        : <FromGatePassMode canEdit={canEditFim} />}
+      {activeTab === 'register' && <MaterialInwardRegister />}
+      {activeTab === 'fim' && <FromGatePassMode canEdit={canEditFim} />}
+      {activeTab === 'fim-status' && (
+        <FimStatusRegister user={user} onOpenProduct={(id) => navigate(`/products/${id}`)} />
+      )}
     </div>
   );
 }
@@ -722,12 +774,16 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequ
 }
 
 // Assign-to picker for direct / cash purchases. Stores chooses the unit or
-// owner department the material is reserved for (or leaves it in the general
-// pool). PO rows don't use this — they inherit the assignment from the PR.
+// owner department the material is reserved for. PO rows don't use this — they
+// inherit the assignment from the PR.
+//
+// The choice is mandatory (the server refuses an unassigned hand-entered row):
+// nothing typed in by hand has a PR to inherit an owner from, and material left
+// in the general pool never showed up against the unit that actually consumed it.
 function AssignToSelect({ units, value, onChange, className }) {
   return (
-    <Select label="Assign to" value={value} onChange={(e) => onChange(e.target.value)} className={className}>
-      <option value="">General / Unassigned pool</option>
+    <Select label="Assign to *" value={value} onChange={(e) => onChange(e.target.value)} className={className}>
+      <option value="">— Select the unit / department —</option>
       {units.length > 0 && (
         <optgroup label="Units">
           {units.map((u) => <option key={u.id} value={`unit:${u.id}`}>{u.name} ({u.code})</option>)}
@@ -890,6 +946,8 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     } else if (!isEdit && isCashLike) {
       // Existing PO not in the system → the typed PO number is required.
       if (isManualPo && !f.manualPoNumber.trim()) return setError('Enter the existing PO number.');
+      // Nothing hand-entered carries a system PR, so Stores names it here.
+      if (!f.prNumbers.trim()) return setError('Enter the PR number this material was bought against.');
       // Multi-item cash / manual-PO — every item must be complete.
       for (const it of items) {
         if (it.itemMode === 'existing' && !it.productId) return setError('Pick a product for each existing item (or remove the empty row).');
@@ -901,6 +959,16 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     // per-line for POs and per-item for cash; past-draft rows lock the qty).
     if (isEdit && editRow.status === 'DRAFT' && (!f.qtyReceived || Number(f.qtyReceived) <= 0)) {
       return setError('Enter the received quantity.');
+    }
+    // Hand-entered material (cash purchase / an existing PO typed in) has no PR
+    // to inherit an owner from, so Stores must name one. The server refuses an
+    // unassigned row too — this just says so before the round trip.
+    if (isDirect && !assignTo) {
+      return setError('Choose who this material is for — pick the unit or owner department under "Assign to".');
+    }
+    // Same for the requisition behind it — mandatory on every hand-entered row.
+    if (isDirect && !f.prNumbers.trim()) {
+      return setError('Enter the PR number this material was bought against.');
     }
     // Decode the assign-to picker into the unit / dept the server resolves.
     const issuedToUnitId = assignTo.startsWith('unit:') ? assignTo.slice(5) : null;
@@ -922,7 +990,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
             itemDescription: f.itemDescription, uom: f.uom, materialType: f.materialType,
             supplierName: f.supplierName, productId: editRow.productId || null, issuedToUnitId, issuedToDept,
             manualPoNumber: f.manualPoNumber.trim() || null,
-            prNumbers: f.prNumbers.trim() || null,
+            prNumbers: f.prNumbers.trim(),
           }),
         });
       } else if (perLine) {
@@ -954,7 +1022,8 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           // manual PO keeps the chosen doc-type (usually an invoice / DC).
           docType: isManualPo ? f.docType : (f.docType === 'INVOICE' ? 'CASH_PURCHASE' : f.docType),
           manualPoNumber: isManualPo ? f.manualPoNumber.trim() : null,
-          prNumbers: isManualPo ? (f.prNumbers.trim() || null) : null,
+          // Required on cash purchases too, not just manual POs.
+          prNumbers: f.prNumbers.trim(),
           docNumber: f.docNumber,
           documentDate: f.documentDate || null,
           purpose: f.purpose,
@@ -1071,6 +1140,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                         if (v) {
                           const pr = cashPrs.find((p) => p.id === v);
                           if (pr?.unit?.id) setAssignTo(`unit:${pr.unit.id}`);
+                          // The PR number is a required field on a manual entry —
+                          // fill it from the PR that was just linked.
+                          if (pr?.requestNumber) set('prNumbers', pr.requestNumber);
                         }
                       }}
                     >
@@ -1118,19 +1190,27 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                 )}
                 {isManualPo && (
                   <div className="space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <Input label="Purchase Order number *" value={f.manualPoNumber}
-                        onChange={(e) => set('manualPoNumber', e.target.value)}
-                        placeholder="Existing PO number (e.g. RAPS/PO/…)" />
-                      <Input label="PR number(s)" value={f.prNumbers}
-                        onChange={(e) => set('prNumbers', e.target.value)}
-                        placeholder="Existing PR number(s), if any" />
-                    </div>
+                    <Input label="Purchase Order number *" value={f.manualPoNumber}
+                      onChange={(e) => set('manualPoNumber', e.target.value)}
+                      placeholder="Existing PO number (e.g. RAPS/PO/…)" />
                     <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1.5">
-                      For a PO that isn’t in the system yet. Type its PO (and PR) number and record the received items below — the rest of the inward (QC, inward into stock) works exactly as a normal entry.
+                      For a PO that isn’t in the system yet. Type its PO and PR number and record the received items below — the rest of the inward (QC, inward into stock) works exactly as a normal entry.
                     </p>
                   </div>
                 )}
+
+                {/* Required on every hand-entered receipt. Nothing typed in here
+                    comes from a system PR, so the register would otherwise carry
+                    no trace of what authorised the purchase. Linking a Cash
+                    Purchase PR above fills this in. */}
+                <div className="space-y-1">
+                  <Input label="PR number(s) *" value={f.prNumbers}
+                    onChange={(e) => set('prNumbers', e.target.value)}
+                    placeholder="e.g. RAPS/PR/2026-27/48" />
+                  <p className="text-[11px] text-gray-400">
+                    Required — the requisition this material was bought against. Separate several with commas.
+                  </p>
+                </div>
                 <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
 
                 <div>
@@ -1233,7 +1313,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                 </div>
 
                 <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
-                <p className="-mt-1 text-[11px] text-gray-400">Pick the unit or department this cash purchase is for — stock is reserved to it on inward. Leave as “General” to keep it in the shared pool. Every item above is recorded under one shared MIR number.</p>
+                <p className="-mt-1 text-[11px] text-gray-400">Required — pick the unit or department this purchase is for; stock is reserved to it on inward. A PO receipt inherits this from the requisition, but a cash purchase or an existing PO typed in here has nothing to inherit, so it has to be named. Every item above is recorded under one shared MIR number.</p>
               </div>
             )}
           </FormBlock>
@@ -1265,9 +1345,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                 <div className="space-y-1">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <Input label="PO number (existing PO, not in system)" value={f.manualPoNumber} onChange={(e) => set('manualPoNumber', e.target.value)} placeholder="Leave blank for a cash purchase" />
-                    <Input label="PR number(s)" value={f.prNumbers} onChange={(e) => set('prNumbers', e.target.value)} placeholder="Existing PR number(s), if any" />
+                    <Input label="PR number(s) *" value={f.prNumbers} onChange={(e) => set('prNumbers', e.target.value)} placeholder="e.g. RAPS/PR/2026-27/48" />
                   </div>
-                  <p className="text-[11px] text-gray-400">Type a PO number to log this as an existing PO (one not yet in the system). Leave it blank to keep it a cash purchase.</p>
+                  <p className="text-[11px] text-gray-400">Type a PO number to log this as an existing PO (one not yet in the system). Leave it blank to keep it a cash purchase. The PR number is required either way.</p>
                 </div>
                 <Input label="Item name" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="Material / item description" />
                 <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
@@ -1275,7 +1355,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                   <option value="">Select type…</option>
                   {MATERIAL_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
                 </Select>
-                <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
+                <div className="space-y-1">
+                  <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
+                  <p className="text-[11px] text-gray-400">Required — stock is reserved to whoever is named here on inward. An older entry left in the general pool has to be assigned before this row will save.</p>
+                </div>
               </>
             )}
             {/* Stock fields stay editable only while the row is a draft — a QC'd or
@@ -2356,7 +2439,7 @@ function FromGatePassMode({ canEdit }) {
       </div>
       <p className="text-xs text-gray-500 mb-3">
         Items recorded here are added to stock immediately — no separate acceptance step. They show up under
-        Gate Pass → FIM Status straight away.
+        the FIM Status tab straight away.
       </p>
       {loading ? (
         <p className="text-sm text-gray-500">Loading…</p>
@@ -3016,13 +3099,7 @@ function AcceptInwardForm({ gatePass, onCancel, onComplete, canEdit }) {
                     <label className="block text-xs text-gray-500 mb-1">Material type</label>
                     <select className={cellInput}
                       value={r.newMaterialType} onChange={(e) => update(idx, 'newMaterialType', e.target.value)}>
-                      <option>Others</option>
-                      <option>Raw Material</option>
-                      <option>Consumable</option>
-                      <option>Hand Tools</option>
-                      <option>Fasteners</option>
-                      <option>Tools & Fixtures</option>
-                      <option>Machinery</option>
+                      {MATERIAL_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
                 </>
