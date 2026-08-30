@@ -800,7 +800,9 @@ function AssignToSelect({ units, value, onChange, className }) {
 let cashItemSeq = 0;
 const newCashItem = () => ({
   key: `ci-${++cashItemSeq}`,
-  itemMode: 'existing', // 'existing' | 'new'
+  // Every item is a Master Data pick. Stores used to be able to type a brand-new
+  // item here and the catalogue entry was minted at inward; that is closed —
+  // new materials are added by Admin / QC / a unit manager first.
   productId: '',
   productSearch: '',
   itemDescription: '',
@@ -821,6 +823,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   const [cashPrs, setCashPrs] = useState([]);
   const [cashPrId, setCashPrId] = useState('');
   const [products, setProducts] = useState([]);
+  // Editing a direct row: which Master Data material it names. The description,
+  // UOM and product type all follow from this — none of them is free text.
+  const [editProductId, setEditProductId] = useState(editRow?.productId || '');
+  const [editProductSearch, setEditProductSearch] = useState('');
   const [units, setUnits] = useState([]);
   // Direct / cash entries: where Stores assigns the material. Encoded as
   // "unit:<id>" / "dept:<name>" / "" (general pool).
@@ -891,11 +897,12 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     api.get('/material-inward/cash-purchase-prs').then(({ data }) => setCashPrs(data.prs || [])).catch(() => setCashPrs([]));
   }, [isCash, isEdit]);
 
-  // Products for cash / manual-PO product linking.
+  // Products for cash / manual-PO product linking. Also needed when editing a
+  // direct row — its material is re-picked from Master Data, never re-typed.
   useEffect(() => {
-    if (isEdit || !isCashLike) return;
+    if (!isCashLike && !(isEdit && isDirect)) return;
     api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products || [])).catch(() => setProducts([]));
-  }, [isCashLike, isEdit]);
+  }, [isCashLike, isEdit, isDirect]);
 
   // Units for the cash "assign to" picker (also needed when editing a direct row).
   useEffect(() => {
@@ -919,8 +926,6 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   const addItem = () => setItems((p) => [...p, newCashItem()]);
   const removeItem = (key) => setItems((p) => (p.length > 1 ? p.filter((it) => it.key !== key) : p));
   const patchItem = (key, patch) => setItems((p) => p.map((it) => (it.key === key ? { ...it, ...patch } : it)));
-  // Switch existing/new for an item — reset its item fields so paths never bleed.
-  const pickItemModeFor = (key, m) => patchItem(key, { itemMode: m, productId: '', productSearch: '', itemDescription: '', uom: '', materialType: '' });
   // Pick an existing product → fill description / UOM / type from the master.
   const pickProductFor = (key, p) => patchItem(key, { productId: p.id, productSearch: '', itemDescription: p.name, uom: p.unit || '', materialType: p.category || '' });
   const matchProducts = (q) => (q
@@ -950,8 +955,8 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
       if (!f.prNumbers.trim()) return setError('Enter the PR number this material was bought against.');
       // Multi-item cash / manual-PO — every item must be complete.
       for (const it of items) {
-        if (it.itemMode === 'existing' && !it.productId) return setError('Pick a product for each existing item (or remove the empty row).');
-        if (it.itemMode === 'new' && !it.itemDescription.trim()) return setError('Enter a description for each new item (or remove the empty row).');
+        // Master Data pick only — no free-text items on the register.
+        if (!it.productId) return setError('Pick each item from Master Data (or remove the empty row). New materials are added by Admin, QC or a unit manager.');
         if (!it.qtyReceived || Number(it.qtyReceived) <= 0) return setError(`Enter the received quantity for ${it.itemDescription || 'each item'}.`);
       }
     }
@@ -970,6 +975,11 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     if (isDirect && !f.prNumbers.trim()) {
       return setError('Enter the PR number this material was bought against.');
     }
+    // The material is a Master Data pick. A legacy row that was typed in as free
+    // text has to be linked to a catalogue material before it will save.
+    if (isEdit && isDirect && !editProductId) {
+      return setError('Pick the material from Master Data. New materials are added by Admin, QC or a unit manager.');
+    }
     // Decode the assign-to picker into the unit / dept the server resolves.
     const issuedToUnitId = assignTo.startsWith('unit:') ? assignTo.slice(5) : null;
     const issuedToDept = assignTo.startsWith('dept:') ? assignTo.slice(5) : null;
@@ -983,12 +993,14 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           manufacturingDate: f.manufacturingDate || null,
           purpose: f.purpose,
           // Real (system) PO rows derive their item/assign-to from the PR — locked.
-          // Cash + manual-PO rows keep their free-text fields editable; the PO
-          // number is free to set/clear (typing one turns a cash row into an
-          // existing-PO entry; clearing it makes it a cash purchase again).
+          // Cash + manual-PO rows stay editable; the PO number is free to set or
+          // clear (typing one turns a cash row into an existing-PO entry;
+          // clearing it makes it a cash purchase again). The material itself is a
+          // Master Data pick — the server stamps name / UOM / type from it, so
+          // none of those three is sent.
           ...(editRow.purchaseOrderId ? {} : {
-            itemDescription: f.itemDescription, uom: f.uom, materialType: f.materialType,
-            supplierName: f.supplierName, productId: editRow.productId || null, issuedToUnitId, issuedToDept,
+            productId: editProductId,
+            supplierName: f.supplierName, issuedToUnitId, issuedToDept,
             manualPoNumber: f.manualPoNumber.trim() || null,
             prNumbers: f.prNumbers.trim(),
           }),
@@ -1034,10 +1046,10 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           // Link to a cash purchase PR if selected.
           cashPurchaseRequestId: isCash && cashPrId ? cashPrId : null,
           items: items.map((it) => ({
-            productId: it.productId || null,
+            // The server stamps name / UOM / category from the Master Data entry;
+            // itemDescription rides along only so its errors can name the line.
+            productId: it.productId,
             itemDescription: it.itemDescription,
-            uom: it.uom,
-            materialType: it.materialType,
             qtyReceived: it.qtyReceived,
             batchNo: it.batchNo,
             manufacturingDate: it.manufacturingDate || null,
@@ -1226,14 +1238,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                       return (
                         <div key={it.key} className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60">
                           <div className="flex items-center justify-between gap-2">
-                            <div className="inline-flex bg-navy-50 rounded-lg p-0.5">
-                              {[['existing', 'Existing item'], ['new', 'New item']].map(([m, lbl]) => (
-                                <button key={m} type="button" onClick={() => pickItemModeFor(it.key, m)}
-                                  className={`px-3 py-1 text-xs font-semibold rounded-md transition ${it.itemMode === m ? 'bg-white shadow text-navy-800' : 'text-navy-600'}`}>
-                                  {lbl}
-                                </button>
-                              ))}
-                            </div>
+                            <span className="text-[11px] font-semibold text-navy-600">Material *</span>
                             <div className="flex items-center gap-2 shrink-0">
                               <span className="text-[11px] font-semibold text-navy-400">Item {idx + 1}</span>
                               {items.length > 1 && (
@@ -1242,8 +1247,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                             </div>
                           </div>
 
-                          {/* Existing → pick from the product master (auto-fills desc / UOM / type). */}
-                          {it.itemMode === 'existing' && (
+                          {/* Always a Master Data pick — description, UOM and type
+                              come from the catalogue entry, never typed here. */}
+                          {(
                             prod ? (
                               <div className="flex items-center justify-between gap-2 px-3 py-2 bg-navy-50 border border-navy-200 rounded-lg">
                                 <span className="text-sm text-navy-800">
@@ -1269,39 +1275,28 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                                         <span className="text-xs text-gray-500">{p.currentStock} {p.unit}</span>
                                       </div>
                                     ))}
-                                    {!matches.length && <div className="px-3 py-2 text-xs text-gray-400">No matching products.</div>}
+                                    {!matches.length && (
+                                      <div className="px-3 py-2 text-xs text-gray-400">
+                                        No matching material in Master Data. Only materials already in Master Data
+                                        can be received — ask Admin, QC or a unit manager to add it first.
+                                      </div>
+                                    )}
                                   </div>
                                 )}
-                                <p className="mt-1 text-[11px] text-gray-400">Stock is added to this product on inward.</p>
+                                <p className="mt-1 text-[11px] text-gray-400">Stock is added to this product on inward. Description, UOM and product type come from its Master Data entry.</p>
                               </div>
                             )
                           )}
 
-                          {/* New → free-text item not yet in the product master. */}
-                          {it.itemMode === 'new' && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              <Input label="Item description *" value={it.itemDescription} onChange={(e) => patchItem(it.key, { itemDescription: e.target.value })} placeholder="Name of the new item" />
-                              <Select label="UOM" value={it.uom || ''} onChange={(e) => patchItem(it.key, { uom: e.target.value })}>
-                                <option value="">Select UOM…</option>
-                                {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
-                              </Select>
-                            </div>
-                          )}
-
-                          {/* Product type + receipt details — per item. */}
+                          {/* Receipt details — per item. Product type is shown for
+                              reference only; it belongs to the Master Data entry. */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                            <Select label="Product type" value={it.materialType || ''} onChange={(e) => patchItem(it.key, { materialType: e.target.value })}>
-                              <option value="">Select type…</option>
-                              {MATERIAL_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
-                            </Select>
+                            <Input label="Product type" value={it.materialType || (prod?.category ?? '')} readOnly disabled />
                             <Input label="Qty received *" type="number" min="0" step="any" value={it.qtyReceived} onChange={(e) => patchItem(it.key, { qtyReceived: e.target.value })} />
                             <Input label="Batch no." value={it.batchNo} onChange={(e) => patchItem(it.key, { batchNo: e.target.value })} />
                             <Input label="Mfg date" type="date" value={it.manufacturingDate} onChange={(e) => patchItem(it.key, { manufacturingDate: e.target.value })} />
                             <Input label="Expiry" type="date" value={it.dateOfExpiry} onChange={(e) => patchItem(it.key, { dateOfExpiry: e.target.value })} />
                           </div>
-                          {it.itemMode === 'new' && (
-                            <p className="-mt-1 text-[11px] text-gray-400">New item not in the product master → recorded in the register only (no stock movement).</p>
-                          )}
                         </div>
                       );
                     })}
@@ -1349,12 +1344,58 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                   </div>
                   <p className="text-[11px] text-gray-400">Type a PO number to log this as an existing PO (one not yet in the system). Leave it blank to keep it a cash purchase. The PR number is required either way.</p>
                 </div>
-                <Input label="Item name" value={f.itemDescription} onChange={(e) => set('itemDescription', e.target.value)} placeholder="Material / item description" />
+                {/* Material — a Master Data pick, not free text. Its name, UOM and
+                    product type are taken from the catalogue entry on save. */}
+                <div className="space-y-1">
+                  <span className="block text-[13px] font-semibold text-navy-700">Material *</span>
+                  {(() => {
+                    const chosen = products.find((p) => p.id === editProductId);
+                    if (chosen) {
+                      return (
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-navy-50 border border-navy-200 rounded-lg">
+                          <span className="text-sm text-navy-800">
+                            <strong>{chosen.name}</strong> <span className="text-xs text-gray-400">{chosen.materialCode || chosen.sku}</span>
+                            {chosen.category && <span className="text-xs text-gray-500"> · {chosen.category}</span>}
+                          </span>
+                          <button type="button" onClick={() => { setEditProductId(''); setEditProductSearch(''); }}
+                            className="text-xs text-navy-600 hover:text-navy-800 font-semibold shrink-0">Change</button>
+                        </div>
+                      );
+                    }
+                    const matches = matchProducts(editProductSearch);
+                    return (
+                      <div>
+                        {editRow.itemDescription && (
+                          <p className="mb-1 text-[11px] text-amber-700">
+                            Currently recorded as “{editRow.itemDescription}” with no Master Data link — pick the material it refers to.
+                          </p>
+                        )}
+                        <div className="relative">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input value={editProductSearch} onChange={(e) => setEditProductSearch(e.target.value)} placeholder="Search Master Data…"
+                            className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500" />
+                        </div>
+                        {editProductSearch && (
+                          <div className="mt-1 max-h-36 overflow-y-auto border rounded-md bg-white">
+                            {matches.slice(0, 30).map((p) => (
+                              <div key={p.id} onClick={() => { setEditProductId(p.id); setEditProductSearch(''); }}
+                                className="flex justify-between px-3 py-1.5 text-sm cursor-pointer hover:bg-navy-50 border-b border-gray-100 last:border-0">
+                                <span>{p.name} <span className="text-xs text-gray-400">{p.materialCode || p.sku}</span></span>
+                                <span className="text-xs text-gray-500">{p.currentStock} {p.unit}</span>
+                              </div>
+                            ))}
+                            {!matches.length && (
+                              <div className="px-3 py-2 text-xs text-gray-400">
+                                No matching material in Master Data. Ask Admin, QC or a unit manager to add it first.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
                 <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
-                <Select label="Product type" value={f.materialType || ''} onChange={(e) => set('materialType', e.target.value)}>
-                  <option value="">Select type…</option>
-                  {MATERIAL_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
-                </Select>
                 <div className="space-y-1">
                   <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
                   <p className="text-[11px] text-gray-400">Required — stock is reserved to whoever is named here on inward. An older entry left in the general pool has to be assigned before this row will save.</p>

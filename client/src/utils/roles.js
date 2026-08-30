@@ -33,15 +33,11 @@ export function storeProductEditWindowOpen(now = new Date()) {
 }
 
 // ──── Master data: who may ADD, who may EDIT ────
-// A purchase-request line can only name a material that is already in Master
-// Data, so everyone who raises PRs must be able to put one there — otherwise a
-// Lab / Designs / Safety request is blocked until somebody else acts. Adding is
-// open to every requester role; Product.createdBy records who did it.
+// Master data is owned by Admin, Quality and the unit managers — nobody else may
+// put a material into the catalogue. Any other requester who needs a new material
+// asks one of them to add it first. Product.createdBy records who did it.
 // Mirror of PRODUCT_CREATE_ROLES in server/src/middleware/rbac.js.
-const PRODUCT_CREATE_ROLES = [
-  'ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'STORE_MANAGER',
-  'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING',
-];
+const PRODUCT_CREATE_ROLES = ['ADMIN', 'MANAGER', 'QC'];
 
 export function canCreateProduct(user) {
   if (!user) return false;

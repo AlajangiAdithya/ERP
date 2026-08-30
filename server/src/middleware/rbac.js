@@ -99,24 +99,22 @@ const authorizeProductMaster = (req, res, next) => {
 };
 
 // ──── Master data: who may ADD, who may EDIT ────
-// A purchase-request line can only name a material that is already in Master
-// Data (no more free-text "new material" rows), so everyone who raises PRs has
-// to be able to put one there — otherwise a Lab/Designs/Safety request is
-// blocked until somebody else acts. Adding is therefore open to every requester
-// role; Product.createdById records who did it.
+// Master data is owned by Admin, Quality and the unit managers — nobody else may
+// put a material into the catalogue. It was briefly open to every requester role
+// so a PR was never blocked waiting on someone else, but that let anyone mint
+// catalogue entries and the register filled up with duplicates and half-described
+// materials. A requester who needs a new material now asks Admin / QC / their
+// unit manager to add it first. (Tools & Fixtures requisition lines are the one
+// route that still bypasses the catalogue — see FREE_TEXT_MATERIAL_TYPE in
+// purchaseRequest.routes.js — and even those are catalogued by the SYSTEM at
+// inward, not typed into master data by hand.)
 //
 // EDITING stays narrow: the Unit 1–5 managers own master data, plus the person
 // who entered that particular material (they are the one who knows what they
 // meant). Everyone else is read-only. Mirror of PRODUCT_CREATE_ROLES /
 // canEditProductMasterData in client/src/utils/roles.js — the server is the real
 // gate, the client mirror only decides what is drawn.
-//
-// Mirrors REQUESTER_ROLES in server/src/routes/purchaseRequest.routes.js (the
-// list of roles that may raise a PR), plus the master owners.
-const PRODUCT_CREATE_ROLES = [
-  'ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'STORE_MANAGER',
-  'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING',
-];
+const PRODUCT_CREATE_ROLES = ['ADMIN', 'MANAGER', 'QC'];
 
 const canCreateProduct = (user) =>
   !!user && (user.role === 'SUPERADMIN' || PRODUCT_CREATE_ROLES.includes(user.role));

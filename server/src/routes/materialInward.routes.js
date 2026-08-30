@@ -398,6 +398,13 @@ const ASSIGN_REQUIRED_ERROR =
 const PR_NUMBER_REQUIRED_ERROR =
   'Enter the PR number(s) this material was bought against — required on cash purchases and existing POs entered by hand.';
 
+// Stores receives materials; it does not author the catalogue. Every hand-entered
+// register line names a material that is ALREADY in Master Data — new materials
+// are added by Admin / QC / the unit managers (PRODUCT_CREATE_ROLES in
+// middleware/rbac.js) and only then can they be received.
+const MASTER_DATA_REQUIRED_ERROR =
+  'Pick the material from Master Data. New materials can only be added by Admin, QC or a unit manager — ask them to add it, then receive it here.';
+
 async function resolveDirectIssuedTo(target, b) {
   target.issuedToUnitId = null;
   target.issuedToDept = null;
@@ -864,6 +871,17 @@ router.post('/', authenticate, requireInwardWrite, async (req, res) => {
       // A PO receipt snapshots its PR number(s) from the order above; a
       // hand-entered one has no order to read them off, so Stores types them.
       if (!data.prNumbers) return res.status(400).json({ error: PR_NUMBER_REQUIRED_ERROR });
+      // Master-data gate: the material is a catalogue pick, never free text, and
+      // its name / UOM / category are taken from there.
+      if (!data.productId) return res.status(400).json({ error: MASTER_DATA_REQUIRED_ERROR });
+      const prod = await prisma.product.findFirst({
+        where: { id: data.productId, isActive: true },
+        select: { id: true, name: true, unit: true, category: true },
+      });
+      if (!prod) return res.status(400).json({ error: 'That material is no longer in Master Data. Pick it again from the catalogue.' });
+      data.itemDescription = prod.name;
+      data.uom = prod.unit || null;
+      data.materialType = prod.category || null;
     }
 
     if (!data.itemDescription) return res.status(400).json({ error: 'Item description is required' });
@@ -960,10 +978,14 @@ router.post('/bulk', authenticate, requireInwardWrite, async (req, res) => {
 // ── POST /api/material-inward/cash-bulk ───────────────────────────────
 // A cash purchase often brings several items from the same supplier on one
 // invoice. Stores enters them together: one shared header (supplier / document /
-// assign-to) plus a list of items (each an existing product or a new item, with
-// its own qty / batch / dates / type). All items become their own register row —
-// each with its own QC track — but share a single MIR number (and a sub-lot index
-// when there's more than one).
+// assign-to) plus a list of items, each with its own qty / batch / dates. All
+// items become their own register row — each with its own QC track — but share a
+// single MIR number (and a sub-lot index when there's more than one).
+//
+// Every item must be an EXISTING master-data material. Stores used to be able to
+// type a brand-new item here and the catalogue entry was minted on the spot;
+// that route is closed. Master data is added by Admin / QC / the unit managers
+// (PRODUCT_CREATE_ROLES) and only then can it be received.
 router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const b = req.body || {};
@@ -977,12 +999,30 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
       if (!qty || qty <= 0) return res.status(400).json({ error: `Enter a received quantity for ${(it.itemDescription || '').trim() || 'each item'}` });
     }
 
+    // Master-data gate: every line names a catalogue material, never free text.
+    const unlisted = items.find((it) => !it.productId);
+    if (unlisted) {
+      const label = (unlisted.itemDescription || '').trim();
+      return res.status(400).json({
+        error: `${label ? `"${label}"` : 'One of the items'} is not in Master Data. Only materials that are already in Master Data can be received — ask Admin, QC or a unit manager to add it first.`,
+      });
+    }
+
     // Resolve linked products once → trusted name / UOM / category snapshots.
-    const productIds = [...new Set(items.map((it) => it.productId).filter(Boolean))];
-    const products = productIds.length
-      ? await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true, unit: true, category: true } })
-      : [];
+    const productIds = [...new Set(items.map((it) => it.productId))];
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds }, isActive: true },
+      select: { id: true, name: true, unit: true, category: true },
+    });
     const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
+
+    const gone = items.find((it) => !productMap[it.productId]);
+    if (gone) {
+      const label = (gone.itemDescription || '').trim();
+      return res.status(400).json({
+        error: `${label ? `"${label}"` : 'A material'} is no longer in Master Data. Pick it again from the catalogue.`,
+      });
+    }
 
     const docType = ['INVOICE', 'CASH_PURCHASE', 'DELIVERY_CHALLAN', 'GATE_PASS'].includes(b.docType) ? b.docType : 'CASH_PURCHASE';
 
@@ -1040,20 +1080,21 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
     let lot = 0;
     for (const it of items) {
       lot += 1;
-      const prod = it.productId ? productMap[it.productId] : null;
-      const itemDescription = (prod?.name || it.itemDescription || '').trim() || null;
-      if (!itemDescription) return res.status(400).json({ error: 'Item description is required' });
+      // Guaranteed by the master-data gate above; name / UOM / category are taken
+      // from the catalogue, never from what the client sent, so the register can
+      // never disagree with master data.
+      const prod = productMap[it.productId];
       const row = await prisma.materialInwardRegister.create({
         data: {
           ...header,
           mirNo,
           // Sub-lot index so several items under one MIR stay distinguishable.
           lotNo: multi ? lot : null,
-          itemDescription,
-          uom: (prod?.unit || it.uom || '').trim() || null,
-          materialType: (it.materialType || prod?.category || '').trim() || null,
+          itemDescription: prod.name,
+          uom: (prod.unit || '').trim() || null,
+          materialType: (prod.category || '').trim() || null,
           qtyReceived: Number(it.qtyReceived),
-          productId: it.productId || null,
+          productId: it.productId,
           batchNo: (it.batchNo || '').trim() || null,
           dateOfExpiry: it.dateOfExpiry ? new Date(it.dateOfExpiry) : null,
           manufacturingDate: it.manufacturingDate ? new Date(it.manufacturingDate) : null,
@@ -1113,10 +1154,33 @@ router.patch('/:id', authenticate, async (req, res) => {
     // Item identity / source / assignment — only on non-system-PO rows (real PO
     // rows derive these from the PR and stay locked).
     if (!row.purchaseOrderId) {
-      if (b.itemDescription !== undefined) patch.itemDescription = b.itemDescription?.trim() || row.itemDescription;
-      if (b.uom !== undefined) patch.uom = b.uom?.trim() || null;
-      if (b.materialType !== undefined) patch.materialType = b.materialType?.trim() || null;
-      if (b.productId !== undefined) patch.productId = b.productId || null;
+      // The material itself is a master-data pick, not free text — the same rule
+      // the create routes enforce. Changing it means pointing the row at another
+      // catalogue material, and the name / UOM / category then come from there.
+      // Re-typing a description was the one remaining way to smuggle a new item
+      // into the catalogue (the inward step mints a product from the description
+      // when a row has no product), so it is no longer editable on its own.
+      if (b.productId !== undefined) {
+        const nextProductId = b.productId || null;
+        if (!nextProductId) {
+          return res.status(400).json({ error: MASTER_DATA_REQUIRED_ERROR });
+        }
+        const prod = await prisma.product.findFirst({
+          where: { id: nextProductId, isActive: true },
+          select: { id: true, name: true, unit: true, category: true },
+        });
+        if (!prod) {
+          return res.status(400).json({ error: 'That material is no longer in Master Data. Pick it again from the catalogue.' });
+        }
+        patch.productId = prod.id;
+        patch.itemDescription = prod.name;
+        patch.uom = prod.unit || null;
+        patch.materialType = prod.category || null;
+      } else if (b.itemDescription !== undefined && !row.productId) {
+        // Legacy free-text row with nothing behind it: link it to a catalogue
+        // material rather than editing the loose description.
+        return res.status(400).json({ error: MASTER_DATA_REQUIRED_ERROR });
+      }
       if (b.supplierName !== undefined) patch.supplierName = b.supplierName?.trim() || null;
       if (b.manualPoNumber !== undefined) patch.manualPoNumber = b.manualPoNumber?.trim() || null;
       // Mandatory on a hand-entered row — it can be corrected, never cleared.

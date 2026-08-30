@@ -814,10 +814,10 @@ router.get('/:id', authenticate, async (req, res) => {
 // MUST be declared before any `/:id`-style route — declared at top of file for safety.
 
 // POST /api/products — sku is just the materialCode (identification number).
-// Open to every requester role: a PR line may only name a material that is
-// already in master data, so whoever raises the PR has to be able to enter it.
-// createdById stamps the author — they and the Unit 1–5 managers are the only
-// ones who can edit the entry afterwards.
+// Restricted to Admin, QC and the unit managers (PRODUCT_CREATE_ROLES) — master
+// data is theirs to own. Any other requester who needs a new material asks one
+// of them to enter it. createdById stamps the author — they and the Unit 1–5
+// managers are the only ones who can edit the entry afterwards.
 router.post('/', authenticate, authorizeProductCreate, auditLog('CREATE', 'Product'), async (req, res) => {
   try {
     const data = productSchema.parse(req.body);
