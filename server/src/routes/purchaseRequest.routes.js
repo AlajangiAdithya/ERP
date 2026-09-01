@@ -374,7 +374,7 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
           dateHistory: { orderBy: { createdAt: 'desc' } },
           items: {
             include: {
-              product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
+              product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true, currentStock: true, category: true } },
               attachments: { orderBy: { createdAt: 'asc' } },
               materialPoolMembership: {
                 include: {
@@ -567,7 +567,7 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
           adminApprovedBy: { select: { name: true } },
           items: {
             include: {
-              product: { select: { sku: true, category: true } },
+              product: { select: { sku: true, materialCode: true, category: true } },
               attachments: { select: { id: true } },
             },
           },
@@ -1088,7 +1088,7 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
         dateHistory: { orderBy: { createdAt: 'desc' } },
         items: {
           include: {
-            product: { select: { id: true, name: true, sku: true, unit: true, currentStock: true, category: true } },
+            product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true, currentStock: true, category: true } },
             attachments: { orderBy: { createdAt: 'asc' } },
             // Pool membership lets the PR detail UI show "Pooled with PR-N · X items"
             // badges and the Unpool button on each item row.
@@ -1318,7 +1318,7 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
             noteAttachments: { orderBy: { createdAt: 'asc' } },
             items: {
               include: {
-                product: { select: { id: true, name: true, sku: true, unit: true, category: true } },
+                product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true, category: true } },
                 attachments: { orderBy: { createdAt: 'asc' } },
               },
             },
@@ -1470,7 +1470,7 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
         noteAttachments: { orderBy: { createdAt: 'asc' } },
         items: {
           include: {
-            product: { select: { id: true, name: true, sku: true, unit: true, category: true } },
+            product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true, category: true } },
             attachments: { orderBy: { createdAt: 'asc' } },
           },
         },
@@ -1629,7 +1629,7 @@ router.put(
           dateHistory: { orderBy: { createdAt: 'desc' } },
           items: {
             include: {
-              product: { select: { id: true, name: true, sku: true, unit: true, category: true } },
+              product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true, category: true } },
               attachments: { orderBy: { createdAt: 'asc' } },
             },
           },
@@ -1806,7 +1806,7 @@ router.put('/:id/remarks', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'),
       dateHistory: { orderBy: { createdAt: 'desc' } },
       items: {
         include: {
-          product: { select: { id: true, name: true, sku: true, unit: true, category: true } },
+          product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true, category: true } },
           attachments: { orderBy: { createdAt: 'asc' } },
         },
       },
@@ -1941,7 +1941,7 @@ router.put('/:id/qc-approve', authenticate, authorize('QC'), async (req, res) =>
         unit: { select: { id: true, name: true, code: true } },
         qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
-        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true } } } },
       },
     });
 
@@ -2016,7 +2016,7 @@ router.put('/:id/qc-reject', authenticate, authorize('QC'), async (req, res) => 
         manager: { select: { id: true, name: true, role: true } },
         unit: { select: { id: true, name: true, code: true } },
         qcApprovedBy: { select: { id: true, name: true } },
-        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true } } } },
       },
     });
 
@@ -2108,7 +2108,7 @@ router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, r
         unit: { select: { id: true, name: true, code: true } },
         qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
-        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true } } } },
       },
     });
 
@@ -2179,7 +2179,7 @@ router.put('/:id/admin-reject', authenticate, authorize('ADMIN'), async (req, re
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
-        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true } } } },
       },
     });
 
@@ -2278,7 +2278,7 @@ router.put('/:id/admin-hold', authenticate, authorize('ADMIN'), async (req, res)
         qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
         heldBy: { select: { id: true, name: true } },
-        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true } } } },
       },
     });
 
@@ -2388,7 +2388,7 @@ router.put(
           qcApprovedBy: { select: { id: true, name: true } },
           adminApprovedBy: { select: { id: true, name: true } },
           heldBy: { select: { id: true, name: true } },
-          items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+          items: { include: { product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true } } } },
         },
       });
 
@@ -2435,7 +2435,7 @@ router.put('/:id/admin-update-notes', authenticate, authorize('ADMIN'), async (r
         unit: { select: { id: true, name: true, code: true } },
         qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
-        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true } } } },
       },
     });
 
@@ -2502,7 +2502,7 @@ router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), 
         qcApprovedBy: { select: { id: true, name: true } },
         adminApprovedBy: { select: { id: true, name: true } },
         items: {
-          include: { product: { select: { id: true, name: true, sku: true, unit: true } } },
+          include: { product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true } } },
         },
       },
     });
@@ -2564,7 +2564,7 @@ router.put('/:id/cancel', authenticate, authorize(...REQUESTER_ROLES), async (re
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
-        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true } } } },
       },
     });
 
@@ -2652,7 +2652,7 @@ router.post('/:id/close', authenticate, authorize('ADMIN', ...REQUESTER_ROLES), 
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
-        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true } } } },
       },
     });
     res.json(updated);
@@ -2731,7 +2731,7 @@ router.put('/:id/convert-to-cash-purchase', authenticate, authorize('PURCHASE_OF
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
-        items: { include: { product: { select: { id: true, name: true, sku: true, unit: true } } } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, materialCode: true, unit: true } } } },
       },
     });
     res.json(updated);

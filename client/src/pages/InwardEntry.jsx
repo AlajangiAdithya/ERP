@@ -18,6 +18,7 @@ import PageHero from '../components/shared/PageHero';
 import FimStatusRegister from '../components/fim/FimStatusRegister';
 import { formatDate } from '../utils/formatters';
 import { UOM_OPTIONS } from '../utils/units';
+import { MATERIAL_TYPE_OPTIONS } from '../utils/materialTypes';
 import { checkFileSize } from '../utils/fileGuard';
 import { reasonError } from '../utils/reasonValidation';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
@@ -156,9 +157,8 @@ const ASSIGN_DEPTS = ['Designs', 'QC', 'Lab', 'Metrology', 'NDT', 'Safety', 'Pla
 const docLabel = (v) => DOC_TYPES.find((d) => d.value === v)?.label || v;
 
 // Product / material type — same vocabulary as the PR form (PurchaseRequests)
-// and MATERIAL_TYPES on the server. Whatever is picked here becomes the category
-// of the product created at inward, so the list has to stay complete.
-const MATERIAL_TYPE_OPTIONS = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others'];
+// and MATERIAL_TYPES on the server; see utils/materialTypes.js. Whatever is
+// picked here becomes the category of the product created at inward.
 
 const STATUS_META = {
   DRAFT:           { label: 'Draft',            tone: 'gray' },

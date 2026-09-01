@@ -137,7 +137,7 @@ const canEditProductMasterData = (user, product) => {
 };
 
 // TEMPORARY (new-system rollout): the Stores team may edit a product's *details*
-// (ID No., name, material type, specification, shelf life, storage temp — never
+// (material code, name, material type, specification, shelf life, storage temp — never
 // stock numbers) directly from the Stock Details list while they learn the system.
 // Auto-expires on this date so the access doesn't linger; after it, STORE_MANAGER
 // is read-only again and only the master owners can edit. The client mirror is

@@ -9,7 +9,8 @@ const {
 const { auditLog } = require('../middleware/audit');
 const { msdsUpload, prSpecsUpload, publicUrlFor } = require('../middleware/upload');
 const {
-  paginate, normalizeMaterialType, MATERIAL_TYPES,
+  paginate, normalizeMaterialType, MATERIAL_TYPES, MATERIAL_CATEGORIES,
+  codeRangeFor, nextMaterialCode,
 } = require('../utils/helpers');
 
 const router = express.Router();
@@ -87,7 +88,9 @@ async function annotateDeptStocks(products) {
 
 const productSchema = z.object({
   name: z.string().min(1),
-  // Identification number from the Material Details register — also stored as SKU.
+  // Material code from the category register (utils/materialCategories.js) — the
+  // number is issued inside the block reserved for the material's category. Also
+  // stored as SKU.
   materialCode: z.string().trim().min(1),
   description: z.string().optional().nullable(),
   category: z.string().optional(),
@@ -102,7 +105,7 @@ const productSchema = z.object({
 // Only these fields are diffed on save; stock figures (currentStock) and
 // non-detail columns are never recorded here.
 const PRODUCT_FIELD_LABELS = {
-  materialCode: 'ID No.',
+  materialCode: 'Material Code',
   name: 'Name',
   description: 'Specification / Description',
   category: 'Material Type',
@@ -237,6 +240,40 @@ router.get('/', authenticate, async (req, res) => {
 // GET /api/products/material-types — fixed dropdown values for PR/inward forms
 router.get('/material-types', authenticate, (_req, res) => {
   res.json(MATERIAL_TYPES);
+});
+
+// GET /api/products/material-categories — the material-code register: each
+// category with the block of codes reserved for it and what belongs in it. Drives
+// the Material Type dropdowns AND the reference table shown on a requisition.
+router.get('/material-categories', authenticate, (_req, res) => {
+  res.json(MATERIAL_CATEGORIES);
+});
+
+// GET /api/products/next-material-code?category=<label>
+// The next free material code for a category — codes are counted inside the block
+// the register reserves for that category, so a new resin gets 1501…2000 and a
+// new consumable 3001…3300. Deactivated products still hold their code (the
+// column is unique), so every product is considered, active or not.
+router.get('/next-material-code', authenticate, async (req, res) => {
+  try {
+    const category = normalizeMaterialType(req.query.category);
+    const range = codeRangeFor(category);
+    if (!range) {
+      // 'Others' and the retired labels have no reserved block — the code is
+      // typed by hand. Answer plainly rather than 400-ing; the form just doesn't
+      // prefill.
+      return res.json({ category, code: null, from: null, to: null, used: 0, capacity: 0, full: false });
+    }
+    // Both columns carry the identification number (sku mirrors materialCode),
+    // and older rows have only one of the two — read both.
+    const rows = await prisma.product.findMany({ select: { materialCode: true, sku: true } });
+    const used = [];
+    for (const r of rows) { used.push(r.materialCode, r.sku); }
+    res.json({ category, ...nextMaterialCode(category, used) });
+  } catch (error) {
+    console.error('Next material code error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // GET /api/products/fim-status
@@ -833,7 +870,7 @@ router.post('/', authenticate, authorizeProductCreate, auditLog('CREATE', 'Produ
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
     }
     if (error.code === 'P2002') {
-      return res.status(409).json({ error: 'Identification number already in use' });
+      return res.status(409).json({ error: 'Material code already in use' });
     }
     console.error('Create product error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -871,10 +908,10 @@ router.post('/bulk', authenticate, authorizeProductCreate, auditLog('CREATE', 'P
     // up front so the message can name them (the DB unique error can't).
     const codes = parsed.map((p) => p.materialCode);
     const dupInBatch = codes.find((c, i) => codes.indexOf(c) !== i);
-    if (dupInBatch) return res.status(409).json({ error: `ID No. "${dupInBatch}" is repeated in the list` });
+    if (dupInBatch) return res.status(409).json({ error: `Material code "${dupInBatch}" is repeated in the list` });
     const existing = await prisma.product.findMany({ where: { sku: { in: codes } }, select: { sku: true } });
     if (existing.length) {
-      return res.status(409).json({ error: `ID No. already in use: ${existing.map((e) => e.sku).join(', ')}` });
+      return res.status(409).json({ error: `Material code already in use: ${existing.map((e) => e.sku).join(', ')}` });
     }
 
     const created = await prisma.$transaction(parsed.map((data) => prisma.product.create({ data })));
@@ -884,7 +921,7 @@ router.post('/bulk', authenticate, authorizeProductCreate, auditLog('CREATE', 'P
       return res.status(400).json({ error: 'Invalid input', details: error.errors });
     }
     if (error.code === 'P2002') {
-      return res.status(409).json({ error: 'Identification number already in use' });
+      return res.status(409).json({ error: 'Material code already in use' });
     }
     console.error('Bulk create product error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -987,7 +1024,7 @@ router.put('/:id', authenticate, auditLog('UPDATE', 'Product'), async (req, res)
     }
     if (error.code === 'P2025') return res.status(404).json({ error: 'Product not found' });
     if (error.code === 'P2002') {
-      return res.status(409).json({ error: 'Identification number already in use' });
+      return res.status(409).json({ error: 'Material code already in use' });
     }
     console.error('Update product error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -1025,18 +1062,110 @@ router.delete('/:id/msds', authenticate, requireProductMasterDataEditor, async (
   }
 });
 
-// DELETE /api/products/:id (soft delete). Deliberately NOT opened to the person
-// who added the material: deactivating it can break other people's PRs, so it
-// stays with the master owners.
+// ──── DELETING A MASTER-DATA MATERIAL ────
+// Everything that can point at a product. Anything found here means the material
+// has history, so it can only be deactivated — removing the row would either be
+// refused by the database or silently orphan a document somebody still reads.
+// ProductSpec / ProductEditHistory / empty unit-dept stock rows are deliberately
+// absent: they belong to the material itself and go with it.
+async function productUsage(productId) {
+  const [
+    product, purchaseRequestItems, mivItems, quotationItems, purchaseOrderItems,
+    transfers, stockMovements, batches, materialPools, inwardRows, unitStocks, deptStocks,
+  ] = await Promise.all([
+    prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, name: true, sku: true, materialCode: true, category: true, isActive: true, currentStock: true },
+    }),
+    prisma.purchaseRequestItem.count({ where: { productId } }),
+    prisma.requestItem.count({ where: { productId } }),
+    prisma.quotationItem.count({ where: { productId } }),
+    prisma.purchaseOrderItem.count({ where: { productId } }),
+    prisma.inventoryTransferRequest.count({ where: { productId } }),
+    prisma.stockMovement.count({ where: { productId } }),
+    prisma.productBatch.count({ where: { productId } }),
+    prisma.materialPool.count({ where: { productId } }),
+    prisma.materialInwardRegister.count({ where: { productId } }),
+    prisma.productUnitStock.count({ where: { productId, quantity: { gt: 0 } } }),
+    prisma.productDeptStock.count({ where: { productId, quantity: { gt: 0 } } }),
+  ]);
+  if (!product) return null;
+  const counts = {
+    purchaseRequestItems, mivItems, quotationItems, purchaseOrderItems,
+    transfers, stockMovements, batches, materialPools, inwardRows, unitStocks, deptStocks,
+  };
+  const referenced = Object.values(counts).reduce((a, b) => a + b, 0);
+  const hasStock = (product.currentStock || 0) > 0;
+  return { product, counts, referenced, hasStock, canHardDelete: referenced === 0 && !hasStock };
+}
+
+// GET /api/products/:id/usage — what references this material, so the delete
+// confirmation can say up front whether it will be removed or deactivated.
+router.get('/:id/usage', authenticate, authorizeProductMaster, async (req, res) => {
+  try {
+    const usage = await productUsage(req.params.id);
+    if (!usage) return res.status(404).json({ error: 'Product not found' });
+    res.json(usage);
+  } catch (error) {
+    console.error('Product usage error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/products/:id — remove a material from master data.
+// Removed for real when nothing references it (a mistyped or duplicate entry);
+// deactivated when it has history, which hides it from every picker and list
+// while leaving the PRs, POs and batches that name it readable. Deliberately NOT
+// opened to the person who added the material — it can break other people's
+// documents, so it stays with the master owners.
 router.delete('/:id', authenticate, authorizeProductMaster, auditLog('DELETE', 'Product'), async (req, res) => {
   try {
-    await prisma.product.update({
-      where: { id: req.params.id },
-      data: { isActive: false },
+    const usage = await productUsage(req.params.id);
+    if (!usage) return res.status(404).json({ error: 'Product not found' });
+
+    if (!usage.canHardDelete) {
+      const product = await prisma.product.update({
+        where: { id: req.params.id },
+        data: { isActive: false },
+      });
+      return res.json({
+        deleted: false,
+        message: `"${product.name}" is used elsewhere, so it was deactivated instead of deleted — it is hidden from every picker and list, and the documents that reference it are unchanged.`,
+        usage: { counts: usage.counts, referenced: usage.referenced, hasStock: usage.hasStock },
+        product,
+      });
+    }
+
+    // Nothing points at it: drop the material's own records, then the row.
+    // Empty unit/dept stock rows and specs/history cascade or are cleared here.
+    await prisma.$transaction([
+      prisma.productSpec.deleteMany({ where: { productId: req.params.id } }),
+      prisma.productEditHistory.deleteMany({ where: { productId: req.params.id } }),
+      prisma.productUnitStock.deleteMany({ where: { productId: req.params.id } }),
+      prisma.productDeptStock.deleteMany({ where: { productId: req.params.id } }),
+      prisma.product.delete({ where: { id: req.params.id } }),
+    ]);
+    res.json({
+      deleted: true,
+      message: `"${usage.product.name}" was deleted from master data. Its material code ${usage.product.materialCode || usage.product.sku || ''} is free again.`.trim(),
     });
-    res.json({ message: 'Product deactivated' });
   } catch (error) {
     if (error.code === 'P2025') return res.status(404).json({ error: 'Product not found' });
+    // A reference we don't count above (foreign key still held somewhere) —
+    // fall back to deactivating rather than failing the request.
+    if (error.code === 'P2003') {
+      const product = await prisma.product.update({
+        where: { id: req.params.id },
+        data: { isActive: false },
+      }).catch(() => null);
+      if (product) {
+        return res.json({
+          deleted: false,
+          message: `"${product.name}" is still referenced by another record, so it was deactivated instead of deleted.`,
+          product,
+        });
+      }
+    }
     console.error('Delete product error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }

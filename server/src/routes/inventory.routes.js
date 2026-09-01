@@ -220,7 +220,7 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
   try {
     const schema = z.object({
       name: z.string().min(1),
-      // ID No. — the identification number from the Products list. Stored as
+      // Material code — the identification number from the register. Stored as
       // materialCode and mirrored into sku, same as POST /api/products.
       materialCode: z.string().trim().min(1),
       category: z.string().optional(), // legacy
@@ -317,11 +317,11 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
         return { product, movement, batch };
       });
     } catch (err) {
-      // ID No. is user-supplied and unique (materialCode + sku) — duplicates
+      // Material code is user-supplied and unique (materialCode + sku) — duplicates
       // mean the product already exists; point Stores at the Existing Product tab.
       if (isUniqueViolation(err)) {
         return res.status(400).json({
-          error: `A product with ID No. "${data.materialCode}" already exists — use the Existing Product tab to add stock to it.`,
+          error: `A product with material code "${data.materialCode}" already exists — use the Existing Product tab to add stock to it.`,
         });
       }
       throw err;

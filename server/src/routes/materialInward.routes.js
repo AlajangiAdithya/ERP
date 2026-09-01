@@ -165,14 +165,18 @@ const isToolsAndFixtures = (product, row) =>
 // Hand Tools need NO QC at all — they are inwarded straight into the store (or
 // assigned to units), bypassing both the QC requirement and the master-data
 // hold. Unlike Tools & Fixtures there is no deferred QC to perform later.
+// 'Hand Tools' is a retired category (the material-code register replaced it),
+// but products entered under it keep the label — and this exemption with it.
 const isHandTools = (product, row) =>
   normalizeMaterialType(product?.category || row?.materialType) === 'Hand Tools';
 
 // Machinery needs NO QC at all — like Hand Tools it is inwarded straight into the
 // store (or assigned to units), bypassing both the QC requirement and the
-// master-data hold. There is no deferred QC to perform later.
+// master-data hold. There is no deferred QC to perform later. The category was
+// renamed 'Machinery' → 'Plant & Machinery' with the material-code register;
+// normalizeMaterialType maps the old label onto the new one, so both are covered.
 const isMachinery = (product, row) =>
-  normalizeMaterialType(product?.category || row?.materialType) === 'Machinery';
+  normalizeMaterialType(product?.category || row?.materialType) === 'Plant & Machinery';
 
 // Notify QC + the owning unit's manager that a material is held at inward because
 // its master data hasn't been added yet (or, on deferred-QC failure, to flag it).

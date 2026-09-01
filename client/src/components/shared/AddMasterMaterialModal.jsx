@@ -1,10 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Package } from 'lucide-react';
 import api from '../../api/axios';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import Input, { Select } from '../ui/Input';
 import { UOM_OPTIONS } from '../../utils/units';
+import { DEFAULT_MATERIAL_TYPE, withStoredType } from '../../utils/materialTypes';
+import useMaterialCategories from '../../hooks/useMaterialCategories';
+import MaterialCodeField from './MaterialCodeField';
+import MaterialCategoryReference from './MaterialCategoryReference';
 
 // ─── Add a material to Master Data ───
 // A purchase-request line may only name a material that already exists in Master
@@ -15,38 +19,26 @@ import { UOM_OPTIONS } from '../../utils/units';
 //
 // `initialName` pre-fills what the requester had already typed. `onCreated` gets
 // the created product back so the caller can link the row straight away.
-const FALLBACK_TYPES = [
-  'Raw Material', 'Consumable', 'Hand Tools', 'Fasteners',
-  'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others',
-];
-
 export default function AddMasterMaterialModal({ initialName = '', onClose, onCreated }) {
   const [form, setForm] = useState({
     materialCode: '',
     name: initialName || '',
     description: '',
-    category: 'Raw Material',
+    category: DEFAULT_MATERIAL_TYPE,
     unit: 'pcs',
     shelfLife: '',
     storageTemp: '',
   });
-  const [materialTypes, setMaterialTypes] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const { labels: typeOptions } = useMaterialCategories();
 
-  useEffect(() => {
-    api.get('/products/material-types')
-      .then(({ data }) => setMaterialTypes(Array.isArray(data) ? data : []))
-      .catch(() => setMaterialTypes([]));
-  }, []);
-
-  const typeOptions = materialTypes.length ? materialTypes : FALLBACK_TYPES;
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
   const submit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!form.materialCode.trim()) { setError('ID No. is required'); return; }
+    if (!form.materialCode.trim()) { setError('Material code is required'); return; }
     if (!form.name.trim()) { setError('Name is required'); return; }
     setSaving(true);
     try {
@@ -83,23 +75,26 @@ export default function AddMasterMaterialModal({ initialName = '', onClose, onCr
 
         {error && <p className="text-sm text-brand-red">{error}</p>}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input
-            label="ID No. *"
-            value={form.materialCode}
-            onChange={(e) => set({ materialCode: e.target.value })}
-            placeholder="e.g. 1000"
-          />
-          <Input label="Name *" value={form.name} onChange={(e) => set({ name: e.target.value })} autoFocus={!initialName} />
-        </div>
-
+        {/* Material Type first — it decides which block the material code is
+            counted in, and the field below fills the next free code in. */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Select label="Material Type *" value={form.category} onChange={(e) => set({ category: e.target.value })}>
-            {typeOptions.map((mt) => <option key={mt} value={mt}>{mt}</option>)}
+            {withStoredType(typeOptions, form.category).map((mt) => <option key={mt} value={mt}>{mt}</option>)}
           </Select>
           <Select label="Unit (UOM)" value={form.unit} onChange={(e) => set({ unit: e.target.value })}>
             {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
           </Select>
+        </div>
+
+        <MaterialCategoryReference highlight={form.category} />
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <MaterialCodeField
+            category={form.category}
+            value={form.materialCode}
+            onChange={(v) => set({ materialCode: v })}
+          />
+          <Input label="Name *" value={form.name} onChange={(e) => set({ name: e.target.value })} autoFocus={!initialName} />
         </div>
 
         <div>

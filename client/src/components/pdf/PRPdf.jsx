@@ -54,6 +54,9 @@ export default function PRPdf({ request }) {
           })}
         </View>
         {row('Material Description', it => it.productName)}
+        {/* Material code of the linked Master Data material. Blank for a
+            free-typed Tools & Fixtures line — it is catalogued at inward. */}
+        {row('Material Code', it => it.product?.materialCode || it.product?.sku)}
         {row('Material Type', it => it.materialType)}
         {row('Material Specification', it => it.materialSpecification)}
         {row('Quantity', it => `${it.requestedQty || '—'}${it.adminApprovedQty != null ? ` (appr: ${it.adminApprovedQty})` : ''}`)}

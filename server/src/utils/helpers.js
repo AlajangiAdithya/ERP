@@ -19,68 +19,46 @@ const applyDateFilter = (where, { fromDate, toDate }, field = 'createdAt') => {
 };
 
 // ──── Material types (fixed dropdown shared by PR items, Products, QC, SKU prefix) ────
-// 'Hand Tools & Fastners' was split into two distinct categories: 'Hand Tools'
-// (no QC on inward) and 'Fasteners' (normal QC). The combined label is kept in
-// normalizeMaterialType() so legacy products keep their existing category.
-// 'Machinery' also skips QC on inward — it's inwarded straight into the store.
-// 'Electrical Items' behaves like any ordinary category (normal QC on inward).
-const MATERIAL_TYPES = ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others'];
+// The category register — every material type, the block of material codes
+// reserved for it and what belongs in it — lives in utils/materialCategories.js.
+// It is re-exported here because most routes already pull MATERIAL_TYPES /
+// normalizeMaterialType out of helpers.
+//
+// Inward QC behaviour is keyed on the normalised label, not on this list:
+// 'Tools & Fixtures' defers QC, 'Plant & Machinery' and the legacy 'Hand Tools'
+// skip it entirely (see materialInward.routes.js). Every other category is
+// inspected normally.
+const {
+  MATERIAL_CATEGORIES,
+  MATERIAL_TYPES,
+  DEFAULT_MATERIAL_TYPE,
+  LEGACY_MATERIAL_TYPES,
+  categoryFor,
+  codeRangeFor,
+  codeMatchesCategory,
+  formatMaterialCode,
+  formatCodeRange,
+  materialCodeToNumber,
+  nextMaterialCode,
+  nextUnallocatedCode,
+  normalizeMaterialType,
+} = require('./materialCategories');
 
+// Legacy sku prefixes. Product IDs are now one running serial (generateProductSku
+// below) and material codes come from the category register, so this is only used
+// by the historic backfill script — kept so old CONS-/RAW- codes stay reproducible.
 const materialTypeToSkuPrefix = (materialType) => {
-  switch ((materialType || '').trim().toLowerCase()) {
-    case 'raw material':           return 'RAW';
-    case 'consumable':             return 'CONS';
-    case 'hand tools':             return 'TOOL';
-    case 'hand tools & fastners':  return 'TOOL';
-    case 'tooling':                return 'TOOL';
-    case 'fasteners':              return 'FAST';
-    case 'fastners':               return 'FAST';
-    case 'tools & fixtures':       return 'FIX';
-    case 'tools and fixtures':     return 'FIX';
-    case 'machinery':              return 'MACH';
-    case 'machineries':            return 'MACH';
-    case 'electrical items':       return 'ELEC';
-    case 'electrical item':        return 'ELEC';
-    case 'electrical':             return 'ELEC';
-    case 'electricals':            return 'ELEC';
-    case 'stationery':             return 'STAT';
-    case 'stationary':             return 'STAT';
-    default:                       return 'OTH';
-  }
-};
-
-const normalizeMaterialType = (value) => {
-  if (!value) return 'Others';
-  const t = String(value).trim().toLowerCase();
-  if (t === 'raw material' || t === 'raw' || t === 'raw_material') return 'Raw Material';
-  if (t === 'consumable' || t === 'consumables') return 'Consumable';
-  // New split categories. 'tooling'/'tool' now map to Hand Tools.
-  if (t === 'hand tools' || t === 'hand tool' || t === 'tooling' || t === 'tool') return 'Hand Tools';
-  if (t === 'fasteners' || t === 'fastners' || t === 'fastener' || t === 'fastner') return 'Fasteners';
-  // Legacy combined label — kept intact so existing products are not re-bucketed.
-  if (
-    t === 'hand tools & fastners' ||
-    t === 'hand tools and fastners'
-  ) return 'Hand Tools & Fastners';
-  if (
-    t === 'tools & fixtures' ||
-    t === 'tools and fixtures' ||
-    t === 'tooling & fixtures' ||
-    t === 'tooling and fixtures' ||
-    t === 'fixtures' ||
-    t === 'fixture'
-  ) return 'Tools & Fixtures';
-  if (t === 'machinery' || t === 'machineries' || t === 'machine') return 'Machinery';
-  if (
-    t === 'electrical items' ||
-    t === 'electrical item' ||
-    t === 'electrical' ||
-    t === 'electricals' ||
-    t === 'electric items' ||
-    t === 'electrical goods'
-  ) return 'Electrical Items';
-  if (t === 'stationery' || t === 'stationary') return 'Stationery';
-  return 'Others';
+  const t = normalizeMaterialType(materialType);
+  if (t.startsWith('Raw Material'))       return 'RAW';
+  if (t === 'Consumable')                 return 'CONS';
+  if (t === 'Hand Tools' ||
+      t === 'Hand Tools & Fastners')      return 'TOOL';
+  if (t === 'Brought Items')              return 'FAST';
+  if (t === 'Tools & Fixtures')           return 'FIX';
+  if (t === 'Plant & Machinery')          return 'MACH';
+  if (t === 'Electrical Items')           return 'ELEC';
+  if (t === 'Stationery')                 return 'STAT';
+  return 'OTH';
 };
 
 // ──── Document numbering: RAPS/<KIND>/<FY>/<N> ────
@@ -236,21 +214,24 @@ const generateGatePassNumber = async (prisma, unitCode, date = new Date()) => {
   return `${prefix}${next}`;
 };
 
-// Product ID: a single running serial shared by every product (no category
-// prefix) — 001, 002, 003 … One global counter so the IDs form one continuous
-// series; zero-padded to 3 digits and grows naturally past 999. The legacy
-// CONS-/RAW-/TOOL- prefixed codes are ignored when finding the next number.
-// `materialType` is accepted but unused, so existing call sites need no change.
-const generateProductSku = async (prisma, _materialType) => {
-  const rows = await prisma.product.findMany({ select: { sku: true } });
-  let max = 0;
-  for (const { sku } of rows) {
-    const s = (sku || '').trim();
-    if (!/^\d+$/.test(s)) continue; // skip legacy prefixed codes (e.g. CONS-0001)
-    const n = parseInt(s, 10);
-    if (n > max) max = n;
+// Material code for a product the system creates on its own — a fixture
+// catalogued at inward, a FIM item off a gate pass, an imported row. It follows
+// the same register the Add-Product form uses: the next free code inside the
+// block the material's category owns (see materialCategories.js).
+//
+// A category with no block ('Others', the retired labels) — or one whose block is
+// full — is numbered from 7001 up, past the end of the register, so an
+// auto-created product never lands inside somebody else's block.
+const generateProductSku = async (prisma, materialType) => {
+  const rows = await prisma.product.findMany({ select: { sku: true, materialCode: true } });
+  const used = [];
+  for (const r of rows) { used.push(r.sku, r.materialCode); }
+  const category = normalizeMaterialType(materialType);
+  if (codeRangeFor(category)) {
+    const next = nextMaterialCode(category, used);
+    if (next.code) return next.code;
   }
-  return String(max + 1).padStart(3, '0');
+  return nextUnallocatedCode(used);
 };
 
 // ──── DEPARTMENT OWNERSHIP ────
@@ -424,7 +405,18 @@ const withDocRetry = async (fn, attempts = 5) => {
 module.exports = {
   paginate,
   applyDateFilter,
+  MATERIAL_CATEGORIES,
   MATERIAL_TYPES,
+  DEFAULT_MATERIAL_TYPE,
+  LEGACY_MATERIAL_TYPES,
+  categoryFor,
+  codeRangeFor,
+  codeMatchesCategory,
+  formatMaterialCode,
+  formatCodeRange,
+  materialCodeToNumber,
+  nextMaterialCode,
+  nextUnallocatedCode,
   materialTypeToSkuPrefix,
   normalizeMaterialType,
   formatDDMMYY,

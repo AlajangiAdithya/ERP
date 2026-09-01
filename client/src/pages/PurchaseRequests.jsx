@@ -12,6 +12,8 @@ import Modal from '../components/ui/Modal';
 import Input, { Select } from '../components/ui/Input';
 import { formatDate, formatDateTime } from '../utils/formatters';
 import { UOM_OPTIONS } from '../utils/units';
+import { MATERIAL_TYPE_OPTIONS, withStoredType } from '../utils/materialTypes';
+import MaterialCategoryReference from '../components/shared/MaterialCategoryReference';
 import { reasonError } from '../utils/reasonValidation';
 import { slaRemarkState } from '../utils/sla';
 import { SlaNotice, SlaDelayRemark } from '../components/shared/SlaGate';
@@ -311,6 +313,10 @@ const requiredByTooSoon = (value) => !!value && value < requiredByMin();
 // picking from Master Data (kept in step with FREE_TEXT_MATERIAL_TYPE on the
 // server — purchaseRequest.routes.js).
 const FREE_TEXT_MATERIAL_TYPE = 'Tools & Fixtures';
+// Material types offered on a requisition line. Same vocabulary as Master Data /
+// inward (see utils/materialTypes.js) minus Stationery, which is not purchased
+// through a requisition.
+const PR_MATERIAL_TYPES = MATERIAL_TYPE_OPTIONS.filter((t) => t !== 'Stationery');
 // A line that is allowed to stay unlinked: typed as Tools & Fixtures and not
 // already tied to a catalogue material.
 const isFreeTextLine = (item) => !item.productId && item.materialType === FREE_TEXT_MATERIAL_TYPE;
@@ -324,6 +330,10 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const isEdit = !!requestToEdit;
   const emptyItem = {
     productId: null,
+    // Material code of the linked Master Data material — display only, so the
+    // requester can see which code block the line is drawing from. It is not part
+    // of the payload: the PR line stores the link (productId), not the code.
+    productCode: '',
     productName: '', productUnit: 'kg', requestedQty: '',
     materialType: '', materialSpecification: '', qapNo: '', drawingNo: '',
     purpose: '', sourceOfSupply: '', scopeOfWork: '',
@@ -333,6 +343,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   };
   const itemFromExisting = (i) => ({
     productId: i.productId || null,
+    productCode: i.product?.materialCode || i.product?.sku || '',
     productName: i.productName || '',
     productUnit: i.productUnit || 'pcs',
     requestedQty: i.requestedQty != null ? String(i.requestedQty) : '',
@@ -522,6 +533,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const pickProduct = (idx, p) => {
     updateItemFields(idx, {
       productId: p.id,
+      productCode: p.materialCode || p.sku || '',
       productName: p.name,
       productUnit: p.unit || items[idx].productUnit,
       materialType: items[idx].materialType || p.category || '',
@@ -529,7 +541,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     loadProductSpecs(p.id);
   };
   const typeProductName = (idx, text) =>
-    updateItemFields(idx, { productName: text, productId: null });
+    updateItemFields(idx, { productName: text, productId: null, productCode: '' });
 
   // "Add to Master Data" from a line: the new material is created for real (under
   // this user's name), then linked to the row that asked for it.
@@ -740,6 +752,11 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
           </div>
         </div>
 
+        {/* The material-code register — which material type covers what, and the
+            codes reserved for it. Collapsed; it is a lookup while filling the
+            Material Type row below. */}
+        <MaterialCategoryReference />
+
         {/* Confidentiality disclaimer for the per-item spec attachment row. */}
         <div className="flex items-start gap-2 border border-amber-300 bg-amber-50 px-3 py-2 rounded text-[11px] text-amber-900">
           <Lock size={12} className="mt-0.5 flex-shrink-0" />
@@ -786,13 +803,32 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                       freeTextLabel={FREE_TEXT_MATERIAL_TYPE}
                       onChange={(text) => typeProductName(idx, text)}
                       onPick={(p) => pickProduct(idx, p)}
-                      onUnlink={() => updateItemFields(idx, { productId: null, productName: '' })}
+                      onUnlink={() => updateItemFields(idx, { productId: null, productName: '', productCode: '' })}
                       onAddToMasterData={canAddMaterial ? (name) => openAddMaterial(idx, name) : undefined}
                       className={cellInput}
                       placeholder={item.materialType === FREE_TEXT_MATERIAL_TYPE
                         ? 'Type the fixture name…'
                         : 'Search master data...'}
                     />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className={labelCell}>Material Code</td>
+                {items.map((item, idx) => (
+                  <td key={idx} className={dataCell}>
+                    {item.productCode ? (
+                      <span className="px-2 py-1 font-mono text-xs text-navy-800">{item.productCode}</span>
+                    ) : (
+                      <span
+                        className="px-2 py-1 text-xs text-gray-400"
+                        title={item.materialType === FREE_TEXT_MATERIAL_TYPE
+                          ? 'Free-typed fixture — it gets its material code when it is catalogued at inward'
+                          : 'Pick the material from Master Data to see its code'}
+                      >
+                        —
+                      </span>
+                    )}
                   </td>
                 ))}
               </tr>
@@ -804,14 +840,11 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                       onChange={(e) => updateItem(idx, 'materialType', e.target.value)}
                       className={cellSelect}>
                       <option value="">—</option>
-                      <option value="Raw Material">Raw Material</option>
-                      <option value="Consumable">Consumable</option>
-                      <option value="Hand Tools">Hand Tools</option>
-                      <option value="Fasteners">Fasteners</option>
-                      <option value="Tools & Fixtures">Tools &amp; Fixtures</option>
-                      <option value="Machinery">Machinery</option>
-                      <option value="Electrical Items">Electrical Items</option>
-                      <option value="Others">Others</option>
+                      {/* withStoredType keeps a retired label (e.g. the old
+                          un-split 'Raw Material' still on older master data)
+                          selectable instead of blanking the line. */}
+                      {withStoredType(PR_MATERIAL_TYPES, item.materialType)
+                        .map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </td>
                 ))}
@@ -2304,6 +2337,14 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                       {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo
                         || itemAttachmentList(item).length > 0 || itemRemarkOf(item) || canEditRemarks) && (
                         <div className="mt-1 text-xs text-gray-500 space-y-0.5">
+                          {/* Material code of the linked catalogue material — blank
+                              on a free-typed Tools & Fixtures line. */}
+                          {(item.product?.materialCode || item.product?.sku) && (
+                            <div>
+                              <span className="font-medium text-gray-600">Material code:</span>{' '}
+                              <span className="font-mono">{item.product.materialCode || item.product.sku}</span>
+                            </div>
+                          )}
                           {item.materialType && (
                             <div><span className="font-medium text-gray-600">Type:</span> {item.materialType}</div>
                           )}

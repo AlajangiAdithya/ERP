@@ -21,7 +21,7 @@ export function isProductMasterEditor(user) {
 }
 
 // TEMPORARY (new-system rollout): the Stores team may edit a product's *details*
-// (ID No., name, material type, specification, shelf life, storage temp — never
+// (material code, name, material type, specification, shelf life, storage temp — never
 // stock numbers) directly from the Stock Details list while they learn the system.
 // Auto-expires on this date; afterwards Stores are read-only again and only the
 // master owners can edit. Mirror of STORE_PRODUCT_EDIT_UNTIL in

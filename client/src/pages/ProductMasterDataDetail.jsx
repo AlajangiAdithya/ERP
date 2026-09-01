@@ -6,16 +6,20 @@ import {
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
-import { canEditProductMasterData } from '../utils/roles';
+import { canEditProductMasterData, isProductMasterEditor } from '../utils/roles';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Input, { Select } from '../components/ui/Input';
 import { UOM_OPTIONS } from '../utils/units';
+import { DEFAULT_MATERIAL_TYPE, withStoredType, formatCodeRange } from '../utils/materialTypes';
+import useMaterialCategories from '../hooks/useMaterialCategories';
+import MaterialCategoryReference from '../components/shared/MaterialCategoryReference';
+import DeleteMaterialButton from '../components/shared/DeleteMaterialButton';
 import PageHero from '../components/shared/PageHero';
 
 const blankForm = () => ({
-  materialCode: '', name: '', description: '', category: 'Raw Material', unit: 'pcs',
+  materialCode: '', name: '', description: '', category: DEFAULT_MATERIAL_TYPE, unit: 'pcs',
   shelfLife: '', storageTemp: '',
 });
 
@@ -33,7 +37,6 @@ export default function ProductMasterDataDetail() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [form, setForm] = useState(blankForm());
-  const [materialTypes, setMaterialTypes] = useState([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [flash, setFlash] = useState('');
@@ -46,7 +49,7 @@ export default function ProductMasterDataDetail() {
       materialCode: data.materialCode || data.sku || '',
       name: data.name || '',
       description: data.description || '',
-      category: data.category || 'Raw Material',
+      category: data.category || DEFAULT_MATERIAL_TYPE,
       unit: data.unit || 'pcs',
       shelfLife: data.shelfLife || '',
       storageTemp: data.storageTemp || '',
@@ -67,12 +70,11 @@ export default function ProductMasterDataDetail() {
   }, [id]);
 
   useEffect(() => { fetchProduct(); }, [fetchProduct]);
-  useEffect(() => {
-    api.get('/products/material-types').then(({ data }) => setMaterialTypes(data)).catch(() => {});
-  }, []);
 
-  const typeOptions = materialTypes.length ? materialTypes
-    : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others'];
+  const { categories, labels } = useMaterialCategories();
+  // Includes the product's own category even when it is a retired label, so a
+  // legacy 'Raw Material' product doesn't silently save as something else.
+  const typeOptions = withStoredType(labels, form.category);
 
   const flashSaved = (msg = 'Master data saved.') => {
     setFlash(msg);
@@ -82,7 +84,7 @@ export default function ProductMasterDataDetail() {
   const handleSave = async (e) => {
     e.preventDefault();
     setFormError('');
-    if (!form.materialCode.trim()) { setFormError('ID No. is required'); return; }
+    if (!form.materialCode.trim()) { setFormError('Material code is required'); return; }
     if (!form.name.trim()) { setFormError('Name is required'); return; }
     setSaving(true);
     try {
@@ -197,6 +199,10 @@ export default function ProductMasterDataDetail() {
   const complete = product.masterDataComplete !== false;
   // Decided per product: master owners always, plus whoever entered this one.
   const canEdit = canEditProductMasterData(user, product);
+  // Deleting is narrower than editing: master owners only (mirrors the server's
+  // authorizeProductMaster), because it can pull a material out from under
+  // somebody else's requisition.
+  const canDeleteMaterial = isProductMasterEditor(user);
   const addedBy = product.createdBy;
   const isOwnEntry = !!addedBy && addedBy.id === user?.id;
 
@@ -206,7 +212,7 @@ export default function ProductMasterDataDetail() {
 
       <PageHero
         title={product.name}
-        subtitle={`Master data — ID No. ${product.materialCode || product.sku || '—'}`}
+        subtitle={`Master data — Material code ${product.materialCode || product.sku || '—'}`}
         eyebrow="Master Data"
         icon={Package}
         actions={
@@ -255,8 +261,16 @@ export default function ProductMasterDataDetail() {
           {formError && <p className="text-sm text-brand-red">{formError}</p>}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input label="ID No. *" value={form.materialCode} disabled={!canEdit}
-              onChange={(e) => setForm((f) => ({ ...f, materialCode: e.target.value }))} placeholder="e.g. 1000" />
+            <div>
+              <Input label="Material Code *" value={form.materialCode} disabled={!canEdit}
+                onChange={(e) => setForm((f) => ({ ...f, materialCode: e.target.value }))} placeholder="e.g. 1001" />
+              {/* The block this material's category owns — an existing code is
+                  never renumbered automatically, but changing the category makes
+                  it obvious when the code no longer fits. */}
+              <p className="mt-1 text-[11px] text-gray-500">
+                {form.category} uses <span className="font-mono">{formatCodeRange(form.category, categories)}</span>
+              </p>
+            </div>
             <Input label="Name *" value={form.name} disabled={!canEdit}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           </div>
@@ -270,6 +284,7 @@ export default function ProductMasterDataDetail() {
               {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
             </Select>
           </div>
+          <MaterialCategoryReference highlight={form.category} />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Specification</label>
             <textarea
@@ -348,10 +363,23 @@ export default function ProductMasterDataDetail() {
 
           {docError && <p className="text-sm text-brand-red">{docError}</p>}
 
-          {canEdit && (
-            <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
-              <Button variant="secondary" type="button" onClick={() => navigate('/products?tab=master')}>Cancel</Button>
-              <Button type="submit" disabled={saving}><Save size={16} /> {saving ? 'Saving…' : 'Save master data'}</Button>
+          {(canEdit || canDeleteMaterial) && (
+            <div className="flex flex-wrap items-center justify-end gap-3 pt-2 border-t border-gray-200">
+              {/* Deleting is master-owner only — narrower than editing, which the
+                  material's author also has. */}
+              {canDeleteMaterial && (
+                <DeleteMaterialButton
+                  product={product}
+                  onDeleted={() => navigate('/products?tab=master')}
+                  className="mr-auto"
+                />
+              )}
+              {canEdit && (
+                <>
+                  <Button variant="secondary" type="button" onClick={() => navigate('/products?tab=master')}>Cancel</Button>
+                  <Button type="submit" disabled={saving}><Save size={16} /> {saving ? 'Saving…' : 'Save master data'}</Button>
+                </>
+              )}
             </div>
           )}
         </form>

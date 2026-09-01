@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
-import { canCreateProduct } from '../utils/roles';
+import { canCreateProduct, isProductMasterEditor } from '../utils/roles';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Table from '../components/ui/Table';
@@ -13,12 +13,17 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input, { Select } from '../components/ui/Input';
 import { UOM_OPTIONS } from '../utils/units';
+import { DEFAULT_MATERIAL_TYPE, withStoredType } from '../utils/materialTypes';
+import useMaterialCategories from '../hooks/useMaterialCategories';
+import MaterialCodeField from '../components/shared/MaterialCodeField';
+import MaterialCategoryReference from '../components/shared/MaterialCategoryReference';
 import SearchBar from '../components/shared/SearchBar';
 import Pagination from '../components/shared/Pagination';
 import PageHero from '../components/shared/PageHero';
+import DeleteMaterialButton from '../components/shared/DeleteMaterialButton';
 
 const blankForm = () => ({
-  materialCode: '', name: '', description: '', category: 'Raw Material', unit: 'pcs',
+  materialCode: '', name: '', description: '', category: DEFAULT_MATERIAL_TYPE, unit: 'pcs',
   shelfLife: '', storageTemp: '',
 });
 
@@ -33,6 +38,9 @@ export default function ProductMasterData({ embedded = false }) {
   // Editing an entry is decided per product (Unit 1–5 managers, or whoever added
   // it) and lives on the product's own master-data page.
   const canAdd = canCreateProduct(user);
+  // Deleting a material is a master-owner action only (mirrors authorizeProductMaster
+  // on the server) — it can pull a material out from under somebody else's PR.
+  const canDelete = isProductMasterEditor(user);
 
   const [products, setProducts] = useState([]);
   const [total, setTotal] = useState(0);
@@ -44,7 +52,7 @@ export default function ProductMasterData({ embedded = false }) {
   const [pendingOnly, setPendingOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState([]);
-  const [materialTypes, setMaterialTypes] = useState([]);
+  const { labels: materialTypes } = useMaterialCategories();
 
   // Create modal (editing now lives on the dedicated /products/:id/master-data page)
   const [showCreate, setShowCreate] = useState(false);
@@ -73,11 +81,9 @@ export default function ProductMasterData({ embedded = false }) {
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
   useEffect(() => {
     api.get('/products/categories').then(({ data }) => setCategories(data)).catch(() => {});
-    api.get('/products/material-types').then(({ data }) => setMaterialTypes(data)).catch(() => {});
   }, []);
 
-  const typeOptions = materialTypes.length ? materialTypes
-    : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others'];
+  const typeOptions = materialTypes;
 
   const openCreate = () => { setForm(blankForm()); setFormError(''); setShowCreate(true); };
 
@@ -89,7 +95,7 @@ export default function ProductMasterData({ embedded = false }) {
   const handleSave = async (e) => {
     e.preventDefault();
     setFormError('');
-    if (!form.materialCode.trim()) { setFormError('ID No. is required'); return; }
+    if (!form.materialCode.trim()) { setFormError('Material code is required'); return; }
     if (!form.name.trim()) { setFormError('Name is required'); return; }
     setSaving(true);
     try {
@@ -113,7 +119,7 @@ export default function ProductMasterData({ embedded = false }) {
 
   const columns = [
     {
-      key: 'materialCode', label: 'ID No.', width: 80,
+      key: 'materialCode', label: 'Material Code', width: 100,
       render: (v, row) => {
         const id = v || row.sku;
         return id ? <span className="text-sm font-semibold text-navy-700">{id}</span> : <span className="text-xs text-gray-400">—</span>;
@@ -148,21 +154,39 @@ export default function ProductMasterData({ embedded = false }) {
     },
   ];
 
-  const tableColumns = columns;
+  // Delete stays a master-owner action; the row itself opens the product.
+  const tableColumns = canDelete
+    ? [
+        ...columns,
+        {
+          key: 'delete', label: '', width: 40,
+          render: (_v, row) => (
+            <DeleteMaterialButton product={row} onDeleted={fetchProducts} iconOnly />
+          ),
+        },
+      ]
+    : columns;
 
   const formFields = (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Input label="ID No. *" value={form.materialCode} onChange={(e) => setForm((f) => ({ ...f, materialCode: e.target.value }))} placeholder="e.g. 1000" />
-        <Input label="Name *" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-      </div>
+      {/* Material Type first — it decides which block the material code comes
+          from, and the field below fills the next free code in automatically. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Select label="Material Type *" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
-          {typeOptions.map((mt) => <option key={mt} value={mt}>{mt}</option>)}
+          {withStoredType(typeOptions, form.category).map((mt) => <option key={mt} value={mt}>{mt}</option>)}
         </Select>
         <Select label="Unit (UOM)" value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}>
           {UOM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
         </Select>
+      </div>
+      <MaterialCategoryReference highlight={form.category} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <MaterialCodeField
+          category={form.category}
+          value={form.materialCode}
+          onChange={(v) => setForm((f) => ({ ...f, materialCode: v }))}
+        />
+        <Input label="Name *" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Specification</label>
@@ -217,7 +241,7 @@ export default function ProductMasterData({ embedded = false }) {
           <Select value={sort} onChange={(e) => { setSort(e.target.value); setPage(1); }} className="w-full sm:w-48" disabled={pendingOnly}>
             <option value="name">Sort: Alphabetical (A–Z)</option>
             <option value="category">Sort: Material Type</option>
-            <option value="id">Sort: ID No.</option>
+            <option value="id">Sort: Material Code</option>
             <option value="recent">Sort: Recently added</option>
           </Select>
           <button

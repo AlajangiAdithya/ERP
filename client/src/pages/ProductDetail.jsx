@@ -1049,7 +1049,7 @@ function ProcurementChainTab({ product, isStores }) {
 }
 
 // ─── Edit History Tab ────────────────────────────────────────────────────
-// Field-level trail of every change made to this product's details (ID No.,
+// Field-level trail of every change made to this product's details (material code,
 // name, material type, specification, shelf life, storage temp, min level …).
 // Records who changed it, their role, when, and the exact old → new value of
 // each field. This is the single place the product edit history lives — kept on

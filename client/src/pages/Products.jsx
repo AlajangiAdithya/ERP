@@ -14,6 +14,10 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input, { Select } from '../components/ui/Input';
 import { UOM_OPTIONS } from '../utils/units';
+import { DEFAULT_MATERIAL_TYPE, withStoredType } from '../utils/materialTypes';
+import useMaterialCategories from '../hooks/useMaterialCategories';
+import MaterialCodeField from '../components/shared/MaterialCodeField';
+import MaterialCategoryReference from '../components/shared/MaterialCategoryReference';
 import SearchBar from '../components/shared/SearchBar';
 import Pagination from '../components/shared/Pagination';
 import PageHero from '../components/shared/PageHero';
@@ -47,7 +51,7 @@ export default function Products() {
   // Adding products + specs/MSDS stays on the Master Data screen (owned by Unit
   // 1–5 managers + QC). The Add Product button here remains master-only.
   const canEdit = false;
-  // TEMPORARY (new-system rollout): Stores can edit a product's *details* — ID No.,
+  // TEMPORARY (new-system rollout): Stores can edit a product's *details* — material code,
   // name, material type, specification, shelf life, storage temp — straight from
   // this list. Never stock numbers. Auto-expires (STORE_PRODUCT_EDIT_UNTIL); every
   // change is logged to the product's Edit History (visible on its detail page).
@@ -81,7 +85,7 @@ export default function Products() {
 
   const saveEditDetails = async (e) => {
     e.preventDefault();
-    if (!editForm.materialCode.trim()) { setEditError('ID No. is required'); return; }
+    if (!editForm.materialCode.trim()) { setEditError('Material code is required'); return; }
     if (!editForm.name.trim()) { setEditError('Name is required'); return; }
     setEditSaving(true);
     setEditError('');
@@ -143,7 +147,7 @@ export default function Products() {
         ].join(' | ');
       };
       const header = [
-        'ID No.', 'Name', 'Category', 'UOM',
+        'Material Code', 'Name', 'Category', 'UOM',
         'Current Stock', 'Min Stock Level',
         'Deficit (Min - Current)', 'Status', 'Owned By (Unit/Dept:Qty)',
         'Description',
@@ -180,11 +184,11 @@ export default function Products() {
   // New products are entered as a list — Stores usually adds several items at
   // once, so the modal starts with one blank row and grows via "Add More Items".
   const blankItem = () => ({
-    materialCode: '', name: '', description: '', category: 'Raw Material', unit: 'pcs',
+    materialCode: '', name: '', description: '', category: DEFAULT_MATERIAL_TYPE, unit: 'pcs',
     minStockLevel: 0,
   });
   const [items, setItems] = useState([blankItem()]);
-  const [materialTypes, setMaterialTypes] = useState([]);
+  const { labels: materialTypes } = useMaterialCategories();
 
   const updateItem = (idx, patch) => setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
   const addItem = () => setItems((prev) => [...prev, blankItem()]);
@@ -206,7 +210,6 @@ export default function Products() {
   useEffect(() => { fetchProducts(); }, [page, search, catFilter, sort]);
   useEffect(() => {
     api.get('/products/categories').then(({ data }) => setCategories(data));
-    api.get('/products/material-types').then(({ data }) => setMaterialTypes(data)).catch(() => {});
   }, []);
 
   const handleCreate = async (e) => {
@@ -216,7 +219,7 @@ export default function Products() {
     const filled = items.filter((it) => it.materialCode.trim() || it.name.trim());
     if (!filled.length) { setFormError('Add at least one product'); return; }
     for (let i = 0; i < filled.length; i += 1) {
-      if (!filled[i].materialCode.trim()) { setFormError(`Item ${i + 1}: ID No. is required`); return; }
+      if (!filled[i].materialCode.trim()) { setFormError(`Item ${i + 1}: Material code is required`); return; }
       if (!filled[i].name.trim()) { setFormError(`Item ${i + 1}: Name is required`); return; }
     }
     setSaving(true);
@@ -262,7 +265,7 @@ export default function Products() {
 
   const columns = [
     {
-      key: 'materialCode', label: 'ID No.', width: 80,
+      key: 'materialCode', label: 'Material Code', width: 100,
       render: (v, row) => {
         const id = v || row.sku;
         return id ? <span className="text-sm font-semibold text-navy-700">{id}</span> : <span className="text-xs text-gray-400">—</span>;
@@ -406,7 +409,7 @@ export default function Products() {
               <AlertTriangle size={14} className="mt-0.5 shrink-0" />
               <span>
                 <strong>Temporary edit access.</strong> You can correct a product's details
-                (ID No., name, material type, specification, shelf life, storage temp) using the
+                (material code, name, material type, specification, shelf life, storage temp) using the
                 <span className="inline-flex items-center gap-0.5 font-medium"> <Pencil size={11} /> Edit</span> button — stock numbers can't be changed here.
                 Every change is recorded in that product's <strong>Edit History</strong> (open the product to see it).
                 This access ends on {STORE_PRODUCT_EDIT_UNTIL.toLocaleDateString()}.
@@ -424,7 +427,7 @@ export default function Products() {
             <Select value={sort} onChange={(e) => { setSort(e.target.value); setPage(1); }} className="w-full sm:w-48">
               <option value="name">Sort: Alphabetical (A–Z)</option>
               <option value="category">Sort: Category</option>
-              <option value="id">Sort: ID No.</option>
+              <option value="id">Sort: Material Code</option>
             </Select>
           </div>
 
@@ -449,6 +452,8 @@ export default function Products() {
           <form onSubmit={handleCreate} className="space-y-4">
             {formError && <p className="text-sm text-brand-red">{formError}</p>}
 
+            <MaterialCategoryReference />
+
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
               {items.map((item, idx) => (
                 <div key={idx} className="rounded-lg border border-gray-200 p-4 space-y-4">
@@ -464,23 +469,26 @@ export default function Products() {
                       </button>
                     )}
                   </div>
-                  <Input
-                    label="ID No. *"
-                    value={item.materialCode}
-                    onChange={(e) => updateItem(idx, { materialCode: e.target.value })}
-                    placeholder="e.g. 1000"
-                  />
-                  <Input label="Name *" value={item.name} onChange={(e) => updateItem(idx, { name: e.target.value })} />
-                  <Input label="Description" value={item.description} onChange={(e) => updateItem(idx, { description: e.target.value })} />
                   <div className="grid grid-cols-3 gap-4">
+                    {/* Material type first: it decides the code block, and the
+                        code field below counts inside it. `taken` keeps two rows
+                        of the same category from claiming the same code. */}
                     <Select label="Material Type *" value={item.category} onChange={(e) => updateItem(idx, { category: e.target.value })}>
-                      {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others']).map(mt => <option key={mt} value={mt}>{mt}</option>)}
+                      {withStoredType(materialTypes, item.category).map(mt => <option key={mt} value={mt}>{mt}</option>)}
                     </Select>
                     <Select label="Unit" value={item.unit} onChange={(e) => updateItem(idx, { unit: e.target.value })}>
                       {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
                     </Select>
                     <Input label="Min Stock Level" type="number" value={item.minStockLevel} onChange={(e) => updateItem(idx, { minStockLevel: e.target.value })} />
                   </div>
+                  <MaterialCodeField
+                    category={item.category}
+                    value={item.materialCode}
+                    onChange={(v) => updateItem(idx, { materialCode: v })}
+                    taken={items.filter((_, i) => i !== idx).map((it) => it.materialCode)}
+                  />
+                  <Input label="Name *" value={item.name} onChange={(e) => updateItem(idx, { name: e.target.value })} />
+                  <Input label="Description" value={item.description} onChange={(e) => updateItem(idx, { description: e.target.value })} />
                 </div>
               ))}
             </div>
@@ -515,10 +523,10 @@ export default function Products() {
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="ID No. *"
+                label="Material Code *"
                 value={editForm.materialCode}
                 onChange={(e) => setEditForm((f) => ({ ...f, materialCode: e.target.value }))}
-                placeholder="e.g. 1000"
+                placeholder="e.g. 1001"
               />
               <Input
                 label="Name *"
@@ -533,7 +541,7 @@ export default function Products() {
                 onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
               >
                 <option value="">—</option>
-                {(materialTypes.length ? materialTypes : ['Raw Material', 'Consumable', 'Hand Tools', 'Fasteners', 'Tools & Fixtures', 'Machinery', 'Electrical Items', 'Stationery', 'Others']).map((mt) => <option key={mt} value={mt}>{mt}</option>)}
+                {withStoredType(materialTypes, editForm.category).map((mt) => <option key={mt} value={mt}>{mt}</option>)}
               </Select>
               <Select
                 label="Unit (UOM)"
