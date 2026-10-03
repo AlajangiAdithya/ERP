@@ -9,8 +9,15 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 // localStorage so it survives logout and never round-trips to the server.
 // index.html applies the stored value before first paint (no white flash), and
 // this provider keeps it in sync afterwards.
+//
+// Light is the default for everyone. The app is used on shop-floor and office
+// screens where the light palette is what people expect, and inheriting the OS
+// setting meant anyone whose laptop happened to be in dark mode was handed a
+// dark ERP they never asked for. Dark and Follow-system are still one click
+// away in Appearance; they just have to be chosen.
 
 const STORAGE_KEY = 'raps-theme';
+const DEFAULT_PREFERENCE = 'light';
 const THEME_COLORS = { light: '#1B3A6B', dark: '#0B111D' }; // mobile browser chrome
 
 const ThemeContext = createContext(null);
@@ -21,9 +28,9 @@ const systemPrefersDark = () =>
 const readStored = () => {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    return v === 'light' || v === 'dark' || v === 'system' ? v : 'system';
+    return v === 'light' || v === 'dark' || v === 'system' ? v : DEFAULT_PREFERENCE;
   } catch {
-    return 'system';
+    return DEFAULT_PREFERENCE;
   }
 };
 

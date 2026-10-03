@@ -143,6 +143,25 @@ const QUICK_FILTERS = {
   needsUnit: { label: 'Needs unit',       match: (w) => isOpenWo(w) && !w.assignedUnit },
 };
 
+// ─── Register layout preference ───
+// Full View is what the register opens on: it is the Excel-style grid the work
+// orders are actually read in, with the update trail, approvals and PDC
+// extensions all on one screen. Detailed rows stay a click away for anyone who
+// prefers them, and because that is a personal habit rather than a setting
+// anyone else needs to see, the choice is kept per device in localStorage
+// instead of on the account.
+const VIEW_STORAGE_KEY = 'raps-wo-view';
+const DEFAULT_VIEW = 'sheet';
+
+const readStoredView = () => {
+  try {
+    const v = localStorage.getItem(VIEW_STORAGE_KEY);
+    return v === 'table' || v === 'sheet' ? v : DEFAULT_VIEW;
+  } catch {
+    return DEFAULT_VIEW;
+  }
+};
+
 export default function WorkOrders() {
   const { user } = useAuth();
   const role = user?.role;
@@ -154,9 +173,14 @@ export default function WorkOrders() {
   const [showCreate, setShowCreate] = useState(false);
   const [detail, setDetail] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [view, setView] = useState('table'); // 'table' (detailed cards) | 'sheet' (full Excel grid)
+  const [view, setView] = useState(readStoredView); // 'sheet' (full grid) | 'table' (detailed rows)
   const [workflowOpen, setWorkflowOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Remember the layout they switched to, so it survives a reload.
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_STORAGE_KEY, view); } catch { /* private mode - session only */ }
+  }, [view]);
 
   // Deep link - the PDC radar (and any other page) can open a specific WO with
   // ?wo=<id>; we pop the detail modal straight away and clear the param on close.
@@ -600,20 +624,21 @@ export default function WorkOrders() {
               <Download size={14} /> Export
             </button>
 
+            {/* Full View leads: it is the default the register opens on. */}
             <div className="inline-flex bg-navy-50 rounded-lg p-0.5">
-              <button
-                onClick={() => setView('table')}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'table' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
-                title="Detailed rows"
-              >
-                <TableIcon size={13} className="inline mr-1" /> Detailed
-              </button>
               <button
                 onClick={() => setView('sheet')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'sheet' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
                 title="Full Excel-style sheet - who updated what & when, approvals, PDC extensions"
               >
                 <Sheet size={13} className="inline mr-1" /> Full View
+              </button>
+              <button
+                onClick={() => setView('table')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'table' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
+                title="Detailed rows"
+              >
+                <TableIcon size={13} className="inline mr-1" /> Detailed
               </button>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock, Truck, DoorOpen, MapPin, Send, ShieldCheck, ScrollText, Inbox, ArrowRight, Calendar, Eye, FileSearch, CreditCard, BarChart3, ArrowLeftRight, FlaskConical, History, GraduationCap, Users, UserCheck, BookOpen, ChevronDown, BellRing } from 'lucide-react';
+import { Package, AlertTriangle, ClipboardList, ArrowDown, ArrowUp, Activity, ShoppingCart, TrendingUp, CheckCircle, ClipboardCheck, FileText, IndianRupee, Building2, Ruler, Clock, Truck, DoorOpen, MapPin, Send, ShieldCheck, ScrollText, Inbox, ArrowRight, Calendar, Eye, FileSearch, CreditCard, BarChart3, ArrowLeftRight, FlaskConical, History, GraduationCap, Users, UserCheck, BookOpen, BellRing } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -872,7 +872,8 @@ function StoreManagerDashboard() {
   const [loading, setLoading] = useState(true);
   const [notifying, setNotifying] = useState({});
   const [lowStockModal, setLowStockModal] = useState(false);
-  const [lowStockCollapsed, setLowStockCollapsed] = useState(false);
+  // Which severity band the modal opens on - set by whichever chip was clicked.
+  const [lowStockBand, setLowStockBand] = useState('ALL');
 
   useEffect(() => {
     let cancelled = false;
@@ -942,7 +943,7 @@ function StoreManagerDashboard() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard title="Total Products" value={stats.totalProducts} icon={Package} color="navy" onClick={() => navigate('/products')} />
-        <StatsCard title="Low Stock Items" value={stats.lowStockAlerts} icon={AlertTriangle} color="red" onClick={() => setLowStockModal(true)} />
+        <StatsCard title="Low Stock Items" value={stats.lowStockAlerts} icon={AlertTriangle} color="red" onClick={() => { setLowStockBand('ALL'); setLowStockModal(true); }} />
         <StatsCard title="Pending Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" onClick={() => navigate('/request-clearance')} />
         <StatsCard
           title="Out of Stock"
@@ -950,7 +951,7 @@ function StoreManagerDashboard() {
           subtitle="Items at zero stock"
           icon={AlertTriangle}
           color="red"
-          onClick={() => setLowStockModal(true)}
+          onClick={() => { setLowStockBand('Out of Stock'); setLowStockModal(true); }}
         />
       </div>
 
@@ -992,88 +993,11 @@ function StoreManagerDashboard() {
         </Card>
       )}
 
-      {/* Low Stock Products */}
-      <Card>
-        <button
-          type="button"
-          onClick={() => setLowStockCollapsed(c => !c)}
-          className="flex w-full items-center justify-between text-left gap-3"
-          aria-expanded={!lowStockCollapsed}
-        >
-          <span className="flex items-center gap-2.5">
-            <span className={`p-1.5 rounded-lg ring-1 ${lowStock.length > 0 ? 'bg-red-50 text-red-700 ring-red-100' : 'bg-green-50 text-green-700 ring-green-100'}`}>
-              <AlertTriangle size={15} strokeWidth={2.2} />
-            </span>
-            <span>
-              <span className="block text-sm font-semibold text-gray-800">
-                Low Stock Products
-                <span className="ml-2 text-xs font-normal text-gray-500 tnum">({lowStock.length})</span>
-              </span>
-              <span className="block text-[11px] text-gray-500 mt-0.5">Items at or below their minimum stock level</span>
-            </span>
-          </span>
-          <ChevronDown
-            size={18}
-            className={`text-gray-400 transition-transform flex-shrink-0 ${lowStockCollapsed ? '' : 'rotate-180'}`}
-          />
-        </button>
-        {!lowStockCollapsed && (
-        <div className="overflow-x-auto mt-4">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b">
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Product</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">SKU</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Current Stock</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Min Level</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Deficit</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lowStock.length === 0 ? (
-                <tr><td colSpan={7} className="px-3 py-4 text-center text-gray-400">All stock levels healthy</td></tr>
-              ) : (
-                lowStock.map((p, i) => {
-                  const fmt = (v) => { const n = Number(v); return Number.isInteger(n) ? n.toString() : n.toFixed(2); };
-                  return (
-                    <tr key={p.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
-                      <td className="px-3 py-2 font-medium text-gray-700">{p.name}</td>
-                      <td className="px-3 py-2 text-gray-500">{p.sku}</td>
-                      <td className="px-3 py-2">
-                        <span className={`font-semibold ${p.currentStock === 0 ? 'text-red-600' : 'text-amber-600'}`}>{fmt(p.currentStock)}</span>
-                        <span className="text-gray-400 ml-1">{p.unit}</span>
-                      </td>
-                      <td className="px-3 py-2 text-gray-500">{fmt(p.minStockLevel)} {p.unit}</td>
-                      <td className="px-3 py-2">
-                        <span className="font-semibold text-red-600">{p.deficit > 0 ? fmt(p.deficit) : '-'}</span>
-                        {p.deficit > 0 && <span className="text-gray-400 ml-1">{p.unit}</span>}
-                      </td>
-                      <td className="px-3 py-2">
-                        <Badge color={p.stockStatus === 'Out of Stock' ? 'red' : p.stockStatus === 'Critical' ? 'red' : 'yellow'}>
-                          {p.stockStatus}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => notifyAdmin(p)}
-                          disabled={notifying[p.id]}
-                        >
-                          {notifying[p.id] ? 'Sending...' : 'Notify Admin'}
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        )}
-      </Card>
+      {/* Low stock: severity bar here, the full list one click away. */}
+      <LowStockStatusBar
+        products={lowStock}
+        onOpen={(band) => { setLowStockBand(band); setLowStockModal(true); }}
+      />
 
       {/* Low Stock Modal */}
       <LowStockModal
@@ -1081,6 +1005,9 @@ function StoreManagerDashboard() {
         onClose={() => setLowStockModal(false)}
         products={lowStock}
         loading={false}
+        initialBand={lowStockBand}
+        onNotify={notifyAdmin}
+        notifying={notifying}
       />
     </div>
   );
@@ -2637,15 +2564,139 @@ function PackageCheck(props) {
   return <CheckCircle {...props} />;
 }
 
-function LowStockModal({ isOpen, onClose, products, loading }) {
+// ── Low stock, at a glance ──
+// The store dashboard used to print every low item inline. On a real catalogue
+// that ran well past a screen and pushed everything under it out of sight, and
+// nobody reads a hundred-row table to find out how bad things are. The question
+// the dashboard has to answer is "how bad, and what is worst" - so: one bar,
+// three bands, counts. The list itself is a click away, and clicking a band
+// opens it already filtered to that band.
+const LOW_STOCK_BANDS = [
+  { key: 'Out of Stock', label: 'Out of stock', bar: 'bg-red-600', chip: 'bg-red-50 text-red-700 ring-red-200', dot: 'bg-red-600' },
+  { key: 'Critical', label: 'Critical', bar: 'bg-orange-500', chip: 'bg-orange-50 text-orange-700 ring-orange-200', dot: 'bg-orange-500' },
+  { key: 'Low', label: 'Low', bar: 'bg-amber-400', chip: 'bg-amber-50 text-amber-800 ring-amber-200', dot: 'bg-amber-400' },
+];
+
+function LowStockStatusBar({ products, onOpen }) {
+  const total = products.length;
+  const bands = LOW_STOCK_BANDS.map((b) => ({
+    ...b,
+    count: products.filter((p) => p.stockStatus === b.key).length,
+  }));
+  const worst = bands.find((b) => b.count > 0);
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <span className="flex items-center gap-2.5">
+          <span className={`p-1.5 rounded-lg ring-1 ${total > 0 ? 'bg-red-50 text-red-700 ring-red-100' : 'bg-green-50 text-green-700 ring-green-100'}`}>
+            <AlertTriangle size={15} strokeWidth={2.2} />
+          </span>
+          <span>
+            <span className="block text-sm font-semibold text-gray-800">
+              Stock health
+              {total > 0 && <span className="ml-2 text-xs font-normal text-gray-500 tnum">({total} below minimum)</span>}
+            </span>
+            <span className="block text-[11px] text-gray-500 mt-0.5">
+              {total === 0
+                ? 'Every active product is at or above its minimum level'
+                : `Worst right now: ${worst.count} ${worst.label.toLowerCase()}`}
+            </span>
+          </span>
+        </span>
+        {total > 0 && (
+          <Button size="sm" variant="secondary" onClick={() => onOpen('ALL')}>
+            View all {total}
+          </Button>
+        )}
+      </div>
+
+      {total === 0 ? (
+        <div className="mt-3 h-2 w-full rounded-full bg-green-500" aria-label="All stock levels healthy" />
+      ) : (
+        <>
+          {/* Proportional bar. Every non-empty band keeps a visible sliver, so a
+              single out-of-stock item in a long list is never invisible. */}
+          <div
+            className="mt-4 flex h-2.5 w-full overflow-hidden rounded-full bg-gray-100"
+            role="img"
+            aria-label={bands.map((b) => `${b.count} ${b.label}`).join(', ')}
+          >
+            {bands.filter((b) => b.count > 0).map((b) => (
+              <button
+                key={b.key}
+                type="button"
+                onClick={() => onOpen(b.key)}
+                title={`${b.count} ${b.label} - click to list`}
+                className={`${b.bar} h-full transition-opacity hover:opacity-80`}
+                style={{ width: `${Math.max(4, (b.count / total) * 100)}%` }}
+              />
+            ))}
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {bands.map((b) => (
+              <button
+                key={b.key}
+                type="button"
+                onClick={() => onOpen(b.key)}
+                disabled={b.count === 0}
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 transition-colors ${
+                  b.count === 0
+                    ? 'bg-gray-50 text-gray-400 ring-gray-200'
+                    : `${b.chip} hover:brightness-95`
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${b.count === 0 ? 'bg-gray-300' : b.dot}`} />
+                {b.label}
+                <span className="tnum">{b.count}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function LowStockModal({ isOpen, onClose, products, loading, initialBand = 'ALL', onNotify, notifying = {} }) {
+  const [band, setBand] = useState(initialBand);
+
+  // Follow whichever chip opened it, and re-apply on each open so the modal
+  // never reappears still filtered by the previous click.
+  useEffect(() => { if (isOpen) setBand(initialBand); }, [isOpen, initialBand]);
+
   const formatStock = (val) => {
     if (val == null) return '0';
     const n = Number(val);
     return Number.isInteger(n) ? n.toString() : n.toFixed(2);
   };
 
+  const shown = band === 'ALL' ? products : products.filter((p) => p.stockStatus === band);
+  const countFor = (key) => (key === 'ALL' ? products.length : products.filter((p) => p.stockStatus === key).length);
+  const filters = [{ key: 'ALL', label: 'All' }, ...LOW_STOCK_BANDS.map((b) => ({ key: b.key, label: b.label }))];
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`Low Stock Products (${products.length})`} size="xl">
+      {!loading && products.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1 w-fit">
+          {filters.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setBand(f.key)}
+              disabled={countFor(f.key) === 0}
+              className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
+                band === f.key ? 'bg-white font-semibold text-navy-700 shadow-sm'
+                  : countFor(f.key) === 0 ? 'text-gray-300'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {f.label} <span className="tnum">({countFor(f.key)})</span>
+            </button>
+          ))}
+        </div>
+      )}
       {loading ? (
         <div className="flex justify-center py-12">
           <div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" />
@@ -2669,10 +2720,13 @@ function LowStockModal({ isOpen, onClose, products, loading }) {
                 <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Min Level</th>
                 <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Deficit</th>
                 <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                {onNotify && <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Action</th>}
               </tr>
             </thead>
             <tbody>
-              {products.map((p, idx) => (
+              {shown.length === 0 ? (
+                <tr><td colSpan={onNotify ? 9 : 8} className="px-3 py-6 text-center text-gray-400">Nothing in this band</td></tr>
+              ) : shown.map((p, idx) => (
                 <tr key={p.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                   <td className="px-3 py-2 text-gray-400 text-xs">{idx + 1}</td>
                   <td className="px-3 py-2 font-medium text-gray-700">{p.name}</td>
@@ -2699,6 +2753,15 @@ function LowStockModal({ isOpen, onClose, products, loading }) {
                       {p.stockStatus}
                     </Badge>
                   </td>
+                  {/* Only Stores can raise the alert, so the column appears only
+                      where a handler was passed in. */}
+                  {onNotify && (
+                    <td className="px-3 py-2">
+                      <Button size="sm" variant="secondary" onClick={() => onNotify(p)} disabled={notifying[p.id]}>
+                        {notifying[p.id] ? 'Sending…' : 'Notify Admin'}
+                      </Button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
