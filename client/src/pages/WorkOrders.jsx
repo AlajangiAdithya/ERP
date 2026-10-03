@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, Plus, CheckCircle2, Clock, XCircle, Building2,
@@ -161,6 +161,28 @@ const readStoredView = () => {
     return DEFAULT_VIEW;
   }
 };
+
+// ─── Full View row density ───
+// Fourteen columns of live status is a lot to hold on one screen. Comfortable
+// is the readable default; Compact tightens the vertical rhythm so roughly a
+// third more orders fit above the fold, which is what people want when they are
+// scanning the register rather than reading one row. Same per-device treatment
+// as the layout choice.
+const DENSITY_STORAGE_KEY = 'raps-wo-density';
+const readStoredDensity = () => {
+  try {
+    const v = localStorage.getItem(DENSITY_STORAGE_KEY);
+    return v === 'compact' || v === 'comfortable' ? v : 'comfortable';
+  } catch {
+    return 'comfortable';
+  }
+};
+const SheetDensityContext = createContext('comfortable');
+const DENSITY_PAD = { comfortable: 'px-3 py-2.5', compact: 'px-2.5 py-1.5' };
+
+// Motion curve for the whole sheet. A decelerating curve reads as mass settling
+// rather than a colour snapping over, which is what a default ease does.
+const SHEET_EASE = 'transition-[background-color,box-shadow,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]';
 
 export default function WorkOrders() {
   const { user } = useAuth();
@@ -1077,11 +1099,77 @@ const Field = ({ label, children, className = '' }) => (
 function WorkOrderSheet({ workOrders, onOpen }) {
   const lastExt = (w) => (w.extensions?.length ? w.extensions[w.extensions.length - 1] : null);
 
+  const scrollRef = useRef(null);
+  const [density, setDensity] = useState(readStoredDensity);
+  // Whether there are columns off the left / right edge right now.
+  const [edge, setEdge] = useState({ left: false, right: false });
+
+  useEffect(() => {
+    try { localStorage.setItem(DENSITY_STORAGE_KEY, density); } catch { /* private mode - session only */ }
+  }, [density]);
+
+  // Fourteen columns do not fit any laptop, and a flat clipped edge gives no
+  // sign that more exist. Track which side is overflowing so the frozen column
+  // casts a shadow over what slides under it and the open edge fades out.
+  // Writes only when a flag actually flips, so scrolling does not re-render.
+  const syncEdges = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 4;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    setEdge((p) => (p.left === left && p.right === right ? p : { left, right }));
+  };
+
+  useEffect(() => {
+    syncEdges();
+    window.addEventListener('resize', syncEdges);
+    return () => window.removeEventListener('resize', syncEdges);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workOrders.length, density]);
+
   return (
+    <SheetDensityContext.Provider value={density}>
     <Card className="!p-0 overflow-hidden">
-      <div className="overflow-x-auto">
+      {/* Sheet toolbar. Row count on the left so the register states its own
+          size; density on the right, where the view toggle also sits. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-navy-200/70 bg-navy-50/60 px-3 py-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-navy-500">
+          {workOrders.length} work order{workOrders.length === 1 ? '' : 's'}
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-navy-400">Rows</span>
+          <div className="inline-flex rounded-md border border-navy-200 bg-white p-0.5">
+            {[['comfortable', 'Comfortable'], ['compact', 'Compact']].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setDensity(key)}
+                aria-pressed={density === key}
+                className={`rounded px-2.5 py-1 text-[11px] font-semibold ${SHEET_EASE} ${
+                  density === key ? 'bg-navy-700 text-white' : 'text-navy-600 hover:bg-navy-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="relative">
+        {/* Right-edge fade: the only honest way to show a wide sheet continues.
+            pointer-events-none so it never intercepts a click on a cell.
+            Bound to the surface variable, not `from-white` - a gradient stop
+            skips the theme mapping and would smear white across dark mode. */}
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-y-0 right-0 z-30 w-10 bg-gradient-to-l from-[rgb(var(--bg-white))] to-transparent ${SHEET_EASE} ${
+            edge.right ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+        <div ref={scrollRef} onScroll={syncEdges} className="overflow-x-auto">
         <table className="min-w-full text-[11.5px] border-separate border-spacing-0">
-          <thead className="sticky top-0 z-20">
+          <thead className={`sticky top-0 z-20 ${edge.left ? '[&_th:first-child]:shadow-[6px_0_8px_-6px_rgba(16,32,64,0.22)]' : ''}`}>
             <tr>
               <Sth sticky>#</Sth>
               <Sth>Status</Sth>
@@ -1122,11 +1210,25 @@ function WorkOrderSheet({ workOrders, onOpen }) {
               return (
                 <tr
                   key={w.id}
-                  className={`group ${zebra} ${tatTint ? '' : 'hover:bg-navy-50'} transition-colors cursor-pointer`}
+                  // The row is the control that opens the order, so it has to be
+                  // reachable and operable without a mouse - it was click-only.
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Open work order ${w.workOrderNumber} for ${w.customerName}`}
+                  className={`group ${zebra} ${tatTint ? '' : 'hover:bg-navy-50'} ${SHEET_EASE} cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-navy-500`}
                   onClick={() => onOpen(w)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(w); }
+                  }}
                 >
-                  {/* # - sticky, with status-coloured accent edge */}
-                  <Std sticky className={`border-l-4 ${accent} text-center text-gray-400 font-mono text-[10px]`}>
+                  {/* # - frozen, with status-coloured accent edge. The shadow
+                      appears only once columns are actually sliding under it. */}
+                  <Std
+                    sticky
+                    className={`border-l-4 ${accent} text-center text-gray-400 font-mono text-[10px] ${SHEET_EASE} ${
+                      edge.left ? 'shadow-[6px_0_8px_-6px_rgba(16,32,64,0.22)]' : ''
+                    }`}
+                  >
                     {i + 1}
                   </Std>
 
@@ -1138,9 +1240,12 @@ function WorkOrderSheet({ workOrders, onOpen }) {
                       {w.overdue && <Pill tone="red">Overdue</Pill>}
                       {w.onTime === true && <Pill tone="green">On-Time</Pill>}
                       {w.onTime === false && <Pill tone="red">Late</Pill>}
+                      {/* Solid, not pulsing. A blinking badge on a register
+                          people read all day is noise, and the colour already
+                          carries the urgency. */}
                       {w.pdc3MonthAlertActive && (
-                        <span className="text-[9px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-600 text-white animate-pulse">
-                          <AlertTriangle size={9} /> PDC ≤ 3m
+                        <span className="text-[9px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-600 font-semibold text-white ring-1 ring-red-700/20">
+                          <AlertTriangle size={9} /> PDC {'≤'} 3m
                         </span>
                       )}
                     </div>
@@ -1284,19 +1389,22 @@ function WorkOrderSheet({ workOrders, onOpen }) {
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </Card>
+    </SheetDensityContext.Provider>
   );
 }
 
 // ── Full View table primitives (sticky-aware, Excel-neat) ──
 function Sth({ children, sticky = false, groupEnd = false, center = false }) {
+  const density = useContext(SheetDensityContext);
   return (
     <th
-      className={`px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-navy-500 bg-navy-50 border-b border-navy-100 whitespace-nowrap
+      className={`${DENSITY_PAD[density]} text-[10px] font-semibold uppercase tracking-wider text-navy-500 bg-navy-50 border-b border-navy-200/70 whitespace-nowrap
         ${center ? 'text-center' : 'text-left'}
         ${sticky ? 'sticky left-0 z-30 bg-navy-50' : ''}
-        ${groupEnd ? 'border-r-2 border-navy-100' : ''}`}
+        ${groupEnd ? 'border-r border-navy-200/70' : ''}`}
     >
       {children}
     </th>
@@ -1304,12 +1412,13 @@ function Sth({ children, sticky = false, groupEnd = false, center = false }) {
 }
 
 function Std({ children, sticky = false, groupEnd = false, nowrap = true, className = '' }) {
+  const density = useContext(SheetDensityContext);
   return (
     <td
-      className={`px-3 py-2.5 align-top border-b border-gray-100 text-navy-700
+      className={`${DENSITY_PAD[density]} align-top border-b border-gray-100 text-navy-700
         ${nowrap ? 'whitespace-nowrap' : ''}
         ${sticky ? 'sticky left-0 z-10 bg-inherit' : ''}
-        ${groupEnd ? 'border-r-2 border-gray-100' : ''}
+        ${groupEnd ? 'border-r border-gray-200/80' : ''}
         ${className}`}
     >
       {children}
