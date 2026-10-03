@@ -237,7 +237,7 @@ router.put('/:id', authenticate, requireWrite, async (req, res) => {
   }
 });
 
-// DELETE /api/employees/:id — only when no training history references them.
+// DELETE /api/employees/:id - only when no training history references them.
 router.delete('/:id', authenticate, requireWrite, async (req, res) => {
   try {
     const employee = await prisma.employee.findUnique({

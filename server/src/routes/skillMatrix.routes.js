@@ -51,7 +51,7 @@ router.get('/permissions', authenticate, (req, res) => {
   res.json({ canWrite: canWriteAny(req.user) });
 });
 
-// GET /api/skill-matrix — list all employees with their skill rows joined.
+// GET /api/skill-matrix - list all employees with their skill rows joined.
 // Each employee carries a `canEdit` flag derived from the requester's role + unit.
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -71,7 +71,7 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// PUT /api/skill-matrix/:employeeId — upsert the skill row for an employee.
+// PUT /api/skill-matrix/:employeeId - upsert the skill row for an employee.
 router.put('/:employeeId', authenticate, async (req, res) => {
   try {
     const employee = await prisma.employee.findUnique({ where: { id: req.params.employeeId } });
@@ -101,7 +101,7 @@ router.put('/:employeeId', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/skill-matrix/:employeeId/hod-sign — upload Head-of-Dept sign file.
+// POST /api/skill-matrix/:employeeId/hod-sign - upload Head-of-Dept sign file.
 router.post('/:employeeId/hod-sign', authenticate, async (req, res) => {
   const employee = await prisma.employee.findUnique({ where: { id: req.params.employeeId } });
   if (!employee) return res.status(404).json({ error: 'Employee not found' });

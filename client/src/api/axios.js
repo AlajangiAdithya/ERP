@@ -5,7 +5,7 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Request interceptor — attach access token
+// Request interceptor - attach access token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
   if (token) {
@@ -14,7 +14,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor — handle token refresh
+// Response interceptor - handle token refresh
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -31,7 +31,7 @@ api.interceptors.response.use(
       } catch (refreshError) {
         // Only force the user out if the refresh endpoint truly rejected the
         // session (401). Network failures, 5xx, or offline state must not
-        // log the user out — the session lives until they click logout.
+        // log the user out - the session lives until they click logout.
         if (refreshError?.response?.status === 401) {
           localStorage.removeItem('accessToken');
           localStorage.removeItem('user');

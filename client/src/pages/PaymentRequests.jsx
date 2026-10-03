@@ -120,7 +120,7 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
             </div>
             {payment.taxPercent > 0 && (
               <p className="mt-1 text-[11px] text-blue-800">
-                These order figures are basic (pre-tax) values — only {formatCurrency(payment.amount)} of this
+                These order figures are basic (pre-tax) values - only {formatCurrency(payment.amount)} of this
                 request counts against the balance; the {payment.taxPercent}% tax is paid on top.
               </p>
             )}
@@ -135,7 +135,7 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
               <div className="text-sm font-bold mb-0.5">This order was placed on credit</div>
               <div>
                 The order is already with the supplier
-                {payment.purchaseOrder.creditPlacedBy?.name && <> — placed by <span className="font-semibold">{payment.purchaseOrder.creditPlacedBy.name}</span></>}
+                {payment.purchaseOrder.creditPlacedBy?.name && <> - placed by <span className="font-semibold">{payment.purchaseOrder.creditPlacedBy.name}</span></>}
                 {payment.purchaseOrder.creditPlacedAt && <> on {formatDateTime(payment.purchaseOrder.creditPlacedAt)}</>}.
                 Processing this payment clears the outstanding credit balance.
               </div>
@@ -165,7 +165,7 @@ function PaymentDetailModal({ payment, onClose, onUpdated, currentUser }) {
           </div>
         )}
 
-        {/* Accounting sees PENDING — waiting for admin */}
+        {/* Accounting sees PENDING - waiting for admin */}
         {isAccounting && payment.status === 'PENDING' && (
           <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-md px-3 py-2">
             Waiting for Admin approval before this payment can be processed.
@@ -209,7 +209,7 @@ export default function PaymentRequests() {
   // FINANCE is a read-only observer here, so it gets the full-list view but not
   // the process capability below.
   const isAccounting = ['ACCOUNTING', 'ADMIN', 'FINANCE'].includes(user?.role);
-  // Who can actually action a payment (approve/process) — FINANCE excluded.
+  // Who can actually action a payment (approve/process) - FINANCE excluded.
   const canProcess = ['ACCOUNTING', 'ADMIN'].includes(user?.role);
   const refreshKey = useAutoRefresh();
 
@@ -289,7 +289,7 @@ export default function PaymentRequests() {
                         <span>{p.purchaseOrder?.customName}</span>
                         {p.purchaseOrder?.isCreditOrder && (
                           <span
-                            title="Order placed on credit — payment owed"
+                            title="Order placed on credit - payment owed"
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-800 border border-orange-300 text-[10px] font-medium"
                           >
                             <Handshake size={10} /> Credit
@@ -301,7 +301,7 @@ export default function PaymentRequests() {
                     <td className="px-3 py-2"><Badge color={typeColor(p.paymentType)}>{p.paymentType}</Badge></td>
                     <td className="px-3 py-2 text-gray-600">{formatCurrency(p.amount)}</td>
                     <td className="px-3 py-2 text-gray-600 text-xs">
-                      {p.taxPercent ? `${p.taxPercent}% · ${formatCurrency(p.taxAmount)}` : '—'}
+                      {p.taxPercent ? `${p.taxPercent}% · ${formatCurrency(p.taxAmount)}` : '-'}
                     </td>
                     <td className="px-3 py-2 font-medium">{formatCurrency(p.payableAmount || p.amount)}</td>
                     <td className="px-3 py-2"><Badge color={statusColor(p.status)}>{p.status}</Badge></td>

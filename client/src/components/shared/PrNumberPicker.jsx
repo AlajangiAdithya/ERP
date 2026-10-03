@@ -7,7 +7,7 @@ import Badge from '../ui/Badge';
 //
 // Stores only ever mention the PR NUMBER, so the box is deliberately forgiving:
 // type any part of a PR number *or* a material name and pick from the dropdown,
-// or just type the number and leave it — the server resolves a bare number too
+// or just type the number and leave it - the server resolves a bare number too
 // (case-insensitive), so a paper-form habit of writing the number still works.
 //
 // `value` is { id, requestNumber } or null. `onChange` gets the same shape, or
@@ -19,7 +19,7 @@ export default function PrNumberPicker({
   onTypedNumber,
   disabled = false,
   label = 'Issued against PR No.',
-  help = 'Optional — leave blank if this material is not against any purchase request.',
+  help = 'Optional - leave blank if this material is not against any purchase request.',
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -36,7 +36,7 @@ export default function PrNumberPicker({
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
-  // Debounced lookup. An empty query still searches — it returns the newest PRs,
+  // Debounced lookup. An empty query still searches - it returns the newest PRs,
   // which is usually what Stores wants (the material just came in).
   useEffect(() => {
     if (!open) return undefined;
@@ -68,7 +68,7 @@ export default function PrNumberPicker({
       <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
 
       {value ? (
-        // Picked state — a chip, so it's obvious the link is set.
+        // Picked state - a chip, so it's obvious the link is set.
         <div className="flex items-center gap-2 px-3 py-2 border border-green-300 bg-green-50 rounded-md">
           <FileText size={14} className="text-green-700" />
           <span className="font-mono text-sm font-semibold text-green-900">{value.requestNumber}</span>
@@ -125,7 +125,7 @@ export default function PrNumberPicker({
                   )}
                 </div>
                 <div className="text-xs text-gray-500 mt-0.5">
-                  {pr.manager?.name || '—'}
+                  {pr.manager?.name || '-'}
                   {' · '}
                   {(pr.items || []).map((i) => i.productName).join(', ') || 'no items'}
                   {pr._count?.items > (pr.items || []).length && ` +${pr._count.items - pr.items.length} more`}

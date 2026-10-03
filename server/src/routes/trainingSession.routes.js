@@ -1,5 +1,5 @@
 // ──────────────────────────────────────────────────────────────
-// Training session records — one row per actual training delivered.
+// Training session records - one row per actual training delivered.
 // Holds attendee list + per-attendee evaluation + uploaded notes/eval/feedback.
 //
 // Access:

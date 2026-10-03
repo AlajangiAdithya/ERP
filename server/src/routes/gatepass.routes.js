@@ -14,7 +14,7 @@ const router = express.Router();
 
 // Accept an optional customer-GP PDF upload alongside the inward gate-pass create.
 // Field name from the client: `customerGpPdf`. multipart bodies arrive with
-// `items` / `testReports` as JSON strings — the handler parses them.
+// `items` / `testReports` as JSON strings - the handler parses them.
 function acceptFimGpPdf(req, res, next) {
   const contentType = req.headers['content-type'] || '';
   if (!contentType.startsWith('multipart/form-data')) return next();
@@ -72,7 +72,7 @@ const GATEPASS_INCLUDE = {
   logisticsBy: USER_SELECT,
   siteOfficeAckBy: USER_SELECT,
   localReturnedBy: USER_SELECT,
-  // Every customer test report on this FIM entry — per-line ones included, so a
+  // Every customer test report on this FIM entry - per-line ones included, so a
   // caller can show the whole set. Line-level rows also come back on items[].
   testReports: { orderBy: { createdAt: 'asc' } },
   items: {
@@ -130,7 +130,7 @@ const notify = async (data) => {
   }
 };
 
-// GET /api/gatepasses — list
+// GET /api/gatepasses - list
 router.get('/', authenticate, async (req, res) => {
   try {
     const { passType, status, page, limit, fromDate, toDate: toDateQ, mine, direction } = req.query;
@@ -195,10 +195,10 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/gatepasses/upload-test-report — uploads one or more customer test
+// POST /api/gatepasses/upload-test-report - uploads one or more customer test
 // reports / material certificates and returns { files: [{url,name,mimeType}] }.
 // The FIM entry form calls this first, then echoes the references back on create
-// (per item, or against the entry as a whole). Stores/Admin only — they are the
+// (per item, or against the entry as a whole). Stores/Admin only - they are the
 // ones who record FIM intake.
 router.post(
   '/upload-test-report',
@@ -219,7 +219,7 @@ router.post(
   },
 );
 
-// POST /api/gatepasses — Create an OUTWARD or INWARD gate pass.
+// POST /api/gatepasses - Create an OUTWARD or INWARD gate pass.
 // OUTWARD: Manager / Planning / QC raises (RAMS/GPR/01) → Store → Accounts → Approved.
 // INWARD: Stores / Manager records customer-supplied FIM. Status starts at
 // PENDING_ACCEPTANCE; items get inwarded into Products via the From-Gatepass flow.
@@ -233,10 +233,10 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
       customerGpDocType: rawDocType,
       vehicleNo: rawVehicleNo, driverName: rawDriverName,
       gpRequisitionNo: rawGpRequisitionNo,
-      // INWARD only — customer test reports covering the whole FIM entry.
+      // INWARD only - customer test reports covering the whole FIM entry.
       // Per-line reports ride along on each item as `item.testReports`.
       testReports: rawTestReports,
-      // Gate Pass v2 (OUTWARD) — kind-aware fields
+      // Gate Pass v2 (OUTWARD) - kind-aware fields
       kind: rawKind,
       jobWorkNo: rawJobWorkNo,
       jobWorkDate: rawJobWorkDate,
@@ -251,10 +251,10 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
 
     // Gate Pass v2: OUTWARD now requires a `kind` (LOCAL_JOB | OUTSIDE).
     // Legacy OUTWARD callers (FIM return via /fim-batches/:id/send-out) skip this and
-    // create rows with kind=null — those flow through the legacy approve path.
+    // create rows with kind=null - those flow through the legacy approve path.
     const kind = !isInward && KINDS.includes(rawKind) ? rawKind : null;
 
-    // INWARD FIM is recorded by Stores Manager (or Admin) only — unit managers can't.
+    // INWARD FIM is recorded by Stores Manager (or Admin) only - unit managers can't.
     if (isInward && !['STORE_MANAGER', 'ADMIN'].includes(req.user.role)) {
       return res.status(403).json({ error: 'Only Stores Manager can record inward FIM gate passes' });
     }
@@ -301,7 +301,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
       }
     }
 
-    // Validate any per-line Work Order links — must be a live WO (any unit).
+    // Validate any per-line Work Order links - must be a live WO (any unit).
     const woIds = [...new Set(items.map((i) => i.workOrderId).filter(Boolean))];
     if (woIds.length) {
       const foundWos = await prisma.workOrder.findMany({
@@ -348,14 +348,14 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
     }
 
     // Stores raising its own outward gate pass: the PENDING_STORE stage exists so
-    // the Store Incharge can vet someone else's request — when Stores IS the
+    // the Store Incharge can vet someone else's request - when Stores IS the
     // raiser there is nobody left to approve, so the pass is signed off at
     // creation and goes straight to the next desk. Only for v2 (kind-bearing)
     // outward passes; legacy kind=null rows still need the driver/vehicle capture
     // that happens at /store-approve.
     const storesDirect = !isInward && !!kind && req.user.role === 'STORE_MANAGER';
 
-    // INWARD STORES is now final on creation — items go straight into Products,
+    // INWARD STORES is now final on creation - items go straight into Products,
     // so the gate pass is ACCEPTED immediately. DIRECT_TO_UNIT still awaits the
     // destination unit marking it Collected.
     const initialStatus = isInward
@@ -383,7 +383,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
     const gatePass = await withDocRetry(async () => {
       // Auto per-unit pass number RAPS/GP/<UNIT>/<FY>/<N>; a supplied number overrides.
       const passNumber = (rawPassNumber || '').trim() || await generateGatePassNumber(prisma, gpUnitCode);
-      // FIM/Customer Property Register number — only for INWARD STORES intake.
+      // FIM/Customer Property Register number - only for INWARD STORES intake.
       if (isInward && inwardKind === 'STORES') {
         fimNumber = await generateSequentialNumber(prisma, 'FIM');
       }
@@ -404,11 +404,11 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
           customerName: isInward ? customerName.trim() : null,
           customerGatePassNo: isInward ? customerGatePassNo.trim() : null,
           customerGatePassDate: isInward ? toDate(customerGatePassDate) : null,
-          // customerContact is no longer collected — leave NULL on new rows.
+          // customerContact is no longer collected - leave NULL on new rows.
           customerContact: null,
           customerGpDocType: isInward ? customerGpDocType : null,
           customerGpPdfUrl: isInward ? customerGpPdfUrl : null,
-          // Vehicle / driver — register column "VEHICLE NO / DRIVER SIGN".
+          // Vehicle / driver - register column "VEHICLE NO / DRIVER SIGN".
           vehicleNo: isInward ? (rawVehicleNo?.trim() || null) : null,
           driverName: isInward ? (rawDriverName?.trim() || null) : null,
           inwardKind: isInward ? inwardKind : null,
@@ -420,7 +420,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
           // signature is captured separately via /store-approve / review steps.
           siteInchargeById: (isInward || kind) ? null : req.user.id,
           siteInchargeAt: (isInward || kind) ? null : new Date(),
-          // Stores signed the pass by raising it — record it against the stores
+          // Stores signed the pass by raising it - record it against the stores
           // stage so the approval trail shows a signature there instead of a gap.
           storeInchargeById: storesDirect ? req.user.id : null,
           storeInchargeAt: storesDirect ? new Date() : null,
@@ -451,7 +451,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
     // Customer test reports / material certificates (INWARD FIM only). Entry-level
     // rows carry no line id; per-line rows point at the line they were picked on.
     // Stored right after the gate pass so they exist even if the auto-inward below
-    // fails — the documents are the customer's proof and must not be lost.
+    // fails - the documents are the customer's proof and must not be lost.
     let testReportCount = 0;
     if (isInward) {
       const reportRows = [
@@ -489,7 +489,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
 
     // INWARD STORES auto-inward: every item gets its own auto-created Product
     // (using the item description as the product name) and a FIM ProductBatch.
-    // No follow-up acceptance step needed — the inward is final at this point.
+    // No follow-up acceptance step needed - the inward is final at this point.
     if (isInward && inwardKind === 'STORES') {
       const owningUnitId = req.user.unitId || null;
       try {
@@ -532,7 +532,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
                 quantity: qty,
                 referenceType: 'InwardGatePass',
                 referenceId: gatePass.id,
-                notes: `FIM from ${gatePass.customerName || 'customer'} (Customer GP ${gatePass.customerGatePassNo || '—'})`,
+                notes: `FIM from ${gatePass.customerName || 'customer'} (Customer GP ${gatePass.customerGatePassNo || '-'})`,
                 performedBy: req.user.id,
                 unitId: owningUnitId,
               },
@@ -598,7 +598,7 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
         });
       }
     } else if (storesDirect) {
-      // No stores review to wait on — tell the desk that actually has to act next.
+      // No stores review to wait on - tell the desk that actually has to act next.
       const nextRole = initialStatus === 'PENDING_ACCOUNTS' ? 'ACCOUNTING' : 'LOGISTICS';
       const nextStep = initialStatus === 'PENDING_ACCOUNTS'
         ? 'Awaiting Accounts to add invoice / DC details.'
@@ -658,7 +658,7 @@ router.put('/:id/edit', authenticate, authorize('MANAGER', 'ADMIN', 'PLANNING', 
       return res.status(400).json({ error: 'Only outward gate passes can be edited this way' });
     }
 
-    // Number is fixed once created — keep the existing one (honour an explicit
+    // Number is fixed once created - keep the existing one (honour an explicit
     // override if the client still sends the same value).
     const passNumber = (rawPassNumber || '').trim() || existing.passNumber;
     if (!Array.isArray(items) || items.length === 0) {
@@ -680,7 +680,7 @@ router.put('/:id/edit', authenticate, authorize('MANAGER', 'ADMIN', 'PLANNING', 
       }
     }
 
-    // Validate any per-line Work Order links — must be a live WO (any unit).
+    // Validate any per-line Work Order links - must be a live WO (any unit).
     const woIds = [...new Set(items.map((i) => i.workOrderId).filter(Boolean))];
     if (woIds.length) {
       const foundWos = await prisma.workOrder.findMany({
@@ -747,7 +747,7 @@ router.put('/:id/edit', authenticate, authorize('MANAGER', 'ADMIN', 'PLANNING', 
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
-// OUTWARD v2 — Local Job / Outside dual flow
+// OUTWARD v2 - Local Job / Outside dual flow
 //
 // LOCAL_JOB: PENDING_STORE → (store-approve) → PENDING_LOGISTICS
 //            → (logistics-assign+dispatch) → IN_TRANSIT
@@ -792,7 +792,7 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
 
     const now = new Date();
 
-    // 48-hour Stores SLA — measured from when the gate pass was raised (createdAt).
+    // 48-hour Stores SLA - measured from when the gate pass was raised (createdAt).
     // Past 48h the Store Incharge MUST record why the approval was delayed.
     const SLA_48H = 48 * 60 * 60 * 1000;
     const storeLate = existing.createdAt && (now - new Date(existing.createdAt).getTime()) > SLA_48H;
@@ -879,7 +879,7 @@ router.put('/:id/store-approve', authenticate, authorize('STORE_MANAGER', 'ADMIN
 // PUT /api/gatepasses/:id/accounts-invoice
 // OUTSIDE only: Accounts attaches invoice / DC numbers, fills the per-item Gate
 // Pass Details, and forwards to Stores for final review. The per-item details sit
-// with Accounts (not Stores) on outward OUTSIDE passes — Stores only supplies the
+// with Accounts (not Stores) on outward OUTSIDE passes - Stores only supplies the
 // Transportation column at its own step.
 // (Replaces the old /accounts-approve for v2; legacy rows still use /accounts-approve below.)
 router.put('/:id/accounts-invoice', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
@@ -903,7 +903,7 @@ router.put('/:id/accounts-invoice', authenticate, authorize('ACCOUNTING', 'FINAN
 
     const now = new Date();
 
-    // 48-hour Accounts SLA — measured from when the pass reached Accounts
+    // 48-hour Accounts SLA - measured from when the pass reached Accounts
     // (storeInchargeAt). Past 48h, Accounts MUST record why it was delayed.
     const SLA_48H = 48 * 60 * 60 * 1000;
     const accountsSince = existing.storeInchargeAt || existing.createdAt;
@@ -916,7 +916,7 @@ router.put('/:id/accounts-invoice', authenticate, authorize('ACCOUNTING', 'FINAN
       if (!check.ok) return res.status(400).json({ error: check.error });
     }
 
-    // Per-item Gate Pass Details — Accounts owns this column on OUTWARD OUTSIDE
+    // Per-item Gate Pass Details - Accounts owns this column on OUTWARD OUTSIDE
     // passes. Transportation is left alone: that stays with Stores.
     if (Array.isArray(itemUpdates) && itemUpdates.length > 0) {
       const ownItemIds = new Set(existing.items.map((it) => it.id));
@@ -1022,7 +1022,7 @@ router.put('/:id/store-review', authenticate, authorize('STORE_MANAGER', 'ADMIN'
 // PUT /api/gatepasses/:id/logistics-assign
 // Logistics assigns a vehicle (and optionally a driver) from the registers.
 // For multi-gatepass dispatches, callers should hit POST /api/vehicle-trips
-// instead — that creates a single Trip and attaches multiple gatepasses to it.
+// instead - that creates a single Trip and attaches multiple gatepasses to it.
 router.put('/:id/logistics-assign', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
   try {
     const { vehicleId, driverId, privateVehicle } = req.body || {};
@@ -1252,7 +1252,7 @@ router.put('/:id/arrival-ack', authenticate, authorize('LOGISTICS', 'ADMIN'), as
     await notify({
       type: 'GATE_PASS_APPROVED',
       title: isReturnable
-        ? `Gate Pass ${updated.passNumber}: arrived — awaiting return`
+        ? `Gate Pass ${updated.passNumber}: arrived - awaiting return`
         : `Gate Pass ${updated.passNumber}: arrived`,
       message: isReturnable
         ? `${req.user.name} confirmed arrival on ${new Date(reachedDate).toLocaleDateString()}. Stores will close once material is returned.`
@@ -1341,7 +1341,7 @@ router.put('/:id/stores-ack', authenticate, authorize('STORE_MANAGER', 'ADMIN'),
   }
 });
 
-// PUT /api/gatepasses/:id/accounts-approve — LEGACY (kind=null OUTWARD rows, e.g. FIM /send-out)
+// PUT /api/gatepasses/:id/accounts-approve - LEGACY (kind=null OUTWARD rows, e.g. FIM /send-out)
 router.put('/:id/accounts-approve', authenticate, authorize('ACCOUNTING', 'FINANCE', 'ADMIN'), async (req, res) => {
   try {
     const { accountsDelayRemark } = req.body || {};
@@ -1356,7 +1356,7 @@ router.put('/:id/accounts-approve', authenticate, authorize('ACCOUNTING', 'FINAN
 
     const now = new Date();
 
-    // 48-hour Accounts SLA — measured from when the pass reached Accounts
+    // 48-hour Accounts SLA - measured from when the pass reached Accounts
     // (storeInchargeAt). Past 48h, Accounts MUST record why it was delayed.
     const SLA_48H = 48 * 60 * 60 * 1000;
     const accountsSince = existing.storeInchargeAt || existing.createdAt;
@@ -1408,7 +1408,7 @@ router.put('/:id/accounts-approve', authenticate, authorize('ACCOUNTING', 'FINAN
   }
 });
 
-// PUT /api/gatepasses/:id/reject — any approver can reject at their stage
+// PUT /api/gatepasses/:id/reject - any approver can reject at their stage
 router.put('/:id/reject', authenticate, async (req, res) => {
   try {
     const { reason } = req.body;
@@ -1461,7 +1461,7 @@ router.put('/:id/reject', authenticate, async (req, res) => {
   }
 });
 
-// PUT /api/gatepasses/:id/return — mark returnable items as returned
+// PUT /api/gatepasses/:id/return - mark returnable items as returned
 router.put('/:id/return', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
     const { returnedBy, actualReturnDate, remarks } = req.body;
@@ -1511,7 +1511,7 @@ router.put('/:id/return', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
   }
 });
 
-// PUT /api/gatepasses/:id/accept-inward — Stores accepts inward gate pass items into Products.
+// PUT /api/gatepasses/:id/accept-inward - Stores accepts inward gate pass items into Products.
 // Body: { items: [{ itemId, productId?, newProduct?: {name, materialType, unit}, quantity, batchNumber? }] }
 // Each item entry inwards the customer's material as FIM into either an existing Product
 // or a freshly created one, and links the ProductBatch back to the source inward item.
@@ -1531,7 +1531,7 @@ router.put('/:id/accept-inward', authenticate, authorize('STORE_MANAGER', 'ADMIN
       return res.status(400).json({ error: 'Only INWARD gate passes can be accepted into stores' });
     }
     if (gatePass.inwardKind === 'DIRECT_TO_UNIT') {
-      return res.status(400).json({ error: 'Direct-to-unit FIM does not go through stores acceptance — the destination unit marks it Collected.' });
+      return res.status(400).json({ error: 'Direct-to-unit FIM does not go through stores acceptance - the destination unit marks it Collected.' });
     }
     if (!['PENDING_ACCEPTANCE', 'ACCEPTED'].includes(gatePass.status)) {
       return res.status(400).json({ error: `Gate pass is in status ${gatePass.status}; cannot accept items` });
@@ -1605,7 +1605,7 @@ router.put('/:id/accept-inward', authenticate, authorize('STORE_MANAGER', 'ADMIN
             batchNumber: row.batchNumber || null,
             referenceType: 'InwardGatePass',
             referenceId: gatePass.id,
-            notes: `FIM from ${gatePass.customerName || 'customer'} (Customer GP ${gatePass.customerGatePassNo || '—'})`,
+            notes: `FIM from ${gatePass.customerName || 'customer'} (Customer GP ${gatePass.customerGatePassNo || '-'})`,
             performedBy: req.user.id,
             unitId: owningUnitId,
           },
@@ -1683,7 +1683,7 @@ router.put('/:id/accept-inward', authenticate, authorize('STORE_MANAGER', 'ADMIN
   }
 });
 
-// PUT /api/gatepasses/:id/collect — Unit Manager marks a DIRECT_TO_UNIT inward FIM as collected.
+// PUT /api/gatepasses/:id/collect - Unit Manager marks a DIRECT_TO_UNIT inward FIM as collected.
 // Collection status stays on the gatepass itself (no product-list entry, no stock movement).
 router.put('/:id/collect', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
   try {
@@ -1737,7 +1737,7 @@ router.put('/:id/collect', authenticate, authorize('MANAGER', 'ADMIN'), async (r
   }
 });
 
-// PUT /api/gatepasses/:id/close — close the gate pass
+// PUT /api/gatepasses/:id/close - close the gate pass
 router.put('/:id/close', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
     const { remarks } = req.body;
@@ -1813,11 +1813,11 @@ const fimStageOf = (batch) => {
   return 'IN_STORES';
 };
 
-// PUT /api/gatepasses/fim-batches/:id/status — ADMIN status override.
+// PUT /api/gatepasses/fim-batches/:id/status - ADMIN status override.
 //
 // The normal transitions are deliberately one-way: assignment locks on
 // acceptance, acceptance is final, ready can only follow acceptance. That is
-// right for day-to-day use but leaves no way to correct a mistake — a FIM
+// right for day-to-day use but leaves no way to correct a mistake - a FIM
 // accepted by the wrong unit was stuck there permanently. This lets an admin
 // set the batch to any stage and writes EVERY dependent column to match, so the
 // row can never end up half-way between two stages (accepted with no unit,
@@ -1852,7 +1852,7 @@ router.put('/fim-batches/:id/status', authenticate, authorize('ADMIN'), async (r
     // rather than silently allowed.
     if ((batch.sourceInwardGatePassItem?.outwardLinkedItems || []).length > 0) {
       return res.status(400).json({
-        error: 'Return gate pass already created for this FIM — cancel that gate pass before changing the status.',
+        error: 'Return gate pass already created for this FIM - cancel that gate pass before changing the status.',
       });
     }
 
@@ -1878,7 +1878,7 @@ router.put('/fim-batches/:id/status', authenticate, authorize('ADMIN'), async (r
     const wantAccepted = status === 'ACCEPTED' || status === 'READY_TO_SEND';
     const wantReady = status === 'READY_TO_SEND';
 
-    // Preserve who did what when a stage was already reached and stays reached —
+    // Preserve who did what when a stage was already reached and stays reached -
     // an override should correct the record, not rewrite genuine history. A
     // change of unit makes the assignment new, so that one is re-attributed.
     const keepAssignment = batch.assignedToUnitId && !unitChanged;
@@ -1962,12 +1962,12 @@ router.put('/fim-batches/:id/status', authenticate, authorize('ADMIN'), async (r
   }
 });
 
-// PUT /api/gatepasses/fim-batches/:id/probable-return — change the customer's
+// PUT /api/gatepasses/fim-batches/:id/probable-return - change the customer's
 // expected return date for a FIM line.
 //
 // The date lives on the source INWARD GatePassItem, not the batch, so it is
 // reached through sourceInwardGatePassItemId. It drives the overdue countdown
-// on the FIM register — pushing it out makes an overdue item look healthy —
+// on the FIM register - pushing it out makes an overdue item look healthy -
 // so the change carries a reason and is audit-logged with the old and new date.
 //
 // Body: { probableReturnDate (ISO date, or null to clear), reason }
@@ -2026,7 +2026,7 @@ router.put('/fim-batches/:id/probable-return', authenticate, authorize('STORE_MA
     });
 
     // The assigned unit is holding the material against this date, and Stores
-    // plan the return leg from it — both need to know it moved.
+    // plan the return leg from it - both need to know it moved.
     const fmt = (d) => (d ? new Date(d).toLocaleDateString('en-GB') : 'not set');
     const message = `${req.user.name} changed the probable return date for FIM ${batch.product.name} from ${fmt(previous)} to ${fmt(nextDate)}. Reason: ${check.cleaned}`;
 
@@ -2065,7 +2065,7 @@ router.put('/fim-batches/:id/probable-return', authenticate, authorize('STORE_MA
   }
 });
 
-// PUT /api/gatepasses/fim-batches/:id/assign — Stores assigns a FIM batch to a unit.
+// PUT /api/gatepasses/fim-batches/:id/assign - Stores assigns a FIM batch to a unit.
 // Cannot be changed once the unit has accepted.
 router.put('/fim-batches/:id/assign', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
@@ -2075,7 +2075,7 @@ router.put('/fim-batches/:id/assign', authenticate, authorize('STORE_MANAGER', '
     const batch = await prisma.productBatch.findUnique({ where: { id: req.params.id } });
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
     if (!batch.isFim) return res.status(400).json({ error: 'Only FIM batches can be assigned to a unit this way' });
-    if (batch.unitAcceptedAt) return res.status(400).json({ error: 'Batch already accepted by the unit — cannot reassign' });
+    if (batch.unitAcceptedAt) return res.status(400).json({ error: 'Batch already accepted by the unit - cannot reassign' });
 
     const unit = await prisma.unit.findUnique({ where: { id: unitId } });
     if (!unit) return res.status(400).json({ error: 'Unit not found' });
@@ -2123,7 +2123,7 @@ router.put('/fim-batches/:id/assign', authenticate, authorize('STORE_MANAGER', '
   }
 });
 
-// PUT /api/gatepasses/fim-batches/:id/unit-accept — Unit Manager finalises acceptance with a remark.
+// PUT /api/gatepasses/fim-batches/:id/unit-accept - Unit Manager finalises acceptance with a remark.
 // One-shot: once set, cannot be undone or re-accepted.
 router.put('/fim-batches/:id/unit-accept', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
   try {
@@ -2139,7 +2139,7 @@ router.put('/fim-batches/:id/unit-accept', authenticate, authorize('MANAGER', 'A
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
     if (!batch.isFim) return res.status(400).json({ error: 'Only FIM batches use unit acceptance' });
     if (!batch.assignedToUnitId) return res.status(400).json({ error: 'Batch has not been assigned to any unit yet' });
-    if (batch.unitAcceptedAt) return res.status(400).json({ error: 'Batch is already accepted — acceptance is final' });
+    if (batch.unitAcceptedAt) return res.status(400).json({ error: 'Batch is already accepted - acceptance is final' });
 
     // Only a manager of the assigned unit (or Admin) can accept.
     if (req.user.role !== 'ADMIN' && req.user.unitId !== batch.assignedToUnitId) {
@@ -2175,7 +2175,7 @@ router.put('/fim-batches/:id/unit-accept', authenticate, authorize('MANAGER', 'A
 });
 
 // PUT /api/gatepasses/fim-batches/:id/remarks
-// Unit manager (of the assigned unit) or Admin can edit unit remarks any time —
+// Unit manager (of the assigned unit) or Admin can edit unit remarks any time -
 // even after acceptance. Acceptance itself stays final; only the remark text changes.
 router.put('/fim-batches/:id/remarks', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
@@ -2295,7 +2295,7 @@ router.put('/fim-batches/:id/unmark-ready', authenticate, authorize('MANAGER', '
       return res.status(400).json({ error: 'Batch is not marked ready' });
     }
     if ((batch.sourceInwardGatePassItem?.outwardLinkedItems || []).length > 0) {
-      return res.status(400).json({ error: 'Cannot withdraw — Stores has already created the return gate pass' });
+      return res.status(400).json({ error: 'Cannot withdraw - Stores has already created the return gate pass' });
     }
 
     const updated = await prisma.productBatch.update({

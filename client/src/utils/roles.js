@@ -21,11 +21,11 @@ export function isProductMasterEditor(user) {
 }
 
 // TEMPORARY (new-system rollout): the Stores team may edit a product's *details*
-// (material code, name, material type, specification, shelf life, storage temp — never
+// (material code, name, material type, specification, shelf life, storage temp - never
 // stock numbers) directly from the Stock Details list while they learn the system.
 // Auto-expires on this date; afterwards Stores are read-only again and only the
 // master owners can edit. Mirror of STORE_PRODUCT_EDIT_UNTIL in
-// server/src/middleware/rbac.js — keep both in sync.
+// server/src/middleware/rbac.js - keep both in sync.
 export const STORE_PRODUCT_EDIT_UNTIL = new Date('2026-09-20T23:59:59');
 
 export function storeProductEditWindowOpen(now = new Date()) {
@@ -33,7 +33,7 @@ export function storeProductEditWindowOpen(now = new Date()) {
 }
 
 // ──── Master data: who may ADD, who may EDIT ────
-// Master data is owned by Admin, Quality and the unit managers — nobody else may
+// Master data is owned by Admin, Quality and the unit managers - nobody else may
 // put a material into the catalogue. Any other requester who needs a new material
 // asks one of them to add it first. Product.createdBy records who did it.
 // Mirror of PRODUCT_CREATE_ROLES in server/src/middleware/rbac.js.
@@ -63,7 +63,7 @@ export function canEditProductDetails(user, product) {
 }
 
 // Could this user edit at least SOME products? Decides whether an Edit column or
-// button is drawn at all — each row still runs the per-product check above.
+// button is drawn at all - each row still runs the per-product check above.
 export function canEditAnyProductDetails(user) {
   return canEditProductDetails(user, null) || canCreateProduct(user);
 }
@@ -72,7 +72,7 @@ export function canEditAnyProductDetails(user) {
 // PO numbers are typed in by Purchase, not generated. An approved quotation
 // creates its orders with no number; they sit on the PO page as drafts until
 // Purchase fill RAPS/PO/<FY>/<n> in, and only then can be placed. Mirror of
-// PO_NUMBER_ASSIGN_ROLES in server/src/middleware/rbac.js — the server is the
+// PO_NUMBER_ASSIGN_ROLES in server/src/middleware/rbac.js - the server is the
 // real gate, this only decides whether the form is drawn.
 const PO_NUMBER_ASSIGN_ROLES = ['PURCHASE_OFFICER', 'ADMIN', 'SUPERADMIN'];
 
@@ -83,7 +83,7 @@ export function canAssignPoNumber(user) {
 
 // What every screen shows in place of the number while an order is still a
 // draft. Purchase asked for a literal placeholder rather than a phrase, so an
-// un-numbered order reads as "000" everywhere it appears — the same way it sits
+// un-numbered order reads as "000" everywhere it appears - the same way it sits
 // in their paper register until the real number is written against it.
 export const PO_NUMBER_PENDING_LABEL = '000';
 
@@ -95,7 +95,7 @@ export const poNumberLabel = (order) => order?.orderNumber || PO_NUMBER_PENDING_
 
 // Indian financial year label for a date: Apr 1 starts a new year.
 // e.g. 25 Aug 2026 → "26-27". Mirror of getFinancialYear in
-// server/src/utils/helpers.js — used to pre-fill the FY on the numbering form.
+// server/src/utils/helpers.js - used to pre-fill the FY on the numbering form.
 export function currentFinancialYear(date = new Date()) {
   const y = date.getFullYear();
   const startYear = date.getMonth() >= 3 ? y : y - 1; // 0-indexed: 3 = April
@@ -103,12 +103,12 @@ export function currentFinancialYear(date = new Date()) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// TEMPORARY FEATURE — PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
+// TEMPORARY FEATURE - PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
 // ════════════════════════════════════════════════════════════════════════════
 // While Purchase reconcile the old manual PO register against the system, they
-// may correct the running count on a PO number (RAPS/PO/<FY>/<n> — only <n>
+// may correct the running count on a PO number (RAPS/PO/<FY>/<n> - only <n>
 // changes). Mirror of PO_NUMBER_EDIT_UNTIL / PO_NUMBER_EDIT_ROLES in
-// server/src/middleware/rbac.js — keep both in sync; the server is the real
+// server/src/middleware/rbac.js - keep both in sync; the server is the real
 // gate, this only decides whether the pencil button is drawn.
 //
 // null = no expiry set yet (the date will be fixed later). Set a Date here (and
@@ -134,4 +134,4 @@ export function parsePoNumber(value) {
   if (!m) return null;
   return { prefix: `RAPS/PO/${m[1]}/`, fy: m[1], count: parseInt(m[2], 10) };
 }
-// ════════════════ END TEMPORARY FEATURE — PO RE-NUMBERING ═══════════════════
+// ════════════════ END TEMPORARY FEATURE - PO RE-NUMBERING ═══════════════════

@@ -1,4 +1,4 @@
-// Training Records — per-session attendance + evaluation log with uploaded
+// Training Records - per-session attendance + evaluation log with uploaded
 // notes/evaluation/feedback. HR + Managers (own items) edit; everyone views.
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -9,7 +9,7 @@ import api from '../../api/axios';
 
 const INPUT_CLS = 'mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-200';
 
-// Uncontrolled auto-grow textarea — used for free-form evaluation fields
+// Uncontrolled auto-grow textarea - used for free-form evaluation fields
 // where long entries should stay fully readable inside the table cell.
 function AutoTextarea({ defaultValue, onBlur, disabled }) {
   const resize = (el) => {
@@ -197,7 +197,7 @@ export default function TrainingRecords() {
           <ClipboardSignature size={13} /> HR · Training Records
         </div>
         <div className="text-xl font-bold mt-1">Training Attendance cum Evaluation Records</div>
-        <div className="text-xs text-amber-100/80 mt-0.5">One row per delivered session — attendees, evaluation, supporting docs.</div>
+        <div className="text-xs text-amber-100/80 mt-0.5">One row per delivered session - attendees, evaluation, supporting docs.</div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -255,7 +255,7 @@ export default function TrainingRecords() {
                     <span>Faculty: {detail.faculty}</span>
                     {detail.reference && <span>Ref: {detail.reference}</span>}
                   </div>
-                  {detail.plan && <div className="text-[10px] text-gray-400 mt-1">Plan FY {detail.plan.fiscalYear} — {detail.plan.title}</div>}
+                  {detail.plan && <div className="text-[10px] text-gray-400 mt-1">Plan FY {detail.plan.fiscalYear} - {detail.plan.title}</div>}
                   {detail.planItem && <div className="text-[10px] text-gray-400">Item #{detail.planItem.serialNo}: {detail.planItem.subject}</div>}
                 </div>
                 {canCreate && (
@@ -285,7 +285,7 @@ export default function TrainingRecords() {
                     <select value={attEmp} onChange={(e) => setAttEmp(e.target.value)} className="flex-1 px-2 py-1.5 text-sm border border-gray-200 rounded-lg">
                       <option value="">Pick employee…</option>
                       {availableEmployees.map((e) => (
-                        <option key={e.id} value={e.id}>{e.empCode} — {e.name}</option>
+                        <option key={e.id} value={e.id}>{e.empCode} - {e.name}</option>
                       ))}
                     </select>
                     <button onClick={addAttendee} className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold">
@@ -317,7 +317,7 @@ export default function TrainingRecords() {
                             <div>{a.employee?.name}</div>
                             <div className="text-[10px] text-gray-500 font-mono">{a.employee?.empCode}</div>
                           </td>
-                          <td className="py-1.5 pr-2 text-gray-600">{a.employee?.designation || '—'}</td>
+                          <td className="py-1.5 pr-2 text-gray-600">{a.employee?.designation || '-'}</td>
                           <td className="py-1.5 pr-2 align-top">
                             <AutoTextarea
                               key={`ev-${a.id}-${a.evaluationDetails || ''}`}
@@ -348,7 +348,7 @@ export default function TrainingRecords() {
                               <a href={a.signUrl} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline inline-flex items-center gap-1">
                                 <FileText size={12} /> View
                               </a>
-                            ) : <span className="text-gray-400">—</span>}
+                            ) : <span className="text-gray-400">-</span>}
                             {canCreate && (
                               <label className="block cursor-pointer text-[10px] text-amber-700 hover:underline mt-0.5">
                                 <span className="inline-flex items-center gap-1"><Upload size={10} /> Sign</span>
@@ -396,14 +396,14 @@ export default function TrainingRecords() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Plan (optional)">
                   <select value={form.planId} onChange={(e) => setForm({ ...form, planId: e.target.value, planItemId: '' })} className={INPUT_CLS}>
-                    <option value="">—</option>
-                    {plans.map((p) => <option key={p.id} value={p.id}>FY {p.fiscalYear} — {p.title}</option>)}
+                    <option value="">-</option>
+                    {plans.map((p) => <option key={p.id} value={p.id}>FY {p.fiscalYear} - {p.title}</option>)}
                   </select>
                 </Field>
                 <Field label="Plan item (optional)">
                   <select value={form.planItemId} onChange={(e) => setForm({ ...form, planItemId: e.target.value })} disabled={!form.planId} className={INPUT_CLS}>
-                    <option value="">—</option>
-                    {planItems.map((it) => <option key={it.id} value={it.id}>#{it.serialNo} — {it.subject}</option>)}
+                    <option value="">-</option>
+                    {planItems.map((it) => <option key={it.id} value={it.id}>#{it.serialNo} - {it.subject}</option>)}
                   </select>
                 </Field>
                 <Field label="Subject *" wide>

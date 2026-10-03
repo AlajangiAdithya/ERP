@@ -42,7 +42,7 @@ export function NotificationProvider({ children }) {
       await api.patch('/alerts/notifications/mark-all-read');
       setUnreadCount(0);
     } catch {
-      // network blip — the next poll will reconcile the count
+      // network blip - the next poll will reconcile the count
     }
   }, []);
 
@@ -110,10 +110,10 @@ export function NotificationProvider({ children }) {
     const opts = {
       body: n.message || '',
       icon: PUSH_ICON,
-      tag: `raps-${n.id}`, // same tag as server push — never shows duplicates
+      tag: `raps-${n.id}`, // same tag as server push - never shows duplicates
       renotify: true,
     };
-    // Android Chrome forbids page-context `new Notification` — go through the
+    // Android Chrome forbids page-context `new Notification` - go through the
     // service worker (clicks are handled by its notificationclick handler).
     if (navigator.serviceWorker?.controller) {
       navigator.serviceWorker.ready
@@ -186,9 +186,9 @@ export function NotificationProvider({ children }) {
           knownIdsRef.current = currentIds;
         }
       } catch {
-        // network blip — swallow and try again next tick
+        // network blip - swallow and try again next tick
       }
-      // Auto-reload of consumer tables intentionally disabled — the polling
+      // Auto-reload of consumer tables intentionally disabled - the polling
       // here still powers unread badge + sound + push, but pages must reload
       // their own data via tab/filter changes or an explicit Refresh button.
     };

@@ -13,9 +13,9 @@ import Input from '../components/ui/Input';
 // Attendance register.
 //
 // Two views, both backed by the same /api/attendance endpoints:
-//   • Day view (default) — pick a date, edit every employee's IN/OUT for
+//   • Day view (default) - pick a date, edit every employee's IN/OUT for
 //     that day on a single roomy row. Totals + OT compute live.
-//   • Month view — pick one employee, see the whole month vertically with
+//   • Month view - pick one employee, see the whole month vertically with
 //     one calendar row per day. Easy to scan a person's pattern.
 //
 // "Send to Accounts & HR" finalizes the month and locks edits.
@@ -23,14 +23,14 @@ import Input from '../components/ui/Input';
 // ──────────────────────────────────────────────────────────────
 
 const STATUS_OPTIONS = [
-  { value: '', label: '—' },
-  { value: 'L', label: 'L — Leave' },
-  { value: 'CL', label: 'CL — Casual Leave' },
-  { value: 'SL', label: 'SL — Sick Leave' },
-  { value: 'WO', label: 'WO — Weekly Off' },
-  { value: 'H', label: 'H — Holiday' },
+  { value: '', label: '-' },
+  { value: 'L', label: 'L - Leave' },
+  { value: 'CL', label: 'CL - Casual Leave' },
+  { value: 'SL', label: 'SL - Sick Leave' },
+  { value: 'WO', label: 'WO - Weekly Off' },
+  { value: 'H', label: 'H - Holiday' },
   { value: 'BAKRID', label: 'Other Holidays' },
-  { value: 'HYD', label: 'HYD — Off-site (Hyderabad)' },
+  { value: 'HYD', label: 'HYD - Off-site (Hyderabad)' },
 ];
 
 const STATUS_COLOR = {
@@ -343,7 +343,7 @@ export default function Attendance() {
         {submission && (
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
             <Lock size={12} />
-            Locked — sent to Accounts & HR on {new Date(submission.submittedAt).toLocaleDateString()}
+            Locked - sent to Accounts & HR on {new Date(submission.submittedAt).toLocaleDateString()}
           </span>
         )}
       </div>
@@ -406,7 +406,7 @@ export default function Attendance() {
         <Modal
           isOpen
           onClose={() => setShowSummary(false)}
-          title={`${MONTH_NAMES[activeYM.month - 1]} ${activeYM.year} — Monthly Summary`}
+          title={`${MONTH_NAMES[activeYM.month - 1]} ${activeYM.year} - Monthly Summary`}
           size="xl"
         >
           <MonthlySummary unitId={unitId} year={activeYM.year} month={activeYM.month} />
@@ -528,7 +528,7 @@ function DayRow({ emp, date, entry, canEdit, isManager, onSave, onShowHistory, o
             className="w-24 px-2 py-1.5 text-sm text-center border border-gray-200 rounded-md focus:ring-2 focus:ring-navy-500 focus:border-navy-500 disabled:bg-gray-50 disabled:text-gray-400"
           />
         ) : (
-          <span className="text-gray-800">{entry?.inTime || '—'}</span>
+          <span className="text-gray-800">{entry?.inTime || '-'}</span>
         )}
       </td>
       <td className="px-3 py-3 text-center relative">
@@ -542,7 +542,7 @@ function DayRow({ emp, date, entry, canEdit, isManager, onSave, onShowHistory, o
             className="w-24 px-2 py-1.5 text-sm text-center border border-gray-200 rounded-md focus:ring-2 focus:ring-navy-500 focus:border-navy-500 disabled:bg-gray-50 disabled:text-gray-400"
           />
         ) : (
-          <span className="text-gray-800">{entry?.outTime || '—'}</span>
+          <span className="text-gray-800">{entry?.outTime || '-'}</span>
         )}
       </td>
       <td className="px-3 py-3 text-center">
@@ -561,21 +561,21 @@ function DayRow({ emp, date, entry, canEdit, isManager, onSave, onShowHistory, o
             {entry.statusCode}
           </span>
         ) : (
-          <span className="text-gray-400">—</span>
+          <span className="text-gray-400">-</span>
         )}
       </td>
       <td className="px-3 py-3 text-center font-medium text-gray-800">
-        {formatHHmmFromMin(total) || '—'}
+        {formatHHmmFromMin(total) || '-'}
       </td>
       <td className="px-3 py-3 text-center font-semibold text-amber-600">
-        {formatHHmmFromMin(ot) || '—'}
+        {formatHHmmFromMin(ot) || '-'}
       </td>
       <td className="px-3 py-3 text-center">
         {wasModified && (
           <button
             type="button"
             onClick={() => onShowHistory(entry)}
-            title={`Modified ${new Date(entry.modifiedAt).toLocaleString()} by ${entry.modifiedByName || ''} — click for history`}
+            title={`Modified ${new Date(entry.modifiedAt).toLocaleString()} by ${entry.modifiedByName || ''} - click for history`}
             className="text-[10px] italic text-orange-600 hover:text-orange-700 hover:underline"
           >
             modified
@@ -587,7 +587,7 @@ function DayRow({ emp, date, entry, canEdit, isManager, onSave, onShowHistory, o
 }
 
 // ──────────────────────────────────────────────────────────────
-// MONTH VIEW — one employee at a time, day-by-day rows
+// MONTH VIEW - one employee at a time, day-by-day rows
 // ──────────────────────────────────────────────────────────────
 function MonthView({
   employees, year, month, entryMap, canEdit, isManager,
@@ -761,7 +761,7 @@ function MonthDayRow({ empId, date, day, dow, isWeekend, entry, canEdit, isManag
             className="w-24 px-2 py-1.5 text-sm text-center border border-gray-200 rounded-md focus:ring-2 focus:ring-navy-500 focus:border-navy-500 disabled:bg-gray-50 disabled:text-gray-400"
           />
         ) : (
-          <span className="text-gray-800">{entry?.inTime || '—'}</span>
+          <span className="text-gray-800">{entry?.inTime || '-'}</span>
         )}
       </td>
       <td className="px-3 py-2 text-center">
@@ -775,7 +775,7 @@ function MonthDayRow({ empId, date, day, dow, isWeekend, entry, canEdit, isManag
             className="w-24 px-2 py-1.5 text-sm text-center border border-gray-200 rounded-md focus:ring-2 focus:ring-navy-500 focus:border-navy-500 disabled:bg-gray-50 disabled:text-gray-400"
           />
         ) : (
-          <span className="text-gray-800">{entry?.outTime || '—'}</span>
+          <span className="text-gray-800">{entry?.outTime || '-'}</span>
         )}
       </td>
       <td className="px-3 py-2 text-center">
@@ -794,17 +794,17 @@ function MonthDayRow({ empId, date, day, dow, isWeekend, entry, canEdit, isManag
             {entry.statusCode}
           </span>
         ) : (
-          <span className="text-gray-400">—</span>
+          <span className="text-gray-400">-</span>
         )}
       </td>
-      <td className="px-3 py-2 text-center font-medium text-gray-800">{formatHHmmFromMin(total) || '—'}</td>
-      <td className="px-3 py-2 text-center font-semibold text-amber-600">{formatHHmmFromMin(ot) || '—'}</td>
+      <td className="px-3 py-2 text-center font-medium text-gray-800">{formatHHmmFromMin(total) || '-'}</td>
+      <td className="px-3 py-2 text-center font-semibold text-amber-600">{formatHHmmFromMin(ot) || '-'}</td>
       <td className="px-3 py-2 text-center">
         {wasModified && (
           <button
             type="button"
             onClick={() => onShowHistory(entry)}
-            title={`Modified ${new Date(entry.modifiedAt).toLocaleString()} by ${entry.modifiedByName || ''} — click for history`}
+            title={`Modified ${new Date(entry.modifiedAt).toLocaleString()} by ${entry.modifiedByName || ''} - click for history`}
             className="text-[10px] italic text-orange-600 hover:text-orange-700 hover:underline"
           >
             modified
@@ -913,20 +913,20 @@ function HistoryView({ entry }) {
             <li key={i} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
               <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
                 <span>{new Date(h.at).toLocaleString()}</span>
-                <span>by {h.byName || '—'}</span>
+                <span>by {h.byName || '-'}</span>
               </div>
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div>
                   <div className="font-semibold text-red-600 mb-0.5">From</div>
-                  <div>IN: {h.from?.inTime || '—'}</div>
-                  <div>OUT: {h.from?.outTime || '—'}</div>
-                  <div>Status: {h.from?.statusCode || '—'}</div>
+                  <div>IN: {h.from?.inTime || '-'}</div>
+                  <div>OUT: {h.from?.outTime || '-'}</div>
+                  <div>Status: {h.from?.statusCode || '-'}</div>
                 </div>
                 <div>
                   <div className="font-semibold text-green-600 mb-0.5">To</div>
-                  <div>IN: {h.to?.inTime || '—'}</div>
-                  <div>OUT: {h.to?.outTime || '—'}</div>
-                  <div>Status: {h.to?.statusCode || '—'}</div>
+                  <div>IN: {h.to?.inTime || '-'}</div>
+                  <div>OUT: {h.to?.outTime || '-'}</div>
+                  <div>Status: {h.to?.statusCode || '-'}</div>
                 </div>
               </div>
             </li>
@@ -959,7 +959,7 @@ function MonthlySummary({ unitId, year, month }) {
     <div className="space-y-3 text-sm">
       {data.submission ? (
         <div className="bg-green-50 border border-green-200 text-green-800 text-xs rounded px-3 py-2">
-          Submitted to Accounts & HR on {new Date(data.submission.submittedAt).toLocaleString()} by {data.submission.submittedBy?.name || '—'}.
+          Submitted to Accounts & HR on {new Date(data.submission.submittedAt).toLocaleString()} by {data.submission.submittedBy?.name || '-'}.
         </div>
       ) : (
         <div className="bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded px-3 py-2">
@@ -984,14 +984,14 @@ function MonthlySummary({ unitId, year, month }) {
               <tr key={r.id} className="hover:bg-gray-50">
                 <td className="px-2 py-1.5 border">{r.serialNo}</td>
                 <td className="px-2 py-1.5 border font-medium">{r.name}</td>
-                <td className="px-2 py-1.5 border">{r.empCode || '—'}</td>
+                <td className="px-2 py-1.5 border">{r.empCode || '-'}</td>
                 <td className="px-2 py-1.5 border text-center">{r.daysWorked}</td>
-                <td className="px-2 py-1.5 border text-center">{formatHHmmFromMin(r.totalMinutes) || '—'}</td>
+                <td className="px-2 py-1.5 border text-center">{formatHHmmFromMin(r.totalMinutes) || '-'}</td>
                 <td className="px-2 py-1.5 border text-center font-semibold text-amber-700">
-                  {formatHHmmFromMin(r.otMinutes) || '—'}
+                  {formatHHmmFromMin(r.otMinutes) || '-'}
                 </td>
                 <td className="px-2 py-1.5 border text-[10px]">
-                  {Object.entries(r.statusCounts || {}).map(([k, v]) => `${k}:${v}`).join('  ') || '—'}
+                  {Object.entries(r.statusCounts || {}).map(([k, v]) => `${k}:${v}`).join('  ') || '-'}
                 </td>
               </tr>
             ))}

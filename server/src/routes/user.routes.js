@@ -10,7 +10,7 @@ const { HIDDEN_ROLES } = require('../utils/hiddenRoles');
 const router = express.Router();
 
 const VALID_ROLES = [
-  'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'INWARD_QC', 'LAB',
+  'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'LAB',
   'METROLOGY', 'NDT', 'RND', 'SAFETY', 'SUPPLY_CHAIN',
   'DESIGNS', 'FINANCE', 'PLANNING', 'LOGISTICS', 'SITE_OFFICE', 'HR',
 ];
@@ -28,7 +28,7 @@ const updateUserSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-// GET /api/users/managers — lightweight list of active managers.
+// GET /api/users/managers - lightweight list of active managers.
 // Used by the ION recipient picker (MANAGER/LAB).
 router.get('/managers', authenticate, authorize('MANAGER', 'LAB', 'ADMIN'), async (req, res) => {
   try {
@@ -55,7 +55,7 @@ router.get('/managers', authenticate, authorize('MANAGER', 'LAB', 'ADMIN'), asyn
 router.get('/', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
     const users = await prisma.user.findMany({
-      // Hidden roles (SUPERADMIN, DATA_EDITOR) are never returned here — only a
+      // Hidden roles (SUPERADMIN, DATA_EDITOR) are never returned here - only a
       // SUPERADMIN session sees everything; everyone else (incl. ADMIN) can't.
       where: req.user.role === 'SUPERADMIN' ? {} : { role: { notIn: HIDDEN_ROLES } },
       select: {
@@ -124,7 +124,7 @@ router.put('/:id', authenticate, authorize('ADMIN'), auditLog('UPDATE', 'User'),
     const targetUser = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!targetUser) return res.status(404).json({ error: 'User not found' });
 
-    // ── Fixed admins are completely protected — no modifications allowed ──
+    // ── Fixed admins are completely protected - no modifications allowed ──
     if (FIXED_ADMIN_USERNAMES.includes(targetUser.username)) {
       return res.status(403).json({ error: 'This is a fixed admin account and cannot be modified' });
     }

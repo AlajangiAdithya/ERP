@@ -2,27 +2,27 @@
 // Work Order Closure schedulers (per-cycle + per-WO).
 //
 // Closure cycles live in WorkOrderClosure. Three timers run during the lifecycle:
-//   • 48h SLA (stage = INVOICE_SENT) — Finance must get the signed delivery
+//   • 48h SLA (stage = INVOICE_SENT) - Finance must get the signed delivery
 //     paper back and acknowledge it before this expires.
-//   • 45-day payment window (stage = DELIVERY_ACKNOWLEDGED) — Accounts must
+//   • 45-day payment window (stage = DELIVERY_ACKNOWLEDGED) - Accounts must
 //     collect payment before paymentDueAt or the cycle is "delayed".
-//   • Weekly follow-up reminder during DELIVERY_ACKNOWLEDGED — admins/accounts
+//   • Weekly follow-up reminder during DELIVERY_ACKNOWLEDGED - admins/accounts
 //     contact the customer once a week and log the conversation.
 //
 // And on the WorkOrder itself:
-//   • 3-month PDC alert — fires once when the PDC date is <= 90 days away.
+//   • 3-month PDC alert - fires once when the PDC date is <= 90 days away.
 //     Admin acknowledges with a note and the alert stops.
 //
 // Scheduled jobs:
-//   1. run24hReminder()       — hourly. 48h SLA pre-expiry reminder.
-//   2. runSlaBreachCheck()    — every 30 min. 48h SLA breach flag.
-//   3. runPaymentBreachCheck()— every 30 min. 45-day payment window breach.
-//   4. runWeeklyFollowupNotify() — hourly. Tells Accounts to do this week's
+//   1. run24hReminder()       - hourly. 48h SLA pre-expiry reminder.
+//   2. runSlaBreachCheck()    - every 30 min. 48h SLA breach flag.
+//   3. runPaymentBreachCheck()- every 30 min. 45-day payment window breach.
+//   4. runWeeklyFollowupNotify() - hourly. Tells Accounts to do this week's
 //      customer follow-up if the previous one is >= 7 days old.
-//   5. runPdcAlertNotify()    — daily. Fires the 3-month PDC alert to admins
+//   5. runPdcAlertNotify()    - daily. Fires the 3-month PDC alert to admins
 //      once per WO when it enters the alert window.
 //
-// All jobs are idempotent — re-running within the cron window is safe.
+// All jobs are idempotent - re-running within the cron window is safe.
 // QC and MANAGER are deliberately NOT notified: payment/SLA is finance/admin scope.
 // ────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ const WEEKLY_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 7d
 const PDC_ALERT_DAYS = 90;
 const FINANCE_ROLES = ['FINANCE', 'ACCOUNTING'];
 
-const SYSTEM_USER_ID = null; // notifications without a sender — system-generated
+const SYSTEM_USER_ID = null; // notifications without a sender - system-generated
 
 const fetchL5Ids = async () => {
   const rows = await prisma.user.findMany({
@@ -77,7 +77,7 @@ async function run24hReminder(now = new Date()) {
       0,
       Math.round((new Date(c.slaDeadlineAt).getTime() - now.getTime()) / (1000 * 60 * 60)),
     );
-    const title = `WO ${c.workOrder.workOrderNumber} cycle #${c.cycleNumber} — ${hoursLeft}h left on SLA`;
+    const title = `WO ${c.workOrder.workOrderNumber} cycle #${c.cycleNumber} - ${hoursLeft}h left on SLA`;
     const message = `Invoice ${c.invoiceNumber || '(no number)'} to ${c.workOrder.customerName}. SLA window ends ${new Date(c.slaDeadlineAt).toLocaleString('en-IN')}. Please follow up if not yet cleared.`;
     const rows = [];
     for (const userId of l5Ids) {
@@ -116,7 +116,7 @@ async function runSlaBreachCheck(now = new Date()) {
   const l5Ids = await fetchL5Ids();
 
   for (const c of breached) {
-    const title = `WO ${c.workOrder.workOrderNumber} cycle #${c.cycleNumber} — SLA BREACHED`;
+    const title = `WO ${c.workOrder.workOrderNumber} cycle #${c.cycleNumber} - SLA BREACHED`;
     const message = `48h SLA expired at ${new Date(c.slaDeadlineAt).toLocaleString('en-IN')} (invoice ${c.invoiceNumber || '(no number)'}, customer ${c.workOrder.customerName}). Escalation required.`;
     const rows = [];
     for (const userId of l5Ids) {
@@ -134,7 +134,7 @@ async function runSlaBreachCheck(now = new Date()) {
   return { breached: breached.length };
 }
 
-// 45-day payment window — flag delayed once when due date passes.
+// 45-day payment window - flag delayed once when due date passes.
 async function runPaymentBreachCheck(now = new Date()) {
   const delayed = await prisma.workOrderClosure.findMany({
     where: {
@@ -155,7 +155,7 @@ async function runPaymentBreachCheck(now = new Date()) {
   const l5Ids = await fetchL5Ids();
 
   for (const c of delayed) {
-    const title = `WO ${c.workOrder.workOrderNumber} cycle #${c.cycleNumber} — Payment DELAYED (45d window expired)`;
+    const title = `WO ${c.workOrder.workOrderNumber} cycle #${c.cycleNumber} - Payment DELAYED (45d window expired)`;
     const message = `45-day payment window expired on ${new Date(c.paymentDueAt).toLocaleString('en-IN')} for invoice ${c.invoiceNumber || '(no number)'}, customer ${c.workOrder.customerName}. Escalate collection.`;
     const rows = [];
     for (const userId of l5Ids) {
@@ -201,7 +201,7 @@ async function runWeeklyFollowupNotify(now = new Date()) {
     const daysLeft = c.paymentDueAt
       ? Math.ceil((new Date(c.paymentDueAt).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
       : null;
-    const title = `WO ${c.workOrder.workOrderNumber} cycle #${c.cycleNumber} — Weekly customer follow-up due`;
+    const title = `WO ${c.workOrder.workOrderNumber} cycle #${c.cycleNumber} - Weekly customer follow-up due`;
     const tail = daysLeft != null
       ? (daysLeft >= 0 ? `${daysLeft} day(s) left in 45-day window.` : `Payment window expired ${Math.abs(daysLeft)} day(s) ago.`)
       : '';
@@ -219,7 +219,7 @@ async function runWeeklyFollowupNotify(now = new Date()) {
   return { notified: candidates.length };
 }
 
-// 3-month PDC alert — fires once per WO when PDC date enters the alert window.
+// 3-month PDC alert - fires once per WO when PDC date enters the alert window.
 // BOTH the admin AND the assigned unit's manager must each file a remark
 // (extension needed / issues / status) to clear the blinking alert.
 async function runPdcAlertNotify(now = new Date()) {
@@ -244,7 +244,7 @@ async function runPdcAlertNotify(now = new Date()) {
   for (const wo of candidates) {
     if (wo.pdc3MonthAlertNotifiedAt) continue; // one-shot
     const daysLeft = Math.ceil((new Date(wo.pdcDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    const title = `WO ${wo.workOrderNumber} — PDC due in ${daysLeft} day(s)`;
+    const title = `WO ${wo.workOrderNumber} - PDC due in ${daysLeft} day(s)`;
     const message = `PDC for ${wo.customerName} expires on ${new Date(wo.pdcDate).toLocaleDateString('en-IN')}. Admin AND the unit manager must each write a status remark (extension needed / issues) from the Work Order to stop the alert.`;
     const rows = [
       { type: 'WO_PDC_3MONTH_ALERT', title, message, targetRole: 'ADMIN', sentById: SYSTEM_USER_ID },
@@ -261,7 +261,7 @@ async function runPdcAlertNotify(now = new Date()) {
 }
 
 function startSchedulers() {
-  // Hourly at minute 5 — 48h SLA reminder.
+  // Hourly at minute 5 - 48h SLA reminder.
   cron.schedule('5 * * * *', async () => {
     try {
       const out = await run24hReminder();
@@ -271,7 +271,7 @@ function startSchedulers() {
     }
   });
 
-  // Every 30 minutes — 48h SLA breach.
+  // Every 30 minutes - 48h SLA breach.
   cron.schedule('*/30 * * * *', async () => {
     try {
       const out = await runSlaBreachCheck();
@@ -281,7 +281,7 @@ function startSchedulers() {
     }
   });
 
-  // Every 30 minutes at :15 — 45-day payment breach.
+  // Every 30 minutes at :15 - 45-day payment breach.
   cron.schedule('15,45 * * * *', async () => {
     try {
       const out = await runPaymentBreachCheck();
@@ -291,7 +291,7 @@ function startSchedulers() {
     }
   });
 
-  // Hourly at minute 20 — weekly follow-up nudge.
+  // Hourly at minute 20 - weekly follow-up nudge.
   cron.schedule('20 * * * *', async () => {
     try {
       const out = await runWeeklyFollowupNotify();
@@ -301,7 +301,7 @@ function startSchedulers() {
     }
   });
 
-  // Daily at 09:10 IST-ish — 3-month PDC alert.
+  // Daily at 09:10 IST-ish - 3-month PDC alert.
   cron.schedule('10 9 * * *', async () => {
     try {
       const out = await runPdcAlertNotify();
@@ -311,7 +311,7 @@ function startSchedulers() {
     }
   });
 
-  // Every 10 minutes — recompute WO alarms across all live WOs.
+  // Every 10 minutes - recompute WO alarms across all live WOs.
   cron.schedule('*/10 * * * *', async () => {
     try {
       const out = await syncAllAlarms();

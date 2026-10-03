@@ -3,7 +3,7 @@ import { tatStatus, tatBadgeClass, formatElapsed } from '../../utils/tat';
 
 // Small ageing pill for a pending task. Yellow past the warn window (24h),
 // red past the breach window (48h). Renders nothing while on-time unless
-// `showOk` is set. Re-computes from `since` on each render — parents that
+// `showOk` is set. Re-computes from `since` on each render - parents that
 // want a live countdown should re-render periodically (lists refetch on poll).
 //
 //   <TatBadge since={wo.createdAt} label="pending admin" />
@@ -23,9 +23,9 @@ export default function TatBadge({
   const Icon = level === 'breach' ? AlertTriangle : level === 'warn' ? Timer : Clock;
   const elapsed = formatElapsed(hours);
   const tip = level === 'breach'
-    ? `Overdue — pending ${elapsed} (over ${breachHours}h SLA)`
+    ? `Overdue - pending ${elapsed} (over ${breachHours}h SLA)`
     : level === 'warn'
-      ? `Ageing — pending ${elapsed} (over ${warnHours}h)`
+      ? `Ageing - pending ${elapsed} (over ${warnHours}h)`
       : `Pending ${elapsed}`;
 
   return (

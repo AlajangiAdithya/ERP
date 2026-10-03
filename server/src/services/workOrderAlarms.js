@@ -116,7 +116,7 @@ function computeDesiredAlarms(wo, now = new Date()) {
           type: 'PAYMENT_OVERDUE',
           severity: 'CRITICAL',
           title: `Lot #${c.cycleNumber} payment overdue by ${Math.abs(daysLeft)} day(s)`,
-          triggerContext: `Invoice ${c.invoiceNumber || ''} — 45-day window expired ${new Date(c.paymentDueAt).toISOString().slice(0, 10)}.`,
+          triggerContext: `Invoice ${c.invoiceNumber || ''} - 45-day window expired ${new Date(c.paymentDueAt).toISOString().slice(0, 10)}.`,
         });
       } else if (daysLeft <= PAY_DUE_SOON_DAYS) {
         desired.push({
@@ -124,7 +124,7 @@ function computeDesiredAlarms(wo, now = new Date()) {
           type: 'PAYMENT_DUE_SOON',
           severity: 'INFO',
           title: `Lot #${c.cycleNumber} payment due in ${daysLeft} day(s)`,
-          triggerContext: `Invoice ${c.invoiceNumber || ''} — pay window ends ${new Date(c.paymentDueAt).toISOString().slice(0, 10)}.`,
+          triggerContext: `Invoice ${c.invoiceNumber || ''} - pay window ends ${new Date(c.paymentDueAt).toISOString().slice(0, 10)}.`,
         });
       }
     }
@@ -190,7 +190,7 @@ async function syncAlarmsForWO(workOrderId, now = new Date()) {
           notes: {
             create: {
               authorId: existing.acknowledgedById || existing.resolvedById || (await getSystemUserId()),
-              body: 'Auto-resolved by system — trigger no longer applies.',
+              body: 'Auto-resolved by system - trigger no longer applies.',
               kind: 'SYSTEM',
             },
           },

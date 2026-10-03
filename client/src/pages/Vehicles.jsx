@@ -25,7 +25,7 @@ const STATUS_BADGE = {
   OPEN: 'yellow',
 };
 
-const STATUS_LABEL = (s) => (s || '—').replace(/_/g, ' ');
+const STATUS_LABEL = (s) => (s || '-').replace(/_/g, ' ');
 
 const STATUS_OPTS = [
   { value: 'ACTIVE', label: 'Active' },
@@ -33,7 +33,7 @@ const STATUS_OPTS = [
   { value: 'MAINTENANCE', label: 'In Maintenance' },
 ];
 const TYPE_OPTS = [
-  { value: '', label: '—' },
+  { value: '', label: '-' },
   { value: 'TRUCK', label: 'Truck' },
   { value: 'VAN', label: 'Van' },
   { value: 'PICKUP', label: 'Pickup' },
@@ -41,7 +41,7 @@ const TYPE_OPTS = [
   { value: 'BIKE', label: 'Bike' },
 ];
 const OWNER_TYPE_OPTS = [
-  { value: '', label: '—' },
+  { value: '', label: '-' },
   { value: 'OWNED', label: 'Owned' },
   { value: 'HIRED', label: 'Hired' },
 ];
@@ -254,12 +254,12 @@ export default function Vehicles() {
                        </div>
                        {v.activeTrip && <div className="text-[10px] text-blue-600 font-medium">Trip: {v.activeTrip.tripNumber}</div>}
                     </td>
-                    <td className="px-3 py-2 text-gray-700">{v.vehicleType || '—'}</td>
+                    <td className="px-3 py-2 text-gray-700">{v.vehicleType || '-'}</td>
                     <td className="px-3 py-2 text-gray-700">
-                      {[v.make, v.model].filter(Boolean).join(' ') || '—'}
+                      {[v.make, v.model].filter(Boolean).join(' ') || '-'}
                     </td>
                     <td className="px-3 py-2 text-gray-700">
-                      {v.driverName || '—'}
+                      {v.driverName || '-'}
                       {v.driverPhone && <div className="text-[10px] text-gray-500">{v.driverPhone}</div>}
                     </td>
                     <td className="px-3 py-2"><Badge color={statusBadge(v.status)}>{v.status}</Badge></td>
@@ -309,9 +309,9 @@ export default function Vehicles() {
                          </div>
                        )}
                     </td>
-                    <td className="px-3 py-2 text-gray-700">{d.phone || '—'}</td>
+                    <td className="px-3 py-2 text-gray-700">{d.phone || '-'}</td>
                     <td className="px-3 py-2 text-gray-700">
-                      <div className="font-mono text-xs">{d.licenseNo || '—'}</div>
+                      <div className="font-mono text-xs">{d.licenseNo || '-'}</div>
                       {d.licenseExpiry && <div className="text-[10px] text-gray-500">exp {formatDate(d.licenseExpiry)}</div>}
                     </td>
                     <td className="px-3 py-2"><Badge color={statusBadge(d.status)}>{d.status}</Badge></td>
@@ -483,7 +483,7 @@ function VehicleDetail({ vehicleId, onBack }) {
             <Row label="Type" value={v.vehicleType} />
             <Row label="Make" value={v.make} />
             <Row label="Model" value={v.model} />
-            <Row label="Capacity" value={v.capacityKg ? `${v.capacityKg} kg` : '—'} />
+            <Row label="Capacity" value={v.capacityKg ? `${v.capacityKg} kg` : '-'} />
             <Row label="Owner" value={v.ownerType} />
             <Row label="Status" value={<Badge color={statusBadge(v.status)}>{v.status}</Badge>} />
           </div>
@@ -563,20 +563,20 @@ function VehicleDetail({ vehicleId, onBack }) {
                       <td className="px-3 py-2 font-mono text-navy-700">{g.passNumber}</td>
                       <td className="px-3 py-2">{formatDate(g.date)}</td>
                       <td className="px-3 py-2">
-                        {g.kind ? <Badge color={g.kind === 'OUTSIDE' ? 'blue' : 'purple'}>{g.kind}</Badge> : '—'}
+                        {g.kind ? <Badge color={g.kind === 'OUTSIDE' ? 'blue' : 'purple'}>{g.kind}</Badge> : '-'}
                         {g.passType && <div className="text-[10px] text-gray-500 mt-0.5">{g.passType}</div>}
                       </td>
                       <td className="px-3 py-2 text-gray-700 max-w-[10rem] truncate" title={g.jobWorkNo || ''}>
-                        {g.jobWorkNo || '—'}
+                        {g.jobWorkNo || '-'}
                       </td>
                       <td className="px-3 py-2 text-gray-700 max-w-[14rem] truncate" title={g.partyName || ''}>
-                        {g.partyName || '—'}
+                        {g.partyName || '-'}
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-600">
-                        {g.dispatchedAt ? formatDateTime(g.dispatchedAt) : '—'}
+                        {g.dispatchedAt ? formatDateTime(g.dispatchedAt) : '-'}
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-600">
-                        {formatDate(g.reachedDate || g.actualReturnDate) || '—'}
+                        {formatDate(g.reachedDate || g.actualReturnDate) || '-'}
                       </td>
                       <td className="px-3 py-2">
                         <Badge color={STATUS_BADGE[g.status] || 'gray'}>{STATUS_LABEL(g.status)}</Badge>
@@ -615,7 +615,7 @@ function Row({ label, value, mono }) {
   return (
     <div className="flex justify-between gap-3">
       <span className="text-gray-500">{label}</span>
-      <span className={`text-gray-800 ${mono ? 'font-mono' : ''}`}>{value || '—'}</span>
+      <span className={`text-gray-800 ${mono ? 'font-mono' : ''}`}>{value || '-'}</span>
     </div>
   );
 }
@@ -659,13 +659,13 @@ function TripsSection({ trips }) {
                 <tr key={t.id} className="hover:bg-gray-50">
                   <td className="px-3 py-2 font-mono text-navy-700">{t.tripNumber}</td>
                   <td className="px-3 py-2 text-gray-700">
-                    {t.driver?.name || t.driverNameSnap || '—'}
+                    {t.driver?.name || t.driverNameSnap || '-'}
                     {(t.driver?.phone || t.driverPhoneSnap) && (
                       <div className="text-[10px] text-gray-500">{t.driver?.phone || t.driverPhoneSnap}</div>
                     )}
                   </td>
                   <td className="px-3 py-2 text-gray-700">
-                    {[t.purpose, t.destination].filter(Boolean).join(' → ') || '—'}
+                    {[t.purpose, t.destination].filter(Boolean).join(' → ') || '-'}
                   </td>
                   <td className="px-3 py-2 text-gray-700 text-xs">
                     {t.gatePasses?.length
@@ -673,10 +673,10 @@ function TripsSection({ trips }) {
                       : <span className="italic text-gray-400">ad-hoc</span>}
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-600">
-                    {t.dispatchedAt ? formatDateTime(t.dispatchedAt) : '—'}
+                    {t.dispatchedAt ? formatDateTime(t.dispatchedAt) : '-'}
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-600">
-                    {t.returnedAt ? formatDateTime(t.returnedAt) : '—'}
+                    {t.returnedAt ? formatDateTime(t.returnedAt) : '-'}
                   </td>
                   <td className="px-3 py-2">
                     <Badge color={TRIP_BADGE[t.status] || 'gray'}>{t.status}</Badge>
@@ -742,7 +742,7 @@ function AdhocTripModal({ vehicles, onClose, onSaved }) {
         {err && <div className="text-sm text-brand-red">{err}</div>}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Select label="Vehicle *" value={vehicleId} onChange={(e) => setVehicleId(e.target.value)}>
-            <option value="">— Select —</option>
+            <option value="">- Select -</option>
             {activeVehicles.map((v) => (
               <option key={v.id} value={v.id}>
                 {v.regNumber}{v.make ? ` · ${v.make}${v.model ? ' ' + v.model : ''}` : ''}
@@ -750,7 +750,7 @@ function AdhocTripModal({ vehicles, onClose, onSaved }) {
             ))}
           </Select>
           <Select label="Driver" value={driverId} onChange={(e) => setDriverId(e.target.value)}>
-            <option value="">— Optional —</option>
+            <option value="">- Optional -</option>
             {drivers.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}{d.phone ? ` · ${d.phone}` : ''}

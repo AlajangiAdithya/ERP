@@ -44,7 +44,7 @@ const STATUS_META = {
   ON_HOLD:        { color: 'red',    label: 'On Hold',          Icon: PauseCircle },
 };
 
-// When a WO is waiting on someone to act, this is when the wait started — drives
+// When a WO is waiting on someone to act, this is when the wait started - drives
 // the turnaround ageing badge (yellow ≥24h, red ≥48h) in the lists.
 const woPendingSince = (w) =>
   w?.status === 'PENDING_ADMIN' ? w.createdAt
@@ -64,13 +64,13 @@ const CLOSED_ORDER_STATUSES = ['COMPLETED', 'CLOSED'];
 // Lot (closure cycle) stage display. Finance-side stages are only shown to
 // admins / FINANCE / ACCOUNTING (server sanitises them for MANAGER/QC).
 const CYCLE_STAGE_META = {
-  UNIT_DOCS_PENDING:     { color: 'yellow', label: 'With QC — verification pending' },
-  QC_VERIFIED:           { color: 'blue',   label: 'QC Approved — Finance pending' },
+  UNIT_DOCS_PENDING:     { color: 'yellow', label: 'With QC - verification pending' },
+  QC_VERIFIED:           { color: 'blue',   label: 'QC Approved - Finance pending' },
   MGMT_APPROVED:         { color: 'blue',   label: 'Finance pending' }, // legacy stage, same treatment
-  ON_HOLD:               { color: 'red',    label: 'On Hold — back with unit' },
+  ON_HOLD:               { color: 'red',    label: 'On Hold - back with unit' },
   INVOICE_SENT:          { color: 'amber',  label: 'Invoice + DC Sent (48h goods-ack)' },
   DELIVERY_ACKNOWLEDGED: { color: 'purple', label: 'Goods Acked (45-day payment countdown)' },
-  PAYMENT_RECEIVED:      { color: 'green',  label: 'Paid — Lot Closed' },
+  PAYMENT_RECEIVED:      { color: 'green',  label: 'Paid - Lot Closed' },
 };
 
 // One lot = one report PDF. That single document is what QC verifies.
@@ -106,9 +106,9 @@ const qcCertData = (wo, cycle) => ({
 
 // Compact, locale-aware number for stat cards and qty columns (avoids long
 // trailing decimals like 3.5999999 → "3.6").
-const fmtQty = (n) => (n == null ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }));
+const fmtQty = (n) => (n == null ? '-' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }));
 
-// Best-effort "Type of Order" (Material / Service) — captured in remarks on
+// Best-effort "Type of Order" (Material / Service) - captured in remarks on
 // import ("Type of Order: Service"). Returns null when not present so the Type
 // filter only appears once there is real data to filter on.
 const orderType = (wo) => {
@@ -158,7 +158,7 @@ export default function WorkOrders() {
   const [workflowOpen, setWorkflowOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Deep link — the PDC radar (and any other page) can open a specific WO with
+  // Deep link - the PDC radar (and any other page) can open a specific WO with
   // ?wo=<id>; we pop the detail modal straight away and clear the param on close.
   useEffect(() => {
     const woId = searchParams.get('wo');
@@ -174,7 +174,7 @@ export default function WorkOrders() {
   };
 
   // ── Filters (all client-side so every option is auto-derived from the data
-  // and filtering is instant — no refetch needed). ──
+  // and filtering is instant - no refetch needed). ──
   const [activeTab, setActiveTab] = useState('ALL'); // status
   const [search, setSearch] = useState('');
   const [customer, setCustomer] = useState('ALL');
@@ -279,7 +279,7 @@ export default function WorkOrders() {
 
   // ── Summary stats over the *filtered* set so the numbers always match what
   // is on screen. Deadline pressure (overdue / due soon), per-order completion
-  // and unit coverage are what tracking needs — raw qty sums across unrelated
+  // and unit coverage are what tracking needs - raw qty sums across unrelated
   // materials hide all of that. ──
   const summary = useMemo(() => {
     const DAY = 86400000;
@@ -378,8 +378,32 @@ export default function WorkOrders() {
     return arr;
   }, [visible, sortBy]);
 
-  // ── Export the currently visible (filtered + sorted) work orders to CSV so
-  // they can be opened in Excel / shared. ──
+  // ── Human-readable list of every filter currently narrowing the list. Drives
+  // both the export's header block and its filename, so a downloaded file always
+  // says which slice of the data it is. ──
+  const activeFilterLabels = useMemo(() => {
+    const unitLabel =
+      unitId === 'NONE' ? 'Not assigned'
+        : unitId.startsWith('NAME:') ? `${unitId.slice(5)} (sheet)`
+          : unitOptions.find((u) => u.id === unitId)?.name || unitId;
+    const bits = [];
+    if (activeTab !== 'ALL') {
+      bits.push(`Status: ${activeTab === 'CLOSED_ORDERS' ? 'Orders Closed' : STATUS_META[activeTab]?.label || activeTab}`);
+    }
+    if (customer !== 'ALL') bits.push(`Customer: ${customer}`);
+    if (unitId !== 'ALL') bits.push(`Unit: ${unitLabel}`);
+    if (type !== 'ALL') bits.push(`Order type: ${type}`);
+    if (fromDate || toDate) bits.push(`Order date: ${fromDate || 'any'} to ${toDate || 'any'}`);
+    if (search.trim()) bits.push(`Search: ${search.trim()}`);
+    if (quickFilter && QUICK_FILTERS[quickFilter]) bits.push(QUICK_FILTERS[quickFilter].label);
+    return bits;
+  }, [activeTab, customer, unitId, type, fromDate, toDate, search, quickFilter, unitOptions]);
+
+  // ── Export exactly the rows on screen (every filter + the card drill-down +
+  // the active sort), never the whole table. The workbook opens with a short
+  // header block spelling out the filters and the row count so there is no doubt
+  // about which slice it holds, and the filename carries the filters + a
+  // timestamp so a second export never collides with an earlier download. ──
   const exportCsv = () => {
     const cell = (v) => {
       const s = v == null ? '' : String(v);
@@ -396,14 +420,43 @@ export default function WorkOrders() {
       w.orderQuantity, w.deliveredQty, formatDate(w.effectivePdcDate),
       w.overdue ? 'YES' : '', formatDate(w.supplyOrderDate),
     ]);
-    const csv = [headers, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
+
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const sortLabel = SORT_OPTIONS.find((o) => o.value === sortBy)?.label || sortBy;
+    const meta = [
+      ['Work Orders export'],
+      ['Generated', formatDateTime(now)],
+      ['Filters', activeFilterLabels.length ? activeFilterLabels.join(' | ') : 'None - all work orders'],
+      ['Sorted by', sortLabel],
+      ['Work orders in this file', `${rows.length} of ${workOrders.length}`],
+      [],
+    ];
+
+    const csv = [...meta, headers, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
     const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' });
+
+    // Filters go in the name too - exporting twice in one day used to produce
+    // "work-orders-<date>.csv" and "…(1).csv", which is how a stale unfiltered
+    // download gets opened in place of the new one.
+    const slug = (s) => String(s).split(':').pop().trim().toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const filterSlug = activeFilterLabels.map(slug).filter(Boolean).join('_')
+      .slice(0, 80).replace(/[-_]+$/, '') || 'all';
+    const fileName = `work-orders_${filterSlug}`
+      + `_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+      + `_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.csv`;
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `work-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = fileName;
+    a.rel = 'noopener';
+    // Attached + revoked on the next tick: a detached anchor is ignored by some
+    // browsers, and revoking synchronously can cancel the download mid-flight.
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
   };
 
   return (
@@ -429,7 +482,7 @@ export default function WorkOrders() {
 
       {workflowOpen && <WorkOrderWorkflowModal onClose={() => setWorkflowOpen(false)} />}
 
-      {/* Stats — deadline pressure first (overdue / due soon), then order-level
+      {/* Stats - deadline pressure first (overdue / due soon), then order-level
           completion and unit coverage. All figures track the active filters,
           so they always match the list. */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -455,7 +508,7 @@ export default function WorkOrders() {
         <StatsCard
           title="Due in 7 Days"
           value={fmtQty(summary.due7)}
-          subtitle="PDC this week — act now"
+          subtitle="PDC this week - act now"
           icon={Timer}
           color={summary.due7 > 0 ? 'yellow' : 'green'}
           onClick={() => toggleQuick('due7')}
@@ -539,7 +592,9 @@ export default function WorkOrders() {
               type="button"
               onClick={exportCsv}
               disabled={!visible.length}
-              title="Download the visible work orders as a CSV"
+              title={activeFilterLabels.length
+                ? `Download the ${visible.length} filtered work order${visible.length === 1 ? '' : 's'} as a CSV (${activeFilterLabels.join(' | ')})`
+                : `Download all ${visible.length} work orders as a CSV`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-navy-200 bg-white px-3 py-1.5 text-xs font-semibold text-navy-700 shadow-sm transition hover:bg-navy-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download size={14} /> Export
@@ -556,7 +611,7 @@ export default function WorkOrders() {
               <button
                 onClick={() => setView('sheet')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${view === 'sheet' ? 'bg-white shadow text-navy-800' : 'text-navy-600 hover:text-navy-800'}`}
-                title="Full Excel-style sheet — who updated what & when, approvals, PDC extensions"
+                title="Full Excel-style sheet - who updated what & when, approvals, PDC extensions"
               >
                 <Sheet size={13} className="inline mr-1" /> Full View
               </button>
@@ -588,7 +643,7 @@ export default function WorkOrders() {
           })}
         </div>
 
-        {/* Always-visible meta line — clear filters + active card drill-down + live result count. */}
+        {/* Always-visible meta line - clear filters + active card drill-down + live result count. */}
         <div className="flex flex-wrap items-center gap-3">
           {activeFilterCount > 0 && (
             <Button variant="ghost" onClick={clearFilters} className="text-xs">
@@ -614,7 +669,7 @@ export default function WorkOrders() {
           </div>
         </div>
 
-        {/* Advanced filters — collapsed by default (progressive disclosure). */}
+        {/* Advanced filters - collapsed by default (progressive disclosure). */}
         {showFilters && (
           <div className="flex flex-wrap items-end gap-3 pt-3 border-t border-gray-100">
             <Select
@@ -707,7 +762,7 @@ export default function WorkOrders() {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Dashboard — wide row-cards. Every WO renders as a full-width card
+// Dashboard - wide row-cards. Every WO renders as a full-width card
 // showing ALL of the client-specified columns (no horizontal scroll)
 // plus a creative alarm strip at the bottom of each row.
 // ────────────────────────────────────────────────────────────────────
@@ -735,7 +790,7 @@ const ALARM_SEVERITY_META = {
   },
 };
 
-// "Orders Closed" tab body — one bucket, two labelled groups: delivered-but-
+// "Orders Closed" tab body - one bucket, two labelled groups: delivered-but-
 // unpaid (COMPLETED) on top, then fully-paid (CLOSED). Each group reuses the same
 // row/sheet renderer as the main list so cards look identical everywhere.
 function ClosedOrdersGroups({ workOrders, view, onOpen }) {
@@ -761,13 +816,13 @@ function ClosedOrdersGroups({ workOrders, view, onOpen }) {
   return (
     <div className="space-y-6">
       <Group
-        title="Delivered — Payment Pending"
+        title="Delivered - Payment Pending"
         subtitle="All items delivered; awaiting full payment"
         tone="border-l-amber-500 bg-amber-50/60"
         items={pending}
       />
       <Group
-        title="Fully Paid — Closed"
+        title="Fully Paid - Closed"
         subtitle="Delivered and completely paid"
         tone="border-l-green-500 bg-green-50/60"
         items={paid}
@@ -808,7 +863,7 @@ function DashboardTable({ workOrders, onOpen }) {
             className={`p-0 cursor-pointer hover:shadow-lg transition border-l-4 ${accentBorder}`}
             onClick={() => onOpen(w)}
           >
-            {/* Header strip — customer + status on top, then a dedicated full-width
+            {/* Header strip - customer + status on top, then a dedicated full-width
                 identity line so the long supply order number has room to breathe. */}
             <div className="px-4 py-2.5 bg-gradient-to-r from-navy-50 to-white border-b border-gray-100">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -855,17 +910,17 @@ function DashboardTable({ workOrders, onOpen }) {
               </div>
             </div>
 
-            {/* Main grid — supply order number now lives in the header strip, so
+            {/* Main grid - supply order number now lives in the header strip, so
                 these fields get more breathing room (no more congestion). */}
             <div className="px-4 py-3 grid grid-cols-12 gap-x-4 gap-y-3 text-xs">
               <Field label="Materials" className="col-span-6 sm:col-span-3">
                 {w.items?.length ? (
-                  <div className="text-navy-800 line-clamp-2" title={w.items.map((it) => `${it.description} — ${it.quantity} ${it.uom}`).join('; ')}>
+                  <div className="text-navy-800 line-clamp-2" title={w.items.map((it) => `${it.description} - ${it.quantity} ${it.uom}`).join('; ')}>
                     {w.items.length === 1
                       ? w.items[0].description
                       : `${w.items.length} materials`}
                   </div>
-                ) : <span className="text-navy-400">—</span>}
+                ) : <span className="text-navy-400">-</span>}
                 <div className="text-navy-500 mt-0.5">
                   <span className="font-semibold text-navy-800 tnum">{fmtQty(w.deliveredQty)}</span>
                   <span> / {fmtQty(w.orderQuantity)} {w.orderUnit} delivered</span>
@@ -879,7 +934,7 @@ function DashboardTable({ workOrders, onOpen }) {
                 </div>
                 {ext && (
                   <div className="text-[10px] text-navy-500">
-                    Req:{ext.requestLetterStatus || '—'} · PRC:{ext.prcStatus || '—'}
+                    Req:{ext.requestLetterStatus || '-'} · PRC:{ext.prcStatus || '-'}
                   </div>
                 )}
               </Field>
@@ -906,17 +961,17 @@ function DashboardTable({ workOrders, onOpen }) {
                 {w.bankGuaranteeNo ? (
                   <>
                     <div className="font-mono text-[11px] text-navy-800 truncate" title={w.bankGuaranteeNo}>{w.bankGuaranteeNo}</div>
-                    <div className="text-navy-500">{w.bankGuaranteeDate ? formatDate(w.bankGuaranteeDate) : '—'}</div>
+                    <div className="text-navy-500">{w.bankGuaranteeDate ? formatDate(w.bankGuaranteeDate) : '-'}</div>
                   </>
-                ) : <span className="text-navy-400">—</span>}
+                ) : <span className="text-navy-400">-</span>}
               </Field>
               <Field label="Insurance" className="col-span-6 sm:col-span-2">
                 {w.insuranceNo ? (
                   <>
                     <div className="font-mono text-[11px] text-navy-800 truncate" title={w.insuranceNo}>{w.insuranceNo}</div>
-                    <div className="text-navy-500">{w.insuranceDate ? formatDate(w.insuranceDate) : '—'}</div>
+                    <div className="text-navy-500">{w.insuranceDate ? formatDate(w.insuranceDate) : '-'}</div>
                   </>
-                ) : <span className="text-navy-400">—</span>}
+                ) : <span className="text-navy-400">-</span>}
               </Field>
 
               {/* Row 2: lots progress + delivery + remarks */}
@@ -937,17 +992,17 @@ function DashboardTable({ workOrders, onOpen }) {
               </Field>
               <Field label="Delivery Details" className="col-span-5">
                 <div className="text-navy-700 line-clamp-2" title={w.deliveryDetails || ''}>
-                  {w.deliveryDetails || <span className="text-navy-400">—</span>}
+                  {w.deliveryDetails || <span className="text-navy-400">-</span>}
                 </div>
               </Field>
               <Field label="Remarks" className="col-span-4">
                 <div className="text-navy-700 line-clamp-2" title={w.remarks || ''}>
-                  {w.remarks || <span className="text-navy-400">—</span>}
+                  {w.remarks || <span className="text-navy-400">-</span>}
                 </div>
               </Field>
             </div>
 
-            {/* Alarms strip — creative pulse chips at the bottom */}
+            {/* Alarms strip - creative pulse chips at the bottom */}
             {activeAlarms.length > 0 && (
               <div className="px-4 py-2 border-t border-gray-100 bg-gradient-to-r from-rose-50/50 via-amber-50/50 to-white flex flex-wrap items-center gap-2">
                 <span className="text-[10px] uppercase tracking-wider font-semibold text-navy-600 inline-flex items-center gap-1">
@@ -988,7 +1043,7 @@ const Field = ({ label, children, className = '' }) => (
 );
 
 // ────────────────────────────────────────────────────────────────────
-// Full View — Excel-style register (horizontal scroll, sticky header +
+// Full View - Excel-style register (horizontal scroll, sticky header +
 // sticky first column, zebra rows). Mirrors the Monitoring & Measuring
 // Resources / FIM status sheets. Surfaces the "who did what, when" audit:
 // who logged it, admin approval + when, unit acceptance + when, the latest
@@ -1045,7 +1100,7 @@ function WorkOrderSheet({ workOrders, onOpen }) {
                   className={`group ${zebra} ${tatTint ? '' : 'hover:bg-navy-50'} transition-colors cursor-pointer`}
                   onClick={() => onOpen(w)}
                 >
-                  {/* # — sticky, with status-coloured accent edge */}
+                  {/* # - sticky, with status-coloured accent edge */}
                   <Std sticky className={`border-l-4 ${accent} text-center text-gray-400 font-mono text-[10px]`}>
                     {i + 1}
                   </Std>
@@ -1097,7 +1152,7 @@ function WorkOrderSheet({ workOrders, onOpen }) {
                   {/* Materials */}
                   <Std nowrap={false} className="max-w-[180px]">
                     {w.items?.length ? (
-                      <div className="text-navy-800 line-clamp-2" title={w.items.map((it) => `${it.description} — ${it.quantity} ${it.uom}`).join('; ')}>
+                      <div className="text-navy-800 line-clamp-2" title={w.items.map((it) => `${it.description} - ${it.quantity} ${it.uom}`).join('; ')}>
                         {w.items.length === 1 ? w.items[0].description : `${w.items.length} materials`}
                       </div>
                     ) : <SDash />}
@@ -1123,7 +1178,7 @@ function WorkOrderSheet({ workOrders, onOpen }) {
                     </div>
                   </Std>
 
-                  {/* Latest PDC extension — done by the assigned unit manager */}
+                  {/* Latest PDC extension - done by the assigned unit manager */}
                   <Std groupEnd nowrap={false} className="max-w-[210px]">
                     {ext ? (
                       <div className="leading-tight">
@@ -1133,14 +1188,14 @@ function WorkOrderSheet({ workOrders, onOpen }) {
                         </div>
                         <div className="text-[10px] text-gray-600 mt-0.5 flex items-center gap-1">
                           <UserCheck size={10} className="text-gray-400" />
-                          {ext.grantedBy?.name || '—'}
+                          {ext.grantedBy?.name || '-'}
                         </div>
                         <div className="text-[10px] text-gray-400">{formatDateTime(ext.grantedAt)}</div>
                         {(ext.bankGuaranteeExtendedUpto || ext.requestLetterStatus || ext.prcStatus) && (
                           <div className="text-[9px] text-gray-500 mt-0.5">
                             {ext.bankGuaranteeExtendedUpto && <>BG→{formatDate(ext.bankGuaranteeExtendedUpto)} </>}
                             {(ext.requestLetterStatus || ext.prcStatus) && (
-                              <>· Req:{ext.requestLetterStatus || '—'} · PRC:{ext.prcStatus || '—'}</>
+                              <>· Req:{ext.requestLetterStatus || '-'} · PRC:{ext.prcStatus || '-'}</>
                             )}
                           </div>
                         )}
@@ -1148,7 +1203,7 @@ function WorkOrderSheet({ workOrders, onOpen }) {
                     ) : <SDash />}
                   </Std>
 
-                  {/* Admin approval — who + when */}
+                  {/* Admin approval - who + when */}
                   <Std nowrap={false} className="max-w-[170px]">
                     {w.adminAcceptedAt ? (
                       <div className="leading-tight">
@@ -1162,7 +1217,7 @@ function WorkOrderSheet({ workOrders, onOpen }) {
                     ) : <Pill tone="amber">Pending</Pill>}
                   </Std>
 
-                  {/* Unit acceptance — who + when */}
+                  {/* Unit acceptance - who + when */}
                   <Std groupEnd nowrap={false} className="max-w-[170px]">
                     {w.unitAcceptedAt ? (
                       <div className="leading-tight">
@@ -1182,7 +1237,7 @@ function WorkOrderSheet({ workOrders, onOpen }) {
                     <div className="text-[10px] text-gray-500">{lotsExpected ? 'sent' : 'sent (open)'}</div>
                   </Std>
 
-                  {/* Last updated — what & when */}
+                  {/* Last updated - what & when */}
                   <Std nowrap={false} className="max-w-[170px]">
                     <div className="text-[10px] text-gray-600">{formatDateTime(w.updatedAt)}</div>
                     {w.deliveryDetailsUpdatedBy?.name && (
@@ -1237,7 +1292,7 @@ function Std({ children, sticky = false, groupEnd = false, nowrap = true, classN
   );
 }
 
-const SDash = () => <span className="text-gray-300 select-none">—</span>;
+const SDash = () => <span className="text-gray-300 select-none">-</span>;
 
 const PILL_TONES = {
   red:   'bg-rose-50 text-rose-700 ring-rose-200',
@@ -1272,7 +1327,7 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
   // BG date auto-tracks PDC + 2 months until the user types their own date.
   const [bgDateTouched, setBgDateTouched] = useState(false);
 
-  // Material line items — S.No / Description / Quantity / UOM. At least one row.
+  // Material line items - S.No / Description / Quantity / UOM. At least one row.
   const [items, setItems] = useState([{ description: '', quantity: '', uom: 'Nos.' }]);
   const setItem = (i, k, v) => setItems((rows) => rows.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
   const addItem = () => setItems((rows) => [...rows, { description: '', quantity: '', uom: 'Nos.' }]);
@@ -1341,7 +1396,7 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
         </Section>
 
         <Section title="Order & Delivery">
-          {/* Material line items — add a row per material. Followed lot-wise through delivery. */}
+          {/* Material line items - add a row per material. Followed lot-wise through delivery. */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-[11px] uppercase tracking-wider font-semibold text-navy-500">Materials *</p>
@@ -1400,7 +1455,7 @@ function CreateWorkOrderModal({ units, onClose, onCreated }) {
           </div>
         </Section>
 
-        <Section title="Bank Guarantee & Insurance (BG date auto = PDC + 2 months — editable)">
+        <Section title="Bank Guarantee & Insurance (BG date auto = PDC + 2 months - editable)">
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <Input label="Bank Guarantee No" value={form.bankGuaranteeNo} onChange={(e) => setField('bankGuaranteeNo', e.target.value)} />
             <Input
@@ -1458,11 +1513,11 @@ function Section({ title, children }) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Edit work order details — the WORK ORDER form fields (scope / specs / dates /
+// Edit work order details - the WORK ORDER form fields (scope / specs / dates /
 // customer) are rarely fully known when Supply Chain releases the order, so they
 // stay editable afterwards. Supply Chain / Admin / Planning and the assigned
 // unit's head may all fill in / correct them. Every change is recorded (see the
-// Edit History tab) — who, when, and exactly what moved.
+// Edit History tab) - who, when, and exactly what moved.
 // BG / Insurance (own history tab), Remarks (own tab) and the closure/finance
 // cycle are intentionally NOT edited here.
 // ────────────────────────────────────────────────────────────────────
@@ -1517,7 +1572,7 @@ function EditWorkOrderModal({ wo, units, currentUser, onClose, onSaved }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  // A PDC move triggers a logged WorkOrderPdcChange — surface an optional reason.
+  // A PDC move triggers a logged WorkOrderPdcChange - surface an optional reason.
   const pdcMoved = toDateInput(wo.pdcDate) !== form.pdcDate;
 
   const submit = async (e) => {
@@ -1560,7 +1615,7 @@ function EditWorkOrderModal({ wo, units, currentUser, onClose, onSaved }) {
           setSubmitting(false);
           return;
         }
-        // Only send when the materials actually changed — avoids replacing rows
+        // Only send when the materials actually changed - avoids replacing rows
         // (and logging a "Materials updated" entry) on every save.
         const orig = (wo.items || []).map((it) => ({ description: it.description, quantity: Number(it.quantity), uom: it.uom }));
         const next = clean.map((r) => ({ description: r.description, quantity: r.quantity, uom: r.uom }));
@@ -1581,7 +1636,7 @@ function EditWorkOrderModal({ wo, units, currentUser, onClose, onSaved }) {
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
         <div className="p-2.5 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
           Fill in or correct any detail received after the order was released. Every change is recorded in the
-          <strong> Edit History</strong> tab — who changed it, when, and the exact old → new value.
+          <strong> Edit History</strong> tab - who changed it, when, and the exact old → new value.
           {isManager && ' As the unit head you can edit scope / spec details; the order materials and unit assignment are managed by Supply Chain / Admin.'}
         </div>
 
@@ -1644,7 +1699,7 @@ function EditWorkOrderModal({ wo, units, currentUser, onClose, onSaved }) {
           ) : (
             <div className="text-xs text-navy-500">
               Materials: <span className="text-navy-800 font-medium">{fmtQty(wo.orderQuantity)} {wo.orderUnit}</span>
-              {' '}({(wo.items || []).length} line{(wo.items || []).length === 1 ? '' : 's'}) —{' '}
+              {' '}({(wo.items || []).length} line{(wo.items || []).length === 1 ? '' : 's'}) -{' '}
               {isManager ? 'managed by Supply Chain / Admin.' : 'locked once a lot has been sent.'}
             </div>
           )}
@@ -1693,7 +1748,7 @@ function EditWorkOrderModal({ wo, units, currentUser, onClose, onSaved }) {
   );
 }
 
-// ─── Edit History tab — field-level audit of every core/scope edit ───
+// ─── Edit History tab - field-level audit of every core/scope edit ───
 // Who changed what, when, and the exact old → new value. Populated whenever
 // Supply Chain / Admin / Planning / the unit head saves the Edit Details form.
 // Mirrors the Product Detail edit-history view for a consistent feel.
@@ -1707,8 +1762,8 @@ function WoEditHistoryTab({ wo }) {
   if (entries.length === 0) {
     return (
       <p className="text-sm text-navy-400 py-6 text-center">
-        No detail edits recorded yet. Any change to this work order's details — who made it, when, and exactly
-        what changed — will be listed here.
+        No detail edits recorded yet. Any change to this work order's details - who made it, when, and exactly
+        what changed - will be listed here.
       </p>
     );
   }
@@ -1716,7 +1771,7 @@ function WoEditHistoryTab({ wo }) {
   return (
     <div className="space-y-3">
       <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
-        Every edit to this work order's details is recorded below — who changed it, their role, when, and the exact
+        Every edit to this work order's details is recorded below - who changed it, their role, when, and the exact
         field-by-field change (old → new value).
       </div>
       {entries.map((h) => {
@@ -1767,8 +1822,8 @@ function PdcAlertButton({ wo, canAck, pendingLabel, busy, onAck }) {
     : null;
 
   const label = daysToPdc != null
-    ? `PDC in ${daysToPdc}d — ${pendingLabel}`
-    : `PDC alert — ${pendingLabel}`;
+    ? `PDC in ${daysToPdc}d - ${pendingLabel}`
+    : `PDC alert - ${pendingLabel}`;
 
   if (!canAck) {
     return (
@@ -1784,24 +1839,24 @@ function PdcAlertButton({ wo, canAck, pendingLabel, busy, onAck }) {
         type="button"
         onClick={() => setOpen(true)}
         className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded bg-red-600 text-white animate-pulse hover:bg-red-700"
-        title="3-month PDC alert — click to file your status remark"
+        title="3-month PDC alert - click to file your status remark"
       >
         <AlertTriangle size={11} /> {label}
       </button>
       {open && (
-        <Modal isOpen onClose={() => setOpen(false)} title="3-month PDC alert — file your remark" size="md">
+        <Modal isOpen onClose={() => setOpen(false)} title="3-month PDC alert - file your remark" size="md">
           <div className="space-y-3">
             <p className="text-sm text-navy-600">
               Effective PDC for <strong>{wo.workOrderNumber}</strong> is {formatDate(wo.effectivePdcDate)}
               {daysToPdc != null ? ` (${daysToPdc} day${daysToPdc === 1 ? '' : 's'} left)` : ''}. Write your
-              status remark — is an extension needed, any issue, anything blocking? Both admin and the unit
+              status remark - is an extension needed, any issue, anything blocking? Both admin and the unit
               manager must file a remark before the alert stops. All remarks are saved on the WO permanently.
             </p>
             <Textarea
               label="Status remark *"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="e.g. Extension needed — material delay at supplier / On track, no issues"
+              placeholder="e.g. Extension needed - material delay at supplier / On track, no issues"
               rows={3}
             />
             <div className="flex justify-end gap-2">
@@ -1863,7 +1918,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
   // Anyone who can see the WO can edit remarks.
   const canEditRemarks = true;
   // Core/scope details (FIM, inspection agency, QAP, drawings, tooling, packing,
-  // scope …) are filled in AFTER release — Supply Chain / Admin / Planning and the
+  // scope …) are filled in AFTER release - Supply Chain / Admin / Planning and the
   // assigned unit's head may all edit them while the WO is live. Every change is
   // logged to the Edit History tab. Mirror of the server PATCH guard.
   const canEditDetails = (isSupplyChain || isAdmin || isPlanning || isUnitManager)
@@ -1934,7 +1989,7 @@ function WorkOrderDetailModal({ workOrderId, currentUser, units, onClose, onUpda
                 type="button"
                 onClick={() => setShowEdit(true)}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-navy-200 bg-white px-3 py-1.5 text-xs font-semibold text-navy-700 shadow-sm transition hover:bg-navy-50"
-                title="Edit work order details — fill in / correct scope info received after release. Every change is logged."
+                title="Edit work order details - fill in / correct scope info received after release. Every change is logged."
               >
                 <Pencil size={14} /> Edit Details
               </button>
@@ -2169,7 +2224,7 @@ function OverviewTab({ wo, currentUser, busy, onSetDelivered }) {
   const Row = ({ label, value }) => (
     <div className="grid grid-cols-3 gap-2 text-sm py-1.5 border-b border-navy-50">
       <div className="text-navy-500">{label}</div>
-      <div className="col-span-2 text-navy-800 whitespace-pre-wrap break-words">{value || '—'}</div>
+      <div className="col-span-2 text-navy-800 whitespace-pre-wrap break-words">{value || '-'}</div>
     </div>
   );
 
@@ -2187,7 +2242,7 @@ function OverviewTab({ wo, currentUser, busy, onSetDelivered }) {
       <Row label="Customer" value={wo.customerName} />
       <Row label="Customer Contact" value={wo.customerContact} />
 
-      {/* Materials — per-item ordered / delivered / remaining across all lots */}
+      {/* Materials - per-item ordered / delivered / remaining across all lots */}
       <div className="py-1.5 border-b border-navy-50">
         <div className="text-navy-500 text-sm mb-1">Materials</div>
         {wo.items?.length ? (
@@ -2258,16 +2313,16 @@ function OverviewTab({ wo, currentUser, busy, onSetDelivered }) {
       {wo.unitDelayRemark && <Row label="⚠ Unit delay remark" value={wo.unitDelayRemark} />}
       {wo.completedAt && <Row label="Delivered (all lots) at" value={formatDate(wo.completedAt)} />}
       {wo.status === 'COMPLETED' && (
-        <Row label="Closure status" value="Delivered — Pending Accounts. Work order stays open until full payment of every lot is received." />
+        <Row label="Closure status" value="Delivered - Pending Accounts. Work order stays open until full payment of every lot is received." />
       )}
       {wo.status === 'CLOSED' && (
-        <Row label="Closure status" value={`Completed & fully paid${wo.onTime != null ? ` — delivery was ${wo.onTime ? 'on time' : 'late'} vs PDC` : ''}.`} />
+        <Row label="Closure status" value={`Completed & fully paid${wo.onTime != null ? ` - delivery was ${wo.onTime ? 'on time' : 'late'} vs PDC` : ''}.`} />
       )}
     </div>
   );
 }
 
-// ── BG / Insurance — append-only history ──
+// ── BG / Insurance - append-only history ──
 // Newest entry is the active value (server mirrors it back onto the WO).
 // Visible to all; editable by SUPPLY_CHAIN / ACCOUNTING / ADMIN.
 function BgInsuranceTab({ wo, canEdit, busy, onAddBg, onAddInsurance }) {
@@ -2306,7 +2361,7 @@ function BgInsuranceTab({ wo, canEdit, busy, onAddBg, onAddInsurance }) {
       {/* Bank Guarantee */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Bank Guarantee — history</p>
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Bank Guarantee - history</p>
           {bgEntries[0] && (
             <Badge color="green">Active: {bgEntries[0].bgNo}</Badge>
           )}
@@ -2329,10 +2384,10 @@ function BgInsuranceTab({ wo, canEdit, busy, onAddBg, onAddInsurance }) {
                 {bgEntries.map((e, i) => (
                   <tr key={e.id} className={`border-b border-navy-50 ${i === 0 ? 'bg-green-50/40' : ''}`}>
                     <td className="px-2 py-1.5 font-mono text-xs">{e.bgNo}{i === 0 && <span className="ml-1 text-[10px] text-green-700">(active)</span>}</td>
-                    <td className="px-2 py-1.5">{e.bgDate ? formatDate(e.bgDate) : '—'}</td>
-                    <td className="px-2 py-1.5">{e.validUpto ? formatDate(e.validUpto) : '—'}</td>
-                    <td className="px-2 py-1.5 text-navy-600">{e.addedBy?.name || '—'} · {formatDate(e.addedAt)}</td>
-                    <td className="px-2 py-1.5 text-navy-600">{e.note || '—'}</td>
+                    <td className="px-2 py-1.5">{e.bgDate ? formatDate(e.bgDate) : '-'}</td>
+                    <td className="px-2 py-1.5">{e.validUpto ? formatDate(e.validUpto) : '-'}</td>
+                    <td className="px-2 py-1.5 text-navy-600">{e.addedBy?.name || '-'} · {formatDate(e.addedAt)}</td>
+                    <td className="px-2 py-1.5 text-navy-600">{e.note || '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2356,7 +2411,7 @@ function BgInsuranceTab({ wo, canEdit, busy, onAddBg, onAddInsurance }) {
       {/* Insurance */}
       <div className="space-y-2 border-t pt-4">
         <div className="flex items-center justify-between">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Insurance — history</p>
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Insurance - history</p>
           {insEntries[0] && (
             <Badge color="green">Active: {insEntries[0].insuranceNo}</Badge>
           )}
@@ -2379,10 +2434,10 @@ function BgInsuranceTab({ wo, canEdit, busy, onAddBg, onAddInsurance }) {
                 {insEntries.map((e, i) => (
                   <tr key={e.id} className={`border-b border-navy-50 ${i === 0 ? 'bg-green-50/40' : ''}`}>
                     <td className="px-2 py-1.5 font-mono text-xs">{e.insuranceNo}{i === 0 && <span className="ml-1 text-[10px] text-green-700">(active)</span>}</td>
-                    <td className="px-2 py-1.5">{e.insuranceDate ? formatDate(e.insuranceDate) : '—'}</td>
-                    <td className="px-2 py-1.5">{e.validUpto ? formatDate(e.validUpto) : '—'}</td>
-                    <td className="px-2 py-1.5 text-navy-600">{e.addedBy?.name || '—'} · {formatDate(e.addedAt)}</td>
-                    <td className="px-2 py-1.5 text-navy-600">{e.note || '—'}</td>
+                    <td className="px-2 py-1.5">{e.insuranceDate ? formatDate(e.insuranceDate) : '-'}</td>
+                    <td className="px-2 py-1.5">{e.validUpto ? formatDate(e.validUpto) : '-'}</td>
+                    <td className="px-2 py-1.5 text-navy-600">{e.addedBy?.name || '-'} · {formatDate(e.addedAt)}</td>
+                    <td className="px-2 py-1.5 text-navy-600">{e.note || '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2426,7 +2481,7 @@ function ExtensionsTab({ wo, canManage, busy, onAdd, onUpdate }) {
       {canManage && (
         <form onSubmit={submit} className="border-t pt-3 space-y-2">
           <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">
-            Add PDC Extension — Bank Guarantee must also be extended
+            Add PDC Extension - Bank Guarantee must also be extended
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <Input label="New PDC Date *" type="date" value={form.newPdcDate} onChange={(e) => setForm({ ...form, newPdcDate: e.target.value })} required />
@@ -2442,7 +2497,7 @@ function ExtensionsTab({ wo, canManage, busy, onAdd, onUpdate }) {
   );
 }
 
-// Visible "PDC History" — every change to the PDC in one chronological list:
+// Visible "PDC History" - every change to the PDC in one chronological list:
 // the original PDC, any direct edits of the base date (wo.pdcChanges), and every
 // PDC extension (wo.extensions). Each row shows who (name + role), when, the
 // date it moved from → to, and the reason. Extension rows stay editable (BG /
@@ -2511,7 +2566,7 @@ function PdcEventRow({ event }) {
       </div>
       {event.reason && <p className="text-xs text-navy-600 mt-1">{event.reason}</p>}
       <p className="text-xs text-navy-400 mt-1">
-        {isOriginal ? 'Set' : 'Changed'} by {event.by?.name || '—'}{roleLabel(event.by)} · {formatDate(event.at)}
+        {isOriginal ? 'Set' : 'Changed'} by {event.by?.name || '-'}{roleLabel(event.by)} · {formatDate(event.at)}
       </p>
     </div>
   );
@@ -2533,11 +2588,11 @@ function ExtensionRow({ ext, from, canManage, busy, onUpdate }) {
       </div>
       {ext.reason && <p className="text-xs text-navy-600 mt-1">{ext.reason}</p>}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-navy-600 mt-2">
-        <div><span className="text-navy-500">BG Extended Upto:</span> {ext.bankGuaranteeExtendedUpto ? formatDate(ext.bankGuaranteeExtendedUpto) : '—'}</div>
-        <div><span className="text-navy-500">Req Letter:</span> {ext.requestLetterStatus || '—'}</div>
-        <div><span className="text-navy-500">PRC:</span> {ext.prcStatus || '—'}</div>
+        <div><span className="text-navy-500">BG Extended Upto:</span> {ext.bankGuaranteeExtendedUpto ? formatDate(ext.bankGuaranteeExtendedUpto) : '-'}</div>
+        <div><span className="text-navy-500">Req Letter:</span> {ext.requestLetterStatus || '-'}</div>
+        <div><span className="text-navy-500">PRC:</span> {ext.prcStatus || '-'}</div>
       </div>
-      <p className="text-xs text-navy-400 mt-1">Granted by {ext.grantedBy?.name || '—'}{roleLabel(ext.grantedBy)} · {formatDate(ext.grantedAt)}</p>
+      <p className="text-xs text-navy-400 mt-1">Granted by {ext.grantedBy?.name || '-'}{roleLabel(ext.grantedBy)} · {formatDate(ext.grantedAt)}</p>
 
       {canManage && (
         editing ? (
@@ -2573,7 +2628,7 @@ function DeliveryDetailsTab({ wo, canEdit, busy, onSave }) {
           <Button disabled={busy} onClick={() => onSave(text)}>Save Delivery Details</Button>
         </>
       ) : (
-        <div className="text-sm text-navy-700 whitespace-pre-wrap p-3 bg-navy-50 rounded">{wo.deliveryDetails || '—'}</div>
+        <div className="text-sm text-navy-700 whitespace-pre-wrap p-3 bg-navy-50 rounded">{wo.deliveryDetails || '-'}</div>
       )}
       {wo.deliveryDetailsUpdatedBy && (
         <p className="text-xs text-navy-400">
@@ -2607,13 +2662,13 @@ const tlTime = (d) => {
 };
 
 // Collect EVERY remark / action across the whole WO lifecycle into one
-// chronological timeline — who did what, what they wrote, and how it went.
+// chronological timeline - who did what, what they wrote, and how it went.
 // `alarms` (passed in) is the full alarm set including resolved ones so the
 // audit history is complete. Finance-only fields are already null for
 // MANAGER/QC (server-sanitised), so those guards naturally hide them.
 function buildWoTimeline(wo, alarms) {
   const items = [];
-  const nm = (u) => u?.name || '—';
+  const nm = (u) => u?.name || '-';
   const push = (at, e) => { if (at) items.push({ at: new Date(at), ...e }); };
   const joinB = (...parts) => parts.filter(Boolean).join('\n');
 
@@ -2631,7 +2686,7 @@ function buildWoTimeline(wo, alarms) {
     body: [wo.unitAcceptanceNote, wo.unitDelayRemark ? `⚠ Delay remark: ${wo.unitDelayRemark}` : null].filter(Boolean).join('\n') || null,
   });
   if (wo.status === 'ON_HOLD' && wo.unitAcceptanceNote && !wo.unitAcceptedAt) push(wo.updatedAt, {
-    color: 'red', Icon: PauseCircle, title: 'Unit rejected — on hold for reassignment', actor: nm(wo.unitAcceptedBy),
+    color: 'red', Icon: PauseCircle, title: 'Unit rejected - on hold for reassignment', actor: nm(wo.unitAcceptedBy),
     body: wo.unitAcceptanceNote,
   });
   if (wo.pdc3MonthAckAt) push(wo.pdc3MonthAckAt, {
@@ -2688,46 +2743,46 @@ function buildWoTimeline(wo, alarms) {
       ? c.items.map((ci) => `• ${ci.item?.description}: ${ci.deliveryQty} ${ci.item?.uom || ''}`.trim()).join('\n')
       : `Qty ${c.deliveryQty} ${wo.orderUnit}`;
     push(c.deliveredAt || c.createdAt, {
-      color: 'violet', Icon: Upload, title: `${L} — work done, report sent to QC`, actor: nm(c.openedBy),
+      color: 'violet', Icon: Upload, title: `${L} - work done, report sent to QC`, actor: nm(c.openedBy),
       body: joinB(itemLines, c.deliveryNote) || null,
     });
     if (c.qcVerifiedAt) push(c.qcVerifiedAt, {
-      color: 'orange', Icon: FileCheck2, title: `${L} — QC approved`, actor: nm(c.qcVerifiedBy),
+      color: 'orange', Icon: FileCheck2, title: `${L} - QC approved`, actor: nm(c.qcVerifiedBy),
       body: joinB(c.qcRemark, c.qcCertificateNumber ? `Certificate ${c.qcCertificateNumber}` : null) || null,
     });
     (c.holdRequests || []).forEach((h) => {
       push(h.raisedAt, {
-        color: 'red', Icon: ShieldAlert, title: `${L} — put on hold by QC`, actor: nm(h.raisedBy),
+        color: 'red', Icon: ShieldAlert, title: `${L} - put on hold by QC`, actor: nm(h.raisedBy),
         body: joinB(
           h.reason,
           Array.isArray(h.missingItems) && h.missingItems.length
-            ? h.missingItems.map((m) => `• ${m.docType}${m.note ? ` — ${m.note}` : ''}`).join('\n')
+            ? h.missingItems.map((m) => `• ${m.docType}${m.note ? ` - ${m.note}` : ''}`).join('\n')
             : null,
         ) || null,
       });
       if (h.resolvedAt) push(h.resolvedAt, {
-        color: 'green', Icon: RefreshCw, title: `${L} — hold cleared, new report resent to QC`, actor: nm(h.resolvedBy),
+        color: 'green', Icon: RefreshCw, title: `${L} - hold cleared, new report resent to QC`, actor: nm(h.resolvedBy),
         body: h.resolvedNote || null,
       });
     });
     if (c.invoiceSentAt) push(c.invoiceSentAt, {
-      color: 'yellow', Icon: Receipt, title: `${L} — Invoice sent`, actor: nm(c.invoiceSentBy),
+      color: 'yellow', Icon: Receipt, title: `${L} - Invoice sent`, actor: nm(c.invoiceSentBy),
       body: c.invoiceNumber ? `Invoice #${c.invoiceNumber}` : null,
     });
     if (c.dcSentAt) push(c.dcSentAt, {
-      color: 'yellow', Icon: Truck, title: `${L} — Delivery challan sent`, actor: nm(c.dcSentBy),
+      color: 'yellow', Icon: Truck, title: `${L} - Delivery challan sent`, actor: nm(c.dcSentBy),
       body: c.deliveryChallanNumber ? `DC #${c.deliveryChallanNumber}` : null,
     });
     if (c.deliveryAckAt) push(c.deliveryAckAt, {
-      color: 'amber', Icon: UserCheck, title: `${L} — Goods ack received (45-day window started)`, actor: nm(c.deliveryAckBy),
+      color: 'amber', Icon: UserCheck, title: `${L} - Goods ack received (45-day window started)`, actor: nm(c.deliveryAckBy),
       body: c.deliveryAckNote || null,
     });
     (c.weeklyFollowups || []).forEach((f) => push(f.contactedAt, {
-      color: 'pink', Icon: BellRing, title: `${L} — Week ${f.weekNumber} incoming-money status`, actor: nm(f.contactedBy),
+      color: 'pink', Icon: BellRing, title: `${L} - Week ${f.weekNumber} incoming-money status`, actor: nm(f.contactedBy),
       body: joinB(f.customerResponse ? `Status: ${f.customerResponse}` : null, f.note ? `Note: ${f.note}` : null) || null,
     }));
     if (c.paymentReceivedAt) push(c.paymentReceivedAt, {
-      color: 'green', Icon: Wallet, title: `${L} — Payment received (lot closed)`, actor: nm(c.paymentReceivedBy),
+      color: 'green', Icon: Wallet, title: `${L} - Payment received (lot closed)`, actor: nm(c.paymentReceivedBy),
       body: c.paymentNote || null,
     });
   });
@@ -2740,7 +2795,7 @@ function buildWoTimeline(wo, alarms) {
     });
     (a.notes || []).forEach((n) => push(n.createdAt, {
       color: 'rose', Icon: FilePlus2,
-      title: `Alarm remark${n.kind && n.kind !== 'COMMENT' ? ` (${n.kind.toLowerCase()})` : ''} — ${a.title}`,
+      title: `Alarm remark${n.kind && n.kind !== 'COMMENT' ? ` (${n.kind.toLowerCase()})` : ''} - ${a.title}`,
       actor: n.author?.name || 'System', body: n.body || null,
     }));
   });
@@ -2769,25 +2824,25 @@ function RemarksTab({ wo, canEdit, busy, onSave }) {
       {/* Free-text shared notes (still editable by anyone with access) */}
       <div className="space-y-2">
         <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Open Notes</p>
-        <p className="text-[11px] text-navy-500">Shared scratch-pad — any role with access can add or edit.</p>
+        <p className="text-[11px] text-navy-500">Shared scratch-pad - any role with access can add or edit.</p>
         {canEdit ? (
           <>
             <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
             <Button disabled={busy} onClick={() => onSave(text)}>Save Notes</Button>
           </>
         ) : (
-          <div className="text-sm text-navy-700 whitespace-pre-wrap p-3 bg-navy-50 rounded">{wo.remarks || '—'}</div>
+          <div className="text-sm text-navy-700 whitespace-pre-wrap p-3 bg-navy-50 rounded">{wo.remarks || '-'}</div>
         )}
       </div>
 
-      {/* Full lifecycle history — every remark + action, who did what, in order */}
+      {/* Full lifecycle history - every remark + action, who did what, in order */}
       <div className="space-y-2 border-t pt-4">
         <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">
           Full History &amp; Remark Trail ({timeline.length})
         </p>
         <p className="text-[11px] text-navy-500">
-          Every action and remark across the whole work order — admin/unit acceptance, PDC remarks, each lot's
-          work-done, QC remarks, holds, finance dispatch, goods ack, weekly money-status, payments and alarm remarks — in order.
+          Every action and remark across the whole work order - admin/unit acceptance, PDC remarks, each lot's
+          work-done, QC remarks, holds, finance dispatch, goods ack, weekly money-status, payments and alarm remarks - in order.
         </p>
         {timeline.length === 0 ? (
           <p className="text-sm text-navy-400 italic">No activity recorded yet.</p>
@@ -2824,7 +2879,7 @@ function RemarksTab({ wo, canEdit, busy, onSave }) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// PR / MIV tab — every Purchase Request and Material Issue Voucher (MIV)
+// PR / MIV tab - every Purchase Request and Material Issue Voucher (MIV)
 // raised against this work order. Read-only history visible to anyone with
 // WO access, so the team can see how much was requested / issued per order.
 // ────────────────────────────────────────────────────────────────────
@@ -2856,7 +2911,7 @@ function WoRequestList({ title, rows, emptyLabel, showPrLink = false }) {
                   <td className="px-2 py-1 font-mono text-navy-700">{r.requestNumber}</td>
                   <td className="px-2 py-1"><Badge color="gray">{r.status}</Badge></td>
                   {showPrLink && (
-                    <td className="px-2 py-1 font-mono text-navy-600">{r.issueNo || '—'}</td>
+                    <td className="px-2 py-1 font-mono text-navy-600">{r.issueNo || '-'}</td>
                   )}
                   {showPrLink && (
                     <td className="px-2 py-1 font-mono">
@@ -2865,12 +2920,12 @@ function WoRequestList({ title, rows, emptyLabel, showPrLink = false }) {
                           {r.purchaseRequest.requestNumber}
                         </span>
                       ) : (
-                        <span className="text-navy-300">—</span>
+                        <span className="text-navy-300">-</span>
                       )}
                     </td>
                   )}
-                  <td className="px-2 py-1 text-navy-600">{r.manager?.name || '—'}</td>
-                  <td className="px-2 py-1 text-center text-navy-600">{r._count?.items ?? '—'}</td>
+                  <td className="px-2 py-1 text-navy-600">{r.manager?.name || '-'}</td>
+                  <td className="px-2 py-1 text-center text-navy-600">{r._count?.items ?? '-'}</td>
                   <td className="px-2 py-1 text-navy-500">{formatDate(r.createdAt)}</td>
                 </tr>
               ))}
@@ -2913,7 +2968,7 @@ function RequestsTab({ wo }) {
           emptyLabel="No MIVs issued against this work order yet."
         />
         <p className="mt-2 text-[11px] text-navy-400">
-          “Issued against PR” is filled in by Stores when they clear the MIV — a dash means they have not recorded a purchase request for that issue.
+          “Issued against PR” is filled in by Stores when they clear the MIV - a dash means they have not recorded a purchase request for that issue.
         </p>
       </div>
     </div>
@@ -2921,7 +2976,7 @@ function RequestsTab({ wo }) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Alarms tab — live + acknowledged alarms with a per-alarm remark
+// Alarms tab - live + acknowledged alarms with a per-alarm remark
 // thread. Acknowledge & resolve each take a remark that is stored on
 // the alarm row AND appended to the immutable note thread, so the full
 // audit history is always visible.
@@ -2930,7 +2985,7 @@ function AlarmsTab({ wo, currentUser, busy, onAck, onResolve, onAddNote }) {
   const alarms = wo.alarms || [];
   const active = alarms.filter((a) => a.status === 'ACTIVE');
   const ackd   = alarms.filter((a) => a.status === 'ACKNOWLEDGED');
-  // PLANNING is the level-below-admin overseer — it can address (acknowledge /
+  // PLANNING is the level-below-admin overseer - it can address (acknowledge /
   // resolve / note) work-order alarms for every unit, alongside management.
   const isMgmt = ['ADMIN', 'FINANCE', 'ACCOUNTING', 'PLANNING'].includes(currentUser?.role);
 
@@ -2948,7 +3003,7 @@ function AlarmsTab({ wo, currentUser, busy, onAck, onResolve, onAddNote }) {
       {alarms.length === 0 ? (
         <div className="p-6 text-center bg-green-50 border border-green-200 rounded-md">
           <CheckCircle2 className="mx-auto text-green-600 mb-2" size={28} />
-          <p className="text-sm font-medium text-green-800">No live alarms — this WO is clean.</p>
+          <p className="text-sm font-medium text-green-800">No live alarms - this WO is clean.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -3048,7 +3103,7 @@ function AlarmCard({ wo, alarm, canManage, busy, onAck, onResolve, onAddNote }) 
             </div>
           )}
 
-          {/* Notes thread — every remark is captured here */}
+          {/* Notes thread - every remark is captured here */}
           <div>
             <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-500 mb-1">
               Remark thread ({alarm.notes?.length || 0})
@@ -3141,7 +3196,7 @@ function AlarmCard({ wo, alarm, canManage, busy, onAck, onResolve, onAddNote }) 
           )}
           {!canManage && alarm.status === 'ACTIVE' && (
             <p className="text-[11px] text-navy-500 italic border-t border-current/10 pt-2">
-              Only Admin, Finance and Accounting can acknowledge or resolve alarms — you can still add remarks above.
+              Only Admin, Finance and Accounting can acknowledge or resolve alarms - you can still add remarks above.
             </p>
           )}
         </div>
@@ -3165,7 +3220,7 @@ function AdminAcceptControls({ wo, units, busy, onAccept, onReject }) {
       <SlaNotice action="Admin acceptance" />
       {isDelayed && (
         <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
-          <span className="font-bold">⚠ SLA overdue</span> — This WO has been pending admin acceptance for more than 48 hours.
+          <span className="font-bold">⚠ SLA overdue</span> - This WO has been pending admin acceptance for more than 48 hours.
         </div>
       )}
       <Select label="Assign to Unit *" value={assignedUnitId} onChange={(e) => setAssignedUnitId(e.target.value)}>
@@ -3175,7 +3230,7 @@ function AdminAcceptControls({ wo, units, busy, onAccept, onReject }) {
       <Textarea label="Acceptance note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
       {isDelayed && (
         <Textarea
-          label="Delay remark * (required — SLA exceeded)"
+          label="Delay remark * (required - SLA exceeded)"
           rows={2}
           value={adminDelayRemark}
           onChange={(e) => setAdminDelayRemark(e.target.value)}
@@ -3212,7 +3267,7 @@ function UnitAcceptControl({ wo, busy, onAccept, onReject }) {
       <SlaNotice action="Unit acceptance" />
       {isDelayed && (
         <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
-          <span className="font-bold">⚠ SLA overdue</span> — More than 48 hours have passed since admin acceptance.
+          <span className="font-bold">⚠ SLA overdue</span> - More than 48 hours have passed since admin acceptance.
         </div>
       )}
       <Textarea
@@ -3225,7 +3280,7 @@ function UnitAcceptControl({ wo, busy, onAccept, onReject }) {
       />
       {isDelayed && (
         <Textarea
-          label="Delay remark * (required — SLA exceeded)"
+          label="Delay remark * (required - SLA exceeded)"
           rows={2}
           value={unitDelayRemark}
           onChange={(e) => setUnitDelayRemark(e.target.value)}
@@ -3277,7 +3332,7 @@ function ReassignControl({ wo, units, busy, onReassign }) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Closure cycles — per delivery batch.
+// Closure cycles - per delivery batch.
 // Finance / payment / SLA fields are sanitized server-side for MANAGER + QC,
 // but UI also gates them with canSeeFinance for clarity.
 // ────────────────────────────────────────────────────────────────────
@@ -3388,7 +3443,7 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
       {canStartCycle && (
         <form onSubmit={submitOpen} className="border-t pt-3 space-y-2">
           <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">
-            Work Done — Lot {nextLotNo}{lotsExpected ? ` of ${lotsExpected}` : ''}: enter the qty of each material going in this lot, upload the ONE lot report PDF, and it goes straight to QC
+            Work Done - Lot {nextLotNo}{lotsExpected ? ` of ${lotsExpected}` : ''}: enter the qty of each material going in this lot, upload the ONE lot report PDF, and it goes straight to QC
           </p>
 
           {hasItems ? (
@@ -3471,7 +3526,7 @@ function ClosuresTab({ wo, currentUser, busy, onAction }) {
             />
           </div>
           <Button type="submit" disabled={busy || !canSubmitLot}>
-            <Check size={12} className="mr-1" /> Work Done — Send Lot {nextLotNo} to QC
+            <Check size={12} className="mr-1" /> Work Done - Send Lot {nextLotNo} to QC
           </Button>
           {!lotFile && <p className="text-[11px] text-navy-500 italic">Upload exactly one lot report PDF to enable.</p>}
           {lotFile && hasItems && lotItemRows.length === 0 && (
@@ -3511,13 +3566,13 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
   // Finance-pending = QC approved (or legacy MGMT_APPROVED rows).
   const financePending = ['QC_VERIFIED', 'MGMT_APPROVED'].includes(cycle.stage);
 
-  // 48h goods-ack countdown — only meaningful while INVOICE_SENT.
+  // 48h goods-ack countdown - only meaningful while INVOICE_SENT.
   const hoursLeft = cycle.slaDeadlineAt
     ? Math.round((new Date(cycle.slaDeadlineAt).getTime() - Date.now()) / (1000 * 60 * 60))
     : null;
   const breached = cycle.stage === 'INVOICE_SENT' && hoursLeft != null && hoursLeft <= 0;
 
-  // 45-day payment countdown — day-by-day while DELIVERY_ACKNOWLEDGED.
+  // 45-day payment countdown - day-by-day while DELIVERY_ACKNOWLEDGED.
   const paymentDaysLeft = cycle.paymentDueAt
     ? Math.ceil((new Date(cycle.paymentDueAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
     : null;
@@ -3592,7 +3647,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
           {showFinance && cycle.stage === 'INVOICE_SENT' && hoursLeft != null && (
             <Badge color={breached ? 'red' : hoursLeft <= 12 ? 'yellow' : 'blue'}>
               {breached
-                ? <><AlertTriangle size={11} className="inline mr-1" />48h breached — {Math.abs(hoursLeft)}h over, no goods ack</>
+                ? <><AlertTriangle size={11} className="inline mr-1" />48h breached - {Math.abs(hoursLeft)}h over, no goods ack</>
                 : <><Timer size={11} className="inline mr-1" />{hoursLeft}h left of 48h for goods ack</>}
             </Badge>
           )}
@@ -3647,7 +3702,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
 
       {/* Audit chain */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[11px] text-navy-600">
-        <div>Work done by: {cycle.openedBy?.name || '—'}</div>
+        <div>Work done by: {cycle.openedBy?.name || '-'}</div>
         {cycle.unitDocsSubmittedBy && <div>Lot report sent to QC: {cycle.unitDocsSubmittedBy.name} ({formatDate(cycle.unitDocsSubmittedAt)})</div>}
         {cycle.qcVerifiedBy && <div>QC approved: {cycle.qcVerifiedBy.name} ({formatDate(cycle.qcVerifiedAt)}) {cycle.qcCertificateNumber && <span className="text-navy-400 font-mono">[{cycle.qcCertificateNumber}]</span>}</div>}
         {showFinance && cycle.invoiceSentBy && <div>Invoice sent: {cycle.invoiceSentBy.name} ({formatDate(cycle.invoiceSentAt)}) {cycle.invoiceNumber && <span className="text-navy-400 font-mono">[{cycle.invoiceNumber}]</span>}</div>}
@@ -3657,7 +3712,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
         {showFinance && cycle.paymentReceivedBy && <div>Payment received: {cycle.paymentReceivedBy.name} ({formatDate(cycle.paymentReceivedAt)})</div>}
       </div>
 
-      {/* QC remark — permanent record, visible to all roles on the lot */}
+      {/* QC remark - permanent record, visible to all roles on the lot */}
       {cycle.qcRemark && (
         <div className="text-[11px] p-2 rounded border border-blue-200 bg-blue-50">
           <span className="font-semibold text-blue-800">QC remark:</span>{' '}
@@ -3665,18 +3720,18 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
         </div>
       )}
 
-      {/* Open hold banner — unit finishes the pending work, uploads a fresh
+      {/* Open hold banner - unit finishes the pending work, uploads a fresh
           lot report and resends the lot to QC */}
       {openHold && (
         <div className="p-3 bg-red-50 border border-red-200 rounded text-xs space-y-1">
           <div className="flex items-center gap-1 font-semibold text-red-800">
-            <ShieldAlert size={12} /> On hold — raised by {openHold.raisedBy?.name} ({formatDate(openHold.raisedAt)})
+            <ShieldAlert size={12} /> On hold - raised by {openHold.raisedBy?.name} ({formatDate(openHold.raisedAt)})
           </div>
           {openHold.reason && <p className="text-red-700">Reason: {openHold.reason}</p>}
           {Array.isArray(openHold.missingItems) && openHold.missingItems.length > 0 && (
             <ul className="list-disc list-inside text-red-700">
               {openHold.missingItems.map((m, i) => (
-                <li key={i}>{m.docType}{m.note ? ` — ${m.note}` : ''}</li>
+                <li key={i}>{m.docType}{m.note ? ` - ${m.note}` : ''}</li>
               ))}
             </ul>
           )}
@@ -3695,7 +3750,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
         </div>
       )}
 
-      {/* Lot report(s) — one per submission; newest is the live one */}
+      {/* Lot report(s) - one per submission; newest is the live one */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Lot Report{docs.length === 1 ? '' : 's'} ({docs.length})</p>
@@ -3711,7 +3766,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
                   <span className="font-mono text-[10px] text-navy-500 flex-shrink-0">{DOC_TYPE_LABELS[d.docType] || d.docType}</span>
                   {i === docs.length - 1 && docs.length > 1 && <span className="text-[10px] text-green-700 flex-shrink-0">(latest)</span>}
                   <a href={d.fileUrl} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline truncate">{d.fileName}</a>
-                  <span className="text-navy-400 flex-shrink-0">· {d.uploadedBy?.name || '—'} · {formatDate(d.uploadedAt)}</span>
+                  <span className="text-navy-400 flex-shrink-0">· {d.uploadedBy?.name || '-'} · {formatDate(d.uploadedAt)}</span>
                 </div>
                 {(d.uploadedById === currentUser?.id || isAdmin) && cycle.stage === 'UNIT_DOCS_PENDING' && (
                   <button onClick={() => deleteDoc(d.id)} className="text-red-500 hover:text-red-700 flex-shrink-0">
@@ -3733,13 +3788,13 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
 
       {cycle.stage === 'UNIT_DOCS_PENDING' && cycle.unitDocsSubmittedAt && (isQc || isAdmin) && (
         <div className="border-t pt-3 space-y-2">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">QC Verification — remark is mandatory</p>
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">QC Verification - remark is mandatory</p>
           <Textarea
             label="QC Remark *"
             rows={2}
             value={qcNote}
             onChange={(e) => setQcNote(e.target.value)}
-            placeholder="Verification findings — saved permanently on this lot"
+            placeholder="Verification findings - saved permanently on this lot"
           />
           <div className="flex gap-2">
             <Button onClick={qcVerify} disabled={busy || !qcNote.trim()}>
@@ -3754,7 +3809,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
       {financePending && (isFinance || isAdmin) && (
         <div className="border-t pt-3 space-y-2">
           <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">
-            Finance Dispatch — attach the physical invoice &amp; delivery challan to the material (no upload), then click each button
+            Finance Dispatch - attach the physical invoice &amp; delivery challan to the material (no upload), then click each button
           </p>
           <p className="text-[11px] text-navy-500">
             The 48-hour goods-ack timer starts automatically the moment BOTH buttons are clicked.
@@ -3801,16 +3856,16 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
 
       {cycle.stage === 'INVOICE_SENT' && (isFinance || isAdmin) && (
         <div className="border-t pt-3 space-y-2">
-          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Goods Acknowledgement — 48h timer running</p>
+          <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Goods Acknowledgement - 48h timer running</p>
           <p className="text-[11px] text-navy-500">
-            The driver must come back with the customer-signed receipt within 48 hours. When it's in your hand, click the button — the timer stops and Accounts' 45-day payment countdown starts.
+            The driver must come back with the customer-signed receipt within 48 hours. When it's in your hand, click the button - the timer stops and Accounts' 45-day payment countdown starts.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <Input label="Signed receipt URL (optional)" value={deliveryAckForm.signedUrl} onChange={(e) => setDeliveryAckForm({ ...deliveryAckForm, signedUrl: e.target.value })} />
             <Input label="Ack note" value={deliveryAckForm.note} onChange={(e) => setDeliveryAckForm({ ...deliveryAckForm, note: e.target.value })} placeholder="Who signed, when the driver returned, etc." />
           </div>
           <Button onClick={deliveryAck} disabled={busy}>
-            <UserCheck size={12} className="mr-1" /> Goods Ack Received — Stop 48h Timer, Start 45-day Window
+            <UserCheck size={12} className="mr-1" /> Goods Ack Received - Stop 48h Timer, Start 45-day Window
           </Button>
         </div>
       )}
@@ -3823,7 +3878,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
 
       {cycle.stage === 'DELIVERY_ACKNOWLEDGED' && (
         <div className="border-t pt-3 space-y-3">
-          {/* 45-day countdown — moves day by day (45 → 44 → 43 …) */}
+          {/* 45-day countdown - moves day by day (45 → 44 → 43 …) */}
           {showFinance && paymentDaysLeft != null && (
             <div className={`p-3 rounded-lg border text-center ${paymentDelayed ? 'bg-red-50 border-red-300' : paymentDaysLeft <= 7 ? 'bg-yellow-50 border-yellow-300' : 'bg-purple-50 border-purple-200'}`}>
               <p className="text-[10px] uppercase tracking-wider font-semibold text-navy-500">45-day Payment Countdown</p>
@@ -3860,7 +3915,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
             </div>
           )}
 
-          {/* Weekly status history — every update saved */}
+          {/* Weekly status history - every update saved */}
           {(cycle.weeklyFollowups || []).length > 0 && (
             <div className="text-xs">
               <p className="uppercase tracking-wider font-semibold text-navy-500 mb-1">Weekly status history</p>
@@ -3868,7 +3923,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
                 {cycle.weeklyFollowups.map((f) => (
                   <li key={f.id} className="border border-navy-100 rounded px-2 py-1">
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-navy-700">Week {f.weekNumber} · {f.contactedBy?.name || '—'}</span>
+                      <span className="font-semibold text-navy-700">Week {f.weekNumber} · {f.contactedBy?.name || '-'}</span>
                       <span className="text-navy-400">{formatDate(f.contactedAt)}</span>
                     </div>
                     {f.customerResponse && <p className="text-navy-600 mt-1">Status: {f.customerResponse}</p>}
@@ -3885,7 +3940,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
               <p className="text-xs uppercase tracking-wider font-semibold text-navy-500">Confirm Payment Received</p>
               <Input label="Payment note" value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="UTR / payment reference" />
               <Button onClick={paymentReceived} disabled={busy}>
-                <Check size={12} className="mr-1" /> Payment Received — Close Lot
+                <Check size={12} className="mr-1" /> Payment Received - Close Lot
               </Button>
               <p className="text-[11px] text-navy-500 italic">
                 If this is the final lot and the full quantity is covered, the whole Work Order closes automatically.
@@ -3897,7 +3952,7 @@ function ClosureCycleCard({ wo, cycle, currentUser, busy, onAction }) {
 
       {cycle.stage === 'PAYMENT_RECEIVED' && (
         <div className="border-t pt-2">
-          <Badge color="green"><Check size={11} className="inline mr-1" />Lot closed — payment received</Badge>
+          <Badge color="green"><Check size={11} className="inline mr-1" />Lot closed - payment received</Badge>
           {showFinance && cycle.paymentNote && <p className="text-xs text-navy-600 mt-1">Note: {cycle.paymentNote}</p>}
         </div>
       )}
@@ -3941,7 +3996,7 @@ function HoldControls({ items, setItems, reason, setReason, onSubmit, busy }) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Work Order Workflow — plain-English reference chart.
+// Work Order Workflow - plain-English reference chart.
 // Mirrors what Procurement has. Read-only: explains who does what, what files
 // they upload/download, and how the 48h / 24h timers work.
 // ───────────────────────────────────────────────────────────────────────────
@@ -3951,11 +4006,11 @@ const WO_FLOW_STEPS = [
     icon: FilePlus2,
     title: '1. Supply Chain Fills the Work Order',
     who: 'Supply Chain (or Admin)',
-    what: 'Fill the Work Order form (same fields as the printed WORK ORDER format — customer, SO number/date, quantity, terms & scope, PDC date, delivery clause, inspection agency, QAP, tooling, FIM, packing, transport, site, coordinator) and assign the unit manager who will execute it. The Bank Guarantee date auto-fills as PDC + 2 months — you can edit it.',
-    statusBefore: '—',
+    what: 'Fill the Work Order form (same fields as the printed WORK ORDER format - customer, SO number/date, quantity, terms & scope, PDC date, delivery clause, inspection agency, QAP, tooling, FIM, packing, transport, site, coordinator) and assign the unit manager who will execute it. The Bank Guarantee date auto-fills as PDC + 2 months - you can edit it.',
+    statusBefore: '-',
     statusAfter: 'PENDING_ADMIN',
     uploads: ['All WO form fields', 'Unit assignment (required)', 'BG / Insurance details (BG date auto = PDC + 2 months, editable)'],
-    downloads: ['Work Order PDF — printable from the WO row'],
+    downloads: ['Work Order PDF - printable from the WO row'],
     color: 'from-sky-500 to-blue-600',
     ring: 'ring-sky-200',
   },
@@ -3963,11 +4018,11 @@ const WO_FLOW_STEPS = [
     icon: ShieldCheck,
     title: '2. Admin Verifies the Whole Thing',
     who: 'Admin',
-    what: 'Admin opens the WO, checks every field, and can CHANGE the unit manager assignment if needed. Then clicks Accept — the WO goes to the assigned unit. Admin can also reject it.',
+    what: 'Admin opens the WO, checks every field, and can CHANGE the unit manager assignment if needed. Then clicks Accept - the WO goes to the assigned unit. Admin can also reject it.',
     statusBefore: 'PENDING_ADMIN',
     statusAfter: 'ADMIN_ACCEPTED  (or REJECTED)',
     uploads: ['Acceptance note (optional)', 'Unit change (optional)'],
-    downloads: ['—'],
+    downloads: ['-'],
     color: 'from-blue-500 to-indigo-600',
     ring: 'ring-blue-200',
   },
@@ -3975,21 +4030,21 @@ const WO_FLOW_STEPS = [
     icon: UserCheck,
     title: '3. Unit Manager Accepts or Rejects',
     who: 'Manager of the assigned unit',
-    what: 'The unit manager either Accepts (work starts) or Rejects (WO goes ON_HOLD). When on hold, the Admin/Supply Chain changes the unit — or keeps the same unit — and sends it again. The next manager then accepts and starts the work.',
+    what: 'The unit manager either Accepts (work starts) or Rejects (WO goes ON_HOLD). When on hold, the Admin/Supply Chain changes the unit - or keeps the same unit - and sends it again. The next manager then accepts and starts the work.',
     statusBefore: 'ADMIN_ACCEPTED',
     statusAfter: 'UNIT_ACCEPTED  (or ON_HOLD if rejected → reassigned → ADMIN_ACCEPTED again)',
     uploads: ['Acceptance / rejection note'],
-    downloads: ['—'],
+    downloads: ['-'],
     color: 'from-indigo-500 to-violet-600',
     ring: 'ring-indigo-200',
   },
   {
     icon: Upload,
-    title: '4. Work Done — Lot by Lot: One Lot Report PDF → QC',
+    title: '4. Work Done - Lot by Lot: One Lot Report PDF → QC',
     who: 'Manager (or Admin)',
     what: 'The work goes out in lots (e.g. 2 lots). When a lot\'s work is done, the manager clicks "Work Done", fills the lot details (quantity, date, note) and uploads ONE lot report PDF. That single click sends the lot straight to QC. The final lot is the final closure of the work order.',
     statusBefore: 'WO is UNIT_ACCEPTED / IN_PROGRESS',
-    statusAfter: 'Lot created at UNIT_DOCS_PENDING — already with QC',
+    statusAfter: 'Lot created at UNIT_DOCS_PENDING - already with QC',
     uploads: ['Lot quantity + details', 'ONE Lot Report PDF (required)'],
     downloads: ['The lot report is re-downloadable from the lot card'],
     color: 'from-violet-500 to-purple-600',
@@ -3997,13 +4052,13 @@ const WO_FLOW_STEPS = [
   },
   {
     icon: FileCheck2,
-    title: '5. QC Verifies — Remark Mandatory — Forwards to Finance (or Holds)',
+    title: '5. QC Verifies - Remark Mandatory - Forwards to Finance (or Holds)',
     who: 'QC (or Admin)',
-    what: 'QC checks the lot report and the work. To approve, QC MUST write a remark — it is saved on the lot forever — then the lot goes straight to Finance (no management step). If something is wrong, QC puts the lot ON HOLD with a missing-items checklist; the unit finishes the work, uploads a fresh lot report and resends it to QC.',
+    what: 'QC checks the lot report and the work. To approve, QC MUST write a remark - it is saved on the lot forever - then the lot goes straight to Finance (no management step). If something is wrong, QC puts the lot ON HOLD with a missing-items checklist; the unit finishes the work, uploads a fresh lot report and resends it to QC.',
     statusBefore: 'UNIT_DOCS_PENDING',
     statusAfter: 'QC_VERIFIED  (or ON_HOLD → resubmit → UNIT_DOCS_PENDING again)',
     uploads: ['QC remark (mandatory)'],
-    downloads: ['QC Verification Certificate PDF — "QC Cert" button on the lot card'],
+    downloads: ['QC Verification Certificate PDF - "QC Cert" button on the lot card'],
     color: 'from-amber-500 to-orange-500',
     ring: 'ring-amber-200',
   },
@@ -4011,11 +4066,11 @@ const WO_FLOW_STEPS = [
     icon: Banknote,
     title: '6. Finance Clicks "Invoice Sent" + "DC Sent" → 48h Timer Starts',
     who: 'Finance (or Admin)',
-    what: 'Finance attaches the physical invoice and delivery challan WITH the material going to the customer (nothing is uploaded into the ERP — numbers are optional records). Finance clicks the "Invoice Sent" button and the "DC Sent" button as each goes out. The moment BOTH are clicked, the 48-hour goods-acknowledgement timer starts.',
+    what: 'Finance attaches the physical invoice and delivery challan WITH the material going to the customer (nothing is uploaded into the ERP - numbers are optional records). Finance clicks the "Invoice Sent" button and the "DC Sent" button as each goes out. The moment BOTH are clicked, the 48-hour goods-acknowledgement timer starts.',
     statusBefore: 'QC_VERIFIED',
     statusAfter: 'INVOICE_SENT  (48-hour goods-ack clock running)',
     uploads: ['Invoice number / date (optional)', 'DC number (optional)'],
-    downloads: ['Invoice PDF — "Invoice" button on the lot card (Finance / Accounting / Admin only)'],
+    downloads: ['Invoice PDF - "Invoice" button on the lot card (Finance / Accounting / Admin only)'],
     color: 'from-yellow-500 to-amber-600',
     ring: 'ring-yellow-200',
   },
@@ -4023,11 +4078,11 @@ const WO_FLOW_STEPS = [
     icon: Truck,
     title: '7. Goods Ack Received → 48h Timer Stops, 45-day Countdown Starts',
     who: 'Finance (or Admin)',
-    what: 'In real life the driver comes back with the customer-signed receipt that the goods were received. Before the 48 hours run out, Finance clicks "Goods Ack Received" — the 48h timer ends and the Accounts function begins: a 45-day payment countdown.',
+    what: 'In real life the driver comes back with the customer-signed receipt that the goods were received. Before the 48 hours run out, Finance clicks "Goods Ack Received" - the 48h timer ends and the Accounts function begins: a 45-day payment countdown.',
     statusBefore: 'INVOICE_SENT',
     statusAfter: 'DELIVERY_ACKNOWLEDGED  (45-day payment countdown starts)',
     uploads: ['Signed receipt URL (optional)', 'Ack note'],
-    downloads: ['—'],
+    downloads: ['-'],
     color: 'from-amber-500 to-orange-500',
     ring: 'ring-amber-200',
   },
@@ -4035,7 +4090,7 @@ const WO_FLOW_STEPS = [
     icon: Wallet,
     title: '8. Accounts: 45-day Countdown + Weekly Money-Status Updates',
     who: 'Accounting (or Admin)',
-    what: 'The lot card shows the countdown moving day by day — 45, 44, 43… Every week Accounts must log the status of the incoming money (flashing reminder until they do). Every weekly status is saved. When the money lands, Accounts clicks "Payment Received" — the lot closes.',
+    what: 'The lot card shows the countdown moving day by day - 45, 44, 43… Every week Accounts must log the status of the incoming money (flashing reminder until they do). Every weekly status is saved. When the money lands, Accounts clicks "Payment Received" - the lot closes.',
     statusBefore: 'DELIVERY_ACKNOWLEDGED',
     statusAfter: 'PAYMENT_RECEIVED  (lot closed)',
     uploads: ['Weekly money-status updates', 'Payment note (UTR / reference)'],
@@ -4050,7 +4105,7 @@ const WO_FLOW_STEPS = [
     what: 'The remaining lots repeat the same chain: manager → QC → finance → goods ack → accounts. When the FINAL lot\'s payment is received and the full order quantity is covered, the whole Work Order closes automatically. Admin/Supply Chain can still short-close manually if ever needed.',
     statusBefore: 'All lots PAYMENT_RECEIVED',
     statusAfter: 'CLOSED',
-    uploads: ['—'],
+    uploads: ['-'],
     downloads: ['Final WO PDF reflects CLOSED status'],
     color: 'from-navy-600 to-slate-800',
     ring: 'ring-slate-200',
@@ -4064,7 +4119,7 @@ const WO_HOLD_LOOP = {
     'If QC finds the work or the lot report is not right, they click "Send Back on Hold" and write a checklist of what is missing.',
     'The lot moves to ON_HOLD and the unit Manager gets notified.',
     'The Manager finishes the pending work, uploads a FRESH lot report PDF and clicks "Resend to QC". The lot goes back to QC for a new verification with a new remark.',
-    'A lot that has already reached INVOICE_SENT cannot be put on hold — from there it is handled by Finance / Accounts directly.',
+    'A lot that has already reached INVOICE_SENT cannot be put on hold - from there it is handled by Finance / Accounts directly.',
   ],
 };
 
@@ -4085,9 +4140,9 @@ const WO_TIMERS = [
     title: '45-day Payment Countdown (Accounts)',
     color: 'from-amber-500 to-orange-600',
     rows: [
-      ['Starts when', 'Finance clicks "Goods Ack Received" — lot moves to DELIVERY_ACKNOWLEDGED.'],
+      ['Starts when', 'Finance clicks "Goods Ack Received" - lot moves to DELIVERY_ACKNOWLEDGED.'],
       ['How it shows', 'Day-by-day countdown on the lot card: 45 days → 44 → 43 … red once expired.'],
-      ['Ends when',   'Accounts clicks "Payment Received" — lot moves to PAYMENT_RECEIVED. Final lot paid = WO auto-closed.'],
+      ['Ends when',   'Accounts clicks "Payment Received" - lot moves to PAYMENT_RECEIVED. Final lot paid = WO auto-closed.'],
       ['If breached',  'Lot is flagged "Payment Delayed". Management, Finance, Accounting and Admin all get a notification.'],
     ],
   },
@@ -4104,11 +4159,11 @@ const WO_TIMERS = [
   },
   {
     icon: AlertTriangle,
-    title: '3-month PDC Alert — BOTH Admin + Unit Manager',
+    title: '3-month PDC Alert - BOTH Admin + Unit Manager',
     color: 'from-red-500 to-rose-700',
     rows: [
       ['What it does', 'When the effective PDC date is 90 days (3 months) away, a red blinking alert appears on the WO for the Admin AND the assigned unit manager.'],
-      ['How to clear it', 'EACH of them must write their own status remark — extension needed? any issue? anything else? The alert keeps blinking until BOTH remarks are filed.'],
+      ['How to clear it', 'EACH of them must write their own status remark - extension needed? any issue? anything else? The alert keeps blinking until BOTH remarks are filed.'],
       ['Where it is saved', 'Both remarks are saved permanently on the WO (visible in the header), alongside all alarm remarks in the Alarms tab.'],
     ],
   },
@@ -4117,7 +4172,7 @@ const WO_TIMERS = [
     title: 'Background jobs that run on their own',
     color: 'from-slate-500 to-gray-700',
     rows: [
-      ['Hourly (:05)',  'INVOICE_SENT lots — 24-hour reminder if due.'],
+      ['Hourly (:05)',  'INVOICE_SENT lots - 24-hour reminder if due.'],
       ['Every 30 min',  '48-hour goods-ack breach check.'],
       ['Every 30 min (:15/:45)', '45-day payment-window breach check.'],
       ['Hourly (:20)',  'Weekly money-status nudge for lots in the 45-day window.'],

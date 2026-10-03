@@ -1,4 +1,4 @@
-// Supplier compliance status — shared by the supplier API (to decorate rows for
+// Supplier compliance status - shared by the supplier API (to decorate rows for
 // the UI) and the quotation gate (to block non-compliant suppliers).
 //
 // Model:
@@ -47,8 +47,8 @@ function supplierComplianceStatus(s, now = new Date()) {
     reason = 'Supplier Assessment (SA) PDF required';
   } else if (expired) {
     reason = hasVE
-      ? 'Vendor Re-Evaluation (VE) has expired — upload a new VE'
-      : 'Supplier Assessment (SA) has expired — upload a Vendor Re-Evaluation (VE)';
+      ? 'Vendor Re-Evaluation (VE) has expired - upload a new VE'
+      : 'Supplier Assessment (SA) has expired - upload a Vendor Re-Evaluation (VE)';
   }
 
   return {

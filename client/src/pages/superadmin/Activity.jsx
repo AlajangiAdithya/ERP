@@ -1,11 +1,11 @@
-// Last 30 audit entries — a quick "what's happening right now" feed. SUPERADMIN
+// Last 30 audit entries - a quick "what's happening right now" feed. SUPERADMIN
 // actions are never logged, so the owner stays invisible in this list.
 import { useEffect, useState } from 'react';
 import { Radio, RefreshCw, ScrollText } from 'lucide-react';
 import api from '../../api/axios';
 
 const fmt = (iso) => {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString();

@@ -34,7 +34,7 @@ router.post('/login', async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // Session never expires on its own — only explicit logout (or admin
+    // Session never expires on its own - only explicit logout (or admin
     // deactivation) ends it. expiresAt is set far in the future as a sentinel
     // since the schema requires it, but the /refresh handler no longer checks it.
     const FAR_FUTURE = new Date('9999-12-31T23:59:59Z');
@@ -52,7 +52,7 @@ router.post('/login', async (req, res) => {
       maxAge: COOKIE_MAX_AGE_MS,
     });
 
-    // Audit log — except hidden roles (SUPERADMIN, DATA_EDITOR) whose logins are
+    // Audit log - except hidden roles (SUPERADMIN, DATA_EDITOR) whose logins are
     // never logged so the covert accounts leave no trace in the activity feed.
     if (!HIDDEN_ROLES.includes(user.role)) {
       await prisma.auditLog.create({
@@ -93,7 +93,7 @@ router.post('/refresh', async (req, res) => {
     const decoded = verifyRefreshToken(token);
     const session = await prisma.session.findUnique({ where: { refreshToken: token } });
 
-    // Session row presence is the only kill switch — no time-based expiry check.
+    // Session row presence is the only kill switch - no time-based expiry check.
     if (!session) {
       return res.status(401).json({ error: 'Invalid refresh token' });
     }

@@ -1,4 +1,4 @@
-// FIM data editor — full edit access over FIM / customer-property records for
+// FIM data editor - full edit access over FIM / customer-property records for
 // ADMIN (and SUPERADMIN, who bypasses every role check).
 //
 // Same machinery as the SUPERADMIN table editor, but the catalogue is fixed to
@@ -7,7 +7,7 @@
 // insert, update and delete within those; any other table name 404s, so this
 // route can never become a general-purpose database editor.
 //
-// Unlike the SUPERADMIN page, actions here ARE audit-logged — an admin is a
+// Unlike the SUPERADMIN page, actions here ARE audit-logged - an admin is a
 // named user, and edits to customer property should be attributable.
 const express = require('express');
 const { Prisma } = require('@prisma/client');
@@ -34,7 +34,7 @@ async function inScope(t, id) {
   return !!hit;
 }
 
-// GET /api/fim-editor/tables — the FIM catalogue with row counts
+// GET /api/fim-editor/tables - the FIM catalogue with row counts
 router.get('/tables', async (req, res) => {
   try {
     const out = await listTables(TABLES, async (key, where) => {
@@ -66,7 +66,7 @@ router.get('/table/:name', async (req, res) => {
   }
 });
 
-// PUT /api/fim-editor/table/:name/row/:id — update any field on a FIM row.
+// PUT /api/fim-editor/table/:name/row/:id - update any field on a FIM row.
 // id/createdAt/updatedAt stay off-limits: they identify the row rather than
 // describe the FIM, and rewriting a primary key here has no legitimate use.
 router.put('/table/:name/row/:id', auditLog('UPDATE', 'FIM'), async (req, res) => {
@@ -84,7 +84,7 @@ router.put('/table/:name/row/:id', auditLog('UPDATE', 'FIM'), async (req, res) =
   }
 });
 
-// POST /api/fim-editor/table/:name/row — insert a FIM row
+// POST /api/fim-editor/table/:name/row - insert a FIM row
 router.post('/table/:name/row', auditLog('CREATE', 'FIM'), async (req, res) => {
   const t = resolve(req.params.name);
   if (!t) return res.status(404).json({ error: 'Unknown table' });

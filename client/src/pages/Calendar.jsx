@@ -479,15 +479,15 @@ export default function Calendar({ embedded = false }) {
           {!canEdit && (
             <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
               <Lock size={14} className="flex-shrink-0" />
-              <span>Shared by {form.ownerName || 'another user'} — only they can edit or delete this event.</span>
+              <span>Shared by {form.ownerName || 'another user'} - only they can edit or delete this event.</span>
             </div>
           )}
 
           <Input label="Title *" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Team review, Pay vendor, Doctor…" autoFocus disabled={!canEdit} />
 
           <Select label="Visibility" value={form.visibility} onChange={(e) => setForm({ ...form, visibility: e.target.value })} disabled={!canEdit}>
-            <option value="PERSONAL">Personal — only you can see this</option>
-            <option value="EVERYONE">Everyone — shared with all users</option>
+            <option value="PERSONAL">Personal - only you can see this</option>
+            <option value="EVERYONE">Everyone - shared with all users</option>
           </Select>
 
           <label className="flex items-center gap-2 text-sm font-medium text-navy-700">

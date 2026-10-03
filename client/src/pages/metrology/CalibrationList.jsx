@@ -35,7 +35,7 @@ const computeFiscalYear = (v) => {
 // Metrology access (per access chart RAPS/QSP):
 // Full edit: METROLOGY, QC, MANAGER@Unit-V. SUPERADMIN bypasses.
 // View + remarks + cert download: ADMIN, MANAGER (all units), LAB, NDT, RND.
-// View-only (no remarks): ACCOUNTING, FINANCE — pure read-only observers.
+// View-only (no remarks): ACCOUNTING, FINANCE - pure read-only observers.
 // Unit 5 may appear as code '5', name 'Unit 5', or username 'unit 5'.
 const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
 const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
@@ -150,7 +150,7 @@ export default function CalibrationList({
   // collapses into a single bucket. When set, the register fetches without a
   // category filter and applies the bucket filter client-side.
   unifiedCategories = null, // [{value, label, matchCategories, matchMmrSubs}]
-  // Pre-select a bucket on mount — used by the per-category focused routes
+  // Pre-select a bucket on mount - used by the per-category focused routes
   // so /metrology/category/<slug> opens already filtered.
   initialBucket = '',
 }) {
@@ -238,7 +238,7 @@ export default function CalibrationList({
   const [deleting, setDeleting] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
-  // Per-row remarks draft and saving state — every viewer is allowed to edit
+  // Per-row remarks draft and saving state - every viewer is allowed to edit
   // remarks even if they cannot edit the rest of the row.
   const [remarksDraft, setRemarksDraft] = useState({});
   const [remarksBusy, setRemarksBusy] = useState({});
@@ -247,7 +247,7 @@ export default function CalibrationList({
     if (!canView) { setLoading(false); return; }
     setLoading(true);
     // In unified mode we want every row regardless of category, so neither
-    // `category` nor `mmrSubCategory` is sent — the bucket filter runs on
+    // `category` nor `mmrSubCategory` is sent - the bucket filter runs on
     // the client.
     const params = unified ? {} : { category };
     if (search.trim()) params.search = search.trim();
@@ -570,7 +570,7 @@ export default function CalibrationList({
     );
   }
 
-  // In unified mode show every spec column — rows come from many categories
+  // In unified mode show every spec column - rows come from many categories
   // and each may use a different combination of fields.
   const showCapacity       = unified ? true : !!fields.capacity;
   const showLeastCount     = unified ? true : !!fields.leastCount;
@@ -585,7 +585,7 @@ export default function CalibrationList({
     return unifiedCategories.find((g) => matchesUnified(item, g)) || null;
   };
 
-  // Per-category RAP S.no auto-counter — increments per row in the current
+  // Per-category RAP S.no auto-counter - increments per row in the current
   // category view. Independent of any other category.
   let rapCounter = 0;
 
@@ -614,7 +614,7 @@ export default function CalibrationList({
                 {canEdit
                   ? ' · You can add, edit, or remove entries below.'
                   : canRemark
-                    ? ' · Read-only view — remarks remain editable.'
+                    ? ' · Read-only view - remarks remain editable.'
                     : ' · Read-only view.'}
               </p>
             </div>
@@ -712,7 +712,7 @@ export default function CalibrationList({
           <div className="overflow-x-auto -mx-5 px-5">
             <table className="min-w-full text-[11.5px] border-separate border-spacing-0 border border-gray-200 rounded-lg">
               <thead className="sticky top-0 z-10">
-                {/* Top header — base columns span 2 rows, FY groups span their inner columns */}
+                {/* Top header - base columns span 2 rows, FY groups span their inner columns */}
                 <tr>
                   <Th rowSpan={2} sticky>#</Th>
                   <Th rowSpan={2}>MIR no.</Th>
@@ -921,7 +921,7 @@ export default function CalibrationList({
                         ];
                       })}
 
-                      {/* Remarks — every viewer can edit except read-only observers */}
+                      {/* Remarks - every viewer can edit except read-only observers */}
                       <Td nowrap={false} className="min-w-[200px]">
                         {canRemark ? (
                           <div className="flex items-start gap-1">
@@ -1002,7 +1002,7 @@ export default function CalibrationList({
                     label={bucketOptions ? 'RAPSPL Serial No (auto if blank)' : 'RAPSPL Serial No'}
                     value={form.rapsplSerialNo}
                     onChange={(e) => setForm({ ...form, rapsplSerialNo: e.target.value })}
-                    placeholder={bucketOptions ? 'Leave blank — auto-numbered per category' : ''}
+                    placeholder={bucketOptions ? 'Leave blank - auto-numbered per category' : ''}
                   />
                 )}
                 <Input label="Located at (Unit-I, Store, etc.)" value={form.unitLocation} onChange={(e) => setForm({ ...form, unitLocation: e.target.value })} />
@@ -1013,7 +1013,7 @@ export default function CalibrationList({
                     onChange={(e) => setForm({ ...form, mmrSubCategory: e.target.value })}
                     required={editing === 'new'}
                   >
-                    <option value="">— Select —</option>
+                    <option value="">- Select -</option>
                     {bucketOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </Select>
                 )}
@@ -1049,7 +1049,7 @@ export default function CalibrationList({
 
             <FormSection title="Calibrations">
               <p className="text-[11px] text-gray-500 -mt-1">
-                Fiscal year is set automatically from the "Calibrated on" date — April → March = FY YY-YY+1.
+                Fiscal year is set automatically from the "Calibrated on" date - April → March = FY YY-YY+1.
               </p>
               {calibrationRecords.map((rec, idx) => {
                 const fy = targetFyForRecord(rec);
@@ -1075,7 +1075,7 @@ export default function CalibrationList({
                           </span>
                         ) : (
                           <span className="text-[10px] text-gray-400 italic">
-                            Set "Calibrated on" — FY will be filled in
+                            Set "Calibrated on" - FY will be filled in
                           </span>
                         )}
                       </div>
@@ -1262,7 +1262,7 @@ function Td({ children, sticky = false, className = '', groupEnd = false, nowrap
 }
 
 // Subtle em-dash placeholder for empty values so the table doesn't look hollow.
-const Dash = () => <span className="text-gray-300 select-none">—</span>;
+const Dash = () => <span className="text-gray-300 select-none">-</span>;
 const orDash = (v) => (v == null || v === '' ? <Dash /> : v);
 
 function StatChip({ icon, label, value, tone, active, onClick }) {

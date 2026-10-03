@@ -1,5 +1,5 @@
 export const formatDateTime = (dateStr) => {
-  if (!dateStr) return '—';
+  if (!dateStr) return '-';
   const d = new Date(dateStr);
   return d.toLocaleDateString('en-IN', {
     day: 'numeric', month: 'short', year: 'numeric',
@@ -8,7 +8,7 @@ export const formatDateTime = (dateStr) => {
 };
 
 export const formatDate = (dateStr) => {
-  if (!dateStr) return '—';
+  if (!dateStr) return '-';
   const d = new Date(dateStr);
   return d.toLocaleDateString('en-IN', {
     day: 'numeric', month: 'short', year: 'numeric',
@@ -22,7 +22,7 @@ export const formatNumber = (num) => {
 
 // Pretty-print stock-movement notes that may be JSON (from Excel import) or free text.
 export const formatNotes = (raw) => {
-  if (!raw) return '—';
+  if (!raw) return '-';
   let obj;
   try { obj = JSON.parse(raw); } catch { return raw; }
   if (typeof obj !== 'object' || obj === null) return String(raw);

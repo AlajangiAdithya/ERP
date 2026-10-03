@@ -5,9 +5,9 @@ import { Eye } from 'lucide-react';
 
 // Generates the PDF on demand and opens it in a new browser tab so the user
 // can read it in their built-in PDF viewer (or download from there if they
-// really want to). No forced file download — viewing is enough.
+// really want to). No forced file download - viewing is enough.
 //
-// `appendPdfs` (optional) — list of public file URLs to merge AFTER the main
+// `appendPdfs` (optional) - list of public file URLs to merge AFTER the main
 // document (used by the PR view to append per-item confidential spec files
 // without exposing them as a column inside the PR table itself). PDFs are
 // concatenated page-for-page; JPG/PNG specs are embedded each on their own page.
@@ -24,7 +24,7 @@ export default function DownloadPdfButton({ document, fileName, label = 'View PD
 
       if (attachments.length > 0) {
         // Merge the @react-pdf output with each spec PDF using pdf-lib. Failed
-        // fetches are skipped silently — a missing attachment shouldn't block
+        // fetches are skipped silently - a missing attachment shouldn't block
         // the main PR from opening.
         try {
           const mainBytes = await blob.arrayBuffer();
@@ -38,7 +38,7 @@ export default function DownloadPdfButton({ document, fileName, label = 'View PD
               const isJpg = ct.includes('jpeg') || ct.includes('jpg') || /\.jpe?g(\?|$)/i.test(url);
               const isPng = ct.includes('png') || /\.png(\?|$)/i.test(url);
               if (isJpg || isPng) {
-                // Image spec (scan/photo) — embed it on its own full page sized
+                // Image spec (scan/photo) - embed it on its own full page sized
                 // to the image so nothing is cropped.
                 const img = isJpg ? await merged.embedJpg(bytes) : await merged.embedPng(bytes);
                 const page = merged.addPage([img.width, img.height]);
@@ -55,7 +55,7 @@ export default function DownloadPdfButton({ document, fileName, label = 'View PD
           const mergedBytes = await merged.save();
           finalBlob = new Blob([mergedBytes], { type: 'application/pdf' });
         } catch (mergeErr) {
-          console.warn('PDF merge failed — opening main document only', mergeErr);
+          console.warn('PDF merge failed - opening main document only', mergeErr);
           finalBlob = blob;
         }
       }

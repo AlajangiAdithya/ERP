@@ -2,7 +2,7 @@
 // The company's material-code register: every material type, the block of
 // material codes reserved for it, and what belongs in it. Single source of truth
 // for every "Material Type" dropdown in the app (PR lines, inward entry, master
-// data, product edit) AND for the material code a new material is given — codes
+// data, product edit) AND for the material code a new material is given - codes
 // are counted inside the owning category's block, by the server.
 //
 // Mirror of MATERIAL_CATEGORIES in server/src/utils/materialCategories.js; keep
@@ -17,7 +17,7 @@ export const MATERIAL_CATEGORIES = [
   { label: 'IT Office & Equipment',           from: 501,  to: 800,  description: 'Computers, printers, servers, UPS, office equipment, etc.' },
   // The register labels all five of these simply "Raw material" but gives each
   // its own code block. They are separate categories here so a new material's
-  // code can be counted in the right block — the label keeps the family prefix.
+  // code can be counted in the right block - the label keeps the family prefix.
   { label: 'Raw Material - Fabric / Fiber',   from: 1001, to: 1500, description: 'Any fabric / fiber' },
   { label: 'Raw Material - Resins',           from: 1501, to: 2000, description: 'Any type of resins' },
   { label: 'Raw Material - Rubber',           from: 2001, to: 2500, description: 'Any type of rubber materials' },
@@ -33,9 +33,10 @@ export const MATERIAL_CATEGORIES = [
   { label: 'Maintenance Spares',              from: 6001, to: 6300, description: 'Replacement parts, bearings, belts, electrical spares, pneumatic parts, etc.' },
   { label: 'Electrical Items',                from: 6301, to: 6800, description: 'MCB, MCCB, RCCB, contactors, relays, switches, cables, terminals, SMPS, transformers, etc.' },
   { label: 'Safety / PPE Items',              from: 6801, to: 7000, description: 'Safety shoes, safety helmets, safety goggles, gloves, ear plugs / ear muffs, respirators / masks, safety harness, reflective jackets, other PPE' },
-  // Not in the register — the catch-all, and the only category with no code
+  { label: 'Job Work Orders',                 from: 7001, to: 7500, description: 'Job work orders - work and material booked against outside job work.' },
+  // Not in the register - the catch-all, and the only category with no code
   // block: its material codes are typed by hand.
-  { label: 'Others',                          from: null, to: null, description: 'Anything that does not belong to a category above. No reserved code block — the material code is entered manually.' },
+  { label: 'Others',                          from: null, to: null, description: 'Anything that does not belong to a category above. No reserved code block - the material code is entered manually.' },
 ];
 
 export const MATERIAL_TYPE_OPTIONS = MATERIAL_CATEGORIES.map((c) => c.label);
@@ -50,15 +51,15 @@ export const categoryFor = (label, categories) =>
 // Every code in the register is 4 digits wide ("0001", "0301", "1001", "7000").
 export const formatMaterialCode = (n) => String(n).padStart(4, '0');
 
-// "0001–0300" for a category, or '—' when it has no reserved block ('Others',
+// "0001–0300" for a category, or '-' when it has no reserved block ('Others',
 // or a retired label still sitting on an old product).
 export const formatCodeRange = (label, categories) => {
   const cat = categoryFor(label, categories);
-  return cat?.from ? `${formatMaterialCode(cat.from)}–${formatMaterialCode(cat.to)}` : '—';
+  return cat?.from ? `${formatMaterialCode(cat.from)}–${formatMaterialCode(cat.to)}` : '-';
 };
 
 // Is this material code inside its category's block? `true` when the category has
-// no block (nothing to violate) or the code isn't a plain number — the forms only
+// no block (nothing to violate) or the code isn't a plain number - the forms only
 // use this to warn, never to block a save.
 export const codeMatchesCategory = (code, label, categories) => {
   const cat = categoryFor(label, categories);
@@ -72,7 +73,7 @@ export const codeMatchesCategory = (code, label, categories) => {
 // Options to render for a record that already has a category. Retired labels
 // ('Raw Material', 'Hand Tools', 'Fasteners', 'Machinery', 'Hand Tools &
 // Fastners') still sit on older products, and a <select> whose value isn't in its
-// option list silently shows — and then saves — something else. Appending the
+// option list silently shows - and then saves - something else. Appending the
 // stored value keeps it visible until whoever edits the record deliberately picks
 // a current category.
 export const withStoredType = (options, current) => {

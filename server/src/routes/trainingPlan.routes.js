@@ -177,7 +177,7 @@ router.delete('/:id', authenticate, async (req, res) => {
 
 // ── Items ──
 
-// POST /api/training-plans/:id/items — HR or any Manager (for their unit).
+// POST /api/training-plans/:id/items - HR or any Manager (for their unit).
 router.post('/:id/items', authenticate, async (req, res) => {
   if (!isHr(req.user) && !isManager(req.user)) {
     return res.status(403).json({ error: 'Forbidden' });

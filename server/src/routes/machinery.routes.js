@@ -15,7 +15,7 @@ const { amcDocUpload, publicUrlFor } = require('../middleware/upload');
 const router = express.Router();
 
 // Unit 5 may appear as code '5', name 'Unit 5', or username 'unit 5' depending
-// on which path created the account — match any of them (mirrors the metrology
+// on which path created the account - match any of them (mirrors the metrology
 // register's Unit-5 detection).
 const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
 const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];

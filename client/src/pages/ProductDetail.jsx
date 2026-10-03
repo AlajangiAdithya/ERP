@@ -21,7 +21,7 @@ const fileUrl = (u) => (u && u.startsWith('http') ? u : `${API_ORIGIN}${u || ''}
 
 const formatCurrency = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
-// Expiry status helper — QC fills `dateOfExpiry` on the inspection report. Each batch
+// Expiry status helper - QC fills `dateOfExpiry` on the inspection report. Each batch
 // derived from that inspection inherits the same shelf life. We surface this on the
 // product page so stores notice expired/expiring stock before issuing it.
 function expiryStatusOf(dateOfExpiry) {
@@ -149,7 +149,7 @@ function QuickRequoteModal({ isOpen, onClose, product, source, onCreated }) {
     <Modal isOpen={isOpen} onClose={onClose} title={`Quick Re-quote: ${product?.name || ''}`} size="lg">
       <div className="space-y-4">
         <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-900">
-          <strong>Re-using past supplier:</strong> Update the quantity + unit price, pick which open Purchase Request to attach this to, and submit. The quotation will appear in the PR's quotation list — same as today's flow. Admin gets notified when the PR's Purchase Officer hits "Submit all quotations".
+          <strong>Re-using past supplier:</strong> Update the quantity + unit price, pick which open Purchase Request to attach this to, and submit. The quotation will appear in the PR's quotation list - same as today's flow. Admin gets notified when the PR's Purchase Officer hits "Submit all quotations".
         </div>
 
         <div>
@@ -167,7 +167,7 @@ function QuickRequoteModal({ isOpen, onClose, product, source, onCreated }) {
               onChange={(e) => setSelectedPrId(e.target.value)}
               className="w-full px-3 py-2 border rounded text-sm"
             >
-              <option value="">— Select PR —</option>
+              <option value="">- Select PR -</option>
               {openPRs.map(pr => (
                 <option key={pr.id} value={pr.id}>
                   {pr.requestNumber} · {pr.unit?.name || pr.unit?.code || ''} · {pr.manager?.name || ''}
@@ -274,7 +274,7 @@ function SupplierHistoryTab({ product, onRequote }) {
               <div className="text-[10px] text-gray-400 font-mono mt-0.5">{summary.cheapestEver.poNumber}</div>
             </>
           ) : (
-            <div className="text-sm text-gray-400 mt-1">—</div>
+            <div className="text-sm text-gray-400 mt-1">-</div>
           )}
         </div>
 
@@ -335,8 +335,8 @@ function SupplierHistoryTab({ product, onRequote }) {
                     <td className="px-3 py-2 font-medium text-gray-800">{row.supplierName}</td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600">{row.poNumber}</td>
                     <td className="px-3 py-2 text-right">{row.quantity} {row.productUnit}</td>
-                    <td className="px-3 py-2 text-right text-gray-700">{row.unitPrice != null ? formatCurrency(row.unitPrice) : '—'}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-navy-700">{row.totalPrice != null ? formatCurrency(row.totalPrice) : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{row.unitPrice != null ? formatCurrency(row.unitPrice) : '-'}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-navy-700">{row.totalPrice != null ? formatCurrency(row.totalPrice) : '-'}</td>
                     <td className="px-3 py-2 text-center">
                       <Badge color={row.itemStatus === 'RECEIVED' ? 'green' : row.itemStatus === 'CANCELLED' ? 'red' : row.itemStatus === 'DIRECT' ? 'blue' : 'yellow'}>
                         {row.itemStatus}
@@ -387,7 +387,7 @@ function SupplierHistoryTab({ product, onRequote }) {
                     <td className="px-3 py-2 text-xs text-gray-600">{formatDate(row.date)}</td>
                     <td className="px-3 py-2 font-medium text-gray-800">{row.supplierName}</td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600">{row.quotationNumber}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-gray-500">{row.purchaseRequestNumber || '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-500">{row.purchaseRequestNumber || '-'}</td>
                     <td className="px-3 py-2 text-right">{row.quantity} {row.productUnit}</td>
                     <td className="px-3 py-2 text-right text-gray-700">{formatCurrency(row.unitPrice)}</td>
                     <td className="px-3 py-2 text-right font-semibold text-gray-700">{formatCurrency(row.totalPrice)}</td>
@@ -487,7 +487,7 @@ function FimTab({ product, user, onRefresh }) {
     <div className="space-y-4">
       <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
         These batches are <strong>customer property (FIM)</strong>. They were inwarded against the
-        customer's own gate pass — the original GP number, document type and uploaded PDF are kept here.
+        customer's own gate pass - the original GP number, document type and uploaded PDF are kept here.
         Stores can assign each batch to a unit; the unit manager then accepts it with a remark (final).
       </div>
 
@@ -532,16 +532,16 @@ function FimTab({ product, user, onRefresh }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
               <div className="p-3 bg-gray-50 border border-gray-200 rounded">
                 <p className="text-xs uppercase tracking-wide text-gray-500 font-medium mb-1">FIM No.</p>
-                <p className="font-mono text-navy-700 font-semibold text-base">{gp?.fimNumber || '—'}</p>
+                <p className="font-mono text-navy-700 font-semibold text-base">{gp?.fimNumber || '-'}</p>
                 <div className="text-xs text-gray-600 mt-1 space-y-0.5">
                   <div>
                     <span className="text-gray-500">Inward Gate Pass:</span>{' '}
-                    <span className="font-mono">{gp?.passNumber || '—'}</span>
+                    <span className="font-mono">{gp?.passNumber || '-'}</span>
                   </div>
-                  <div><span className="text-gray-500">Customer:</span> {gp?.customerName || '—'}</div>
+                  <div><span className="text-gray-500">Customer:</span> {gp?.customerName || '-'}</div>
                   <div>
                     <span className="text-gray-500">Customer GP No.:</span>{' '}
-                    <span className="font-mono">{gp?.customerGatePassNo || '—'}</span>
+                    <span className="font-mono">{gp?.customerGatePassNo || '-'}</span>
                     {gp?.customerGpDocType && (
                       <span className="ml-2">
                         <Badge color={gp.customerGpDocType === 'ORIGINAL' ? 'green' : 'yellow'}>
@@ -593,7 +593,7 @@ function FimTab({ product, user, onRefresh }) {
                   {(gp?.vehicleNo || gp?.driverName) && (
                     <div>
                       <span className="text-gray-500">Vehicle / Driver:</span>{' '}
-                      {gp.vehicleNo || '—'}{gp.driverName ? ` · ${gp.driverName}` : ''}
+                      {gp.vehicleNo || '-'}{gp.driverName ? ` · ${gp.driverName}` : ''}
                     </div>
                   )}
                   {item?.probableReturnDate && (
@@ -633,7 +633,7 @@ function FimTab({ product, user, onRefresh }) {
                     <span className="text-gray-500">Accepted:</span>{' '}
                     {b.unitAcceptedAt ? (
                       <>
-                        <span className="text-green-700 font-medium">Yes — final</span>
+                        <span className="text-green-700 font-medium">Yes - final</span>
                         <span className="text-gray-400"> · {formatDateTime(b.unitAcceptedAt)}</span>
                         {b.unitAcceptedBy && <span className="text-gray-400"> by {b.unitAcceptedBy.name}</span>}
                       </>
@@ -672,7 +672,7 @@ function FimTab({ product, user, onRefresh }) {
                   <ArrowUpFromLine size={11} /> Returned via Delivery Challan
                 </p>
                 {outwards.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic mt-1">Not yet sent back — no Delivery Challan linked.</p>
+                  <p className="text-xs text-gray-400 italic mt-1">Not yet sent back - no Delivery Challan linked.</p>
                 ) : (
                   <ul className="space-y-1 mt-1">
                     {outwards.map(lo => (
@@ -725,7 +725,7 @@ function FimTab({ product, user, onRefresh }) {
           <div className="space-y-4">
             {actionError && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{actionError}</div>}
             <div className="text-sm text-gray-700">
-              Accepting batch <span className="font-mono">{acceptTarget.batchNo || acceptTarget.id.slice(0, 8)}</span>. Once accepted, the record is <strong>final</strong> — no re-accept possible.
+              Accepting batch <span className="font-mono">{acceptTarget.batchNo || acceptTarget.id.slice(0, 8)}</span>. Once accepted, the record is <strong>final</strong> - no re-accept possible.
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Remark *</label>
@@ -748,7 +748,7 @@ function FimTab({ product, user, onRefresh }) {
   );
 }
 
-// Every supporting document attached to a batch's inward — invoice, DC, test
+// Every supporting document attached to a batch's inward - invoice, DC, test
 // report, COA, COC, 3rd-party clearance … New inward-register batches carry the
 // complete list in `insp.documents`; older QC-inspection batches expose only the
 // invoice + lot-report URLs, so fall back to those. Surfaced together so the
@@ -776,7 +776,7 @@ function batchDocs(insp) {
 function ProcurementChainTab({ product, isStores }) {
   const batches = product.poBatches || [];
   if (batches.length === 0) {
-    return <p className="text-sm text-gray-400 py-6 text-center">No purchased batches yet — this product has not been inwarded against any Purchase Order.</p>;
+    return <p className="text-sm text-gray-400 py-6 text-center">No purchased batches yet - this product has not been inwarded against any Purchase Order.</p>;
   }
 
   return (
@@ -842,7 +842,7 @@ function ProcurementChainTab({ product, isStores }) {
                       {pr.unit && <div><span className="text-gray-500">Unit:</span> {pr.unit.name || pr.unit.code}</div>}
                     </div>
                   </>
-                ) : <p className="text-xs text-gray-400 italic">—</p>}
+                ) : <p className="text-xs text-gray-400 italic">-</p>}
               </div>
 
               {/* PO */}
@@ -857,13 +857,13 @@ function ProcurementChainTab({ product, isStores }) {
                       {po.mirNo && <div><span className="text-gray-500">MIR:</span> <span className="font-mono">{po.mirNo}</span></div>}
                     </div>
                   </>
-                ) : <p className="text-xs text-gray-400 italic">—</p>}
+                ) : <p className="text-xs text-gray-400 italic">-</p>}
               </div>
 
               {/* Lot + Invoice */}
               <div className="p-3 bg-amber-50 border border-amber-200 rounded">
                 <p className="text-xs uppercase tracking-wide text-amber-700 font-medium mb-1">
-                  Lot {insp?.lotNumber ?? '—'} · QC {insp?.inspectionNumber || ''}
+                  Lot {insp?.lotNumber ?? '-'} · QC {insp?.inspectionNumber || ''}
                 </p>
                 {insp ? (
                   <div className="text-xs text-gray-700 mt-1 space-y-0.5">
@@ -891,7 +891,7 @@ function ProcurementChainTab({ product, isStores }) {
                     {!insp.result && insp.qcDeferred && (
                       <div>
                         <span className="text-gray-500">QC:</span>{' '}
-                        <Badge color="yellow">Pending (inwarded — T&amp;F)</Badge>
+                        <Badge color="yellow">Pending (inwarded - T&amp;F)</Badge>
                       </div>
                     )}
                     {batchDocs(insp).length > 0 && (
@@ -1006,7 +1006,7 @@ function ProcurementChainTab({ product, isStores }) {
                       {(insp.qtyAccepted != null || insp.qtyRejected != null) && (
                         <div>
                           <span className="text-gray-500">Accept/Reject:</span>{' '}
-                          <strong className="text-green-700">{insp.qtyAccepted ?? '—'}</strong>
+                          <strong className="text-green-700">{insp.qtyAccepted ?? '-'}</strong>
                           {' / '}
                           <strong className="text-red-700">{insp.qtyRejected ?? 0}</strong>
                           {insp.qtyReceived != null && <span className="text-gray-500"> of {insp.qtyReceived} received</span>}
@@ -1018,7 +1018,7 @@ function ProcurementChainTab({ product, isStores }) {
                       {insp.packingCondition && (
                         <div>
                           <span className="text-gray-500">Packing:</span> {insp.packingCondition}
-                          {insp.packingDamageNotes && <span className="text-red-700"> — {insp.packingDamageNotes}</span>}
+                          {insp.packingDamageNotes && <span className="text-red-700"> - {insp.packingDamageNotes}</span>}
                         </div>
                       )}
                       {insp.dateOfManufacturing && (
@@ -1052,7 +1052,7 @@ function ProcurementChainTab({ product, isStores }) {
 // Field-level trail of every change made to this product's details (material code,
 // name, material type, specification, shelf life, storage temp, min level …).
 // Records who changed it, their role, when, and the exact old → new value of
-// each field. This is the single place the product edit history lives — kept on
+// each field. This is the single place the product edit history lives - kept on
 // the detail page so any edit (notably the Stores team's temporary rollout
 // access) is fully traceable.
 function EditHistoryTab({ product }) {
@@ -1066,7 +1066,7 @@ function EditHistoryTab({ product }) {
   if (entries.length === 0) {
     return (
       <p className="text-sm text-gray-400 py-6 text-center">
-        No edits recorded yet. Any change to this product's details will be listed here —
+        No edits recorded yet. Any change to this product's details will be listed here -
         who made it, when, and exactly what changed.
       </p>
     );
@@ -1075,7 +1075,7 @@ function EditHistoryTab({ product }) {
   return (
     <div className="space-y-3">
       <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
-        Every edit to this product's details is recorded below — who changed it, their role, when,
+        Every edit to this product's details is recorded below - who changed it, their role, when,
         and the exact field-by-field change (old → new value).
       </div>
       {entries.map((h) => {
@@ -1188,7 +1188,7 @@ export default function ProductDetail() {
     }
   };
 
-  // Material Safety Data Sheet — single PDF per product. Stores uploads/replaces;
+  // Material Safety Data Sheet - single PDF per product. Stores uploads/replaces;
   // everyone can view. Re-uploading replaces the existing link server-side.
   const [msdsUploading, setMsdsUploading] = useState(false);
   const [msdsError, setMsdsError] = useState('');
@@ -1249,9 +1249,9 @@ export default function ProductDetail() {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-gray-500">Identification No.:</span>{' '}
-              <span className="font-mono font-medium">{product.materialCode || product.sku || '—'}</span>
+              <span className="font-mono font-medium">{product.materialCode || product.sku || '-'}</span>
             </div>
-            <div><span className="text-gray-500">Category:</span> <span className="font-medium">{product.category || '—'}</span></div>
+            <div><span className="text-gray-500">Category:</span> <span className="font-medium">{product.category || '-'}</span></div>
             <div><span className="text-gray-500">Unit:</span> <span className="font-medium">{product.unit}</span></div>
             <div>
               <span className="text-gray-500">MIR Level:</span>{' '}
@@ -1263,16 +1263,16 @@ export default function ProductDetail() {
               {product.earliestExpiry ? (
                 <ExpiryBadge dateOfExpiry={product.earliestExpiry} />
               ) : (
-                <span className="text-gray-400">—</span>
+                <span className="text-gray-400">-</span>
               )}
             </div>
             <div>
               <span className="text-gray-500">Shelf Life:</span>{' '}
-              <span className="font-medium">{product.shelfLife || '—'}</span>
+              <span className="font-medium">{product.shelfLife || '-'}</span>
             </div>
             <div>
               <span className="text-gray-500">Room / Storage Temp:</span>{' '}
-              <span className="font-medium">{product.storageTemp || '—'}</span>
+              <span className="font-medium">{product.storageTemp || '-'}</span>
             </div>
             {product.description && (
               <div className="col-span-2"><span className="text-gray-500">Description:</span> <span>{product.description}</span></div>
@@ -1324,7 +1324,7 @@ export default function ProductDetail() {
         </Card>
       </div>
 
-      {/* Material Specifications — reusable spec-PDF library (also picked when raising PRs) */}
+      {/* Material Specifications - reusable spec-PDF library (also picked when raising PRs) */}
       <Card>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
@@ -1371,7 +1371,7 @@ export default function ProductDetail() {
         )}
       </Card>
 
-      {/* Material Safety Data Sheet — single PDF, uploaded by Stores, viewed by all */}
+      {/* Material Safety Data Sheet - single PDF, uploaded by Stores, viewed by all */}
       <Card>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
@@ -1465,7 +1465,7 @@ export default function ProductDetail() {
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <Layers size={16} className="text-navy-700" />
-                <h3 className="text-sm font-semibold text-gray-700">FIFO Batches <span className="text-xs font-normal text-gray-400">(oldest first — consumed first on issue)</span></h3>
+                <h3 className="text-sm font-semibold text-gray-700">FIFO Batches <span className="text-xs font-normal text-gray-400">(oldest first - consumed first on issue)</span></h3>
               </div>
               {batches.length === 0 ? (
                 <p className="text-sm text-gray-400 py-4 text-center">No batch records yet. Newly inwarded stock will appear here.</p>
@@ -1497,7 +1497,7 @@ export default function ProductDetail() {
                             <td className="px-3 py-2 text-xs">{formatDate(b.receivedDate)}</td>
                             <td className="px-3 py-2 text-xs">{age}d</td>
                             <td className="px-3 py-2 font-mono text-xs font-semibold text-amber-800">
-                              {b.batchNo || <span className="text-gray-400 font-normal">—</span>}
+                              {b.batchNo || <span className="text-gray-400 font-normal">-</span>}
                             </td>
                             <td className="px-3 py-2 text-right">{b.quantity} {product.unit}</td>
                             <td className="px-3 py-2 text-right font-semibold">{b.remaining} {product.unit}</td>
@@ -1509,12 +1509,12 @@ export default function ProductDetail() {
                             <td className="px-3 py-2 text-xs">
                               {(insp?.dateOfManufacturing || b.dateOfManufacturing)
                                 ? formatDate(insp?.dateOfManufacturing || b.dateOfManufacturing)
-                                : <span className="text-gray-300 italic">—</span>}
+                                : <span className="text-gray-300 italic">-</span>}
                             </td>
                             <td className="px-3 py-2 text-xs">
                               {(insp?.dateOfExpiry || b.dateOfExpiry)
                                 ? <ExpiryBadge dateOfExpiry={insp?.dateOfExpiry || b.dateOfExpiry} />
-                                : <span className="text-gray-300 italic">—</span>}
+                                : <span className="text-gray-300 italic">-</span>}
                             </td>
                             <td className="px-3 py-2 text-xs">
                               {insp?.purchaseOrder ? (
@@ -1580,9 +1580,9 @@ export default function ProductDetail() {
                           </td>
                           <td className="px-3 py-2 text-gray-700 font-medium">{m.quantity} {product.unit}</td>
                           <td className="px-3 py-2 font-mono text-xs text-amber-800">
-                            {m.batchNumber || <span className="text-gray-300">—</span>}
+                            {m.batchNumber || <span className="text-gray-300">-</span>}
                           </td>
-                          <td className="px-3 py-2 text-gray-600">{m.referenceType || '—'}</td>
+                          <td className="px-3 py-2 text-gray-600">{m.referenceType || '-'}</td>
                           <td className="px-3 py-2"><MovementNotes notes={m.notes} /></td>
                         </tr>
                       ))

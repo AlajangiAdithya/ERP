@@ -30,13 +30,13 @@ const router = express.Router();
 router.use(authenticate, superadminOnly);
 
 // ────────────────────────────────────────────────────────────
-//  Real-time Corrections — raw table editor
+//  Real-time Corrections - raw table editor
 // ────────────────────────────────────────────────────────────
 
 // Whitelisted Prisma model names. We never let the URL drive which model is touched
-// without a check — typing /api/superadmin/table/foo would otherwise crash with
+// without a check - typing /api/superadmin/table/foo would otherwise crash with
 // `prisma.foo` undefined and could expose internal errors. Derived straight from
-// the Prisma schema (DMMF) so every model is always present — no more hand-kept
+// the Prisma schema (DMMF) so every model is always present - no more hand-kept
 // list drifting out of sync (which previously hid e.g. MaterialInwardRegister).
 const TABLES = Prisma.dmmf.datamodel.models.map((m) => m.name);
 
@@ -44,12 +44,12 @@ const TABLES = Prisma.dmmf.datamodel.models.map((m) => m.name);
 const modelKey = (table) => table.charAt(0).toLowerCase() + table.slice(1);
 
 // The editor also publishes curated views (e.g. "FIM Entry" = the FIM subset of
-// GatePass) — see utils/virtualTables.js. resolveTable maps whichever name the
+// GatePass) - see utils/virtualTables.js. resolveTable maps whichever name the
 // URL carries onto the real model plus the scope every query must stay inside.
 const resolve = (name) => resolveTable(name, TABLES);
 
 // Best-effort physical delete of a locally-stored upload. Only touches files
-// under UPLOAD_ROOT served at /uploads/* — external/absolute URLs are ignored,
+// under UPLOAD_ROOT served at /uploads/* - external/absolute URLs are ignored,
 // and path-traversal outside the uploads root is refused. Missing files are fine.
 const unlinkLocalUpload = (url) => {
   if (!url || typeof url !== 'string' || !url.startsWith('/uploads/')) return;
@@ -57,10 +57,10 @@ const unlinkLocalUpload = (url) => {
   const target = path.resolve(UPLOAD_ROOT, rel);
   const root = path.resolve(UPLOAD_ROOT);
   if (target !== root && !target.startsWith(root + path.sep)) return; // traversal guard
-  fs.promises.unlink(target).catch(() => {}); // blob may already be gone — ignore
+  fs.promises.unlink(target).catch(() => {}); // blob may already be gone - ignore
 };
 
-// GET /api/superadmin/tables — curated views + every model, with row counts
+// GET /api/superadmin/tables - curated views + every model, with row counts
 router.get('/tables', async (req, res) => {
   try {
     const out = await listTables(TABLES, async (key, where) => {
@@ -90,14 +90,14 @@ router.get('/table/:name', async (req, res) => {
   try {
     res.json(await readTablePage(prisma, t, { page, limit, q: req.query.q }));
   } catch (e) {
-    // Report why, not just that — a bare "Failed to read table" is impossible
+    // Report why, not just that - a bare "Failed to read table" is impossible
     // to act on and reads like an empty table.
     console.error(`superadmin/table/${t.name} error:`, e);
     res.status(500).json({ error: `Could not read ${t.name}: ${prismaErrorMessage(e)}` });
   }
 });
 
-// Rows reached through a curated view must actually belong to that view —
+// Rows reached through a curated view must actually belong to that view -
 // otherwise the FIM tables would be a back door onto every other gate pass.
 // Returns true for real tables (nothing to scope).
 async function inScope(t, id) {
@@ -106,7 +106,7 @@ async function inScope(t, id) {
   return !!hit;
 }
 
-// PUT /api/superadmin/table/:name/row/:id — partial update
+// PUT /api/superadmin/table/:name/row/:id - partial update
 router.put('/table/:name/row/:id', async (req, res) => {
   const { id } = req.params;
   const t = resolve(req.params.name);
@@ -121,7 +121,7 @@ router.put('/table/:name/row/:id', async (req, res) => {
   }
 });
 
-// POST /api/superadmin/table/:name/row — insert
+// POST /api/superadmin/table/:name/row - insert
 router.post('/table/:name/row', async (req, res) => {
   const t = resolve(req.params.name);
   if (!t) return res.status(404).json({ error: 'Unknown table' });
@@ -159,7 +159,7 @@ router.delete('/table/:name/row/:id', async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────
-//  Uploads inventory — aggregated view of every file URL stored
+//  Uploads inventory - aggregated view of every file URL stored
 //  across the schema. Lets SUPERADMIN audit and prune attachments
 //  (PR specs, quotation/PO PDFs, supplier docs, QC invoices, MSDS,
 //  calibration/AMC/QMS docs, …) from one place. "Delete" clears the
@@ -171,7 +171,7 @@ router.delete('/table/:name/row/:id', async (req, res) => {
 const FILE_FIELDS = {
   Product: [{ field: 'msdsUrl', label: 'MSDS' }],
   PurchaseRequest: [{ field: 'materialSpecsPdfUrl', label: 'Material Specs PDF' }],
-  // Multi-file PR attachments live as one row per file — "deleting" drops the row
+  // Multi-file PR attachments live as one row per file - "deleting" drops the row
   // (the url column is non-nullable), handled specially in the delete route below.
   PurchaseRequestItemAttachment: [{ field: 'url', label: 'Item Spec Attachment' }],
   PurchaseRequestAttachment: [{ field: 'url', label: 'PR Note Attachment' }],
@@ -192,7 +192,7 @@ const FILE_FIELDS = {
     { field: 'signedDeliveryPdfUrl', label: 'Signed Delivery PDF' },
     { field: 'customerGpPdfUrl', label: 'Customer Gate Pass PDF' },
   ],
-  // One row per uploaded FIM test report — "deleting" drops the row.
+  // One row per uploaded FIM test report - "deleting" drops the row.
   FimTestReport: [{ field: 'url', label: 'FIM Test Report' }],
   Vehicle: [{ field: 'rcUrl', label: 'Vehicle RC' }],
   WorkOrderBgEntry: [{ field: 'fileUrl', label: 'Bank Guarantee File' }],
@@ -226,7 +226,7 @@ const JSON_ARRAY_FILE_FIELDS = {
   MaterialInwardRegister: 'documents',
 };
 
-// GET /api/superadmin/uploads — every file URL across the schema, newest first.
+// GET /api/superadmin/uploads - every file URL across the schema, newest first.
 router.get('/uploads', async (req, res) => {
   try {
     const uploads = [];
@@ -326,7 +326,7 @@ router.get('/uploads', async (req, res) => {
       url: q.lotReportFileUrl, uploadedAt: q.createdAt, uploadedBy: null,
     }));
 
-    // 7. PurchaseRequestItemAttachment — per-line material spec files (multi-file).
+    // 7. PurchaseRequestItemAttachment - per-line material spec files (multi-file).
     const prItemAtts = await prisma.purchaseRequestItemAttachment.findMany({
       select: {
         id: true, url: true, name: true, createdAt: true, uploadedByName: true,
@@ -341,7 +341,7 @@ router.get('/uploads', async (req, res) => {
       uploadedBy: a.uploadedByName || a.item?.request?.manager?.name || null,
     }));
 
-    // 7b. PurchaseRequestAttachment — header-level PR note files (multi-file).
+    // 7b. PurchaseRequestAttachment - header-level PR note files (multi-file).
     const prNoteAtts = await prisma.purchaseRequestAttachment.findMany({
       select: {
         id: true, url: true, name: true, createdAt: true, uploadedByName: true,
@@ -400,7 +400,7 @@ router.get('/uploads', async (req, res) => {
       });
     });
 
-    // 9b. FimTestReport — customer test reports on a FIM inward entry (multi-file).
+    // 9b. FimTestReport - customer test reports on a FIM inward entry (multi-file).
     const fimReports = await prisma.fimTestReport.findMany({
       select: {
         id: true, url: true, name: true, createdAt: true, uploadedByName: true,
@@ -598,7 +598,7 @@ router.get('/uploads', async (req, res) => {
       url: s.headOfDeptSig, uploadedAt: s.ratedOn || s.updatedAt, uploadedBy: null,
     }));
 
-    // 18. Product.msdsUrl — Material Safety Data Sheet
+    // 18. Product.msdsUrl - Material Safety Data Sheet
     const prodMsds = await prisma.product.findMany({
       where: { msdsUrl: { not: null } },
       select: { id: true, sku: true, name: true, msdsName: true, msdsUrl: true, updatedAt: true },
@@ -610,7 +610,7 @@ router.get('/uploads', async (req, res) => {
       url: p.msdsUrl, uploadedAt: p.updatedAt, uploadedBy: null,
     }));
 
-    // 19. QuotationItem.quotationPdfUrl — per-item supplier quote
+    // 19. QuotationItem.quotationPdfUrl - per-item supplier quote
     const quotItems = await prisma.quotationItem.findMany({
       where: { quotationPdfUrl: { not: null } },
       select: {
@@ -625,7 +625,7 @@ router.get('/uploads', async (req, res) => {
       url: q.quotationPdfUrl, uploadedAt: q.quotation?.createdAt || null, uploadedBy: null,
     }));
 
-    // 20. SupplierVendorEvaluation.pdfUrl — per-record VE PDF (history rows).
+    // 20. SupplierVendorEvaluation.pdfUrl - per-record VE PDF (history rows).
     // pdfUrl is a required column (every row has one), so no not-null filter.
     const veRecords = await prisma.supplierVendorEvaluation.findMany({
       select: {
@@ -718,7 +718,7 @@ router.get('/uploads', async (req, res) => {
       url: d.fileUrl, uploadedAt: d.createdAt, uploadedBy: d.uploadedBy?.name || null,
     }));
 
-    // 27. MaterialInwardRegister.documents — JSON array of {label, name, url, uploadedAt, uploadedById}
+    // 27. MaterialInwardRegister.documents - JSON array of {label, name, url, uploadedAt, uploadedById}
     const mirRows = await prisma.materialInwardRegister.findMany({
       where: { documents: { not: null } },
       select: { id: true, mirNo: true, documents: true, inwardDate: true, createdAt: true },
@@ -735,7 +735,7 @@ router.get('/uploads', async (req, res) => {
       });
     });
 
-    // 28. QCInspection.uploadedDocs — JSON array of {filename, url, uploadedById, uploadedAt}
+    // 28. QCInspection.uploadedDocs - JSON array of {filename, url, uploadedById, uploadedAt}
     const qcDocs = await prisma.qCInspection.findMany({
       where: { uploadedDocs: { not: null } },
       select: { id: true, inspectionNumber: true, uploadedDocs: true },
@@ -777,10 +777,10 @@ router.get('/uploads', async (req, res) => {
   }
 });
 
-// DELETE /api/superadmin/uploads — remove one upload.
+// DELETE /api/superadmin/uploads - remove one upload.
 // Body: { table, recordId, field }. The DB reference is cleared AND the physical
 // file blob under /uploads is deleted (best-effort). For JSON-array columns the
-// field is "<column>[N]" (e.g. "uploadedDocs[2]", "documents[0]") — we splice the
+// field is "<column>[N]" (e.g. "uploadedDocs[2]", "documents[0]") - we splice the
 // N-th entry from the array.
 router.delete('/uploads', async (req, res) => {
   const { table, recordId, field } = req.body || {};
@@ -816,7 +816,7 @@ router.delete('/uploads', async (req, res) => {
     const url = current[field];
 
     // A few models store one file per ROW with a non-nullable url column, so
-    // "clearing" the reference is meaningless — drop the whole row instead.
+    // "clearing" the reference is meaningless - drop the whole row instead.
     const ROW_PER_FILE = {
       WorkOrderClosureDoc: 'fileUrl',
       PurchaseRequestItemAttachment: 'url',
@@ -840,7 +840,7 @@ router.delete('/uploads', async (req, res) => {
 //  Backups browser
 // ────────────────────────────────────────────────────────────
 
-// GET /api/superadmin/backups — tree of FY → tier → files
+// GET /api/superadmin/backups - tree of FY → tier → files
 router.get('/backups', async (req, res) => {
   try {
     const tree = await listBackupTree();
@@ -851,7 +851,7 @@ router.get('/backups', async (req, res) => {
   }
 });
 
-// DELETE /api/superadmin/backups — remove backups from the S3 archive.
+// DELETE /api/superadmin/backups - remove backups from the S3 archive.
 // Body (one of):
 //   { key }       delete a single backup object
 //   { prefix }    delete every object under a tier/FY folder (e.g. "FY26-27/weekly/")
@@ -885,7 +885,7 @@ router.get('/backups/preview', async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────
-//  System health — full snapshot for the System Health page
+//  System health - full snapshot for the System Health page
 // ────────────────────────────────────────────────────────────
 
 // GET /api/superadmin/health
@@ -931,7 +931,7 @@ router.get('/health', async (req, res) => {
     out.server.uptimeSeconds = Math.floor(parseFloat(stdout.trim().split(' ')[0]));
   } catch (_) { /* ignore */ }
 
-  // Root filesystem usage — the 30 GB EBS volume is the real capacity ceiling.
+  // Root filesystem usage - the 30 GB EBS volume is the real capacity ceiling.
   try {
     const { stdout } = await execAsync("df -B1 / | awk 'NR==2 {print $2, $3, $4}'");
     const [total, used, available] = stdout.trim().split(/\s+/).map(Number);
@@ -945,7 +945,7 @@ router.get('/health', async (req, res) => {
     }
   } catch (_) { /* dev box, ignore */ }
 
-  // Uploads dir size — visible alongside DB size so you can see what's eating disk.
+  // Uploads dir size - visible alongside DB size so you can see what's eating disk.
   try {
     const uploadsPath = path.resolve(__dirname, '../../uploads');
     const { stdout } = await execAsync(`du -sb "${uploadsPath}" 2>/dev/null | cut -f1`);
@@ -1022,13 +1022,13 @@ router.get('/health', async (req, res) => {
   try {
     const { stdout } = await execAsync('tail -n 200 /var/log/raps-backup.log 2>/dev/null || true');
     const lines = stdout.trim().split('\n').filter(Boolean);
-    // Find the LAST "Backup complete" line — anything before it is ancient history.
+    // Find the LAST "Backup complete" line - anything before it is ancient history.
     let lastCompleteIdx = -1;
     for (let i = lines.length - 1; i >= 0; i--) {
       if (/Backup complete/.test(lines[i])) { lastCompleteIdx = i; break; }
     }
     const lastComplete = lastCompleteIdx >= 0 ? lines[lastCompleteIdx] : null;
-    // Only surface errors that occurred AFTER the most recent successful backup —
+    // Only surface errors that occurred AFTER the most recent successful backup -
     // otherwise stale failures (e.g. from before a fix) keep showing forever.
     const errorPool = lastCompleteIdx >= 0 ? lines.slice(lastCompleteIdx + 1) : lines;
     const lastError = [...errorPool].reverse().find((l) => /\bERROR\b|pg_dump: error|copy failed/i.test(l));
@@ -1057,14 +1057,14 @@ router.get('/health', async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────
-//  System info — disk / db / uploads usage (used by Backups page)
+//  System info - disk / db / uploads usage (used by Backups page)
 // ────────────────────────────────────────────────────────────
 
 // GET /api/superadmin/system-info
 router.get('/system-info', async (req, res) => {
   const out = { disk: null, dbBytes: null, uploadsBytes: null };
 
-  // Root filesystem usage in bytes (skip on non-POSIX dev boxes — Windows has no df)
+  // Root filesystem usage in bytes (skip on non-POSIX dev boxes - Windows has no df)
   try {
     const { stdout } = await execAsync("df -B1 / | awk 'NR==2 {print $2, $3, $4}'");
     const [total, used, available] = stdout.trim().split(/\s+/).map(Number);
@@ -1100,11 +1100,11 @@ router.get('/backups/signed-url', async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────
-//  Owner Control Hub — quick stats, user manager, impersonation, broadcast.
+//  Owner Control Hub - quick stats, user manager, impersonation, broadcast.
 //  Mobile-friendly endpoints driving the /superadmin hub on the client.
 // ────────────────────────────────────────────────────────────
 
-// GET /api/superadmin/quick-stats — dashboard tiles.
+// GET /api/superadmin/quick-stats - dashboard tiles.
 router.get('/quick-stats', async (req, res) => {
   try {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -1145,7 +1145,7 @@ router.get('/quick-stats', async (req, res) => {
 
 // GET /api/superadmin/users-list?q=&role=&active=
 // Slim user list for the control panel. Includes every user (no SUPERADMIN
-// filter — that's only applied for non-owner callers elsewhere).
+// filter - that's only applied for non-owner callers elsewhere).
 router.get('/users-list', async (req, res) => {
   const q = (req.query.q || '').trim();
   const role = (req.query.role || '').trim();
@@ -1179,7 +1179,7 @@ router.get('/users-list', async (req, res) => {
   }
 });
 
-// POST /api/superadmin/users/:id/toggle-active — flip isActive.
+// POST /api/superadmin/users/:id/toggle-active - flip isActive.
 // Killing sessions on deactivation locks the user out immediately.
 router.post('/users/:id/toggle-active', async (req, res) => {
   try {
@@ -1227,7 +1227,7 @@ router.post('/users/:id/reset-password', async (req, res) => {
   }
 });
 
-// POST /api/superadmin/users/:id/kill-sessions — log them out everywhere.
+// POST /api/superadmin/users/:id/kill-sessions - log them out everywhere.
 router.post('/users/:id/kill-sessions', async (req, res) => {
   try {
     const result = await prisma.session.deleteMany({ where: { userId: req.params.id } });
@@ -1238,7 +1238,7 @@ router.post('/users/:id/kill-sessions', async (req, res) => {
   }
 });
 
-// POST /api/superadmin/users/:id/impersonate — issue an access token for the
+// POST /api/superadmin/users/:id/impersonate - issue an access token for the
 // target user without touching their password or creating an auditable session.
 // The owner keeps their own token client-side and swaps back when finished.
 router.post('/users/:id/impersonate', async (req, res) => {
@@ -1292,7 +1292,7 @@ router.post('/broadcast', async (req, res) => {
   }
 });
 
-// GET /api/superadmin/recent-activity — last 30 audit log entries with the
+// GET /api/superadmin/recent-activity - last 30 audit log entries with the
 // SUPERADMIN entries excluded (the owner's own activity is never logged anyway,
 // but this keeps the feed clean if anyone else briefly held the role).
 router.get('/recent-activity', async (req, res) => {

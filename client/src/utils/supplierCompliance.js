@@ -1,4 +1,4 @@
-// Date-driven SA/VE compliance — mirror of server/src/utils/supplierCompliance.js.
+// Date-driven SA/VE compliance - mirror of server/src/utils/supplierCompliance.js.
 //   - SA (Supplier Assessment) = primary doc, kept forever, valid 1 year.
 //   - VE (Vendor Re-Evaluation) = recurring yearly doc; latest is active.
 //   - Active clock = latest VE if present, else SA.
@@ -35,8 +35,8 @@ export function supplierComplianceStatus(s, now = new Date()) {
     reason = 'Supplier Assessment (SA) PDF required';
   } else if (expired) {
     reason = hasVE
-      ? 'Vendor Re-Evaluation (VE) has expired — upload a new VE'
-      : 'Supplier Assessment (SA) has expired — upload a Vendor Re-Evaluation (VE)';
+      ? 'Vendor Re-Evaluation (VE) has expired - upload a new VE'
+      : 'Supplier Assessment (SA) has expired - upload a Vendor Re-Evaluation (VE)';
   }
 
   return {

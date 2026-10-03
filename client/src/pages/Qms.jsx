@@ -1,14 +1,14 @@
 import { Link } from 'react-router-dom';
 import { BadgeCheck, BookOpen, ListChecks, Gauge, ArrowRight, Sparkles } from 'lucide-react';
 
-// QMS hub — SOPs, Work Instructions and KPIs. Everyone views; document
+// QMS hub - SOPs, Work Instructions and KPIs. Everyone views; document
 // uploads inside the sub-pages are gated to Unit-5 server-side.
 const MODULES = [
   {
     to: '/qms/sops',
     icon: BookOpen,
     title: 'SOP',
-    description: 'Standard Operating Procedures — controlled copies uploaded by Unit-5.',
+    description: 'Standard Operating Procedures - controlled copies uploaded by Unit-5.',
     gradient: 'from-sky-500 via-blue-600 to-indigo-600',
     iconBg: 'bg-gradient-to-br from-sky-100 to-blue-200 text-sky-700',
   },
@@ -24,7 +24,7 @@ const MODULES = [
     to: '/qms/kpis',
     icon: Gauge,
     title: 'KPIs',
-    description: 'Auto-generated QMS indicators — on-time deliveries, tender vs order, supplier performance, QC rejections, certifications.',
+    description: 'Auto-generated QMS indicators - on-time deliveries, tender vs order, supplier performance, QC rejections, certifications.',
     gradient: 'from-amber-500 via-orange-500 to-rose-500',
     iconBg: 'bg-gradient-to-br from-amber-100 to-orange-200 text-amber-700',
   },

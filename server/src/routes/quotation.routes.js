@@ -20,15 +20,15 @@ const router = express.Router();
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Planning (+ ADMIN).
 const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING'];
 
-// Quotation read access — narrower than CHAIN_ROLES. Supplier prices are
+// Quotation read access - narrower than CHAIN_ROLES. Supplier prices are
 // finance-sensitive: only Admin, Purchase Officer, and Stores need them.
-// ACCOUNTING + FINANCE added as read-only observers — they see submitted
+// ACCOUNTING + FINANCE added as read-only observers - they see submitted
 // quotations (same as a non-PURCHASE_OFFICER viewer) but get none of the
 // create/select/hold endpoints below.
 const QUOTATION_VIEW_ROLES = ['ADMIN', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE'];
 
 // Product names entered on quotations can drift from the canonical PR-item
-// productName by whitespace / case. Always normalize before comparing — the
+// productName by whitespace / case. Always normalize before comparing - the
 // cleanup logic depends on these matches, and a silent mismatch lets stale
 // competing quotes survive after an approval.
 const normalizeName = (s) => (s == null ? '' : String(s).trim().toLowerCase());
@@ -38,7 +38,7 @@ const normalizeName = (s) => (s == null ? '' : String(s).trim().toLowerCase());
 function acceptQuotationPdf(req, res, next) {
   quotationUpload.single('quotationPdf')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message || 'Quotation upload failed' });
-    // When sent as multipart, body fields arrive as strings — parse `payload` JSON.
+    // When sent as multipart, body fields arrive as strings - parse `payload` JSON.
     if (req.body && typeof req.body.payload === 'string') {
       try { req.body = JSON.parse(req.body.payload); }
       catch { return res.status(400).json({ error: 'Invalid payload JSON' }); }
@@ -119,12 +119,12 @@ const unionCreateSchema = z.object({
 // Supplier resolution + compliance helpers moved to utils/quotationHelpers.js
 // so the material-pool quote endpoint can share them.
 
-// GET /api/quotations/pool-candidates — PR line items still open for quoting,
+// GET /api/quotations/pool-candidates - PR line items still open for quoting,
 // across every open PR. Used by the "Pool by Material" view so the Purchase Officer
 // can manually pick lines from different PRs and pool them into one union quotation.
 //
 // Items already covered by a quotation (SUBMITTED/HELD) are still included so the
-// PO can add competing quotes from other suppliers — only QUOTATION_APPROVED
+// PO can add competing quotes from other suppliers - only QUOTATION_APPROVED
 // (already on a PO) and CANCELLED items are excluded.
 router.get('/pool-candidates', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
@@ -202,7 +202,7 @@ router.get('/pool-candidates', authenticate, authorize('PURCHASE_OFFICER'), asyn
   }
 });
 
-// GET /api/quotations?purchaseRequestId=X — list quotations for a PR (includes unions touching that PR)
+// GET /api/quotations?purchaseRequestId=X - list quotations for a PR (includes unions touching that PR)
 router.get('/', authenticate, authorize(...QUOTATION_VIEW_ROLES), async (req, res) => {
   try {
     const { purchaseRequestId, page, limit } = req.query;
@@ -221,7 +221,7 @@ router.get('/', authenticate, authorize(...QUOTATION_VIEW_ROLES), async (req, re
       where.submittedToAdminAt = { not: null };
     }
     // Once a quotation is approved (isSelected=true), it has been converted to a
-    // PO — the PO list owns it from here. Hide it from the quotation queue so
+    // PO - the PO list owns it from here. Hide it from the quotation queue so
     // PO/admin aren't seeing already-actioned quotes alongside open ones.
     if (req.query.includeApproved !== '1') {
       where.isSelected = false;
@@ -337,7 +337,7 @@ router.get('/:id', authenticate, authorize(...QUOTATION_VIEW_ROLES), async (req,
   }
 });
 
-// POST /api/quotations — PO creates a single-PR quotation
+// POST /api/quotations - PO creates a single-PR quotation
 router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationItemPdfs, async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
@@ -347,7 +347,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationIte
     });
 
     if (!pr) return res.status(404).json({ error: 'Purchase request not found' });
-    // A PR can collect new quotations while items are still awaiting coverage —
+    // A PR can collect new quotations while items are still awaiting coverage -
     // IN_PROGRESS and QUOTATION_APPROVED are valid because earlier batches may
     // already have moved into POs while later items are still waiting on a quote.
     if (!['APPROVED', 'QUOTATION_SUBMITTED', 'IN_PROGRESS', 'QUOTATION_APPROVED'].includes(pr.status)) {
@@ -365,7 +365,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationIte
 
     // Block only if a referenced supplier has no Vendor Evaluation PDF on file.
     // An expired Supplier Assessment is returned as a soft warning so the UI
-    // can show a banner — quotation submission still proceeds.
+    // can show a banner - quotation submission still proceeds.
     const { hardIssues, softWarnings: createSoftWarnings } =
       await checkSuppliersCompliance(itemsWithSupplier.map(i => i.supplierId));
     if (hardIssues.length > 0) {
@@ -416,7 +416,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationIte
     });
 
     // Flip every referenced PR item from AWAITING_QUOTATION → QUOTATION_SUBMITTED
-    // (only items still in AWAITING are touched — items already approved on another
+    // (only items still in AWAITING are touched - items already approved on another
     // quotation are left alone). Then re-sync the parent PR's headline status.
     await prisma.$transaction(async (tx) => {
       const prItems = await tx.purchaseRequestItem.findMany({
@@ -453,7 +453,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationIte
   }
 });
 
-// POST /api/quotations/union — PO creates a union quotation aggregating items from multiple PRs.
+// POST /api/quotations/union - PO creates a union quotation aggregating items from multiple PRs.
 // Each item carries `sources: [{ purchaseRequestItemId, allocatedQty }]` so the per-unit slice
 // is preserved end-to-end (carried to PurchaseOrderItemAllocation on admin approval).
 router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotationPdf, async (req, res) => {
@@ -483,7 +483,7 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotati
       for (const it of pr.items) prItemOwner.set(it.id, pr.id);
     }
 
-    // Reject any source referencing a PR item that is already in a material pool —
+    // Reject any source referencing a PR item that is already in a material pool -
     // pooled items are quoted via POST /api/material-pools/:id/quotations.
     const allSourceIds = data.items.flatMap(it => it.sources.map(s => s.purchaseRequestItemId));
     if (allSourceIds.length > 0) {
@@ -626,7 +626,7 @@ router.post('/union', authenticate, authorize('PURCHASE_OFFICER'), acceptQuotati
   }
 });
 
-// PUT /api/quotations/:id — PO updates a quotation
+// PUT /api/quotations/:id - PO updates a quotation
 router.put('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const quotation = await prisma.quotation.findUnique({
@@ -639,7 +639,7 @@ router.put('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, res)
       return res.status(400).json({ error: 'Cannot edit a selected quotation' });
     }
     if (quotation.isUnion) {
-      return res.status(400).json({ error: 'Union quotations cannot be edited inline — delete and recreate to change' });
+      return res.status(400).json({ error: 'Union quotations cannot be edited inline - delete and recreate to change' });
     }
     if (!['APPROVED', 'QUOTATION_SUBMITTED'].includes(quotation.purchaseRequest.status)) {
       return res.status(400).json({ error: 'Cannot edit quotations at this stage' });
@@ -706,7 +706,7 @@ router.put('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, res)
   }
 });
 
-// DELETE /api/quotations/:id — PO deletes (only before submission)
+// DELETE /api/quotations/:id - PO deletes (only before submission)
 router.delete('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const quotation = await prisma.quotation.findUnique({
@@ -778,7 +778,7 @@ router.delete('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, r
   }
 });
 
-// POST /api/quotations/submit/:purchaseRequestId — PO submits single-PR quotations to ADMIN
+// POST /api/quotations/submit/:purchaseRequestId - PO submits single-PR quotations to ADMIN
 router.post('/submit/:purchaseRequestId', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const { purchaseRequestId } = req.params;
@@ -802,7 +802,7 @@ router.post('/submit/:purchaseRequestId', authenticate, authorize('PURCHASE_OFFI
       return res.status(400).json({ error: 'At least one quotation is required before submission' });
     }
 
-    // Only submit quotes that haven't been sent before — re-clicking Submit
+    // Only submit quotes that haven't been sent before - re-clicking Submit
     // shouldn't bump the timestamp on already-submitted batches.
     const toSubmitIds = quotations.filter(q => !q.submittedToAdminAt).map(q => q.id);
     if (toSubmitIds.length === 0) {
@@ -814,7 +814,7 @@ router.post('/submit/:purchaseRequestId', authenticate, authorize('PURCHASE_OFFI
     const maxTier = getTier(maxTotal);
 
     // Flip the gate + recompute. With partial coverage the PR can stay at
-    // QUOTATION_APPROVED / IN_PROGRESS (some items already on POs) — we never
+    // QUOTATION_APPROVED / IN_PROGRESS (some items already on POs) - we never
     // downgrade.
     await prisma.$transaction(async (tx) => {
       await tx.quotation.updateMany({
@@ -833,7 +833,7 @@ router.post('/submit/:purchaseRequestId', authenticate, authorize('PURCHASE_OFFI
       data: {
         type: 'QUOTATION_REVIEW',
         title: `Quotation Review Required: ${pr.requestNumber}`,
-        message: `${quotations.length} quotation(s) submitted for ${pr.requestNumber} from ${pr.manager?.name} (${pr.unit?.name}). Range: ₹${minTotal.toLocaleString('en-IN')} - ₹${maxTotal.toLocaleString('en-IN')}. Approval tier: ${maxTier} — ${getTierLabel(maxTier)}.`,
+        message: `${quotations.length} quotation(s) submitted for ${pr.requestNumber} from ${pr.manager?.name} (${pr.unit?.name}). Range: ₹${minTotal.toLocaleString('en-IN')} - ₹${maxTotal.toLocaleString('en-IN')}. Approval tier: ${maxTier} - ${getTierLabel(maxTier)}.`,
         targetRole: 'ADMIN',
         sentById: req.user.id,
       },
@@ -857,8 +857,8 @@ router.post('/submit/:purchaseRequestId', authenticate, authorize('PURCHASE_OFFI
   }
 });
 
-// POST /api/quotations/union/submit — PO submits competing union quotations covering a PR set
-// Body: { purchaseRequestIds: [uuid, ...] } — transitions every listed PR to QUOTATION_SUBMITTED
+// POST /api/quotations/union/submit - PO submits competing union quotations covering a PR set
+// Body: { purchaseRequestIds: [uuid, ...] } - transitions every listed PR to QUOTATION_SUBMITTED
 // and notifies admin once with the full set of unions touching those PRs.
 const unionSubmitSchema = z.object({
   purchaseRequestIds: z.array(z.string().uuid()).min(2),
@@ -938,7 +938,7 @@ router.post('/union/submit', authenticate, authorize('PURCHASE_OFFICER'), async 
       data: {
         type: 'QUOTATION_REVIEW',
         title: `Union Quotation Review Required (${unions.length} competing)`,
-        message: `${unions.length} union quotation(s) submitted covering ${uniquePrIds.length} PRs (${prs.map(p => p.requestNumber).join(', ')}). Range: ₹${minTotal.toLocaleString('en-IN')} - ₹${maxTotal.toLocaleString('en-IN')}. Approval tier: ${maxTier} — ${getTierLabel(maxTier)}.`,
+        message: `${unions.length} union quotation(s) submitted covering ${uniquePrIds.length} PRs (${prs.map(p => p.requestNumber).join(', ')}). Range: ₹${minTotal.toLocaleString('en-IN')} - ₹${maxTotal.toLocaleString('en-IN')}. Approval tier: ${maxTier} - ${getTierLabel(maxTier)}.`,
         targetRole: 'ADMIN',
         sentById: req.user.id,
       },
@@ -970,9 +970,9 @@ router.post('/union/submit', authenticate, authorize('PURCHASE_OFFICER'), async 
   }
 });
 
-// POST /api/quotations/:id/submit — PO submits ONE quotation to admin (send a
+// POST /api/quotations/:id/submit - PO submits ONE quotation to admin (send a
 // quote per product). Single-quotation counterpart to the bulk
-// POST /submit/:purchaseRequestId — lets the PO send each product's quote as
+// POST /submit/:purchaseRequestId - lets the PO send each product's quote as
 // soon as it's ready instead of waiting for every draft on the PR.
 // NOTE: must stay registered AFTER POST /union/submit so "union" isn't captured
 // as an :id by this route.
@@ -994,7 +994,7 @@ router.post('/:id/submit', authenticate, authorize('PURCHASE_OFFICER'), async (r
       return res.status(400).json({ error: 'This quotation has already been approved' });
     }
     if (quotation.heldAt) {
-      return res.status(400).json({ error: 'This quotation is on hold — resubmit it instead.' });
+      return res.status(400).json({ error: 'This quotation is on hold - resubmit it instead.' });
     }
     if (quotation.submittedToAdminAt) {
       return res.status(400).json({ error: 'This quotation has already been sent to admin' });
@@ -1035,7 +1035,7 @@ router.post('/:id/submit', authenticate, authorize('PURCHASE_OFFICER'), async (r
       data: {
         type: 'QUOTATION_REVIEW',
         title: `Quotation Review Required: ${quotation.quotationNumber}`,
-        message: `Quotation ${quotation.quotationNumber} (₹${quotation.totalAmount.toLocaleString('en-IN')}) submitted for ${linkedPRs.map(p => p.requestNumber).join(', ')}. Approval tier: ${tier} — ${getTierLabel(tier)}.`,
+        message: `Quotation ${quotation.quotationNumber} (₹${quotation.totalAmount.toLocaleString('en-IN')}) submitted for ${linkedPRs.map(p => p.requestNumber).join(', ')}. Approval tier: ${tier} - ${getTierLabel(tier)}.`,
         targetRole: 'ADMIN',
         sentById: req.user.id,
       },
@@ -1064,7 +1064,7 @@ router.post('/:id/submit', authenticate, authorize('PURCHASE_OFFICER'), async (r
   }
 });
 
-// POST /api/quotations/:id/hold — ADMIN puts the quotation on hold and asks
+// POST /api/quotations/:id/hold - ADMIN puts the quotation on hold and asks
 // the Purchase Officer to fix something (typically: upload missing supplier
 // compliance PDFs). The PR stays in QUOTATION_SUBMITTED so the PO can fix the
 // issue (no resubmission of the quotation needed) and admin can re-approve.
@@ -1095,7 +1095,7 @@ router.post('/:id/hold', authenticate, authorize('ADMIN'), async (req, res) => {
         where: { id: req.params.id },
         data: { holdNote, heldAt: new Date() },
       });
-      // Recompute every item across every linked PR — the held quotation now
+      // Recompute every item across every linked PR - the held quotation now
       // demotes any item that was only covered by this quotation back to "HELD".
       const linkedPRIds = quotation.isUnion
         ? quotation.sourceRequests.map(s => s.purchaseRequestId)
@@ -1114,7 +1114,7 @@ router.post('/:id/hold', authenticate, authorize('ADMIN'), async (req, res) => {
     await prisma.notification.create({
       data: {
         type: 'QUOTATION_HOLD',
-        title: `Quotation ${quotation.quotationNumber} on hold — action required`,
+        title: `Quotation ${quotation.quotationNumber} on hold - action required`,
         message: `Admin held quotation ${quotation.quotationNumber}. Reason: ${holdNote}. Please attach the required documents and re-notify admin.`,
         targetUserId: quotation.createdById,
         sentById: req.user.id,
@@ -1142,13 +1142,13 @@ router.post('/:id/hold', authenticate, authorize('ADMIN'), async (req, res) => {
   }
 });
 
-// PUT /api/quotations/:id/resubmit — PO fixes a held quotation (optionally
+// PUT /api/quotations/:id/resubmit - PO fixes a held quotation (optionally
 // updates totals/notes/items and the attached PDF) and re-notifies admin.
 // Clears the hold fields.
 //
 // Multipart body: `payload` (JSON) + optional `quotationPdf` file.
 // payload: { notes?, items?, clearPdf?: boolean }
-//   - `items` optional — PO may fix the issue purely on the supplier side
+//   - `items` optional - PO may fix the issue purely on the supplier side
 //     (e.g. uploaded missing compliance PDF) and resubmit unchanged.
 //   - `clearPdf: true` removes the existing quotationPdfUrl.
 //   - A new file uploaded via `quotationPdf` replaces the existing one.
@@ -1179,7 +1179,7 @@ router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), acceptQ
     else if (clearPdf === true || clearPdf === 'true') nextPdfUrl = null;
 
     const result = await prisma.$transaction(async (tx) => {
-      // Optional item rewrite — mirrors PUT /:id behaviour for non-union quotations.
+      // Optional item rewrite - mirrors PUT /:id behaviour for non-union quotations.
       // Union quotation items keep their sourceAllocations untouched (PO cannot
       // restructure allocations during a resubmit; that requires delete+recreate).
       if (Array.isArray(items) && items.length > 0 && !quotation.isUnion) {
@@ -1258,7 +1258,7 @@ router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), acceptQ
       });
     });
 
-    // Notify every approver eligible to act on this quotation's tier — they
+    // Notify every approver eligible to act on this quotation's tier - they
     // need to know the held quote is back in the queue.
     const tier = getTier(result.totalAmount);
     const approvers = await getApproversForTier(tier);
@@ -1266,7 +1266,7 @@ router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), acceptQ
       await prisma.notification.create({
         data: {
           type: 'QUOTATION_RESUBMITTED',
-          title: `Quotation ${quotation.quotationNumber} resubmitted — review`,
+          title: `Quotation ${quotation.quotationNumber} resubmitted - review`,
           message: `Held quotation ${quotation.quotationNumber} was updated and resubmitted by ${req.user.name}. Tier ${tier} (${getTierLabel(tier)}). Please re-review.`,
           targetUserId: a.id,
           sentById: req.user.id,
@@ -1302,7 +1302,7 @@ router.put('/:id/resubmit', authenticate, authorize('PURCHASE_OFFICER'), acceptQ
   }
 });
 
-// PUT /api/quotations/:id/select — ADMIN approves a quotation + creates PurchaseOrder(s)
+// PUT /api/quotations/:id/select - ADMIN approves a quotation + creates PurchaseOrder(s)
 router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
     const selectionNote = typeof req.body?.selectionNote === 'string' ? req.body.selectionNote.trim() : '';
@@ -1358,7 +1358,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
     }
 
     // Submission gate: admin can't approve a quotation the PO hasn't explicitly
-    // sent over. This is the matching half of the "Send to Admin" button —
+    // sent over. This is the matching half of the "Send to Admin" button -
     // until the PO clicks it, the quote is a draft and invisible/unactionable
     // to admin.
     if (!quotation.submittedToAdminAt) {
@@ -1386,7 +1386,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
 
     // Re-check supplier compliance at approval time. Vendor Evaluation is still
     // a hard block (no PO without one), but an expired Supplier Assessment is
-    // only a soft warning — admin can approve and let procurement chase the
+    // only a soft warning - admin can approve and let procurement chase the
     // updated assessment after the PO is in flight.
     const approvalSupplierIds = quotation.items.map(i => i.supplierId).filter(Boolean);
     const { hardIssues: approvalHard } = await checkSuppliersCompliance(approvalSupplierIds);
@@ -1432,12 +1432,85 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
       return res.status(400).json({ error: 'Quotation has no items with suppliers' });
     }
 
+    // Which PR items this quotation actually locks in. Computed up front because
+    // BOTH the de-selection below and the supersede step further down have to
+    // reason about item coverage, not merely about "same PR".
+    const approvedPrItemIdSet = new Set();
+    if (quotation.isUnion) {
+      for (const qi of quotation.items) {
+        if (Array.isArray(qi.sourceAllocations)) {
+          for (const src of qi.sourceAllocations) approvedPrItemIdSet.add(src.purchaseRequestItemId);
+        }
+      }
+    } else {
+      const parentItems = quotation.purchaseRequest?.items || [];
+      for (const qi of quotation.items) {
+        const target = normalizeName(qi.productName);
+        const match = parentItems.find(p => normalizeName(p.productName) === target);
+        if (match) approvedPrItemIdSet.add(match.id);
+      }
+    }
+
+    // Does another quotation quote for any of the SAME PR items this approval
+    // locks in? Only then is it a competitor.
+    const prItemsByPR = new Map(sourcePRs.map(p => [p.id, p.items || []]));
+    const overlapsApproved = (q) => (q.items || []).some((qi) => {
+      if (q.isUnion && Array.isArray(qi.sourceAllocations)) {
+        return qi.sourceAllocations.some(s => approvedPrItemIdSet.has(s.purchaseRequestItemId));
+      }
+      // Non-union: resolve the product name against ITS OWN PR's lines only.
+      // Searching every source PR's lines at once lets a union approval match a
+      // same-named line on a different PR and de-select a quotation that does not
+      // actually compete - the very regression this change exists to stop.
+      const scoped = prItemsByPR.get(q.purchaseRequestId) || [];
+      const target = normalizeName(qi.productName);
+      const match = scoped.find(p => normalizeName(p.productName) === target);
+      return !!match && approvedPrItemIdSet.has(match.id);
+    });
+
+    // Set when the approval turns out to be a repeat - the orders already exist,
+    // so there is nothing new to announce.
+    let alreadyApproved = false;
+
     const createdOrders = await prisma.$transaction(async (tx) => {
-      // Make selection exclusive: any other quotation tied to these PRs (single
-      // or via the sources junction) gets isSelected=false. Two admins racing
-      // on competing quotations for the same PR can no longer both win.
+      // Approving twice must not produce a second set of orders. Without this,
+      // a re-approval - a double click, a retried request, or an admin pressing
+      // Approve again because the PR still looked un-progressed - created a whole
+      // duplicate PO set and double-counted purchasedQty on every PR item.
+      const existingOrders = await tx.purchaseOrder.findMany({
+        where: { quotationId: req.params.id },
+        include: { items: { include: { allocations: true } }, sourceRequests: true },
+      });
+      if (existingOrders.length > 0) {
+        // The orders exist, so this quotation IS the approved one - repair the
+        // flag if it drifted, then hand back what is already there.
+        await tx.quotation.update({
+          where: { id: req.params.id },
+          data: { isSelected: true, selectionNote },
+        });
+        // Repairing the flag alone is not enough. While it was false the item
+        // rollup read it as "not approved" and pushed those PR lines back to
+        // QUOTATION_SUBMITTED, taking the PR status with them. Re-derive both, or
+        // the admin presses Approve, sees a success, and nothing changes.
+        for (const pr of sourcePRs) {
+          const prItems = await tx.purchaseRequestItem.findMany({
+            where: { requestId: pr.id },
+            select: { id: true },
+          });
+          await recomputePRItemQuotationStatus(tx, prItems.map(i => i.id));
+          await syncPRStatusAfterChange(tx, pr.id);
+        }
+        alreadyApproved = true;
+        return existingOrders;
+      }
+
+      // Make selection exclusive - but only against quotations that quote for the
+      // SAME PR items. A PR is routinely split across several quotations (one per
+      // supplier / per material) and those are NOT competitors: de-selecting them
+      // knocked their items back to "quotation submitted", which made the PR look
+      // un-progressed and invited exactly the re-approval that bred duplicate POs.
       const sourcePrIds = sourcePRs.map(p => p.id);
-      await tx.quotation.updateMany({
+      const otherSelected = await tx.quotation.findMany({
         where: {
           id: { not: req.params.id },
           isSelected: true,
@@ -1446,8 +1519,23 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
             { sourceRequests: { some: { purchaseRequestId: { in: sourcePrIds } } } },
           ],
         },
-        data: { isSelected: false },
+        select: {
+          id: true,
+          isUnion: true,
+          // Needed by overlapsApproved to scope a non-union competitor's product
+          // names to its own PR.
+          purchaseRequestId: true,
+          items: { select: { productName: true, sourceAllocations: true } },
+        },
       });
+      const losingIds = otherSelected.filter(overlapsApproved).map(q => q.id);
+      if (losingIds.length > 0) {
+        await tx.quotation.updateMany({
+          where: { id: { in: losingIds } },
+          data: { isSelected: false },
+        });
+      }
+
       await tx.quotation.update({
         where: { id: req.params.id },
         data: { isSelected: true, selectionNote },
@@ -1455,29 +1543,15 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
 
       // Soft-archive the now-stale competing quotations. Any UNSELECTED quotation
       // (single or union) that covers an item this approval just locked in
-      // can never be approved — its items will move to QUOTATION_APPROVED and
+      // can never be approved - its items will move to QUOTATION_APPROVED and
       // the PO it would produce would conflict. We DON'T delete them: the
       // product's Supplier History tab reads QuotationItem-where-not-selected
       // to surface "Quoted but not bought" prices. Setting supersededAt hides
       // them from the active queue while keeping the price/supplier audit trail.
       //
-      // Approved item ids: for unions, walk this quotation's sourceAllocations;
-      // for single-PR, map by productName against the parent PR.
-      const approvedItemIds = new Set();
-      if (quotation.isUnion) {
-        for (const qi of quotation.items) {
-          if (Array.isArray(qi.sourceAllocations)) {
-            for (const src of qi.sourceAllocations) approvedItemIds.add(src.purchaseRequestItemId);
-          }
-        }
-      } else {
-        const prItems = quotation.purchaseRequest?.items || [];
-        for (const qi of quotation.items) {
-          const target = normalizeName(qi.productName);
-          const match = prItems.find(p => normalizeName(p.productName) === target);
-          if (match) approvedItemIds.add(match.id);
-        }
-      }
+      // Coverage (approvedPrItemIdSet / overlapsApproved) is computed once above
+      // the transaction - the de-selection step needs the same answer.
+      const approvedItemIds = approvedPrItemIdSet;
 
       if (approvedItemIds.size > 0) {
         // Pull every unselected quotation linked to these PRs (single or union)
@@ -1570,7 +1644,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         const po = await tx.purchaseOrder.create({
           data: {
             // No number yet. Purchase type RAPS/PO/<FY>/<n> in on the PO page
-            // before this draft can be placed — see PATCH
+            // before this draft can be placed - see PATCH
             // /api/purchase-orders/:id/assign-number.
             orderNumber: null,
             customName: orderName,
@@ -1661,7 +1735,17 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
       return orders;
     });
 
-    // The orders have no number yet — Purchase fill that in — so the summary is
+    // A repeat approval creates nothing, so it announces nothing - re-firing the
+    // "orders created" notifications would be a second lie about the same event.
+    if (alreadyApproved) {
+      return res.json({
+        alreadyApproved: true,
+        message: 'This quotation was already approved - its purchase order(s) already exist. No new orders were created.',
+        orders: createdOrders,
+      });
+    }
+
+    // The orders have no number yet - Purchase fill that in - so the summary is
     // keyed on the supplier and value instead.
     const supplierSummary = createdOrders
       .map(o => `${o.supplierName} (₹${o.totalAmount.toLocaleString('en-IN')})`)
@@ -1673,7 +1757,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         data: {
           type: 'QUOTATION_APPROVED',
           title: `Union Quotation Approved: ${quotation.quotationNumber}`,
-          message: `Admin approved union quotation covering ${sourcePRs.length} PRs. ${createdOrders.length} union purchase order(s) created — ${supplierSummary}. Each order is numbered 000 until you update it with the number from your PO register — do that before placing it.`,
+          message: `Admin approved union quotation covering ${sourcePRs.length} PRs. ${createdOrders.length} union purchase order(s) created - ${supplierSummary}. Each order is numbered 000 until you update it with the number from your PO register - do that before placing it.`,
           targetRole: 'PURCHASE_OFFICER',
           sentById: req.user.id,
         },
@@ -1695,7 +1779,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
         data: {
           type: 'QUOTATION_APPROVED',
           title: `Quotation Approved: ${quotation.purchaseRequest.requestNumber}`,
-          message: `Admin approved quotation for order "${orderName}". ${createdOrders.length} purchase order(s) created — ${supplierSummary}. Each order is numbered 000 until you update it with the number from your PO register — do that before placing it.`,
+          message: `Admin approved quotation for order "${orderName}". ${createdOrders.length} purchase order(s) created - ${supplierSummary}. Each order is numbered 000 until you update it with the number from your PO register - do that before placing it.`,
           targetRole: 'PURCHASE_OFFICER',
           sentById: req.user.id,
         },
@@ -1716,7 +1800,7 @@ router.put('/:id/select', authenticate, authorize('ADMIN'), async (req, res) => 
           sourcePurchaseRequests: sourcePRs.map(p => ({ id: p.id, requestNumber: p.requestNumber })),
           purchaseOrders: createdOrders.map(o => ({
             id: o.id,
-            orderNumber: o.orderNumber, // null — Purchase fill it in afterwards
+            orderNumber: o.orderNumber, // null - Purchase fill it in afterwards
             supplierName: o.supplierName,
             totalAmount: o.totalAmount,
           })),

@@ -4,7 +4,7 @@ import { AlertTriangle, Timer, Bell } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 
-// SLA ticker — finance/accounts/L5 admin chase invoice payments.
+// SLA ticker - finance/accounts/L5 admin chase invoice payments.
 // QC and MANAGER deliberately excluded: this is payment-side scope only.
 const TICKER_ROLES = ['ADMIN', 'FINANCE', 'ACCOUNTING'];
 const POLL_MS = 30 * 1000;

@@ -12,6 +12,7 @@ const ROLE_LABELS = {
   ACCOUNTING: 'Accounting',
   QC: 'Quality Control',
   INWARD_QC: 'Inward QC',
+  IN_PROCESS_QC: 'In-Process QC',
   LAB: 'Lab',
   METROLOGY: 'Metrology',
   NDT: 'NDT',

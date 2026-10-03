@@ -7,7 +7,7 @@ import { saveBlobResponse, blobErrorMessage } from '../../utils/download';
 /**
  * "Export Excel" button for any endpoint that streams an .xlsx back.
  *
- * The server decides the contents and the filename — this only carries the
+ * The server decides the contents and the filename - this only carries the
  * caller's current filters across so the download always matches the list the
  * user is looking at, never the whole table.
  *

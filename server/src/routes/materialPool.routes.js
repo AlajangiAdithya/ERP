@@ -2,7 +2,7 @@
 //
 // A pool is a lightweight "intent to bundle" object: the PO declares that
 // these PR-items share a material and should be quoted together. Quoting
-// itself still happens through /api/quotations/union — the pool just makes
+// itself still happens through /api/quotations/union - the pool just makes
 // the bundle persistent so multiple competing union quotes can attach to it
 // over time without the PO re-picking the lines from scratch each round.
 //
@@ -14,7 +14,7 @@
 //   CANCELLED → pool dissolved; PR-items return to single-quote land
 //
 // A pool's productName + productUnit must match every item exactly. Cross-unit
-// pooling is allowed (and is the whole point — different units' PRs share a
+// pooling is allowed (and is the whole point - different units' PRs share a
 // supplier order).
 
 const express = require('express');
@@ -84,7 +84,7 @@ function assertSameMaterial(items) {
   }
 }
 
-// GET /api/material-pools — list pools the PO can act on. Admin sees pools with
+// GET /api/material-pools - list pools the PO can act on. Admin sees pools with
 // submitted quotations (consistent with admin's other quotation views).
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -120,7 +120,7 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/material-pools/candidates?purchaseRequestItemId=... — returns other
+// GET /api/material-pools/candidates?purchaseRequestItemId=... - returns other
 // PR-items with the same material that are still poolable (un-pooled,
 // awaiting quote). Used by the picker on the PR detail page.
 router.get('/candidates', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
@@ -140,7 +140,7 @@ router.get('/candidates', authenticate, authorize('PURCHASE_OFFICER'), async (re
         id: { not: anchor.id },
         productName: { equals: anchor.productName, mode: 'insensitive' },
         // Match UOM case-insensitively, consistent with assertSameMaterial /
-        // add-item checks — otherwise a casing drift hides poolable lines.
+        // add-item checks - otherwise a casing drift hides poolable lines.
         productUnit: { equals: anchor.productUnit, mode: 'insensitive' },
         itemQuotationStatus: 'AWAITING_QUOTATION',
         request: {
@@ -170,7 +170,7 @@ router.get('/candidates', authenticate, authorize('PURCHASE_OFFICER'), async (re
   }
 });
 
-// POST /api/material-pools — create a pool from ≥2 eligible PR-items.
+// POST /api/material-pools - create a pool from ≥2 eligible PR-items.
 router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const data = createPoolSchema.parse(req.body);
@@ -237,7 +237,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
   }
 });
 
-// POST /api/material-pools/:id/items — add another PR-item to an OPEN pool.
+// POST /api/material-pools/:id/items - add another PR-item to an OPEN pool.
 router.post('/:id/items', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const data = addItemSchema.parse(req.body);
@@ -247,7 +247,7 @@ router.post('/:id/items', authenticate, authorize('PURCHASE_OFFICER'), async (re
     });
     if (!pool) return res.status(404).json({ error: 'Pool not found' });
     if (pool.status !== 'OPEN') {
-      return res.status(400).json({ error: `Pool is ${pool.status} — composition is locked` });
+      return res.status(400).json({ error: `Pool is ${pool.status} - composition is locked` });
     }
     const [incoming] = await loadEligibleItems([data.purchaseRequestItemId]);
     if (!incoming) return res.status(404).json({ error: 'Item not found' });
@@ -278,7 +278,7 @@ router.post('/:id/items', authenticate, authorize('PURCHASE_OFFICER'), async (re
   }
 });
 
-// DELETE /api/material-pools/:id/items/:itemId — remove a PR-item from a pool.
+// DELETE /api/material-pools/:id/items/:itemId - remove a PR-item from a pool.
 // Only allowed while the pool is OPEN. If it drops below 2 items, the pool
 // dissolves entirely so the remaining item can be quoted as a single.
 router.delete('/:id/items/:itemId', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
@@ -289,7 +289,7 @@ router.delete('/:id/items/:itemId', authenticate, authorize('PURCHASE_OFFICER'),
     });
     if (!pool) return res.status(404).json({ error: 'Pool not found' });
     if (pool.status !== 'OPEN') {
-      return res.status(400).json({ error: `Pool is ${pool.status} — composition is locked` });
+      return res.status(400).json({ error: `Pool is ${pool.status} - composition is locked` });
     }
     const member = pool.items.find(i => i.id === req.params.itemId);
     if (!member) return res.status(404).json({ error: 'Item not in this pool' });
@@ -311,7 +311,7 @@ router.delete('/:id/items/:itemId', authenticate, authorize('PURCHASE_OFFICER'),
   }
 });
 
-// DELETE /api/material-pools/:id — dissolve an OPEN pool (no quotes attached).
+// DELETE /api/material-pools/:id - dissolve an OPEN pool (no quotes attached).
 router.delete('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const pool = await prisma.materialPool.findUnique({ where: { id: req.params.id } });
@@ -333,11 +333,11 @@ router.delete('/:id', authenticate, authorize('PURCHASE_OFFICER'), async (req, r
   }
 });
 
-// POST /api/material-pools/:id/quotations — create a competing union quotation
+// POST /api/material-pools/:id/quotations - create a competing union quotation
 // against this pool. The PO only supplies supplier + price; the server derives
 // the sourceAllocations from the pool's member items (each PR-item's full
 // requestedQty, or adminApprovedQty when set). Multiple competing quotes can
-// be created — each is a separate draft union until the PO sends them to
+// be created - each is a separate draft union until the PO sends them to
 // admin via the existing /api/quotations/union/submit flow.
 router.post('/:id/quotations', authenticate, authorize('PURCHASE_OFFICER'), acceptPoolQuotationPdf, async (req, res) => {
   try {
@@ -431,7 +431,7 @@ router.post('/:id/quotations', authenticate, authorize('PURCHASE_OFFICER'), acce
     // Pool stays OPEN until at least one of its quotes is submitted to admin
     // (which the /quotations/union/submit endpoint handles). But we set it to
     // QUOTED right now if it isn't already so the UI shows "has quotes".
-    // Note: we use a new status step — "QUOTED" means quotes exist (drafts or
+    // Note: we use a new status step - "QUOTED" means quotes exist (drafts or
     // submitted); admin selection later flips it to APPROVED.
     if (pool.status === 'OPEN') {
       await prisma.materialPool.update({ where: { id: pool.id }, data: { status: 'QUOTED' } });

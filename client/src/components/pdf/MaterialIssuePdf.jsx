@@ -19,44 +19,44 @@ export default function MaterialIssuePdf({ data }) {
         <View style={styles.table}>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Issue No.</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{r.issueNo || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{r.issueNo || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Issue Date</Text></View>
             <View style={[styles.cell, { width: '30%' }]}><Text>{formatDate(r.issueDate)}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>MIV Request No.</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{r.requestNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{r.requestNumber || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Request Date</Text></View>
             <View style={[styles.cell, { width: '30%' }]}><Text>{formatDate(r.createdAt)}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Reference No.</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{r.referenceNo || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{r.referenceNo || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>MIR No.</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{r.mirNo || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{r.mirNo || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Work Order No.</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{r.isRnd ? 'R & D (Product research)' : (r.workOrder?.workOrderNumber || '—')}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{r.isRnd ? 'R & D (Product research)' : (r.workOrder?.workOrderNumber || '-')}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Supply Order No.</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{r.workOrder?.supplyOrderNo || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{r.workOrder?.supplyOrderNo || '-'}</Text></View>
           </View>
-          {/* Recorded by Stores at clearance — which PR this material went out against. */}
+          {/* Recorded by Stores at clearance - which PR this material went out against. */}
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Issued Against PR No.</Text></View>
-            <View style={[styles.cell, { width: '80%' }]}><Text>{r.purchaseRequest?.requestNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '80%' }]}><Text>{r.purchaseRequest?.requestNumber || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Requested By</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{r.manager?.name || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{r.manager?.name || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Unit / Dept.</Text></View>
             <View style={[styles.cell, { width: '30%' }]}>
-              <Text>{r.unit?.name ? `${r.unit.name}${r.unit.code ? ` (${r.unit.code})` : ''}` : '—'}</Text>
+              <Text>{r.unit?.name ? `${r.unit.name}${r.unit.code ? ` (${r.unit.code})` : ''}` : '-'}</Text>
             </View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Status</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{r.status || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{r.status || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Cleared On</Text></View>
             <View style={[styles.cell, { width: '30%' }]}><Text>{formatDateTime(r.clearedAt)}</Text></View>
           </View>
@@ -76,12 +76,12 @@ export default function MaterialIssuePdf({ data }) {
           {items.map((it, idx) => (
             <View key={idx} style={styles.row} wrap={false}>
               <View style={[styles.cell, { width: '6%' }]}><Text>{idx + 1}</Text></View>
-              <View style={[styles.cell, { width: '34%' }]}><Text>{it.product?.name || '—'}</Text></View>
-              <View style={[styles.cell, { width: '20%' }]}><Text>{it.purpose || '—'}</Text></View>
-              <View style={[styles.cell, { width: '11%' }]}><Text>{it.quantity != null ? it.quantity : '—'}</Text></View>
-              <View style={[styles.cell, { width: '11%' }]}><Text>{it.qtyIssued != null ? it.qtyIssued : '—'}</Text></View>
-              <View style={[styles.cell, { width: '8%' }]}><Text>{it.product?.unit || '—'}</Text></View>
-              <View style={[styles.cell, { width: '10%' }]}><Text>{it.materialBatchNo || '—'}</Text></View>
+              <View style={[styles.cell, { width: '34%' }]}><Text>{it.product?.name || '-'}</Text></View>
+              <View style={[styles.cell, { width: '20%' }]}><Text>{it.purpose || '-'}</Text></View>
+              <View style={[styles.cell, { width: '11%' }]}><Text>{it.quantity != null ? it.quantity : '-'}</Text></View>
+              <View style={[styles.cell, { width: '11%' }]}><Text>{it.qtyIssued != null ? it.qtyIssued : '-'}</Text></View>
+              <View style={[styles.cell, { width: '8%' }]}><Text>{it.product?.unit || '-'}</Text></View>
+              <View style={[styles.cell, { width: '10%' }]}><Text>{it.materialBatchNo || '-'}</Text></View>
             </View>
           ))}
         </View>

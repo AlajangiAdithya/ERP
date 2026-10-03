@@ -16,7 +16,7 @@ import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import PageHero from '../components/shared/PageHero';
 import FimStatusRegister from '../components/fim/FimStatusRegister';
-import { formatDate } from '../utils/formatters';
+import { formatDate, formatDateTime } from '../utils/formatters';
 import { UOM_OPTIONS } from '../utils/units';
 import { MATERIAL_TYPE_OPTIONS } from '../utils/materialTypes';
 import { checkFileSize } from '../utils/fileGuard';
@@ -31,12 +31,12 @@ const fileUrl = (u) => (u && u.startsWith('http') ? u : `${API_ORIGIN}${u || ''}
 
 // Customer test reports / material certificates attached to a FIM entry. The
 // customer hands over whatever they have, so every common document or scan
-// format is accepted (validated by extension — DWG/office mimes vary by browser).
+// format is accepted (validated by extension - DWG/office mimes vary by browser).
 const TR_ACCEPT = '.pdf,.jpg,.jpeg,.png,.dwg,.doc,.docx,.xls,.xlsx,.zip';
 const TR_EXT_RE = /\.(pdf|png|jpe?g|dwg|docx?|xlsx?|zip)$/i;
 const TR_MAX_MB = 15;
 
-// Read-only link list for FIM test reports — used on the FIM inward views.
+// Read-only link list for FIM test reports - used on the FIM inward views.
 function TestReportLinks({ items, label }) {
   if (!items || items.length === 0) return null;
   return (
@@ -56,7 +56,7 @@ function TestReportLinks({ items, label }) {
   );
 }
 
-// PO terms & conditions annexure — a static client asset, the same one merged
+// PO terms & conditions annexure - a static client asset, the same one merged
 // into PO PDFs. Surfaced to QC alongside the PO/PR/supplier reference docs.
 const TNC_DOC = { label: 'PO Terms & Conditions Annexure', url: `${window.location.origin}/po-terms-and-conditions.pdf` };
 
@@ -68,7 +68,7 @@ const refDocsFor = (row) => {
   return list;
 };
 
-// Inward Inspection Request form (RAPS/IIR Rev 01) — numbered rows in 4 sections,
+// Inward Inspection Request form (RAPS/IIR Rev 01) - numbered rows in 4 sections,
 // matching the printed form. Stores reviews the auto-filled values and edits.
 const IIR_REQUEST_SECTIONS = [
   { title: 'Purchase Requisition details', rows: [
@@ -125,22 +125,32 @@ const iirRequestDefaults = (row) => {
 };
 
 // Stores owns the register; QC reviews each lot inline. Everyone else is read-only.
-// INWARD_QC is the inward-only QC operator — same review actions as QC, nothing else.
+// INWARD_QC and IN_PROCESS_QC are the inspection-only QC operators - same review
+// actions as QC, nothing else.
 const WRITE_ROLES = ['ADMIN', 'STORE_MANAGER'];
-const QC_ROLES = ['ADMIN', 'QC', 'INWARD_QC'];
-// Who may mark a lot "QC not required". Mirrors QC_WAIVE_ROLES on the server —
+const QC_ROLES = ['ADMIN', 'QC', 'INWARD_QC', 'IN_PROCESS_QC'];
+// An inspection filed by one of the inspection-only operators is not final: QC (or
+// Admin) signs it off before Stores may inward the lot. Mirror of
+// QC_OPERATOR_ROLES / QC_APPROVE_ROLES on the server.
+const QC_OPERATOR_ROLES = ['INWARD_QC', 'IN_PROCESS_QC'];
+const QC_APPROVE_ROLES = ['ADMIN', 'QC'];
+// Who may mark a lot "QC not required". Mirrors QC_WAIVE_ROLES on the server -
 // QC proper, the concerned unit manager, and Admin. Never Stores (it raises the
-// receipt, so it can't wave its own receipt through) and never INWARD_QC (that
-// login performs inspections, it doesn't decide which materials need one).
+// receipt, so it can't wave its own receipt through) and never INWARD_QC /
+// IN_PROCESS_QC (those logins perform inspections, they don't decide which
+// materials need one).
 const QC_WAIVE_ROLES = ['ADMIN', 'QC', 'MANAGER'];
 
-// Who performed a QC review, with their role spelled out so an Inward QC operator
-// is clearly distinguished from full QC on the register and the report.
-const QC_ROLE_LABELS = { QC: 'Quality Control', INWARD_QC: 'Inward QC', ADMIN: 'Admin' };
+// Who performed a QC review, with their role spelled out so an Inward QC or
+// In-Process QC operator is clearly distinguished from full QC on the register and
+// the report.
+const QC_ROLE_LABELS = {
+  QC: 'Quality Control', INWARD_QC: 'Inward QC', IN_PROCESS_QC: 'In-Process QC', ADMIN: 'Admin',
+};
 const reviewerLabel = (u) => (u ? `${u.name}${u.role ? ` (${QC_ROLE_LABELS[u.role] || u.role})` : ''}` : '');
 
 // Inward-write = Stores roles only. Mirror of the server (materialInward.routes.js).
-// Unit managers get only the generic own-unit edit grant — no inward-entry access.
+// Unit managers get only the generic own-unit edit grant - no inward-entry access.
 const canInwardWrite = (user) => WRITE_ROLES.includes(user?.role);
 
 const DOC_TYPES = [
@@ -151,12 +161,12 @@ const DOC_TYPES = [
 ];
 
 // Owner departments a direct / cash purchase can be assigned to (mirrors the
-// server's OWNER_DEPTS). Units come from /units. One or the other is required —
+// server's OWNER_DEPTS). Units come from /units. One or the other is required -
 // a hand-entered receipt can no longer be left in the general pool.
 const ASSIGN_DEPTS = ['Designs', 'QC', 'Lab', 'Metrology', 'NDT', 'Safety', 'Planning'];
 const docLabel = (v) => DOC_TYPES.find((d) => d.value === v)?.label || v;
 
-// Product / material type — same vocabulary as the PR form (PurchaseRequests)
+// Product / material type - same vocabulary as the PR form (PurchaseRequests)
 // and MATERIAL_TYPES on the server; see utils/materialTypes.js. Whatever is
 // picked here becomes the category of the product created at inward.
 
@@ -164,6 +174,9 @@ const STATUS_META = {
   DRAFT:           { label: 'Draft',            tone: 'gray' },
   QC_REQUESTED:    { label: 'QC Requested',     tone: 'amber' },
   QC_IN_REVIEW:    { label: 'In Review',        tone: 'blue' },
+  // Filed by an Inward QC / In-Process QC operator, waiting on QC's signature.
+  // Not inwardable in this state.
+  QC_PENDING_APPROVAL: { label: 'Awaiting QC Approval', tone: 'amber' },
   QC_DONE:         { label: 'QC Done',          tone: 'green' },
   QC_NOT_REQUIRED: { label: 'QC Not Required',  tone: 'violet' },
   ON_HOLD:         { label: 'On Hold',          tone: 'red' },
@@ -171,17 +184,17 @@ const STATUS_META = {
 };
 const RESULT_TONE = { PASSED: 'green', PARTIAL: 'amber', FAILED: 'red', ON_HOLD: 'red' };
 
-const STATUS_TABS = ['ALL', 'DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW', 'QC_DONE', 'QC_NOT_REQUIRED', 'ON_HOLD', 'INWARDED'];
+const STATUS_TABS = ['ALL', 'DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW', 'QC_PENDING_APPROVAL', 'QC_DONE', 'QC_NOT_REQUIRED', 'ON_HOLD', 'INWARDED'];
 
 // Status accent on the sticky MIR column. A bare 4px rule was too easy to miss on
 // a dense sheet, so each status now gets a thicker bar plus a colour wash that
 // fades out across the cell. The wash is alpha-based and sits on top of the
 // cell's inherited background, so zebra striping and row hover still read through.
 const ROW_ACCENTS = {
-  // Alpha steps must stay on Tailwind's opacity scale (multiples of 5) — an
+  // Alpha steps must stay on Tailwind's opacity scale (multiples of 5) - an
   // off-scale value like /12 generates no class at all and the stop is lost.
   //
-  // Draft is the "nothing has happened yet" state — deliberately the faintest,
+  // Draft is the "nothing has happened yet" state - deliberately the faintest,
   // and kept on the muted navy-300 so it never reads as the blue "In Review".
   gray:   'border-l-[5px] border-l-navy-300 bg-gradient-to-r from-navy-300/25 via-navy-300/10 to-transparent',
   amber:  'border-l-[5px] border-l-amber-500 bg-gradient-to-r from-amber-400/45 via-amber-400/15 to-transparent',
@@ -196,14 +209,14 @@ const ROW_ACCENTS = {
 function rowAccent(r) {
   if (r.status === 'INWARDED') return ROW_ACCENTS.green;
   if (r.status === 'ON_HOLD' || r.qcResult === 'FAILED') return ROW_ACCENTS.red;
-  if (r.status === 'QC_REQUESTED') return ROW_ACCENTS.amber;
+  if (r.status === 'QC_REQUESTED' || r.status === 'QC_PENDING_APPROVAL') return ROW_ACCENTS.amber;
   if (r.status === 'QC_IN_REVIEW') return ROW_ACCENTS.blue;
   if (r.status === 'QC_NOT_REQUIRED') return ROW_ACCENTS.violet;
   if (r.status === 'QC_DONE') return ROW_ACCENTS.green;
   return ROW_ACCENTS.gray;
 }
 
-const fmtQty = (n) => (n == null ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }));
+const fmtQty = (n) => (n == null ? '-' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }));
 
 // Mirror of the server's per-unit split (proportional to allocated qty; the last
 // unit absorbs the rounding remainder). Used only to preview where stock lands.
@@ -226,7 +239,7 @@ function splitPreview(allocs, qty) {
 
 // Two ways material comes inward: the PO/direct register (left tab) and
 // customer-supplied Free Issue Material recorded via inward gate passes (FIM tab).
-// The third tab tracks what happened to that FIM afterwards — assignment, unit
+// The third tab tracks what happened to that FIM afterwards - assignment, unit
 // acceptance, return dates and send-out. It used to sit on the Gate Pass page,
 // but a FIM only exists because Stores inwarded it, so the whole lifecycle now
 // reads on this one page.
@@ -238,21 +251,22 @@ const MAIN_TABS = [
 
 // Moving FIM Status here widened the route's allowlist, so the two intake tabs
 // are gated back to the roles that could always see them. LOGISTICS /
-// SITE_OFFICE / PLANNING reach this page only for FIM Status — the register and
+// SITE_OFFICE / PLANNING reach this page only for FIM Status - the register and
 // the FIM intake form stay out of their view, exactly as before the move.
 const INWARD_REGISTER_ROLES = [
-  'ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'SAFETY', 'ACCOUNTING', 'FINANCE',
+  'ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'DESIGNS', 'RND', 'SAFETY', 'ACCOUNTING', 'FINANCE',
 ];
-// Conversely, FIM Status keeps the audience it had on the Gate Pass page — the
-// inward-only logins (INWARD_QC, Designs, R&D) gain nothing from the move.
+// Conversely, FIM Status keeps the audience it had on the Gate Pass page - the
+// inward-only logins (INWARD_QC, IN_PROCESS_QC, Designs, R&D) gain nothing from
+// the move.
 const FIM_STATUS_ROLES = [
   'ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE', 'PLANNING', 'QC',
 ];
 
 const TAB_SUBTITLES = {
-  register: 'Receive materials into stores — the inward register for PO / direct purchases, or customer-supplied Free Issue Material (FIM) via inward gate passes.',
-  fim: 'Receive materials into stores — the inward register for PO / direct purchases, or customer-supplied Free Issue Material (FIM) via inward gate passes.',
-  'fim-status': 'Customer property (FIM) from the day it is inwarded to the day it goes back — assignment, unit acceptance, return dates and send-out.',
+  register: 'Receive materials into stores - the inward register for PO / direct purchases, or customer-supplied Free Issue Material (FIM) via inward gate passes.',
+  fim: 'Receive materials into stores - the inward register for PO / direct purchases, or customer-supplied Free Issue Material (FIM) via inward gate passes.',
+  'fim-status': 'Customer property (FIM) from the day it is inwarded to the day it goes back - assignment, unit acceptance, return dates and send-out.',
 };
 
 export default function InwardEntry() {
@@ -268,7 +282,7 @@ export default function InwardEntry() {
 
   // Honour ?tab=fim-status so the Dispatch hub's FIM Status card lands on the
   // right tab for a role that also has the register. Otherwise open on the first
-  // tab this role actually has — a logistics / site-office / planning login only
+  // tab this role actually has - a logistics / site-office / planning login only
   // gets FIM Status.
   const [searchParams] = useSearchParams();
   const [mainTab, setMainTab] = useState(() => {
@@ -314,7 +328,7 @@ export default function InwardEntry() {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Inward Material Register — PO & direct/cash receipts (request QC, review,
+// Inward Material Register - PO & direct/cash receipts (request QC, review,
 // then inward into stock).
 // ────────────────────────────────────────────────────────────────────
 function MaterialInwardRegister() {
@@ -322,8 +336,10 @@ function MaterialInwardRegister() {
   const role = user?.role;
   const canWrite = canInwardWrite(user);
   const isQC = QC_ROLES.includes(role);
-  // "QC not required" — QC, the concerned unit manager, and Admin only.
+  // "QC not required" - QC, the concerned unit manager, and Admin only.
   const canWaiveQc = QC_WAIVE_ROLES.includes(role);
+  // Signing off an inspection filed by an Inward QC / In-Process QC operator.
+  const canApproveQc = QC_APPROVE_ROLES.includes(role);
   // Editing existing rows is a lighter grant than full inward write: Stores (canWrite)
   // plus any unit manager (Units 1–5), who can view and edit every row in the shared
   // register regardless of which unit it is bound for (the server allows all-unit edits).
@@ -341,6 +357,7 @@ function MaterialInwardRegister() {
   const [editFor, setEditFor] = useState(null);
   const [docsFor, setDocsFor] = useState(null);        // row -> manage / view documents
   const [reportFor, setReportFor] = useState(null);    // row -> view filled IIR report
+  const [approveFor, setApproveFor] = useState(null);  // row -> approve / send back an operator's inspection
   const [resendFor, setResendFor] = useState(null);    // row -> resend held/failed lot to QC
   const [replaceFor, setReplaceFor] = useState(null);  // failed row -> record replacement inward
   const [busyId, setBusyId] = useState(null);
@@ -362,7 +379,7 @@ function MaterialInwardRegister() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
+    const list = rows.filter((r) => {
       if (tab !== 'ALL' && r.status !== tab) return false;
       if (q) {
         const hay = [
@@ -373,7 +390,28 @@ function MaterialInwardRegister() {
       }
       return true;
     });
-  }, [rows, tab, search]);
+    // Work waiting on *this* user floats to the top of the sheet - QC should never
+    // have to hunt the register for the inspections it has to sign off, and the
+    // operators should see the lots queued for them first. Everything else keeps
+    // the server's order.
+    //
+    // The priority is computed per MIR, not per row: several items can share one
+    // MIR number and the sheet draws them as one block, so they have to move
+    // together or the block would be split apart.
+    const waitsOnMe = (r) => (canApproveQc && r.status === 'QC_PENDING_APPROVAL')
+      || (isQC && !canApproveQc && ['QC_REQUESTED', 'QC_IN_REVIEW'].includes(r.status));
+    if (!isQC && !canApproveQc) return list;
+    const hot = new Set();
+    list.forEach((r) => { if (waitsOnMe(r)) hot.add(r.mirNo || r.id); });
+    // Array.prototype.sort is stable, so rows inside a MIR keep their order.
+    return [...list].sort((a, b) => Number(hot.has(b.mirNo || b.id)) - Number(hot.has(a.mirNo || a.id)));
+  }, [rows, tab, search, isQC, canApproveQc]);
+
+  // How many inspections are sitting on this user's signature right now.
+  const pendingApprovals = useMemo(
+    () => (canApproveQc ? rows.filter((r) => r.status === 'QC_PENDING_APPROVAL').length : 0),
+    [rows, canApproveQc],
+  );
 
   // ── Per-row inline actions ──
   const act = async (id, fn) => {
@@ -434,6 +472,22 @@ function MaterialInwardRegister() {
         </div>
       </Card>
 
+      {/* One-click route to the inspections waiting on this user's signature. */}
+      {pendingApprovals > 0 && tab !== 'QC_PENDING_APPROVAL' && (
+        <div className="flex items-start gap-3 rounded-lg border-l-4 border-amber-500 bg-amber-50 p-3">
+          <ShieldCheck size={16} className="mt-0.5 shrink-0 text-amber-700" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-900">
+              {pendingApprovals} inspection{pendingApprovals === 1 ? '' : 's'} waiting for your approval
+            </p>
+            <p className="text-[11px] text-amber-800 mt-0.5">
+              Filed by Inward QC / In-Process QC. Stores cannot inward these lots until you approve them.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setTab('QC_PENDING_APPROVAL')}>Review now</Button>
+        </div>
+      )}
+
       {loading ? (
         <Card><p className="text-navy-500 text-center py-8">Loading…</p></Card>
       ) : filtered.length === 0 ? (
@@ -451,11 +505,13 @@ function MaterialInwardRegister() {
           canEdit={canEdit}
           isQC={isQC}
           canWaiveQc={canWaiveQc}
+          canApproveQc={canApproveQc}
           busyId={busyId}
           onRequestQc={setRequestFor}
           onTakeReview={takeReview}
           onContinueReview={setReviewFor}
           onWaiveQc={setWaiveFor}
+          onApproveReview={setApproveFor}
           onInward={setInwardFor}
           onEdit={setEditFor}
           onDelete={del}
@@ -490,6 +546,9 @@ function MaterialInwardRegister() {
       {reportFor && (
         <ReportViewModal row={reportFor} onClose={() => setReportFor(null)} />
       )}
+      {approveFor && (
+        <ApproveReviewModal row={approveFor} onClose={() => setApproveFor(null)} onDone={() => { setApproveFor(null); load(); }} />
+      )}
       {resendFor && (
         <ResendQcModal row={resendFor} onClose={() => setResendFor(null)} onDone={() => { setResendFor(null); load(); }} />
       )}
@@ -503,7 +562,33 @@ function MaterialInwardRegister() {
 // ────────────────────────────────────────────────────────────────────
 // The Excel-style register sheet (horizontal scroll, sticky header + MIR col)
 // ────────────────────────────────────────────────────────────────────
-function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequestQc, onTakeReview, onContinueReview, onWaiveQc, onInward, onEdit, onDelete, onDocs, onViewReport, onResend, onReplace }) {
+function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, canApproveQc, busyId, onRequestQc, onTakeReview, onContinueReview, onWaiveQc, onApproveReview, onInward, onEdit, onDelete, onDocs, onViewReport, onResend, onReplace }) {
+  // ── One receipt, many items ──
+  // A cash purchase brings several items in on ONE invoice and they share a single
+  // MIR number, so the register was repeating the same MIR No., date, vehicle,
+  // document and supplier on every line - it read like duplicated rows rather than
+  // one receipt with several items.
+  //
+  // Rows that share a MIR number are now drawn as one block: the receipt details
+  // appear once on its first line (with an "N items" count), and the lines under
+  // it carry only what is actually theirs - item, qty, batch, QC, actions. Each
+  // line is still its own register row with its own QC track; nothing is merged
+  // or hidden, it just stops repeating itself.
+  const groupInfo = useMemo(() => {
+    const sizes = new Map();
+    rows.forEach((r) => {
+      const key = r.mirNo || r.id;
+      sizes.set(key, (sizes.get(key) || 0) + 1);
+    });
+    const seen = new Map();
+    return rows.map((r) => {
+      const key = r.mirNo || r.id;
+      const idx = (seen.get(key) || 0) + 1;
+      seen.set(key, idx);
+      return { key, size: sizes.get(key), index: idx, first: idx === 1 };
+    });
+  }, [rows]);
+
   return (
     <Card className="!p-0 overflow-hidden">
       <div className="overflow-x-auto">
@@ -525,19 +610,45 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequ
               <Th groupEnd>Issued To</Th>
               <Th>QC / Review</Th>
               <Th>MIV No.</Th>
-              {(canEdit || isQC || canWaiveQc) && <Th>Action</Th>}
+              {(canEdit || isQC || canWaiveQc || canApproveQc) && <Th>Action</Th>}
             </tr>
           </thead>
           <tbody>
             {rows.map((r, i) => {
               const meta = STATUS_META[r.status] || { label: r.status, tone: 'gray' };
+              const g = groupInfo[i];
+              // A multi-item receipt is shaded as one block instead of striping
+              // line by line, so the group reads as a single delivery.
               const zebra = i % 2 ? 'bg-brand-gray' : 'bg-white';
               const accent = rowAccent(r);
               const busy = busyId === r.id;
+              // Receipt-level columns repeat for every item of the same MIR -
+              // print them once, on the first line of the block.
+              const headRow = g.first;
+              const grouped = g.size > 1;
               return (
-                <tr key={r.id} className={`group ${zebra} hover:bg-navy-50 transition-colors`}>
+                <tr
+                  key={r.id}
+                  className={`group ${zebra} hover:bg-navy-50 transition-colors ${grouped && !headRow ? 'border-t-0' : ''}`}
+                >
                   <Td sticky className={accent}>
-                    <div className="font-mono text-[11px] font-semibold text-navy-800">{r.mirNo}</div>
+                    {headRow ? (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono text-[11px] font-semibold text-navy-800">{r.mirNo}</span>
+                        {grouped && (
+                          <span
+                            className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-navy-100 text-navy-700"
+                            title="This receipt covers several items - each is its own line below, with its own QC."
+                          >
+                            {g.size} items
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="font-mono text-[10px] text-gray-400" title={`${r.mirNo} - item ${g.index} of ${g.size}`}>
+                        ↳ item {g.index}/{g.size}
+                      </div>
+                    )}
                     <div className="mt-1 flex items-center gap-1 flex-wrap">
                       <Pill tone={meta.tone}>{meta.label}</Pill>
                       {r.lotNo != null && (
@@ -547,19 +658,20 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequ
                         <span className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700" title="Re-inspection round">Re-insp {r.qcRound}</span>
                       )}
                     </div>
-                    {/* Replacement of an NCR-rejected lot — links back to the failed MIR. */}
+                    {/* Replacement of an NCR-rejected lot - links back to the failed MIR. */}
                     {r.replacesInward && (
                       <div className="mt-1 inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800"
-                        title={`Replacement for QC-failed ${r.replacesInward.mirNo}${r.replacesInward.ncrNo ? ` · NCR ${r.replacesInward.ncrNo}` : ''}${r.replacesInward.qcReportRemark ? ` — ${r.replacesInward.qcReportRemark}` : ''}`}>
+                        title={`Replacement for QC-failed ${r.replacesInward.mirNo}${r.replacesInward.ncrNo ? ` · NCR ${r.replacesInward.ncrNo}` : ''}${r.replacesInward.qcReportRemark ? ` - ${r.replacesInward.qcReportRemark}` : ''}`}>
                         <Repeat size={10} /> Replaces {r.replacesInward.mirNo}
                       </div>
                     )}
-                    {/* Edit history is intentionally not surfaced in the register —
+                    {/* Edit history is intentionally not surfaced in the register -
                         row edits stay recorded server-side but are not shown here. */}
                   </Td>
-                  <Td>{formatDate(r.inwardDate)}</Td>
-                  <Td nowrap={false} className="max-w-[120px]">{r.vehicleDetails || <Dash />}</Td>
+                  <Td>{headRow ? formatDate(r.inwardDate) : <GroupRepeat />}</Td>
+                  <Td nowrap={false} className="max-w-[120px]">{headRow ? (r.vehicleDetails || <Dash />) : <GroupRepeat />}</Td>
                   <Td nowrap={false} className="max-w-[150px]">
+                    {!headRow ? <GroupRepeat /> : <>
                     <div className="font-medium text-navy-700">{docLabel(r.docType)}</div>
                     <div className="text-[10px] text-gray-500">{r.docNumber || <Dash />}</div>
                     {r.documentDate && <div className="text-[10px] text-gray-400" title="Document date">{formatDate(r.documentDate)}</div>}
@@ -580,16 +692,21 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequ
                         <Paperclip size={10} /> add
                       </button>
                     ) : null}
+                    </>}
                   </Td>
-                  <Td className="font-mono text-[10px] text-navy-700">{r.poNumber || <span className="text-gray-400">Direct</span>}</Td>
-                  <Td nowrap={false} className="max-w-[140px] font-mono text-[10px] text-navy-700">{r.prNumbers || <Dash />}</Td>
+                  <Td className="font-mono text-[10px] text-navy-700">
+                    {headRow ? (r.poNumber || <span className="text-gray-400">Direct</span>) : <GroupRepeat />}
+                  </Td>
+                  <Td nowrap={false} className="max-w-[140px] font-mono text-[10px] text-navy-700">
+                    {headRow ? (r.prNumbers || <Dash />) : <GroupRepeat />}
+                  </Td>
                   <Td nowrap={false} className="min-w-[160px] max-w-[220px]">
                     <div className="text-navy-800 line-clamp-2" title={r.itemDescription || ''}>{r.itemDescription || <Dash />}</div>
                     {r.product && <div className="text-[10px] text-gray-400 mt-0.5">{r.product.materialCode || r.product.sku}</div>}
                     {r.materialType && <div className="text-[10px] text-gray-500 mt-0.5">{r.materialType}</div>}
                   </Td>
                   <Td className="font-semibold text-navy-800">{r.qtyReceived != null ? `${fmtQty(r.qtyReceived)} ${r.uom || ''}` : <Dash />}</Td>
-                  <Td nowrap={false} className="max-w-[150px]">{r.supplierName || <Dash />}</Td>
+                  <Td nowrap={false} className="max-w-[150px]">{headRow ? (r.supplierName || <Dash />) : <GroupRepeat />}</Td>
                   <Td nowrap={false} className="max-w-[150px]"><span className="text-gray-600 line-clamp-2" title={r.purpose || ''}>{r.purpose || <Dash />}</span></Td>
                   <Td className="font-mono text-[10px] text-amber-800">{r.batchNo || <Dash />}</Td>
                   <Td>
@@ -615,23 +732,51 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequ
                     <Pill tone={r.status === 'QC_DONE' && r.qcResult ? RESULT_TONE[r.qcResult] : meta.tone}>
                       {r.status === 'QC_DONE' && r.qcResult ? `QC ${r.qcResult}` : meta.label}
                     </Pill>
-                    {/* Inspection waived — who cleared it and why. */}
+                    {/* Filed but unsigned: show the result the operator recorded so
+                        QC can see what it is being asked to approve, clearly marked
+                        as not yet final. */}
+                    {r.status === 'QC_PENDING_APPROVAL' && (
+                      <div className="mt-0.5 space-y-0.5">
+                        {r.qcResult && (
+                          <div className="text-[10px] font-semibold text-amber-800">
+                            Filed: {r.qcResult} - not final until QC approves
+                          </div>
+                        )}
+                        <div className="text-[10px] text-amber-700 inline-flex items-center gap-1">
+                          <ShieldCheck size={10} /> Stores cannot inward this lot yet
+                        </div>
+                      </div>
+                    )}
+                    {/* Sent back by QC - the operator needs to see why before
+                        taking the lot up again. */}
+                    {r.status === 'QC_REQUESTED' && r.qcApprovalRemark && (r.qcRound || 1) > 1 && (
+                      <div className="text-[10px] text-rose-700 mt-0.5 line-clamp-2" title={r.qcApprovalRemark}>
+                        ↩ Sent back: {r.qcApprovalRemark}
+                      </div>
+                    )}
+                    {/* Signed off - who approved an operator's inspection. */}
+                    {r.qcApprovedBy && (
+                      <div className="text-[10px] text-emerald-700 mt-0.5 font-semibold inline-flex items-center gap-1" title={r.qcApprovalRemark || ''}>
+                        <ShieldCheck size={10} /> Approved by {reviewerLabel(r.qcApprovedBy)}
+                      </div>
+                    )}
+                    {/* Inspection waived - who cleared it and why. */}
                     {r.qcWaived && (
                       <div className="text-[10px] text-violet-700 mt-0.5 font-semibold inline-flex items-start gap-1" title={r.qcWaivedReason || ''}>
                         <ShieldCheck size={10} className="mt-px shrink-0" />
-                        <span>No QC needed{r.qcWaivedBy ? ` — ${reviewerLabel(r.qcWaivedBy)}` : ''}</span>
+                        <span>No QC needed{r.qcWaivedBy ? ` - ${reviewerLabel(r.qcWaivedBy)}` : ''}</span>
                       </div>
                     )}
                     {r.qcWaived && r.qcWaivedReason && (
                       <div className="text-[10px] text-gray-600 mt-0.5 line-clamp-2" title={r.qcWaivedReason}>“{r.qcWaivedReason}”</div>
                     )}
-                    {/* Tools & Fixtures inwarded to the unit before QC — QC still pending. */}
+                    {/* Tools & Fixtures inwarded to the unit before QC - QC still pending. */}
                     {r.qcPending && (
                       <div className="text-[10px] text-amber-700 mt-0.5 font-semibold inline-flex items-center gap-1">
                         <Wrench size={10} /> QC pending (inwarded)
                       </div>
                     )}
-                    {/* Inwarded T&F whose deferred QC failed — flagged, stock not removed. */}
+                    {/* Inwarded T&F whose deferred QC failed - flagged, stock not removed. */}
                     {r.inwardedAt && r.qcResult === 'FAILED' && (
                       <div className="text-[10px] text-red-700 mt-0.5 font-semibold inline-flex items-center gap-1">
                         <AlertTriangle size={10} /> QC failed (post-inward)
@@ -640,7 +785,7 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequ
                     {/* Non-T&F material held until its master data is added. */}
                     {r.masterDataPending && (
                       <div className="text-[10px] text-amber-700 mt-0.5 font-semibold inline-flex items-center gap-1" title="A unit head or QC must add this material's master data before it can be inwarded.">
-                        <AlertTriangle size={10} /> On hold — master data pending
+                        <AlertTriangle size={10} /> On hold - master data pending
                       </div>
                     )}
                     {r.qcReportNo && <div className="text-[10px] text-gray-500 mt-0.5 font-mono" title="Inward Inspection No.">{r.qcReportNo}</div>}
@@ -657,31 +802,23 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequ
                       <div className="text-[10px] text-gray-600 mt-0.5 line-clamp-2" title={r.qcReportRemark}>“{r.qcReportRemark}”</div>
                     )}
                     {r.qcReviewer && <div className="text-[10px] text-gray-400 mt-0.5">by {reviewerLabel(r.qcReviewer)}</div>}
-                    {(r.status === 'QC_DONE' || r.status === 'INWARDED' || r.status === 'ON_HOLD') && r.qcResult && (
+                    {(r.status === 'QC_DONE' || r.status === 'QC_PENDING_APPROVAL' || r.status === 'INWARDED' || r.status === 'ON_HOLD') && r.qcResult && (
                       <button onClick={() => onViewReport(r)} className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-navy-600 hover:text-navy-800">
                         <FileSearch size={11} /> View report
                       </button>
                     )}
                   </Td>
                   {/* MIV numbers (auto) */}
-                  <Td nowrap={false} className="max-w-[160px]">
-                    {r.mivs?.length ? (
-                      <div className="space-y-0.5">
-                        {r.mivs.map((m, k) => (
-                          <div key={k} className="text-[10px] font-mono text-emerald-700" title={m.unit ? `${m.unit}${m.qty ? ` · ${m.qty}` : ''}` : ''}>
-                            {m.mivNo}{m.qty != null ? <span className="text-gray-400"> ·{fmtQty(m.qty)}</span> : ''}
-                          </div>
-                        ))}
-                      </div>
-                    ) : <Dash />}
+                  <Td nowrap={false} className="max-w-[170px]">
+                    <MivCell mivs={r.mivs} uom={r.uom} />
                   </Td>
                   {/* Action */}
-                  {(canEdit || isQC || canWaiveQc) && (
+                  {(canEdit || isQC || canWaiveQc || canApproveQc) && (
                     <Td>
                       <div className="flex flex-col gap-1 items-start">
                         {canWrite && r.status === 'DRAFT' && (
                           <>
-                            {/* Hand Tools / Machinery: no QC at all — inward straight to store / unit. */}
+                            {/* Hand Tools / Machinery: no QC at all - inward straight to store / unit. */}
                             {(r.isHandTools || r.isMachinery) && (
                               <ActBtn tone="green" busy={busy} onClick={() => onInward(r)}><ArrowDownToLine size={11} /> Inward (no QC)</ActBtn>
                             )}
@@ -702,6 +839,17 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequ
                         {isQC && r.status === 'QC_IN_REVIEW' && (
                           <ActBtn tone="blue" busy={busy} onClick={() => onContinueReview(r)}><ClipboardCheck size={11} /> Continue</ActBtn>
                         )}
+                        {/* Inspection filed by an Inward QC / In-Process QC operator:
+                            QC signs it off (or sends it back) before Stores sees it. */}
+                        {r.status === 'QC_PENDING_APPROVAL' && (
+                          canApproveQc
+                            ? (
+                              <ActBtn tone="amber" busy={busy} onClick={() => onApproveReview(r)}>
+                                <ShieldCheck size={11} /> Approve / Send back
+                              </ActBtn>
+                            )
+                            : <Pill tone="amber">Awaiting QC approval</Pill>
+                        )}
                         {/* Waive the inspection. Open to QC, the concerned unit manager and
                             Admin while no QC outcome has been filed yet. Hand Tools /
                             Machinery never enter QC, so there is nothing to waive there. */}
@@ -720,7 +868,7 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequ
                               </ActBtn>
                             )
                         )}
-                        {/* The waiver is reversible — Stores can still put the lot through QC. */}
+                        {/* The waiver is reversible - Stores can still put the lot through QC. */}
                         {canWrite && r.status === 'QC_NOT_REQUIRED' && !r.inwardedAt && (
                           <ActBtn tone="amber" busy={busy} onClick={() => onRequestQc(r)}><FlaskConical size={11} /> Send to QC anyway</ActBtn>
                         )}
@@ -774,7 +922,7 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequ
 }
 
 // Assign-to picker for direct / cash purchases. Stores chooses the unit or
-// owner department the material is reserved for. PO rows don't use this — they
+// owner department the material is reserved for. PO rows don't use this - they
 // inherit the assignment from the PR.
 //
 // The choice is mandatory (the server refuses an unassigned hand-entered row):
@@ -783,7 +931,7 @@ function InwardSheet({ rows, canWrite, canEdit, isQC, canWaiveQc, busyId, onRequ
 function AssignToSelect({ units, value, onChange, className }) {
   return (
     <Select label="Assign to *" value={value} onChange={(e) => onChange(e.target.value)} className={className}>
-      <option value="">— Select the unit / department —</option>
+      <option value="">- Select the unit / department -</option>
       {units.length > 0 && (
         <optgroup label="Units">
           {units.map((u) => <option key={u.id} value={`unit:${u.id}`}>{u.name} ({u.code})</option>)}
@@ -801,7 +949,7 @@ let cashItemSeq = 0;
 const newCashItem = () => ({
   key: `ci-${++cashItemSeq}`,
   // Every item is a Master Data pick. Stores used to be able to type a brand-new
-  // item here and the catalogue entry was minted at inward; that is closed —
+  // item here and the catalogue entry was minted at inward; that is closed -
   // new materials are added by Admin / QC / a unit manager first.
   productId: '',
   productSearch: '',
@@ -809,6 +957,9 @@ const newCashItem = () => ({
   uom: '',
   materialType: '',
   qtyReceived: '',
+  // Set when the row was created by ticking a line on a cash-purchase PR. It is
+  // what lets the server settle that one line instead of the whole PR.
+  purchaseRequestItemId: null,
   batchNo: '',
   manufacturingDate: '',
   dateOfExpiry: '',
@@ -824,7 +975,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   const [cashPrId, setCashPrId] = useState('');
   const [products, setProducts] = useState([]);
   // Editing a direct row: which Master Data material it names. The description,
-  // UOM and product type all follow from this — none of them is free text.
+  // UOM and product type all follow from this - none of them is free text.
   const [editProductId, setEditProductId] = useState(editRow?.productId || '');
   const [editProductSearch, setEditProductSearch] = useState('');
   const [units, setUnits] = useState([]);
@@ -868,7 +1019,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
 
   // The "RAPS Purchase Order" picker drives everything. Options: "Cash Purchase"
-  // (poId === 'CASH'), "Existing PO — not in system" (poId === 'MANUAL_PO'), then
+  // (poId === 'CASH'), "Existing PO - not in system" (poId === 'MANUAL_PO'), then
   // the real, system POs. No separate toggle.
   //
   // A real PO row carries a purchaseOrderId; a manual PO row only a typed
@@ -885,20 +1036,20 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   // From-(real)-PO receipts are per-line (a delivery carries several lines, each batched).
   const perLine = !isEdit && isPo;
 
-  // POs for the picker — always load so the dropdown's list is ready.
+  // POs for the picker - always load so the dropdown's list is ready.
   useEffect(() => {
     if (isEdit) return;
     api.get('/material-inward/active-pos').then(({ data }) => setPos(data.orders || [])).catch(() => setPos([]));
   }, [isEdit]);
 
-  // Cash purchase PRs — load when Cash Purchase is selected.
+  // Cash purchase PRs - load when Cash Purchase is selected.
   useEffect(() => {
     if (isEdit || !isCash) return;
     api.get('/material-inward/cash-purchase-prs').then(({ data }) => setCashPrs(data.prs || [])).catch(() => setCashPrs([]));
   }, [isCash, isEdit]);
 
   // Products for cash / manual-PO product linking. Also needed when editing a
-  // direct row — its material is re-picked from Master Data, never re-typed.
+  // direct row - its material is re-picked from Master Data, never re-typed.
   useEffect(() => {
     if (!isCashLike && !(isEdit && isDirect)) return;
     api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products || [])).catch(() => setProducts([]));
@@ -927,7 +1078,18 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
   const removeItem = (key) => setItems((p) => (p.length > 1 ? p.filter((it) => it.key !== key) : p));
   const patchItem = (key, patch) => setItems((p) => p.map((it) => (it.key === key ? { ...it, ...patch } : it)));
   // Pick an existing product → fill description / UOM / type from the master.
-  const pickProductFor = (key, p) => patchItem(key, { productId: p.id, productSearch: '', itemDescription: p.name, uom: p.unit || '', materialType: p.category || '' });
+  // Changing the material on a row breaks its tie to the PR line it was ticked
+  // from - otherwise this row would settle (and credit) a line for a different
+  // material. Clearing the link makes it a plain cash line again; re-tick the
+  // right PR line to re-link it.
+  const pickProductFor = (key, p) => patchItem(key, {
+    productId: p.id,
+    productSearch: '',
+    itemDescription: p.name,
+    uom: p.unit || '',
+    materialType: p.category || '',
+    purchaseRequestItemId: null,
+  });
   const matchProducts = (q) => (q
     ? products.filter((p) =>
         p.name.toLowerCase().includes(q.toLowerCase()) ||
@@ -953,9 +1115,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
       if (isManualPo && !f.manualPoNumber.trim()) return setError('Enter the existing PO number.');
       // Nothing hand-entered carries a system PR, so Stores names it here.
       if (!f.prNumbers.trim()) return setError('Enter the PR number this material was bought against.');
-      // Multi-item cash / manual-PO — every item must be complete.
+      // Multi-item cash / manual-PO - every item must be complete.
       for (const it of items) {
-        // Master Data pick only — no free-text items on the register.
+        // Master Data pick only - no free-text items on the register.
         if (!it.productId) return setError('Pick each item from Master Data (or remove the empty row). New materials are added by Admin, QC or a unit manager.');
         if (!it.qtyReceived || Number(it.qtyReceived) <= 0) return setError(`Enter the received quantity for ${it.itemDescription || 'each item'}.`);
       }
@@ -967,11 +1129,11 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
     }
     // Hand-entered material (cash purchase / an existing PO typed in) has no PR
     // to inherit an owner from, so Stores must name one. The server refuses an
-    // unassigned row too — this just says so before the round trip.
+    // unassigned row too - this just says so before the round trip.
     if (isDirect && !assignTo) {
-      return setError('Choose who this material is for — pick the unit or owner department under "Assign to".');
+      return setError('Choose who this material is for - pick the unit or owner department under "Assign to".');
     }
-    // Same for the requisition behind it — mandatory on every hand-entered row.
+    // Same for the requisition behind it - mandatory on every hand-entered row.
     if (isDirect && !f.prNumbers.trim()) {
       return setError('Enter the PR number this material was bought against.');
     }
@@ -992,11 +1154,11 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           qtyReceived: f.qtyReceived, batchNo: f.batchNo, dateOfExpiry: f.dateOfExpiry || null,
           manufacturingDate: f.manufacturingDate || null,
           purpose: f.purpose,
-          // Real (system) PO rows derive their item/assign-to from the PR — locked.
+          // Real (system) PO rows derive their item/assign-to from the PR - locked.
           // Cash + manual-PO rows stay editable; the PO number is free to set or
           // clear (typing one turns a cash row into an existing-PO entry;
           // clearing it makes it a cash purchase again). The material itself is a
-          // Master Data pick — the server stamps name / UOM / type from it, so
+          // Master Data pick - the server stamps name / UOM / type from it, so
           // none of those three is sent.
           ...(editRow.purchaseOrderId ? {} : {
             productId: editProductId,
@@ -1024,7 +1186,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
           })),
         });
       } else {
-        // Cash purchase / manual PO — one or several items from the same supplier,
+        // Cash purchase / manual PO - one or several items from the same supplier,
         // all under a single shared MIR number (one register row per item). A
         // manual-PO entry also carries the typed PO number.
         await api.post('/material-inward/cash-bulk', {
@@ -1054,6 +1216,9 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
             batchNo: it.batchNo,
             manufacturingDate: it.manufacturingDate || null,
             dateOfExpiry: it.dateOfExpiry || null,
+            // Which PR line this row settles. Only the ticked lines close; the
+            // rest of the PR stays open on its normal route.
+            purchaseRequestItemId: it.purchaseRequestItemId || null,
           })),
         });
       }
@@ -1069,7 +1234,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
       <div className="space-y-6">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
-        {/* Source — one picker drives everything. First option is "Cash Purchase";
+        {/* Source - one picker drives everything. First option is "Cash Purchase";
             the rest are active POs. Picking Cash shows the cash-purchase format;
             picking a PO shows its material lines. */}
         {!isEdit && (
@@ -1078,18 +1243,18 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
               onChange={(e) => { const v = e.target.value; setPoId(v); setSel({}); setCashPrId(''); set('docType', v === 'CASH' ? 'CASH_PURCHASE' : 'INVOICE'); }}>
               <option value="">Select…</option>
               <option value="CASH">Cash Purchase</option>
-              <option value="MANUAL_PO">Existing PO — not in the system (enter manually)</option>
-              {pos.map((p) => <option key={p.id} value={p.id}>{p.orderNumber} — {p.supplierName} {p.isUnion ? '(UNION)' : ''}</option>)}
+              <option value="MANUAL_PO">Existing PO - not in the system (enter manually)</option>
+              {pos.map((p) => <option key={p.id} value={p.id}>{p.orderNumber} - {p.supplierName} {p.isUnion ? '(UNION)' : ''}</option>)}
             </Select>
 
-            {/* From PO — info + the material lines that arrived. */}
+            {/* From PO - info + the material lines that arrived. */}
             {isPo && po && (
               <>
                 <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <div><span className="text-gray-500">Supplier:</span> {po.supplierName}</div>
-                  <div><span className="text-gray-500">PR:</span> {po.prNumbers || '—'}</div>
-                  <div><span className="text-gray-500">Issued to:</span> {po.issuedToLabel || po.issuedToDept || '—'}</div>
-                  <div><span className="text-gray-500">Indenter:</span> {po.indenterName || '—'}</div>
+                  <div><span className="text-gray-500">PR:</span> {po.prNumbers || '-'}</div>
+                  <div><span className="text-gray-500">Issued to:</span> {po.issuedToLabel || po.issuedToDept || '-'}</div>
+                  <div><span className="text-gray-500">Indenter:</span> {po.indenterName || '-'}</div>
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -1130,17 +1295,17 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                       );
                     })}
                   </div>
-                  <p className="mt-1 text-[11px] text-gray-400">Each ticked line becomes its own MIR row (lot) with its own QC track. A line can be received in batches across several deliveries — just record the part that arrived.</p>
+                  <p className="mt-1 text-[11px] text-gray-400">Each ticked line becomes its own MIR row (lot) with its own QC track. A line can be received in batches across several deliveries - just record the part that arrived.</p>
                 </div>
               </>
             )}
 
-            {/* Cash Purchase / Manual PO — a shared supplier + one or more items,
+            {/* Cash Purchase / Manual PO - a shared supplier + one or more items,
                 all under a single MIR number. Each item is an existing product or a
                 new item. A manual PO additionally records the typed PO number. */}
             {isCashLike && (
               <div className="space-y-4 pt-1">
-                {/* Cash Purchase PR selector — shown only for pure cash purchases. */}
+                {/* Cash Purchase PR selector - shown only for pure cash purchases. */}
                 {isCash && (
                   <div className="space-y-2">
                     <Select
@@ -1152,46 +1317,112 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                         if (v) {
                           const pr = cashPrs.find((p) => p.id === v);
                           if (pr?.unit?.id) setAssignTo(`unit:${pr.unit.id}`);
-                          // The PR number is a required field on a manual entry —
+                          // The PR number is a required field on a manual entry -
                           // fill it from the PR that was just linked.
                           if (pr?.requestNumber) set('prNumbers', pr.requestNumber);
                         }
                       }}
                     >
-                      <option value="">— No linked PR (unplanned cash purchase) —</option>
+                      <option value="">- No linked PR (unplanned cash purchase) -</option>
                       {cashPrs.map((pr) => (
                         <option key={pr.id} value={pr.id}>
-                          {pr.requestNumber} — {pr.manager?.name}{pr.unit ? ` (${pr.unit.code || pr.unit.name})` : ''} — {pr.items?.length} item{pr.items?.length !== 1 ? 's' : ''}
+                          {pr.requestNumber} - {pr.manager?.name}{pr.unit ? ` (${pr.unit.code || pr.unit.name})` : ''} - {pr.items?.length} item{pr.items?.length !== 1 ? 's' : ''}
                         </option>
                       ))}
                     </Select>
                     {cashPrId && (() => {
                       const pr = cashPrs.find((p) => p.id === cashPrId);
                       if (!pr) return null;
+                      const lines = (pr.items || []).filter((it) => !it.isCancelled);
+                      const cashLines = lines.filter((it) => it.isCashLine);
+                      const otherLines = lines.filter((it) => !it.isCashLine);
+                      const isTicked = (it) => items.some((row) => row.purchaseRequestItemId === it.id);
+
+                      // Ticking a line adds it as a receipt row, pre-filled from the
+                      // PR. Unticking removes that row again.
+                      const toggleLine = (it) => {
+                        setItems((rows) => {
+                          if (rows.some((r) => r.purchaseRequestItemId === it.id)) {
+                            const left = rows.filter((r) => r.purchaseRequestItemId !== it.id);
+                            return left.length ? left : [newCashItem()];
+                          }
+                          const row = {
+                            ...newCashItem(),
+                            productId: it.productId || '',
+                            itemDescription: it.productName,
+                            uom: it.productUnit || '',
+                            materialType: it.materialType || '',
+                            qtyReceived: String(it.adminApprovedQty ?? it.requestedQty ?? ''),
+                            purchaseRequestItemId: it.id,
+                          };
+                          // Drop only a genuinely blank starter row - a row the
+                          // user has already begun filling in must survive.
+                          const kept = rows.filter((r) => r.productId || r.purchaseRequestItemId
+                            || (r.itemDescription || '').trim() || String(r.qtyReceived || '').trim());
+                          return [...kept, row];
+                        });
+                      };
+
                       return (
-                        <div className="text-[11px] bg-orange-50 border border-orange-200 rounded-md p-2 space-y-1">
+                        <div className="text-[11px] bg-orange-50 border border-orange-200 rounded-md p-2 space-y-2">
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             <div><span className="text-gray-500">PR #:</span> <span className="font-medium">{pr.requestNumber}</span></div>
                             <div><span className="text-gray-500">Requester:</span> {pr.manager?.name}</div>
                             {pr.unit && <div><span className="text-gray-500">Unit:</span> {pr.unit.name}</div>}
                           </div>
-                          <div className="mt-1">
-                            <div className="text-gray-500 font-medium mb-0.5">Materials:</div>
-                            <table className="w-full text-[11px]">
-                              <thead><tr className="border-b border-orange-200">
-                                <th className="text-left py-0.5 font-medium text-gray-600">Item</th>
-                                <th className="text-left py-0.5 font-medium text-gray-600">Qty</th>
-                              </tr></thead>
-                              <tbody>
-                                {pr.items?.map((it) => (
-                                  <tr key={it.id} className="border-b border-orange-100 last:border-0">
-                                    <td className="py-0.5 pr-2">{it.productName}</td>
-                                    <td className="py-0.5">{it.adminApprovedQty ?? it.requestedQty} {it.productUnit}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+
+                          <div>
+                            <div className="text-gray-700 font-semibold mb-1">
+                              Tick the lines you are receiving now
+                            </div>
+                            {cashLines.length === 0 ? (
+                              <p className="text-amber-800">
+                                No line on this PR is marked for cash purchase yet. Purchase has to mark which
+                                lines are being bought over the counter first.
+                              </p>
+                            ) : (
+                              <table className="w-full text-[11px]">
+                                <thead><tr className="border-b border-orange-200">
+                                  <th className="py-0.5 w-6"></th>
+                                  <th className="text-left py-0.5 font-medium text-gray-600">Item</th>
+                                  <th className="text-left py-0.5 font-medium text-gray-600">Qty</th>
+                                  <th className="text-left py-0.5 font-medium text-gray-600">State</th>
+                                </tr></thead>
+                                <tbody>
+                                  {cashLines.map((it) => (
+                                    <tr key={it.id} className="border-b border-orange-100 last:border-0">
+                                      <td className="py-1">
+                                        <input
+                                          type="checkbox"
+                                          disabled={it.isReceived}
+                                          checked={isTicked(it)}
+                                          onChange={() => toggleLine(it)}
+                                        />
+                                      </td>
+                                      <td className="py-1 pr-2">{it.productName}</td>
+                                      <td className="py-1">{it.adminApprovedQty ?? it.requestedQty} {it.productUnit}</td>
+                                      <td className="py-1">
+                                        {it.isReceived
+                                          ? <span className="text-green-700 font-semibold">already received</span>
+                                          : <span className="text-orange-700">to receive</span>}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
                           </div>
+
+                          {/* The whole point: say out loud what is NOT being closed. */}
+                          {otherLines.length > 0 && (
+                            <p className="text-gray-600 border-t border-orange-200 pt-1.5">
+                              The other <strong>{otherLines.length} line{otherLines.length === 1 ? '' : 's'}</strong> on
+                              this PR ({otherLines.slice(0, 3).map((o) => o.productName).join(', ')}
+                              {otherLines.length > 3 ? `, +${otherLines.length - 3} more` : ''}) are not part of this
+                              cash purchase. They stay open on the normal quotation / PO route and are untouched by
+                              this entry.
+                            </p>
+                          )}
                         </div>
                       );
                     })()}
@@ -1206,7 +1437,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                       onChange={(e) => set('manualPoNumber', e.target.value)}
                       placeholder="Existing PO number (e.g. RAPS/PO/…)" />
                     <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1.5">
-                      For a PO that isn’t in the system yet. Type its PO and PR number and record the received items below — the rest of the inward (QC, inward into stock) works exactly as a normal entry.
+                      For a PO that isn’t in the system yet. Type its PO and PR number and record the received items below - the rest of the inward (QC, inward into stock) works exactly as a normal entry.
                     </p>
                   </div>
                 )}
@@ -1220,7 +1451,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                     onChange={(e) => set('prNumbers', e.target.value)}
                     placeholder="e.g. RAPS/PR/2026-27/48" />
                   <p className="text-[11px] text-gray-400">
-                    Required — the requisition this material was bought against. Separate several with commas.
+                    Required - the requisition this material was bought against. Separate several with commas.
                   </p>
                 </div>
                 <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
@@ -1247,7 +1478,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                             </div>
                           </div>
 
-                          {/* Always a Master Data pick — description, UOM and type
+                          {/* Always a Master Data pick - description, UOM and type
                               come from the catalogue entry, never typed here. */}
                           {(
                             prod ? (
@@ -1278,7 +1509,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                                     {!matches.length && (
                                       <div className="px-3 py-2 text-xs text-gray-400">
                                         No matching material in Master Data. Only materials already in Master Data
-                                        can be received — ask Admin, QC or a unit manager to add it first.
+                                        can be received - ask Admin, QC or a unit manager to add it first.
                                       </div>
                                     )}
                                   </div>
@@ -1288,7 +1519,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                             )
                           )}
 
-                          {/* Receipt details — per item. Product type is shown for
+                          {/* Receipt details - per item. Product type is shown for
                               reference only; it belongs to the Master Data entry. */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                             <Input label="Product type" value={it.materialType || (prod?.category ?? '')} readOnly disabled />
@@ -1308,23 +1539,23 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                 </div>
 
                 <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
-                <p className="-mt-1 text-[11px] text-gray-400">Required — pick the unit or department this purchase is for; stock is reserved to it on inward. A PO receipt inherits this from the requisition, but a cash purchase or an existing PO typed in here has nothing to inherit, so it has to be named. Every item above is recorded under one shared MIR number.</p>
+                <p className="-mt-1 text-[11px] text-gray-400">Required - pick the unit or department this purchase is for; stock is reserved to it on inward. A PO receipt inherits this from the requisition, but a cash purchase or an existing PO typed in here has nothing to inherit, so it has to be named. Every item above is recorded under one shared MIR number.</p>
               </div>
             )}
           </FormBlock>
         )}
 
-        {/* Receipt details — the shared vehicle / document header. When editing a
+        {/* Receipt details - the shared vehicle / document header. When editing a
             single row, its qty / batch / dates show here too. New entries record
             those per-line (PO) or per-item (cash) above. */}
         <FormBlock title="Receipt details">
           <div className="space-y-3">
             {/* New entries pick the receipt date (defaults today; back-dating gives
-                a letter-suffixed MIR). The date is fixed once created — not shown on edit. */}
+                a letter-suffixed MIR). The date is fixed once created - not shown on edit. */}
             {!isEdit && (
               <div className="space-y-1">
                 <Input label="Inward / receipt date *" type="date" value={f.inwardDate} onChange={(e) => set('inwardDate', e.target.value)} />
-                <p className="text-[11px] text-gray-400">Defaults to today. Pick an earlier date for material received before — it’ll get a letter-suffixed MIR (e.g. 10A) in that day’s sequence.</p>
+                <p className="text-[11px] text-gray-400">Defaults to today. Pick an earlier date for material received before - it’ll get a letter-suffixed MIR (e.g. 10A) in that day’s sequence.</p>
               </div>
             )}
             <Input label="Vehicle details" value={f.vehicleDetails} onChange={(e) => set('vehicleDetails', e.target.value)} placeholder="e.g. AP 31 CD 1234" />
@@ -1333,7 +1564,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
             </Select>
             <Input label="Document number" value={f.docNumber} onChange={(e) => set('docNumber', e.target.value)} placeholder="Invoice / DC / GP no." />
             <Input label="Document date" type="date" value={f.documentDate} onChange={(e) => set('documentDate', e.target.value)} />
-            {/* Item identity / PO ref / assignment — editable when the row isn't a
+            {/* Item identity / PO ref / assignment - editable when the row isn't a
                 real (system) PO. Available on edit for any not-yet-inwarded row. */}
             {isEdit && isDirect && (
               <>
@@ -1344,7 +1575,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                   </div>
                   <p className="text-[11px] text-gray-400">Type a PO number to log this as an existing PO (one not yet in the system). Leave it blank to keep it a cash purchase. The PR number is required either way.</p>
                 </div>
-                {/* Material — a Master Data pick, not free text. Its name, UOM and
+                {/* Material - a Master Data pick, not free text. Its name, UOM and
                     product type are taken from the catalogue entry on save. */}
                 <div className="space-y-1">
                   <span className="block text-[13px] font-semibold text-navy-700">Material *</span>
@@ -1367,7 +1598,7 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                       <div>
                         {editRow.itemDescription && (
                           <p className="mb-1 text-[11px] text-amber-700">
-                            Currently recorded as “{editRow.itemDescription}” with no Master Data link — pick the material it refers to.
+                            Currently recorded as “{editRow.itemDescription}” with no Master Data link - pick the material it refers to.
                           </p>
                         )}
                         <div className="relative">
@@ -1398,11 +1629,11 @@ function NewInwardModal({ editRow, onClose, onSaved }) {
                 <Input label="Supplier / Customer" value={f.supplierName} onChange={(e) => set('supplierName', e.target.value)} placeholder="Who supplied it" />
                 <div className="space-y-1">
                   <AssignToSelect units={units} value={assignTo} onChange={setAssignTo} />
-                  <p className="text-[11px] text-gray-400">Required — stock is reserved to whoever is named here on inward. An older entry left in the general pool has to be assigned before this row will save.</p>
+                  <p className="text-[11px] text-gray-400">Required - stock is reserved to whoever is named here on inward. An older entry left in the general pool has to be assigned before this row will save.</p>
                 </div>
               </>
             )}
-            {/* Stock fields stay editable only while the row is a draft — a QC'd or
+            {/* Stock fields stay editable only while the row is a draft - a QC'd or
                 in-flight lot can't be silently re-quantified. */}
             {isEdit && editRow.status === 'DRAFT' && (
               <>
@@ -1465,7 +1696,7 @@ function DocsModal({ row, canWrite, onClose, onChanged }) {
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={`Documents — ${row.mirNo}`} size="md">
+    <Modal isOpen onClose={onClose} title={`Documents - ${row.mirNo}`} size="md">
       <div className="space-y-3">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
         <DocList docs={docs} canWrite={canWrite} onRemove={remove} />
@@ -1520,7 +1751,7 @@ function DocList({ docs, canWrite, onRemove }) {
   );
 }
 
-// Reference documents (PO / PR / supplier assessment / T&C) — view-only links
+// Reference documents (PO / PR / supplier assessment / T&C) - view-only links
 // that open in a new tab. Surfaced to Stores on request + to QC on review.
 function RefDocsList({ docs }) {
   if (!docs.length) return <p className="text-xs text-gray-400">No reference documents available.</p>;
@@ -1541,17 +1772,17 @@ function RefDocsList({ docs }) {
 function ReadKV({ label, value, span = false }) {
   return (
     <div className={span ? 'col-span-2 sm:col-span-4' : ''}>
-      <span className="text-gray-500">{label}:</span> <span className="font-medium text-navy-800">{value || '—'}</span>
+      <span className="text-gray-500">{label}:</span> <span className="font-medium text-navy-800">{value || '-'}</span>
     </div>
   );
 }
 
-// ── Request QC — Stores reviews the auto-filled inspection request, ticks the
+// ── Request QC - Stores reviews the auto-filled inspection request, ticks the
 // receipt condition + enclosed documents, attaches material reports, and sends it.
-// Invoices are no longer uploaded (breach risk) — only the invoice NUMBER is kept ──
+// Invoices are no longer uploaded (breach risk) - only the invoice NUMBER is kept ──
 const DOC_TYPE_CHECKS = ['Test Report', 'COC', 'COA', '3rd Party / Customer Clearance'];
 
-// Rows 12–16 are the only ones Stores fills — rows 0–11 (ION + PR/PO/quote
+// Rows 12–16 are the only ones Stores fills - rows 0–11 (ION + PR/PO/quote
 // details) are auto-generated / locked, fetched from earlier actions.
 const IIR_EDITABLE_KEYS = new Set(['dcNo', 'gatePassNo', 'gatePassType', 'probableReturnDate', 'materialReceiptDate']);
 
@@ -1580,7 +1811,7 @@ function RequestQcModal({ row, onClose, onDone }) {
     api.get(`/material-inward/${row.id}/iir-auto`)
       .then(({ data }) => {
         const iir = { ...(data.iir || {}) };
-        // For a manual entry these two are Stores-entered — don't let the (empty)
+        // For a manual entry these two are Stores-entered - don't let the (empty)
         // auto values clobber what Stores typed.
         if (qtyEditable) { delete iir.qtyAsPerPR; delete iir.qtyOrdered; }
         setForm((p) => ({ ...p, ...iir }));
@@ -1592,7 +1823,7 @@ function RequestQcModal({ row, onClose, onDone }) {
     setSaving(true); setError('');
     try {
       // 1) Upload material reports so they ride along with the request. Invoices are
-      //    no longer uploaded — Stores records only the invoice number (docNumber).
+      //    no longer uploaded - Stores records only the invoice number (docNumber).
       const files = [];
       const labels = [];
       reports.forEach((f) => { files.push(f); labels.push('Material Report'); });
@@ -1620,7 +1851,7 @@ function RequestQcModal({ row, onClose, onDone }) {
   };
 
   return (
-    <Modal isOpen onClose={onClose} title="Inward Inspection Request Form — RAPS/IIR Rev 01" size="xl">
+    <Modal isOpen onClose={onClose} title="Inward Inspection Request Form - RAPS/IIR Rev 01" size="xl">
       <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
@@ -1652,7 +1883,7 @@ function RequestQcModal({ row, onClose, onDone }) {
                     value={form[r.key] || ''}
                     disabled={!editable}
                     onChange={editable ? (e) => set(r.key, e.target.value) : undefined}
-                    placeholder={editable ? '' : '— from previous —'}
+                    placeholder={editable ? '' : '- from previous -'}
                   />
                 );
               })}
@@ -1676,11 +1907,11 @@ function RequestQcModal({ row, onClose, onDone }) {
             </div>
           )}
           <p className="text-[11px] text-gray-500">
-            Invoices are no longer uploaded — record the invoice number in the document
+            Invoices are no longer uploaded - record the invoice number in the document
             field on the entry. Attach material reports below if any.
           </p>
           <div>
-            <label className="block text-[13px] font-semibold text-navy-700 mb-1">Material reports (if any) — PDF / image</label>
+            <label className="block text-[13px] font-semibold text-navy-700 mb-1">Material reports (if any) - PDF / image</label>
             <input type="file" multiple accept="application/pdf,image/png,image/jpeg"
               onChange={(e) => setReports(Array.from(e.target.files || []).filter((f) => checkFileSize(f)))}
               className="w-full text-sm file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-navy-700 file:text-white hover:file:bg-navy-800" />
@@ -1703,7 +1934,7 @@ function RequestQcModal({ row, onClose, onDone }) {
                 );
               })}
             </div>
-            <p className="mt-1.5 text-[11px] text-gray-400">Tap the documents QC must verify — these pre-tick the “Documents verified” checklist on the QC inspection report.</p>
+            <p className="mt-1.5 text-[11px] text-gray-400">Tap the documents QC must verify - these pre-tick the “Documents verified” checklist on the QC inspection report.</p>
           </div>
           <Textarea label="Remark / note to QC" rows={2} value={form.storesRemark} onChange={(e) => set('storesRemark', e.target.value)} placeholder="Anything QC should know before reviewing…" />
         </FormBlock>
@@ -1729,9 +1960,11 @@ const reportCategoryFor = (row) => {
   return '';
 };
 
-// ── QC review — the full IIR report, pre-filled from the PO/inward data.
+// ── QC review - the full IIR report, pre-filled from the PO/inward data.
 // QC just reviews/adjusts, sets the result + remark, and finishes.
 function ReviewModal({ row, onClose, onDone }) {
+  const { user } = useAuth();
+  const reviewerRole = user?.role;
   const rep = row.qcReport || {};
   const today = new Date().toISOString().slice(0, 10);
   const [f, setF] = useState({
@@ -1779,6 +2012,9 @@ function ReviewModal({ row, onClose, onDone }) {
     }
   }, [row.id, row.purchaseOrderId]);
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  // An Inward QC / In-Process QC operator files the inspection; QC signs it off.
+  // Mirror of needsApproval in materialInward.routes.js finish-review.
+  const needsQcApproval = QC_OPERATOR_ROLES.includes(reviewerRole);
   // Pre-tick from QC's own prior save, else from the documents Stores asked QC
   // to verify on the request form (qcRequest.docsRequired / qcDocRequirement).
   const storesDocs = Array.isArray(row.qcRequest?.docsRequired) && row.qcRequest.docsRequired.length
@@ -1797,10 +2033,10 @@ function ReviewModal({ row, onClose, onDone }) {
   const [qtyHeld, setQtyHeld] = useState(row.qtyHeld ?? '');
   const [holdReason, setHoldReason] = useState(row.holdReason || '');
   // Inward Inspection No. is auto-generated server-side on finish (kept across
-  // re-reviews). Shown read-only — QC never types it.
+  // re-reviews). Shown read-only - QC never types it.
   const reportNo = row.qcReportNo || '';
   const [remark, setRemark] = useState(row.qcReportRemark || '');
-  // NCR — raised when QC rejects the lot (FAILED). Notifies the unit managers,
+  // NCR - raised when QC rejects the lot (FAILED). Notifies the unit managers,
   // admins + purchase; Stores then records replacement material against this MIR.
   const [ncrNo, setNcrNo] = useState(row.ncrNo || '');
   const [ncrFile, setNcrFile] = useState(null);
@@ -1809,7 +2045,7 @@ function ReviewModal({ row, onClose, onDone }) {
 
   const onHold = result === 'ON_HOLD';
   const isFail = result === 'FAILED';
-  const isDeferred = !!row.inwardedAt; // deferred T&F QC — NCR/replacement N/A
+  const isDeferred = !!row.inwardedAt; // deferred T&F QC - NCR/replacement N/A
   const orig = row.replacesInward; // set when THIS row is itself a replacement
 
   const submit = async () => {
@@ -1839,11 +2075,11 @@ function ReviewModal({ row, onClose, onDone }) {
   };
 
   const Read = ({ label, value }) => (
-    <div><span className="text-gray-500">{label}:</span> <span className="font-medium text-navy-800">{value || '—'}</span></div>
+    <div><span className="text-gray-500">{label}:</span> <span className="font-medium text-navy-800">{value || '-'}</span></div>
   );
 
   return (
-    <Modal isOpen onClose={onClose} title={`Inward Inspection Report (RAPS/IIR Rev 01) — ${row.mirNo}`} size="full">
+    <Modal isOpen onClose={onClose} title={`Inward Inspection Report (RAPS/IIR Rev 01) - ${row.mirNo}`} size="full">
       <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
@@ -1857,9 +2093,9 @@ function ReviewModal({ row, onClose, onDone }) {
           <Read label="Issued to" value={row.issuedToLabel || row.issuedToDept} />
           <Read label="Indenter" value={row.indenterName} />
           <Read label="Received" value={`${fmtQty(row.qtyReceived)} ${row.uom || ''}`} />
-          <Read label="Ordered" value={row.orderedQty != null ? fmtQty(row.orderedQty) : '—'} />
+          <Read label="Ordered" value={row.orderedQty != null ? fmtQty(row.orderedQty) : '-'} />
           <Read label="Batch" value={row.batchNo} />
-          <Read label="Expiry" value={row.dateOfExpiry ? formatDate(row.dateOfExpiry) : '—'} />
+          <Read label="Expiry" value={row.dateOfExpiry ? formatDate(row.dateOfExpiry) : '-'} />
         </div>
         {row.documents?.length > 0 && (
           <div>
@@ -1882,7 +2118,7 @@ function ReviewModal({ row, onClose, onDone }) {
         {row.qcRequestNote && <p className="text-xs text-gray-600"><span className="text-gray-500">Stores note:</span> {row.qcRequestNote}</p>}
         {row.qcDocRequirement && <p className="text-xs text-gray-600"><span className="text-gray-500">Docs required:</span> {row.qcDocRequirement}</p>}
 
-        {/* Report — pre-filled, editable */}
+        {/* Report - pre-filled, editable */}
         <FormBlock title="Inspection report">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Input label="Report date" type="date" value={f.reportDate} onChange={(e) => set('reportDate', e.target.value)} />
@@ -1890,7 +2126,7 @@ function ReviewModal({ row, onClose, onDone }) {
             <Input label="Report reference no." value={f.reportReferenceNo} onChange={(e) => set('reportReferenceNo', e.target.value)} />
             <Input label="Material description" value={f.materialDescription} onChange={(e) => set('materialDescription', e.target.value)} className="sm:col-span-2" />
             <Select label="Material category" value={f.materialCategory} onChange={(e) => set('materialCategory', e.target.value)}>
-              <option value="">—</option>
+              <option value="">-</option>
               <option>Raw materials</option>
               <option>Consumables</option>
               <option>Tooling & Fixtures</option>
@@ -1958,7 +2194,7 @@ function ReviewModal({ row, onClose, onDone }) {
                 <FileWarning size={14} /> Non-Conformance Report (NCR)
               </p>
               <p className="text-[11px] text-rose-600">
-                Rejecting this lot raises an NCR — the unit manager(s), admins and the purchase
+                Rejecting this lot raises an NCR - the unit manager(s), admins and the purchase
                 team are notified, and Stores records the replacement material against this MIR.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1981,9 +2217,23 @@ function ReviewModal({ row, onClose, onDone }) {
           <Textarea label="Report remark *" rows={3} value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="Inspection findings / report details…" />
         </FormBlock>
 
+        {/* An operator's outcome is not final - say so before they file it, so the
+            lot sitting unapproved is never a surprise. */}
+        {needsQcApproval && !onHold && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] text-amber-800 flex items-start gap-2">
+            <ShieldCheck size={13} className="mt-px shrink-0" />
+            <span>
+              Your inspection goes to <strong>Quality Control for approval</strong> once filed. Stores is not
+              notified and cannot inward the lot until QC approves it. QC can also send it back for re-inspection.
+            </span>
+          </div>
+        )}
+
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving}>{saving ? 'Saving…' : onHold ? 'Place on Hold' : 'Finish Review'}</Button>
+          <Button onClick={submit} disabled={saving}>
+            {saving ? 'Saving…' : onHold ? 'Place on Hold' : (needsQcApproval ? 'Submit for QC Approval' : 'Finish Review')}
+          </Button>
         </div>
       </div>
     </Modal>
@@ -2010,7 +2260,7 @@ function InwardConfirmModal({ row, onClose, onDone }) {
     catch (err) { setError(err.response?.data?.error || 'Failed'); setSaving(false); }
   };
   return (
-    <Modal isOpen onClose={onClose} title={`Inward into stock — ${row.mirNo}`} size="md">
+    <Modal isOpen onClose={onClose} title={`Inward into stock - ${row.mirNo}`} size="md">
       <div className="space-y-3">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
         <div className="text-sm text-gray-700 space-y-2">
@@ -2031,17 +2281,17 @@ function InwardConfirmModal({ row, onClose, onDone }) {
               ))}
             </div>
           )}
-          {!row.product && <p className="text-[11px] text-amber-600">No linked product — this will mark the row inwarded without a stock movement.</p>}
+          {!row.product && <p className="text-[11px] text-amber-600">No linked product - this will mark the row inwarded without a stock movement.</p>}
           {(row.isHandTools || row.isMachinery) && (
             <p className="text-[11px] bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-2">
-              <strong>{row.isMachinery ? 'Machinery' : 'Hand Tools'}:</strong> no QC required — this is inwarded straight into the store (or
+              <strong>{row.isMachinery ? 'Machinery' : 'Hand Tools'}:</strong> no QC required - this is inwarded straight into the store (or
               assigned to the unit) without a QC or master-data check.
             </p>
           )}
           {row.qcWaived && (
             <p className="text-[11px] bg-violet-50 border border-violet-200 text-violet-800 rounded p-2">
               <strong>QC not required:</strong> {reviewerLabel(row.qcWaivedBy) || 'QC / the unit manager'} waived the
-              inspection{row.qcWaivedReason ? <> — “{row.qcWaivedReason}”</> : ''}. The full received quantity is
+              inspection{row.qcWaivedReason ? <> - “{row.qcWaivedReason}”</> : ''}. The full received quantity is
               taken into stock.
             </p>
           )}
@@ -2064,7 +2314,7 @@ function InwardConfirmModal({ row, onClose, onDone }) {
 // ── Mark a lot "QC not required" ──
 // The inspection waiver. QC, the concerned unit manager, or an Admin decides this
 // material needs no inspection; the lot skips QC and goes straight to the inward
-// step. A meaningful reason is mandatory (validated client- and server-side) —
+// step. A meaningful reason is mandatory (validated client- and server-side) -
 // this is a documented bypass, so the register has to record why.
 function WaiveQcModal({ row, onClose, onDone }) {
   const [reason, setReason] = useState('');
@@ -2083,7 +2333,7 @@ function WaiveQcModal({ row, onClose, onDone }) {
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={`QC Not Required — ${row.mirNo}`} size="md">
+    <Modal isOpen onClose={onClose} title={`QC Not Required - ${row.mirNo}`} size="md">
       <div className="space-y-3">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
@@ -2099,7 +2349,7 @@ function WaiveQcModal({ row, onClose, onDone }) {
           </p>
           <p className="text-[11px] text-violet-700">
             No inspection will be carried out. The lot moves straight to the inward step for
-            Stores to take into stock — no QC report, no accepted / rejected quantities.
+            Stores to take into stock - no QC report, no accepted / rejected quantities.
           </p>
         </div>
 
@@ -2108,7 +2358,7 @@ function WaiveQcModal({ row, onClose, onDone }) {
           rows={3}
           value={reason}
           onChange={(e) => { setReason(e.target.value); if (error) setError(''); }}
-          placeholder="e.g. Standard off-the-shelf consumable, repeat order from an approved supplier — no incoming inspection specified."
+          placeholder="e.g. Standard off-the-shelf consumable, repeat order from an approved supplier - no incoming inspection specified."
         />
         <p className="text-[11px] text-gray-500">
           Recorded against {row.mirNo} with your name and kept in the lot's QC history. Stores can still
@@ -2118,7 +2368,157 @@ function WaiveQcModal({ row, onClose, onDone }) {
         <div className="flex justify-end gap-2 pt-2 border-t">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={saving || !!localError}>
-            {saving ? 'Saving…' : 'Confirm — QC Not Required'}
+            {saving ? 'Saving…' : 'Confirm - QC Not Required'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── MIV numbers a received lot was issued out on ──
+// A well-used lot can carry a dozen MIVs, and one line each turned the register
+// row into a column of numbers that pushed every other field off the screen. So:
+// a one-line summary (how many, how much went out), the two most recent as chips,
+// and the rest one click away. The row stays two lines tall no matter how many
+// MIVs there are, and nothing is hidden - "+N more" expands in place.
+const MIV_PREVIEW = 2;
+
+function MivCell({ mivs, uom }) {
+  const [open, setOpen] = useState(false);
+  if (!mivs?.length) return <Dash />;
+
+  const shown = open ? mivs : mivs.slice(0, MIV_PREVIEW);
+  const hidden = mivs.length - shown.length;
+  const totalQty = mivs.reduce((t, m) => t + (Number(m.qty) || 0), 0);
+
+  return (
+    <div className="space-y-1">
+      {mivs.length > 1 && (
+        <div className="text-[10px] font-semibold text-emerald-800" title="Material issue vouchers raised against this lot">
+          {mivs.length} MIVs{totalQty > 0 ? ` · ${fmtQty(totalQty)}${uom ? ` ${uom}` : ''} issued` : ''}
+        </div>
+      )}
+      <div className="flex flex-wrap gap-1">
+        {shown.map((m, k) => (
+          <span
+            key={k}
+            className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-mono text-emerald-700 ring-1 ring-emerald-100"
+            title={[m.unit, m.qty != null ? `${fmtQty(m.qty)}${uom ? ` ${uom}` : ''}` : null].filter(Boolean).join(' · ')}
+          >
+            {m.mivNo}
+            {m.qty != null && <span className="text-emerald-600/70">{fmtQty(m.qty)}</span>}
+          </span>
+        ))}
+        {(hidden > 0 || open) && (
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-navy-600 ring-1 ring-navy-200 hover:bg-navy-50"
+          >
+            {open ? 'Show less' : `+${hidden} more`}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── QC signs off (or sends back) an inspection filed by an Inward QC /
+//    In-Process QC operator. Shows the filed outcome in full so the decision is
+//    made on what was actually recorded, not from memory. Approving releases the
+//    lot to Stores; sending it back returns it to the QC queue for a fresh round.
+function ApproveReviewModal({ row, onClose, onDone }) {
+  const [mode, setMode] = useState(null); // null | 'approve' | 'reject'
+  const [remark, setRemark] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  // A send-back must say what was wrong - the operator has to know what to redo.
+  const rejectError = remark.trim()
+    ? reasonError(remark, { minLength: 12, minWords: 2, fieldLabel: 'reason' })
+    : 'Please enter a reason.';
+
+  const submit = async (which) => {
+    if (which === 'reject' && rejectError) { setMode('reject'); setError(rejectError); return; }
+    setSaving(true); setError('');
+    try {
+      if (which === 'approve') {
+        await api.post(`/material-inward/${row.id}/approve-review`, { remark: remark.trim() || null });
+      } else {
+        await api.post(`/material-inward/${row.id}/reject-review`, { reason: remark.trim() });
+      }
+      onDone();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed');
+      setSaving(false);
+    }
+  };
+
+  const Field = ({ label, value }) => (
+    <div>
+      <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">{label}</div>
+      <div className="text-[12px] text-navy-900">{value ?? '-'}</div>
+    </div>
+  );
+
+  return (
+    <Modal isOpen onClose={onClose} title={`Approve inspection - ${row.mirNo}`} size="md">
+      <div className="space-y-3">
+        {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+          <p className="text-[12px] font-bold text-amber-900 inline-flex items-center gap-1.5">
+            <ShieldCheck size={14} /> Inspection filed - your signature releases it
+          </p>
+          <p className="text-[11px] text-amber-800">
+            <strong>{row.itemDescription || row.mirNo}</strong>
+            {row.qtyReceived != null ? ` · ${fmtQty(row.qtyReceived)}${row.uom ? ` ${row.uom}` : ''}` : ''}
+            {row.supplierName ? ` · ${row.supplierName}` : ''}
+          </p>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <Field label="Result" value={row.qcResult} />
+            <Field label="Inspection No." value={row.qcReportNo} />
+            <Field label="Accepted" value={row.qtyAccepted != null ? fmtQty(row.qtyAccepted) : null} />
+            <Field label="Rejected" value={row.qtyRejected != null ? fmtQty(row.qtyRejected) : null} />
+            <Field label="Inspected by" value={row.qcReviewer ? reviewerLabel(row.qcReviewer) : null} />
+            <Field label="Finished" value={row.qcFinishedAt ? formatDateTime(row.qcFinishedAt) : null} />
+          </div>
+          {row.qcReportRemark && (
+            <div className="pt-1">
+              <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Report remark</div>
+              <div className="text-[11px] text-navy-900">“{row.qcReportRemark}”</div>
+            </div>
+          )}
+        </div>
+
+        <Textarea
+          label={mode === 'reject' ? 'Why is this being sent back? *' : 'Approval remark (optional)'}
+          rows={3}
+          value={remark}
+          onChange={(e) => { setRemark(e.target.value); if (error) setError(''); }}
+          placeholder={mode === 'reject'
+            ? 'e.g. Dimensional check not recorded against the drawing - re-inspect and attach the measurement sheet.'
+            : 'Optional note kept with the approval.'}
+        />
+
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-2.5 text-[11px] text-gray-600 space-y-1">
+          <p><strong>Approve</strong> - the result becomes final, Stores is notified and can inward the lot{row.qcResult === 'FAILED' ? '; the NCR escalation goes out to Admin, Purchase and the unit' : ''}.</p>
+          <p><strong>Send back</strong> - the round is archived in the lot's QC history and the lot returns to the QC queue for a fresh inspection.</p>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2 border-t">
+          <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button
+            variant="secondary"
+            onClick={() => (mode === 'reject' ? submit('reject') : (setMode('reject'), setError('')))}
+            disabled={saving}
+            className="!text-rose-700 !border-rose-300 hover:!bg-rose-50"
+          >
+            {mode === 'reject' ? (saving ? 'Sending…' : 'Confirm send back') : 'Send back'}
+          </Button>
+          <Button onClick={() => submit('approve')} disabled={saving || mode === 'reject'}>
+            {saving ? 'Approving…' : 'Approve inspection'}
           </Button>
         </div>
       </div>
@@ -2137,7 +2537,7 @@ function ResendQcModal({ row, onClose, onDone }) {
     catch (err) { setError(err.response?.data?.error || 'Failed'); setSaving(false); }
   };
   return (
-    <Modal isOpen onClose={onClose} title={`Resend to QC — ${row.mirNo}`} size="md">
+    <Modal isOpen onClose={onClose} title={`Resend to QC - ${row.mirNo}`} size="md">
       <div className="space-y-3">
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
         <div className="text-sm text-gray-700 space-y-1">
@@ -2146,7 +2546,7 @@ function ResendQcModal({ row, onClose, onDone }) {
             <p className="text-xs text-rose-700">Held: “{row.holdReason}”</p>
           )}
           {row.status === 'QC_DONE' && row.qcResult === 'FAILED' && (
-            <p className="text-xs text-rose-700">Previously failed — re-inspecting after rework / clarification.</p>
+            <p className="text-xs text-rose-700">Previously failed - re-inspecting after rework / clarification.</p>
           )}
         </div>
         <p className="text-[11px] text-gray-500">The finished round ({row.qcRound || 1}) is kept in history; QC files a fresh outcome for the next round.</p>
@@ -2160,7 +2560,7 @@ function ResendQcModal({ row, onClose, onDone }) {
   );
 }
 
-// Banner shown on a replacement lot (and in its QC review) — surfaces the
+// Banner shown on a replacement lot (and in its QC review) - surfaces the
 // NCR-rejected original it stands in for, with the NCR document + failed report.
 function ReplacementOriginBanner({ orig }) {
   const rep = orig.qcReport || {};
@@ -2233,14 +2633,14 @@ function ReplacementModal({ row, onClose, onDone }) {
         {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
         <ReplacementOriginBanner orig={orig} />
         <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div><span className="text-gray-500">Item:</span> <span className="font-medium text-navy-800">{row.itemDescription || '—'}</span></div>
+          <div><span className="text-gray-500">Item:</span> <span className="font-medium text-navy-800">{row.itemDescription || '-'}</span></div>
           <div><span className="text-gray-500">PO:</span> <span className="font-medium text-navy-800">{row.poNumber || 'Direct / Cash'}</span></div>
-          <div><span className="text-gray-500">Supplier:</span> <span className="font-medium text-navy-800">{row.supplierName || '—'}</span></div>
-          <div><span className="text-gray-500">Issued to:</span> <span className="font-medium text-navy-800">{row.issuedToLabel || row.issuedToDept || '—'}</span></div>
+          <div><span className="text-gray-500">Supplier:</span> <span className="font-medium text-navy-800">{row.supplierName || '-'}</span></div>
+          <div><span className="text-gray-500">Issued to:</span> <span className="font-medium text-navy-800">{row.issuedToLabel || row.issuedToDept || '-'}</span></div>
         </div>
         <p className="text-[11px] text-gray-500">
           PO / PR / supplier / item / issued-to are carried over from the failed MIR.
-          Enter the new receipt details — the replacement gets its own MIR (mapped to {row.mirNo}) and goes through QC again.
+          Enter the new receipt details - the replacement gets its own MIR (mapped to {row.mirNo}) and goes through QC again.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Input label="Receipt date" type="date" value={f.inwardDate} onChange={(e) => set('inwardDate', e.target.value)} />
@@ -2274,13 +2674,13 @@ function ReportViewModal({ row, onClose }) {
   ].filter((u) => /\.pdf(\?|$)/i.test(u));
 
   return (
-    <Modal isOpen onClose={onClose} title={`Inward Inspection Report (RAPS/IIR Rev 01) — ${row.mirNo}`} size="full">
+    <Modal isOpen onClose={onClose} title={`Inward Inspection Report (RAPS/IIR Rev 01) - ${row.mirNo}`} size="full">
       <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
             <p className="text-sm font-semibold text-navy-800">{row.qcReportNo || row.mirNo}</p>
             <p className="text-[11px] text-gray-500">
-              Result: <span className={`font-semibold ${row.qcResult === 'FAILED' ? 'text-rose-600' : row.qcResult === 'PARTIAL' ? 'text-amber-600' : 'text-emerald-600'}`}>{row.qcResult || '—'}</span>
+              Result: <span className={`font-semibold ${row.qcResult === 'FAILED' ? 'text-rose-600' : row.qcResult === 'PARTIAL' ? 'text-amber-600' : 'text-emerald-600'}`}>{row.qcResult || '-'}</span>
               {row.qcReviewer ? ` · by ${reviewerLabel(row.qcReviewer)}` : ''}{row.qcFinishedAt ? ` · ${formatDate(row.qcFinishedAt)}` : ''}
             </p>
           </div>
@@ -2297,9 +2697,9 @@ function ReportViewModal({ row, onClose }) {
         <FormBlock title="Identification">
           <div className="text-[11px] bg-navy-50 border border-navy-100 rounded-md p-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
             <ReadKV label="MIR No." value={row.mirNo} />
-            <ReadKV label="Lot" value={row.lotNo != null ? `Lot ${row.lotNo}` : '—'} />
+            <ReadKV label="Lot" value={row.lotNo != null ? `Lot ${row.lotNo}` : '-'} />
             <ReadKV label="Report No." value={row.qcReportNo} />
-            <ReadKV label="Report date" value={rep.reportDate ? formatDate(rep.reportDate) : '—'} />
+            <ReadKV label="Report date" value={rep.reportDate ? formatDate(rep.reportDate) : '-'} />
             <ReadKV label="PO" value={row.poNumber || 'Direct / Cash'} />
             <ReadKV label="PR" value={row.prNumbers} />
             <ReadKV label="Supplier" value={row.supplierName} />
@@ -2315,8 +2715,8 @@ function ReportViewModal({ row, onClose }) {
             <ReadKV label="Description" value={rep.materialDescription || row.itemDescription} span />
             <ReadKV label="Category" value={rep.materialCategory} />
             <ReadKV label="Batch" value={row.batchNo} />
-            <ReadKV label="Date of mfg." value={rep.dateOfManufacturing ? formatDate(rep.dateOfManufacturing) : '—'} />
-            <ReadKV label="Expiry" value={row.dateOfExpiry ? formatDate(row.dateOfExpiry) : '—'} />
+            <ReadKV label="Date of mfg." value={rep.dateOfManufacturing ? formatDate(rep.dateOfManufacturing) : '-'} />
+            <ReadKV label="Expiry" value={row.dateOfExpiry ? formatDate(row.dateOfExpiry) : '-'} />
             <ReadKV label="Packing" value={rep.packingCondition} />
             <ReadKV label="Packing notes" value={rep.packingDamageNotes} />
             <ReadKV label="Tapped holes / weld lugs" value={rep.tappedHolesCondition} span />
@@ -2337,7 +2737,7 @@ function ReportViewModal({ row, onClose }) {
           )}
           {row.qcResult === 'FAILED' && (row.ncrNo || row.ncrDocUrl) && (
             <p className="text-xs text-rose-700 inline-flex items-center gap-2 flex-wrap">
-              <span><span className="text-gray-500">NCR:</span> {row.ncrNo || '—'}</span>
+              <span><span className="text-gray-500">NCR:</span> {row.ncrNo || '-'}</span>
               {row.ncrDocUrl && <a href={fileUrl(row.ncrDocUrl)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold underline"><FileWarning size={12} /> {row.ncrDocName || 'View NCR'}</a>}
               {row.replacedByInward && <span className="text-emerald-700">· Replaced → {row.replacedByInward.mirNo}</span>}
             </p>
@@ -2382,7 +2782,14 @@ function Td({ children, sticky = false, groupEnd = false, nowrap = true, classNa
     </td>
   );
 }
-const Dash = () => <span className="text-gray-300 select-none">—</span>;
+const Dash = () => <span className="text-gray-300 select-none">-</span>;
+
+// Placeholder for a receipt-level value already printed on the first line of a
+// multi-item MIR - repeating the same invoice / vehicle / supplier down every
+// line is what made the register look like duplicated rows.
+const GroupRepeat = () => (
+  <span className="text-gray-200 select-none" title="Same as the line above - one receipt, several items">⋯</span>
+);
 
 const PILL_TONES = {
   gray:  'bg-gray-100 text-gray-600 ring-gray-200',
@@ -2479,7 +2886,7 @@ function FromGatePassMode({ canEdit }) {
         </div>
       </div>
       <p className="text-xs text-gray-500 mb-3">
-        Items recorded here are added to stock immediately — no separate acceptance step. They show up under
+        Items recorded here are added to stock immediately - no separate acceptance step. They show up under
         the FIM Status tab straight away.
       </p>
       {loading ? (
@@ -2512,8 +2919,8 @@ function FromGatePassMode({ canEdit }) {
                   </div>
                   <div className="text-xs text-gray-600 space-y-1">
                     {g.fimNumber && <div className="font-mono text-[11px] text-gray-500">{g.passNumber}</div>}
-                    <div><span className="text-gray-500">Customer:</span> {g.customerName || '—'}</div>
-                    <div><span className="text-gray-500">Customer GP:</span> {g.customerGatePassNo || '—'}{g.customerGatePassDate ? ` (${formatDate(g.customerGatePassDate)})` : ''}</div>
+                    <div><span className="text-gray-500">Customer:</span> {g.customerName || '-'}</div>
+                    <div><span className="text-gray-500">Customer GP:</span> {g.customerGatePassNo || '-'}{g.customerGatePassDate ? ` (${formatDate(g.customerGatePassDate)})` : ''}</div>
                     <div>
                       <span className="text-gray-500">Items {view === 'pending' ? 'pending' : 'accepted'}:</span>{' '}
                       {view === 'pending' ? pending.length : inwardedCount} of {g.items?.length || 0}
@@ -2521,7 +2928,7 @@ function FromGatePassMode({ canEdit }) {
                     {(g.testReports || []).length > 0 && (
                       <div className="inline-flex items-center gap-1 text-[11px] text-navy-700 font-medium">
                         <FlaskConical size={11} />
-                        {g.testReports.length} test report{g.testReports.length === 1 ? '' : 's'} — open to view
+                        {g.testReports.length} test report{g.testReports.length === 1 ? '' : 's'} - open to view
                       </div>
                     )}
                   </div>
@@ -2637,7 +3044,7 @@ function RecordInwardModal({ onClose, onCreated }) {
     setItemUpload((s) => ({ ...s, [rowKey]: { uploading: true, error: '' } }));
     try {
       const uploaded = await uploadReports(v.files);
-      // Resolve the row by key, not index — rows may have moved while uploading.
+      // Resolve the row by key, not index - rows may have moved while uploading.
       setItems((prev) => prev.map((row) => (row._key === rowKey
         ? { ...row, testReports: [...(row.testReports || []), ...uploaded] }
         : row)));
@@ -2699,7 +3106,7 @@ function RecordInwardModal({ onClose, onCreated }) {
         if (gpRequisitionNo.trim()) fd.append('gpRequisitionNo', gpRequisitionNo.trim());
         fd.append('customerGpPdf', customerGpPdf);
         fd.append('items', JSON.stringify(itemsPayload));
-        // Already-uploaded test report references — the server parses this JSON.
+        // Already-uploaded test report references - the server parses this JSON.
         fd.append('testReports', JSON.stringify(entryReportsPayload));
         await api.post('/gatepasses', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       } else {
@@ -2737,7 +3144,7 @@ function RecordInwardModal({ onClose, onCreated }) {
           Enter the Gate Pass No. below; the FIM No. (RAPS/FIM/&lt;FY&gt;/&lt;count&gt;) and Date are auto-generated on submit. Returned Date and Return-by Vehicle/Driver are filled later when the material is sent back.
         </p>
 
-        {/* Register header — applies to every row in this entry */}
+        {/* Register header - applies to every row in this entry */}
         <div className="p-3 bg-blue-50 border border-blue-200 rounded space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Input label="Gate Pass No. *" value={passNumber} onChange={e => setPassNumber(e.target.value)} placeholder="Enter the gate pass number" />
@@ -2803,7 +3210,7 @@ function RecordInwardModal({ onClose, onCreated }) {
           <div className="border border-blue-200 bg-white rounded p-2.5 space-y-1.5">
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-medium text-gray-700">
-                Test reports / material certificates <span className="text-gray-400 font-normal">(for the whole entry — optional)</span>
+                Test reports / material certificates <span className="text-gray-400 font-normal">(for the whole entry - optional)</span>
               </span>
               <label className="inline-flex items-center gap-1 cursor-pointer text-xs font-medium text-navy-700 hover:underline">
                 <Upload size={12} />
@@ -2982,7 +3389,7 @@ function RecordInwardModal({ onClose, onCreated }) {
 
 function AcceptInwardForm({ gatePass, onCancel, onComplete, canEdit }) {
   const items = (gatePass.items || []).filter(i => (i.inwardedQty || 0) < (i.quantity || 0));
-  // Customer test reports — entry-level ones carry no line id; the rest hang off
+  // Customer test reports - entry-level ones carry no line id; the rest hang off
   // their line. Shown for every entry, whether it still needs acceptance or not.
   const entryTestReports = (gatePass.testReports || []).filter(r => !r.gatePassItemId);
   const itemsWithReports = (gatePass.items || []).filter(i => (i.testReports || []).length > 0);
@@ -3075,7 +3482,7 @@ function AcceptInwardForm({ gatePass, onCancel, onComplete, canEdit }) {
         and marks the resulting batch as <em>FIM</em>, linked to this gate pass so the product can be traced back to the customer.
       </div>
 
-      {/* Customer test reports recorded with this FIM entry — read-only for everyone. */}
+      {/* Customer test reports recorded with this FIM entry - read-only for everyone. */}
       {(entryTestReports.length > 0 || itemsWithReports.length > 0 || gatePass.customerGpPdfUrl) && (
         <div className="mb-3 p-3 border border-gray-200 rounded bg-gray-50 text-xs space-y-2">
           <div className="font-medium text-gray-700 flex items-center gap-1.5">
@@ -3149,7 +3556,7 @@ function AcceptInwardForm({ gatePass, onCancel, onComplete, canEdit }) {
                   <label className="block text-xs text-gray-500 mb-1">Pick product *</label>
                   <select className={cellInput}
                     value={r.productId} onChange={(e) => update(idx, 'productId', e.target.value)}>
-                    <option value="">— Select existing product —</option>
+                    <option value="">- Select existing product -</option>
                     {products.map(p => (
                       <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
                     ))}

@@ -21,25 +21,26 @@ import SearchBar from '../components/shared/SearchBar';
 import Pagination from '../components/shared/Pagination';
 import PageHero from '../components/shared/PageHero';
 import DeleteMaterialButton from '../components/shared/DeleteMaterialButton';
+import ExportExcelButton from '../components/shared/ExportExcelButton';
 
 const blankForm = () => ({
   materialCode: '', name: '', description: '', category: DEFAULT_MATERIAL_TYPE, unit: 'pcs',
   shelfLife: '', storageTemp: '',
 });
 
-// `embedded` renders this inside the Stock Details "Master Data" tab — it drops
+// `embedded` renders this inside the Stock Details "Master Data" tab - it drops
 // the standalone PageHero (Stock Details already shows one) and exposes the Add
 // Product action in a compact bar instead.
 export default function ProductMasterData({ embedded = false }) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  // Adding is open to every requester role — a PR line can only name a material
+  // Adding is open to every requester role - a PR line can only name a material
   // that is already here, so whoever raises the PR has to be able to enter it.
   // Editing an entry is decided per product (Unit 1–5 managers, or whoever added
   // it) and lives on the product's own master-data page.
   const canAdd = canCreateProduct(user);
   // Deleting a material is a master-owner action only (mirrors authorizeProductMaster
-  // on the server) — it can pull a material out from under somebody else's PR.
+  // on the server) - it can pull a material out from under somebody else's PR.
   const canDelete = isProductMasterEditor(user);
 
   const [products, setProducts] = useState([]);
@@ -85,6 +86,15 @@ export default function ProductMasterData({ embedded = false }) {
 
   const typeOptions = materialTypes;
 
+  // Filters handed to the Excel export - everything the list is narrowed by except
+  // paging, so the workbook covers the whole filtered set rather than this page.
+  const exportParams = {
+    search: search || undefined,
+    category: catFilter || undefined,
+    masterData: pendingOnly ? 'pending' : undefined,
+    sort: pendingOnly ? 'recent' : sort,
+  };
+
   const openCreate = () => { setForm(blankForm()); setFormError(''); setShowCreate(true); };
 
   const closeModals = () => { setShowCreate(false); setForm(blankForm()); };
@@ -122,29 +132,29 @@ export default function ProductMasterData({ embedded = false }) {
       key: 'materialCode', label: 'Material Code', width: 100,
       render: (v, row) => {
         const id = v || row.sku;
-        return id ? <span className="text-sm font-semibold text-navy-700">{id}</span> : <span className="text-xs text-gray-400">—</span>;
+        return id ? <span className="text-sm font-semibold text-navy-700">{id}</span> : <span className="text-xs text-gray-400">-</span>;
       },
     },
     { key: 'name', label: 'Name' },
-    { key: 'category', label: 'Material Type', render: (v) => v || '—' },
+    { key: 'category', label: 'Material Type', render: (v) => v || '-' },
     { key: 'unit', label: 'UOM', width: 70 },
     {
       key: 'description', label: 'Specification',
-      render: (v) => v ? <span className="text-sm text-gray-700 line-clamp-2">{v}</span> : <span className="text-xs text-gray-400">—</span>,
+      render: (v) => v ? <span className="text-sm text-gray-700 line-clamp-2">{v}</span> : <span className="text-xs text-gray-400">-</span>,
     },
     {
       key: 'shelfLife', label: 'Shelf Life',
-      render: (v) => v ? <span className="text-sm text-gray-700">{v}</span> : <span className="text-xs text-gray-400">—</span>,
+      render: (v) => v ? <span className="text-sm text-gray-700">{v}</span> : <span className="text-xs text-gray-400">-</span>,
     },
     {
       key: 'storageTemp', label: 'Storage Temp',
-      render: (v) => v ? <span className="text-sm text-gray-700">{v}</span> : <span className="text-xs text-gray-400">—</span>,
+      render: (v) => v ? <span className="text-sm text-gray-700">{v}</span> : <span className="text-xs text-gray-400">-</span>,
     },
     {
       key: 'createdBy', label: 'Added By',
       render: (v) => v?.name
         ? <span className="text-sm text-gray-700">{v.name}</span>
-        : <span className="text-xs text-gray-400" title="Added before authorship was recorded">—</span>,
+        : <span className="text-xs text-gray-400" title="Added before authorship was recorded">-</span>,
     },
     {
       key: 'masterDataComplete', label: 'Master Data',
@@ -169,7 +179,7 @@ export default function ProductMasterData({ embedded = false }) {
 
   const formFields = (
     <>
-      {/* Material Type first — it decides which block the material code comes
+      {/* Material Type first - it decides which block the material code comes
           from, and the field below fills the next free code in automatically. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Select label="Material Type *" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
@@ -213,9 +223,19 @@ export default function ProductMasterData({ embedded = false }) {
             Every material a purchase request can ask for lives here. Anyone who raises PRs can add
             one; only Unit 1–5 managers and whoever added a material can change it.
           </p>
-          {canAdd && (
-            <Button onClick={openCreate}><Plus size={16} /> Add Product</Button>
-          )}
+          <div className="flex items-center gap-2">
+            <ExportExcelButton
+              endpoint="/products/export"
+              params={exportParams}
+              fileName="RAPS_Product_Master_Data.xlsx"
+              label="Export"
+              size="sm"
+              disabled={loading || total === 0}
+            />
+            {canAdd && (
+              <Button onClick={openCreate}><Plus size={16} /> Add Product</Button>
+            )}
+          </div>
         </div>
       ) : (
         <PageHero
@@ -223,11 +243,26 @@ export default function ProductMasterData({ embedded = false }) {
           subtitle="Every material a purchase request can ask for, with its specification and shelf life. Stock and batches are managed separately under Stock Details."
           eyebrow="Master Data"
           icon={Package}
-          actions={canAdd ? (
-            <Button onClick={openCreate}><Plus size={16} /> Add Product</Button>
-          ) : null}
+          actions={(
+            <>
+              {/* Exports every material matching the current search / type /
+                  "needs master data" filters, plus the code register itself. */}
+              <ExportExcelButton
+                endpoint="/products/export"
+                params={exportParams}
+                fileName="RAPS_Product_Master_Data.xlsx"
+                disabled={loading || total === 0}
+              />
+              {canAdd && <Button onClick={openCreate}><Plus size={16} /> Add Product</Button>}
+            </>
+          )}
         />
       )}
+
+      {/* The material-code register itself - which block of codes belongs to which
+          material type. Collapsed; it is a lookup, not something to read every
+          time, but it belongs on the page the codes are issued from. */}
+      <MaterialCategoryReference highlight={catFilter} />
 
       <Card>
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -262,7 +297,7 @@ export default function ProductMasterData({ embedded = false }) {
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span>
-              These products exist but their master data was never completed — most were auto-created
+              These products exist but their master data was never completed - most were auto-created
               by a purchase request back when a PR line could name a material that wasn't here yet.
               They can still be picked on a requisition, but Stores can't inward them into stock until
               someone fills in the specification / shelf life. Add the minimum now and finish later.
@@ -294,7 +329,7 @@ export default function ProductMasterData({ embedded = false }) {
             {formError && <p className="text-sm text-brand-red">{formError}</p>}
             {formFields}
             <p className="text-xs text-gray-500">
-              Saved under your name — you and the Unit 1–5 managers can open it afterwards to add its
+              Saved under your name - you and the Unit 1–5 managers can open it afterwards to add its
               specification PDF, MSDS and the rest of its details.
             </p>
             <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">

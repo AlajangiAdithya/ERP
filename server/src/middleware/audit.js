@@ -22,7 +22,7 @@ const auditLog = (action, entity) => {
 
     res.json = (data) => {
       if (res.statusCode >= 200 && res.statusCode < 300 && req.user) {
-        // Hidden-role actions (SUPERADMIN, DATA_EDITOR) are NEVER logged — their
+        // Hidden-role actions (SUPERADMIN, DATA_EDITOR) are NEVER logged - their
         // work is invisible to other admins.
         if (HIDDEN_ROLES.includes(req.user.role)) return originalJson(data);
 

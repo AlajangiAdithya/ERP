@@ -1,5 +1,5 @@
 // Floating banner that appears only when the owner has impersonated another
-// user. One tap restores the owner's session. Hidden for all other states —
+// user. One tap restores the owner's session. Hidden for all other states -
 // no visual trace for regular users.
 import { useNavigate } from 'react-router-dom';
 import { Eye, ArrowLeftCircle } from 'lucide-react';

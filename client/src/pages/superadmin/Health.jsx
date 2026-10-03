@@ -12,7 +12,7 @@ import {
 import api from '../../api/axios';
 import PageHero from '../../components/shared/PageHero';
 
-// Default poll cadence. 5s feels real-time without hammering the EC2 box —
+// Default poll cadence. 5s feels real-time without hammering the EC2 box -
 // the heaviest call is `aws s3 ls --recursive`, which costs a few hundred ms.
 const DEFAULT_INTERVAL_MS = 5000;
 const INTERVAL_OPTIONS = [
@@ -24,7 +24,7 @@ const INTERVAL_OPTIONS = [
 ];
 
 const fmtBytes = (n) => {
-  if (n == null) return '—';
+  if (n == null) return '-';
   if (n === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -33,7 +33,7 @@ const fmtBytes = (n) => {
 };
 
 const fmtDuration = (seconds) => {
-  if (seconds == null) return '—';
+  if (seconds == null) return '-';
   const s = Math.floor(seconds);
   const d = Math.floor(s / 86400);
   const h = Math.floor((s % 86400) / 3600);
@@ -44,7 +44,7 @@ const fmtDuration = (seconds) => {
 };
 
 const sinceIso = (iso) => {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return iso;
   return fmtDuration((Date.now() - t) / 1000) + ' ago';
@@ -114,7 +114,7 @@ export default function Health() {
   // Initial fetch.
   useEffect(() => { load(); }, []);
 
-  // Live polling — pauses when the tab is hidden so we don't pummel the EC2 box
+  // Live polling - pauses when the tab is hidden so we don't pummel the EC2 box
   // when no one is looking. Resumes (with an immediate refresh) on focus.
   useEffect(() => {
     if (!intervalMs) return;
@@ -135,7 +135,7 @@ export default function Health() {
     <div className="p-6 space-y-6">
       <PageHero
         title="System Health"
-        subtitle="Live operational view — server, app, database, activity, and backups."
+        subtitle="Live operational view - server, app, database, activity, and backups."
         eyebrow="SuperAdmin"
         icon={Activity}
         actions={
@@ -178,7 +178,7 @@ export default function Health() {
                 label="Load avg"
                 value={data.server.loadavg
                   ? `${data.server.loadavg['1m'].toFixed(2)}`
-                  : '—'}
+                  : '-'}
                 sub={data.server.loadavg
                   ? `5m ${data.server.loadavg['5m'].toFixed(2)} · 15m ${data.server.loadavg['15m'].toFixed(2)}`
                   : null}
@@ -193,7 +193,7 @@ export default function Health() {
                     </div>
                     <Bar percent={data.server.memory.percent} />
                   </>
-                ) : <span className="text-gray-400">—</span>}
+                ) : <span className="text-gray-400">-</span>}
               </div>
               <div>
                 <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Swap</div>
@@ -204,7 +204,7 @@ export default function Health() {
                     </div>
                     <Bar percent={data.server.swap.percent} />
                   </>
-                ) : <span className="text-gray-400">—</span>}
+                ) : <span className="text-gray-400">-</span>}
               </div>
             </div>
 
@@ -221,7 +221,7 @@ export default function Health() {
                     </div>
                     <Bar percent={data.server.disk.percent} />
                   </>
-                ) : <span className="text-gray-400">—</span>}
+                ) : <span className="text-gray-400">-</span>}
               </div>
               <Stat
                 label="Uploads dir"
@@ -262,7 +262,7 @@ export default function Health() {
                         </td>
                         <td className="py-2">{fmtDuration(p.uptimeMs ? p.uptimeMs / 1000 : null)}</td>
                         <td className={`py-2 ${p.restarts > 5 ? 'text-amber-700 font-semibold' : ''}`}>{p.restarts}</td>
-                        <td className="py-2">{p.cpu != null ? `${p.cpu}%` : '—'}</td>
+                        <td className="py-2">{p.cpu != null ? `${p.cpu}%` : '-'}</td>
                         <td className="py-2">{fmtBytes(p.memBytes)}</td>
                       </tr>
                     ))}
@@ -278,12 +278,12 @@ export default function Health() {
               <Stat label="Size on disk" value={fmtBytes(data.db.sizeBytes)} />
               <Stat
                 label="Connections"
-                value={data.db.connections?.total ?? '—'}
+                value={data.db.connections?.total ?? '-'}
                 sub={data.db.connections
                   ? `${data.db.connections.active} active · ${data.db.connections.idle} idle`
                   : null}
               />
-              <Stat label="Tables tracked" value={data.db.topTables?.length ?? '—'} sub="top 5 by size shown below" />
+              <Stat label="Tables tracked" value={data.db.topTables?.length ?? '-'} sub="top 5 by size shown below" />
             </div>
             {data.db.topTables?.length > 0 && (
               <div className="overflow-x-auto border-t pt-3">
@@ -312,9 +312,9 @@ export default function Health() {
           {/* ── Activity ── */}
           <Section title="Activity (last 24h)" icon={<Users size={16} className="text-purple-700" />}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              <Stat label="Logins (24h)" value={data.activity.logins24h ?? '—'} />
-              <Stat label="Active sessions" value={data.activity.activeSessions ?? '—'} />
-              <Stat label="Active users" value={data.activity.totalUsers ?? '—'} />
+              <Stat label="Logins (24h)" value={data.activity.logins24h ?? '-'} />
+              <Stat label="Active sessions" value={data.activity.activeSessions ?? '-'} />
+              <Stat label="Active users" value={data.activity.totalUsers ?? '-'} />
             </div>
             <div>
               <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Recent errors (pm2 error log)</div>
@@ -357,7 +357,7 @@ export default function Health() {
                 value={fmtBytes(data.backups.s3?.totalBytes)}
                 sub={data.backups.s3?.totalObjects != null ? `${data.backups.s3.totalObjects} objects` : null}
               />
-              <Stat label="Bucket name" value={<span className="font-mono text-sm">{data.backups.s3?.bucket || '—'}</span>} />
+              <Stat label="Bucket name" value={<span className="font-mono text-sm">{data.backups.s3?.bucket || '-'}</span>} />
             </div>
             {data.backups.lastErrorLine && (
               <div className="mt-2 p-2 rounded bg-red-50 border border-red-200 text-xs text-red-800 font-mono break-all flex items-start gap-2">
@@ -373,8 +373,8 @@ export default function Health() {
           <div className="text-xs text-gray-400 text-center pt-2 flex items-center justify-center gap-1.5">
             <Clock size={12} />
             {intervalMs
-              ? <>Live · refresh every {INTERVAL_OPTIONS.find((o) => o.value === intervalMs)?.label} · last update {lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString() : '—'}</>
-              : <>Auto-refresh paused · last update {lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleString() : '—'}</>
+              ? <>Live · refresh every {INTERVAL_OPTIONS.find((o) => o.value === intervalMs)?.label} · last update {lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString() : '-'}</>
+              : <>Auto-refresh paused · last update {lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleString() : '-'}</>
             }
           </div>
         </div>

@@ -19,7 +19,7 @@ const LABEL_FIELDS = [
   'batchNo',
   'sku', 'title', 'subject', 'docNo', 'regNumber', 'rapsId', 'rapsplSerialNo',
   'username', 'empCode', 'label', 'code', 'email',
-  // Last resort before falling back to the raw id — line-item rows (gate pass
+  // Last resort before falling back to the raw id - line-item rows (gate pass
   // items, FIM lines) have nothing else name-like on them.
   'description',
 ];
@@ -57,7 +57,7 @@ function decorateRow(row, rels) {
       const l = pickLabel(related);
       if (l != null) labels[r.fk] = l;
     }
-    delete row[r.relation]; // keep payload lean — the FK id scalar stays
+    delete row[r.relation]; // keep payload lean - the FK id scalar stays
   }
   row._labels = labels;
   // Prefer the row's own name; otherwise borrow the first resolved FK label.

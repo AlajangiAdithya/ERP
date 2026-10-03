@@ -144,7 +144,7 @@ async function main() {
   await prisma.stockMovement.create({
     data: {
       productId: products[23].id, type: 'ADJUSTMENT', quantity: -2,
-      referenceType: 'Adjustment', notes: 'Physical count correction — 2 drums damaged in transit',
+      referenceType: 'Adjustment', notes: 'Physical count correction - 2 drums damaged in transit',
       performedBy: storeManager.id,
       createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
     },
@@ -162,7 +162,7 @@ async function main() {
       requestNumber: 'REQ-240401-001',
       managerId: manager1.id, unitId: unit1.id, status: 'COLLECTED',
       notes: 'Chemicals needed for batch production run',
-      clearanceNotes: 'Approved — full quantity cleared',
+      clearanceNotes: 'Approved - full quantity cleared',
       clearedById: storeManager.id,
       clearedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
       collectedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000),
@@ -179,7 +179,7 @@ async function main() {
       requestNumber: 'REQ-240405-002',
       managerId: manager2.id, unitId: unit2.id, status: 'COLLECTED',
       notes: 'Polymer supply for Q1 production',
-      clearanceNotes: 'Partial HDPE — reduced to 150kg (sufficient for current batch)',
+      clearanceNotes: 'Partial HDPE - reduced to 150kg (sufficient for current batch)',
       clearedById: storeManager.id,
       clearedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
       collectedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
@@ -212,7 +212,7 @@ async function main() {
     data: {
       requestNumber: 'REQ-240415-004',
       managerId: manager1.id, unitId: unit1.id, status: 'PENDING',
-      notes: 'Monthly chemical restocking — urgent',
+      notes: 'Monthly chemical restocking - urgent',
       items: { create: [
         { productId: products[2].id, quantity: 30 },
         { productId: products[4].id, quantity: 25 },
@@ -241,7 +241,7 @@ async function main() {
       requestNumber: 'REQ-240412-006',
       managerId: manager1.id, unitId: unit1.id, status: 'REJECTED',
       notes: 'Extra drums for storage',
-      clearanceNotes: 'Rejected — drums available in warehouse B, please check there first',
+      clearanceNotes: 'Rejected - drums available in warehouse B, please check there first',
       clearedById: storeManager.id,
       clearedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
       items: { create: [
@@ -262,7 +262,7 @@ async function main() {
       requestNumber: 'PR-240401-001',
       managerId: manager1.id, unitId: unit1.id, status: 'COMPLETED',
       notes: 'Chemicals for upcoming tender batch',
-      adminNotes: 'Approved. Reduced caustic soda qty — enough in stock for now.',
+      adminNotes: 'Approved. Reduced caustic soda qty - enough in stock for now.',
       adminApprovedById: admin.id,
       adminApprovedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
       items: { create: [
@@ -277,7 +277,7 @@ async function main() {
     data: {
       requestNumber: 'PR-240408-002',
       managerId: manager2.id, unitId: unit2.id, status: 'IN_PROGRESS',
-      notes: 'Polymer resupply — running low on HDPE',
+      notes: 'Polymer resupply - running low on HDPE',
       adminNotes: 'Approved in full. Get quotes from at least 2 vendors.',
       adminApprovedById: admin.id,
       adminApprovedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
@@ -343,7 +343,7 @@ async function main() {
       requestNumber: 'PR-240410-006',
       managerId: manager1.id, unitId: unit1.id, status: 'REJECTED',
       notes: 'Extra packaging materials for export batch',
-      adminNotes: 'Rejected — we have 3 months of packaging stock. Re-request if stock drops below min.',
+      adminNotes: 'Rejected - we have 3 months of packaging stock. Re-request if stock drops below min.',
       adminApprovedById: admin.id,
       adminApprovedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
       items: { create: [

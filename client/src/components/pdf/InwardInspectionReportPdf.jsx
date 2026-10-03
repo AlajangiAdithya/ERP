@@ -2,7 +2,7 @@ import { Document, Page, View, Text } from '@react-pdf/renderer';
 import { formatDate } from './shared';
 import { Cell, IirTitleBlock, BORDER, RequestFormPage } from './InwardInspectionRequestPdf';
 
-// Inward Inspection Report — Form no.: RAPS/IIR Rev 01 (Dt: 01/09/2024), page 2.
+// Inward Inspection Report - Form no.: RAPS/IIR Rev 01 (Dt: 01/09/2024), page 2.
 // The default export binds page 1 (the request form) + page 2 (this report) into
 // the complete two-page IIR document. `row` is the decorated register row.
 const fmtQty = (n) => (n == null || n === '' ? '' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 3 }));
@@ -86,7 +86,7 @@ export function ReportPage({ row }) {
 
       <Line>Report reference no.: {rep.reportReferenceNo || ''}</Line>
 
-      {/* Packing condition — single check after "Sealed"; "Broken, if damages
+      {/* Packing condition - single check after "Sealed"; "Broken, if damages
           mention ___" is a fill-in line (matches the printed form exactly). */}
       <View style={{ flexDirection: 'row', borderWidth: 1, borderTopWidth: 0, borderColor: BORDER, padding: 4, alignItems: 'center' }}>
         <Text style={{ fontSize: 8, marginRight: 3 }}>Packing condition - Sealed</Text>

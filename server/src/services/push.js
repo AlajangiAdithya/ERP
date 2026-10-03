@@ -2,7 +2,7 @@
 // browsers/devices that registered a PushSubscription, so users get OS-level
 // notifications (phone tray, desktop) even when the ERP tab is closed.
 //
-// Wired up as a Prisma middleware in config/db.js — any
+// Wired up as a Prisma middleware in config/db.js - any
 // prisma.notification.create / createMany anywhere in the codebase
 // automatically triggers a push. No call site needs to know about this module.
 const webpush = require('web-push');
@@ -17,7 +17,7 @@ if (enabled) {
   webpush.setVapidDetails(SUBJECT, PUBLIC_KEY, PRIVATE_KEY);
   console.log('[push] web push enabled (VAPID configured)');
 } else {
-  console.warn('[push] VAPID keys not set — web push disabled. Set VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY.');
+  console.warn('[push] VAPID keys not set - web push disabled. Set VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY.');
 }
 
 // Resolve which subscriptions a notification should reach, matching the same
@@ -37,7 +37,7 @@ async function subscriptionsFor(prisma, notif) {
 }
 
 // Sends one push. Returns { ok, statusCode?, error? } so callers can tally
-// results — never throws.
+// results - never throws.
 async function deliver(prisma, sub, payload) {
   try {
     await webpush.sendNotification(
@@ -48,7 +48,7 @@ async function deliver(prisma, sub, payload) {
     return { ok: true };
   } catch (err) {
     const statusCode = err.statusCode;
-    // 404/410 — endpoint is dead (uninstalled app, cleared site data). Prune it.
+    // 404/410 - endpoint is dead (uninstalled app, cleared site data). Prune it.
     if (statusCode === 404 || statusCode === 410) {
       await prisma.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
       return { ok: false, statusCode, error: 'gone (pruned)' };
@@ -105,7 +105,7 @@ async function sendTestToUser(prisma, userId) {
     return { enabled: true, total: 0, sent: 0, failed: 0, errors: ['No devices registered for this account'] };
   }
   const payload = buildPayload({
-    title: 'RAPS ERP — test',
+    title: 'RAPS ERP - test',
     message: 'Push notifications are working on this device.',
     type: 'TEST',
   });

@@ -1,7 +1,7 @@
 // Edit-only table editor for the DATA_EDITOR role (and SUPERADMIN).
 //
 // Deliberately a STRICT SUBSET of superadmin.routes.js: it can list tables,
-// read/search rows, and UPDATE an existing row — nothing else. No insert, no
+// read/search rows, and UPDATE an existing row - nothing else. No insert, no
 // delete, no uploads, no backups, no user/impersonation tools. This is the
 // "change a value" hatch for non-technical staff; the destructive power stays
 // SUPERADMIN-only.
@@ -21,10 +21,10 @@ router.use(authenticate, dataEditorOnly);
 const TABLES = Prisma.dmmf.datamodel.models.map((m) => m.name);
 
 // Plus the same curated views the SUPERADMIN editor publishes (e.g. "FIM Entry"
-// = the FIM subset of GatePass) — see utils/virtualTables.js.
+// = the FIM subset of GatePass) - see utils/virtualTables.js.
 const resolve = (name) => resolveTable(name, TABLES);
 
-// GET /api/data-editor/tables — curated views + every model, with row counts
+// GET /api/data-editor/tables - curated views + every model, with row counts
 router.get('/tables', async (req, res) => {
   try {
     const out = await listTables(TABLES, async (key, where) => {
@@ -56,15 +56,15 @@ router.get('/table/:name', async (req, res) => {
   }
 });
 
-// PUT /api/data-editor/table/:name/row/:id — partial update (the only write)
+// PUT /api/data-editor/table/:name/row/:id - partial update (the only write)
 router.put('/table/:name/row/:id', async (req, res) => {
   const { id } = req.params;
   const t = resolve(req.params.name);
   if (!t) return res.status(404).json({ error: 'Unknown table' });
-  // id/createdAt/updatedAt are managed by Prisma — never let them be overwritten.
+  // id/createdAt/updatedAt are managed by Prisma - never let them be overwritten.
   const { id: _id, createdAt, updatedAt, ...data } = req.body || {};
   try {
-    // A curated view only reaches its own rows — no editing an outward gate
+    // A curated view only reaches its own rows - no editing an outward gate
     // pass through the FIM view.
     if (t.where) {
       const hit = await prisma[t.key].findFirst({ where: { AND: [t.where, { id }] }, select: { id: true } });

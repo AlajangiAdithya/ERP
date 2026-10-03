@@ -19,7 +19,7 @@ const HOUR_TICKS = Array.from({ length: (WORK_END_MIN - WORK_START_MIN) / 60 + 1
 
 // Allocation timestamps are wall-clock values stored verbatim in UTC (the
 // server composes them with UTC setters regardless of its own timezone), so
-// they must be read back with UTC getters — local getHours() would shift
+// they must be read back with UTC getters - local getHours() would shift
 // blocks by the viewer's UTC offset.
 const todayStr = () => {
   const d = new Date();
@@ -121,7 +121,7 @@ export default function AllocationBoard() {
     return Array.from(map.values());
   }, [data, scope, isMine]);
 
-  // Machines this user may allocate/edit — the only ones offered in the modals.
+  // Machines this user may allocate/edit - the only ones offered in the modals.
   const editableMachines = useMemo(
     () => (data?.machines || []).filter((m) => m.canEdit),
     [data],
@@ -297,8 +297,8 @@ export default function AllocationBoard() {
 
 // ── Basic-detail panels ──
 // Shown wherever a manager is about to (or has) put a Work Order / ION onto a
-// machine, so it is obvious *what* job the machine is running — the nomenclature
-// and the key order facts — without leaving the board.
+// machine, so it is obvious *what* job the machine is running - the nomenclature
+// and the key order facts - without leaving the board.
 function DetailField({ label, value, className = '' }) {
   if (value == null || value === '') return null;
   return (
@@ -318,10 +318,10 @@ function WorkOrderSummary({ wo }) {
       <div className="flex items-center gap-1.5 text-xs font-semibold text-navy-700 mb-2">
         <FileText size={13} /> Work Order details
       </div>
-      {/* Nomenclature is the headline — what is being made. */}
+      {/* Nomenclature is the headline - what is being made. */}
       <div className="mb-2">
         <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Nomenclature</div>
-        <div className="text-sm font-medium text-navy-900 break-words">{wo.nomenclature || '—'}</div>
+        <div className="text-sm font-medium text-navy-900 break-words">{wo.nomenclature || '-'}</div>
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-2">
         <DetailField label="Work Order" value={wo.workOrderNumber} />
@@ -462,7 +462,7 @@ function AllocateModal({ date, machines, onClose, onSaved }) {
             <Select label="ION *" value={ionId} onChange={(e) => setIonId(e.target.value)}>
               <option value="">Select ION…</option>
               {options.ions.map((i) => (
-                <option key={i.id} value={i.id}>{i.ionNumber}{i.projectName ? ` — ${i.projectName}` : ''}</option>
+                <option key={i.id} value={i.id}>{i.ionNumber}{i.projectName ? ` - ${i.projectName}` : ''}</option>
               ))}
             </Select>
             <IonSummary ion={selectedIon} />
@@ -576,10 +576,10 @@ function AllocationDetailModal({ allocation, canWrite, onClose, onChanged }) {
     <Modal isOpen onClose={onClose} title={`${a.machinery?.name || 'Machine'} · ${hhmm(a.startAt)}–${hhmm(a.endAt)}`} size="md">
       <div className="space-y-3">
         {error && <p className="text-sm text-brand-red">{error}</p>}
-        {/* What job is running on this machine — basic details + nomenclature. */}
+        {/* What job is running on this machine - basic details + nomenclature. */}
         {a.sourceType === 'WORK_ORDER' ? <WorkOrderSummary wo={a.workOrder} /> : <IonSummary ion={a.ion} />}
         <div className="grid grid-cols-2 gap-3 text-sm">
-          <div><span className="text-gray-500">Allocated by:</span> <span>{a.allocatedBy?.name || '—'}</span></div>
+          <div><span className="text-gray-500">Allocated by:</span> <span>{a.allocatedBy?.name || '-'}</span></div>
           <div className="flex items-center gap-1.5"><Clock size={13} className="text-gray-400" /> {hhmm(a.startAt)}–{hhmm(a.endAt)}</div>
           <div><span className="text-gray-500">Machine:</span> <span className="font-mono text-xs">{a.machinery?.rapsId}</span></div>
         </div>

@@ -1,6 +1,6 @@
 // Thin wrapper around the AWS CLI for the SUPERADMIN backups browser.
 // We shell out to `aws` instead of pulling in @aws-sdk so the server stays
-// dependency-light — the EC2 box already has aws-cli installed for backup.sh.
+// dependency-light - the EC2 box already has aws-cli installed for backup.sh.
 //
 // Bucket layout (matches deploy/backup.sh):
 //   s3://{bucket}/{FYxx-yy}/weekly/{date}.tar.gz
@@ -109,7 +109,7 @@ async function previewBackup(key) {
   try {
     await aws(['s3', 'cp', `s3://${BUCKET}/${key}`, tmpFile, '--region', REGION, '--only-show-errors']);
 
-    // Master snapshots are plain JSON — read and return.
+    // Master snapshots are plain JSON - read and return.
     if (key.endsWith('.json')) {
       const txt = fs.readFileSync(tmpFile, 'utf8');
       const json = JSON.parse(txt);
@@ -139,7 +139,7 @@ async function deleteBackup(key) {
 }
 
 // Delete every object under a prefix (one tier, or a whole FY folder). Requires a
-// non-empty prefix on purpose — a full-bucket wipe must go through deleteAllBackups
+// non-empty prefix on purpose - a full-bucket wipe must go through deleteAllBackups
 // so it can never happen by accidentally passing an empty prefix.
 async function deleteBackupPrefix(prefix) {
   if (!BUCKET) throw new Error('S3_BACKUP_BUCKET env not set');

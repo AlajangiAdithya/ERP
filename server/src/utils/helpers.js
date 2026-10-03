@@ -19,8 +19,8 @@ const applyDateFilter = (where, { fromDate, toDate }, field = 'createdAt') => {
 };
 
 // ──── Material types (fixed dropdown shared by PR items, Products, QC, SKU prefix) ────
-// The category register — every material type, the block of material codes
-// reserved for it and what belongs in it — lives in utils/materialCategories.js.
+// The category register - every material type, the block of material codes
+// reserved for it and what belongs in it - lives in utils/materialCategories.js.
 // It is re-exported here because most routes already pull MATERIAL_TYPES /
 // normalizeMaterialType out of helpers.
 //
@@ -46,7 +46,7 @@ const {
 
 // Legacy sku prefixes. Product IDs are now one running serial (generateProductSku
 // below) and material codes come from the category register, so this is only used
-// by the historic backfill script — kept so old CONS-/RAW- codes stay reproducible.
+// by the historic backfill script - kept so old CONS-/RAW- codes stay reproducible.
 const materialTypeToSkuPrefix = (materialType) => {
   const t = normalizeMaterialType(materialType);
   if (t.startsWith('Raw Material'))       return 'RAW';
@@ -64,10 +64,10 @@ const materialTypeToSkuPrefix = (materialType) => {
 // ──── Document numbering: RAPS/<KIND>/<FY>/<N> ────
 // Counter resets every Indian financial year (Apr 1 – Mar 31), per kind.
 // Plain number (no zero-padding). Old records keep their legacy format.
-// On unique-constraint collision we retry — handles concurrent inserts.
+// On unique-constraint collision we retry - handles concurrent inserts.
 const DOC_NUMBER_MAP = {
   PR:  { model: 'purchaseRequest',          field: 'requestNumber' },
-  // PO is listed for the shared max+1 lookup only — a PO number is never issued
+  // PO is listed for the shared max+1 lookup only - a PO number is never issued
   // automatically. Purchase type it in; see nextPoCountForFy below.
   PO:  { model: 'purchaseOrder',            field: 'orderNumber' },
   MIV: { model: 'productRequest',           field: 'requestNumber' },
@@ -108,17 +108,17 @@ const getFinancialYear = (date = new Date()) => {
 // ──── Live-cutover count starts ────
 // This system went live partway through a financial year, after PR/PO/MIV/MIR
 // numbers had already been issued on the previous (manual) system. Each value is
-// the FIRST number to issue this FY — the next document of that kind starts here
+// the FIRST number to issue this FY - the next document of that kind starts here
 // and counts up (unless a live record has already passed it, in which case that
 // record wins). Keyed by financial year, so any year NOT listed simply starts
-// from 1 again — e.g. FY 27-28 restarts the count from scratch.
+// from 1 again - e.g. FY 27-28 restarts the count from scratch.
 const DOC_NUMBER_START = {
   '26-27': { PR: 83, PO: 101, MIV: 1, MIR: 1 },
 };
 
 // The cutover floor for (kind, FY): the next number is max(existing)+1 but never
 // below the configured start. We express the start S as a floor of (S - 1) so the
-// shared max+1 logic keeps working — first issue lands exactly on S.
+// shared max+1 logic keeps working - first issue lands exactly on S.
 const baselineFor = (kind, date = new Date()) => {
   const start = DOC_NUMBER_START[getFinancialYear(date)]?.[kind];
   return start ? start - 1 : 0;
@@ -164,18 +164,18 @@ const parsePoNumber = (value) => {
 };
 
 // Rebuilds a PO number from its FY and a running count. Plain number, no
-// zero-padding — the same shape every other document number uses.
+// zero-padding - the same shape every other document number uses.
 const buildPoNumber = (fy, count) => `RAPS/PO/${fy}/${count}`;
 
 // What an order with no number yet reads as, everywhere it is printed or
 // exported. Purchase asked for the placeholder they use in their own register
 // rather than a sentence. Mirror of PO_NUMBER_PENDING_LABEL in
-// client/src/utils/roles.js — keep both in sync.
+// client/src/utils/roles.js - keep both in sync.
 const PO_NUMBER_PENDING_LABEL = '000';
 const poNumberLabel = (order) => order?.orderNumber || PO_NUMBER_PENDING_LABEL;
 
 // A financial-year label is two consecutive 2-digit years, e.g. "26-27".
-// "26-28" and "26-25" are rejected — a typo there would silently start a whole
+// "26-28" and "26-25" are rejected - a typo there would silently start a whole
 // parallel numbering series that nobody notices until the register is audited.
 const isValidFinancialYear = (fy) => {
   const m = /^(\d{2})-(\d{2})$/.exec(String(fy || '').trim());
@@ -184,7 +184,7 @@ const isValidFinancialYear = (fy) => {
 };
 
 // The next free running count for a hand-entered PO number in `fy`. Purchase are
-// free to type anything, so this is only ever a SUGGESTION shown in the form —
+// free to type anything, so this is only ever a SUGGESTION shown in the form -
 // the real guard is the unique index on orderNumber. Same max+1 rule the old
 // auto-numbering used (including the live-cutover start), but the year comes from
 // the caller: Purchase may still be numbering into a closed financial year.
@@ -214,14 +214,14 @@ const generateGatePassNumber = async (prisma, unitCode, date = new Date()) => {
   return `${prefix}${next}`;
 };
 
-// Material code for a product the system creates on its own — a fixture
+// Material code for a product the system creates on its own - a fixture
 // catalogued at inward, a FIM item off a gate pass, an imported row. It follows
 // the same register the Add-Product form uses: the next free code inside the
 // block the material's category owns (see materialCategories.js).
 //
-// A category with no block ('Others', the retired labels) — or one whose block is
-// full — is numbered from 7001 up, past the end of the register, so an
-// auto-created product never lands inside somebody else's block.
+// A category with no block ('Others', the retired labels) - or one whose block is
+// full - is numbered from UNALLOCATED_CODE_START (7501) up, past the end of the
+// register, so an auto-created product never lands inside somebody else's block.
 const generateProductSku = async (prisma, materialType) => {
   const rows = await prisma.product.findMany({ select: { sku: true, materialCode: true } });
   const used = [];
@@ -238,15 +238,16 @@ const generateProductSku = async (prisma, materialType) => {
 // Non-unit requester roles that "own" the stock they raise PRs for. Their inwarded
 // stock is reserved to the department (ProductDeptStock) and excluded from the
 // unassigned pool, so only they can issue it; others must raise an inventory
-// transfer. STORE_MANAGER is intentionally absent — Stores-raised stock stays the
+// transfer. STORE_MANAGER is intentionally absent - Stores-raised stock stays the
 // shared/general pool. Unit-bound roles (MANAGER, RND) reserve to a unit instead.
 // Labels match the Direct-Entry ASSIGN_DEPTS list so PO-flow and cash-flow agree.
 const DEPT_BY_ROLE = {
   DESIGNS: 'Designs',
   QC: 'QC',
-  // Inward QC is part of the QC department — its material reserves to the same
-  // "QC" bucket rather than a separate one.
+  // Inward QC and In-process QC are part of the QC department - their material
+  // reserves to the same "QC" bucket rather than a separate one.
   INWARD_QC: 'QC',
+  IN_PROCESS_QC: 'QC',
   LAB: 'Lab',
   METROLOGY: 'Metrology',
   NDT: 'NDT',
@@ -258,14 +259,15 @@ const DEPT_BY_ROLE = {
 };
 
 // Canonical set of department owner labels (the values of DEPT_BY_ROLE).
-// De-duped: several roles can share one department (QC and INWARD_QC both own "QC").
+// De-duped: several roles can share one department (QC, INWARD_QC and
+// IN_PROCESS_QC all own "QC").
 const OWNER_DEPTS = [...new Set(Object.values(DEPT_BY_ROLE))];
 
 // Department label a given role owns stock under, or null for unit-bound / non-owner roles.
 const deptForRole = (role) => DEPT_BY_ROLE[role] || null;
 
 // ──── Work Order auto-accept units ────
-// Units whose assigned work orders skip the unit-manager accept/reject step —
+// Units whose assigned work orders skip the unit-manager accept/reject step -
 // they are accepted automatically on assignment. SHAR is a site location with
 // no unit manager, so its WOs go straight to UNIT_ACCEPTED. Match on unit code
 // OR name, case-insensitive.
@@ -281,8 +283,8 @@ const isAutoAcceptUnit = (unit) => {
 // Validate an optional Work Order link supplied when raising a PR / MIV.
 // Returns { ok: true, workOrderId } (workOrderId is null when none was chosen)
 // or { ok: false, error } so the caller can respond with 400. A requester may
-// link ANY live work order regardless of the unit it is assigned to — the forms
-// list every order and show its assigned unit — so we only reject
+// link ANY live work order regardless of the unit it is assigned to - the forms
+// list every order and show its assigned unit - so we only reject
 // missing/cancelled/rejected WOs. `requesterUnitId` is retained in the signature
 // for callers but is no longer used to gate the link.
 const validateWorkOrderLink = async (prisma, rawWorkOrderId, requesterUnitId) => { // eslint-disable-line no-unused-vars
@@ -302,11 +304,11 @@ const validateWorkOrderLink = async (prisma, rawWorkOrderId, requesterUnitId) =>
 // Every PR line must be needed at least this many days out, so procurement has a
 // workable lead time. Applies on create, on full edit, and on the any-stage
 // date change (PUT /purchase-requests/:id/required-by). Mirrored client-side by
-// MIN_REQUIRED_BY_DAYS in client/src/pages/PurchaseRequests.jsx — keep in sync.
+// MIN_REQUIRED_BY_DAYS in client/src/pages/PurchaseRequests.jsx - keep in sync.
 const MIN_REQUIRED_BY_DAYS = 15;
 
 // This field is a calendar date, not an instant. The existing rows were written
-// as `new Date('YYYY-MM-DD')` — i.e. UTC midnight — and every reader formats them
+// as `new Date('YYYY-MM-DD')` - i.e. UTC midnight - and every reader formats them
 // back with toISOString(), so we keep that storage convention exactly. Comparing
 // and storing go through 'YYYY-MM-DD' strings, which sidesteps the off-by-one a
 // local-midnight Date would introduce for anyone not on UTC.
@@ -339,8 +341,8 @@ const requiredByFloorKey = () => {
   return formatDateOnly(new Date(now.getFullYear(), now.getMonth(), now.getDate() + MIN_REQUIRED_BY_DAYS));
 };
 
-// Validate one required-by date. An empty value is allowed — the field is
-// optional — but anything inside the 15-day window is rejected.
+// Validate one required-by date. An empty value is allowed - the field is
+// optional - but anything inside the 15-day window is rejected.
 // Returns { ok: true, date } (date may be null) or { ok: false, error }.
 const validateRequiredByDate = (value, label = 'Required by date') => {
   if (value === undefined || value === null || value === '') return { ok: true, date: null };
@@ -351,7 +353,7 @@ const validateRequiredByDate = (value, label = 'Required by date') => {
   if (key < floor) {
     return {
       ok: false,
-      error: `${label} must be at least ${MIN_REQUIRED_BY_DAYS} days from today — pick ${floor} or later`,
+      error: `${label} must be at least ${MIN_REQUIRED_BY_DAYS} days from today - pick ${floor} or later`,
     };
   }
   return { ok: true, date: dateKeyToUtcDate(key) };
@@ -378,7 +380,7 @@ const GST_RATES = [0, 5, 12, 18, 28];
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
 // Splits a taxable (basic) amount into { taxPercent, taxAmount, payableAmount }.
-// `amount` stays the taxable value everywhere — only payableAmount carries tax.
+// `amount` stays the taxable value everywhere - only payableAmount carries tax.
 const computeTax = (amount, taxPercent = 0) => {
   const base = Number(amount) || 0;
   const pct = Number(taxPercent) || 0;
@@ -389,7 +391,7 @@ const computeTax = (amount, taxPercent = 0) => {
 const isUniqueViolation = (err) => err && err.code === 'P2002';
 
 // Retry wrapper for doc-number races. Reads the existing max, builds the next
-// number, and creates the row — if two concurrent requests pick the same
+// number, and creates the row - if two concurrent requests pick the same
 // number, the loser hits P2002 and we re-read. Don't wrap an outer
 // $transaction in this; retry the transaction itself from outside instead.
 const withDocRetry = async (fn, attempts = 5) => {

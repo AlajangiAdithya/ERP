@@ -17,19 +17,19 @@ export default function QCVerificationCertificatePdf({ data }) {
         <View style={styles.table}>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Certificate No.</Text></View>
-            <View style={[styles.cell, { width: '28%' }]}><Text>{w.qcCertificateNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '28%' }]}><Text>{w.qcCertificateNumber || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Date</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>{formatDate(w.qcVerifiedAt)}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Work Order No.</Text></View>
-            <View style={[styles.cell, { width: '28%' }]}><Text>{w.workOrderNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '28%' }]}><Text>{w.workOrderNumber || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Supply Order</Text></View>
-            <View style={[styles.cell, { width: '28%' }]}><Text>{w.supplyOrderNo || '—'}</Text></View>
+            <View style={[styles.cell, { width: '28%' }]}><Text>{w.supplyOrderNo || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Customer</Text></View>
-            <View style={[styles.cell, { width: '78%' }]}><Text>{w.customerName || '—'}</Text></View>
+            <View style={[styles.cell, { width: '78%' }]}><Text>{w.customerName || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Lot Qty</Text></View>
@@ -39,11 +39,11 @@ export default function QCVerificationCertificatePdf({ data }) {
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Inspection Agency</Text></View>
-            <View style={[styles.cell, { width: '78%' }]}><Text>{w.inspectionAgency || '—'}</Text></View>
+            <View style={[styles.cell, { width: '78%' }]}><Text>{w.inspectionAgency || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>QAP No.</Text></View>
-            <View style={[styles.cell, { width: '78%' }]}><Text>{w.qapNo || '—'}</Text></View>
+            <View style={[styles.cell, { width: '78%' }]}><Text>{w.qapNo || '-'}</Text></View>
           </View>
         </View>
 
@@ -59,7 +59,7 @@ export default function QCVerificationCertificatePdf({ data }) {
             {(w.items || []).length ? w.items.map((it, i) => (
               <View key={i} style={styles.row} wrap={false}>
                 <View style={[styles.cell, { width: '8%' }]}><Text>{i + 1}</Text></View>
-                <View style={[styles.cell, { width: '62%' }]}><Text>{it.description || '—'}</Text></View>
+                <View style={[styles.cell, { width: '62%' }]}><Text>{it.description || '-'}</Text></View>
                 <View style={[styles.cell, { width: '15%' }]}><Text>{it.deliveryQty}</Text></View>
                 <View style={[styles.cell, { width: '15%' }]}><Text>{it.uom || ''}</Text></View>
               </View>
@@ -101,8 +101,8 @@ export default function QCVerificationCertificatePdf({ data }) {
               <View key={d.id || i} style={styles.row} wrap={false}>
                 <View style={[styles.cell, { width: '6%' }]}><Text>{i + 1}</Text></View>
                 <View style={[styles.cell, { width: '30%' }]}><Text>{d.docType}</Text></View>
-                <View style={[styles.cell, { width: '34%' }]}><Text>{d.fileName || '—'}</Text></View>
-                <View style={[styles.cell, { width: '15%' }]}><Text>{d.uploadedBy?.name || '—'}</Text></View>
+                <View style={[styles.cell, { width: '34%' }]}><Text>{d.fileName || '-'}</Text></View>
+                <View style={[styles.cell, { width: '15%' }]}><Text>{d.uploadedBy?.name || '-'}</Text></View>
                 <View style={[styles.cell, { width: '15%' }]}><Text>{formatDate(d.uploadedAt)}</Text></View>
               </View>
             )) : (

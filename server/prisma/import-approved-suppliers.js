@@ -1,5 +1,5 @@
 // Import the client's Approved Supplier List (Excel) into the Supplier table.
-// Idempotent — re-runs upsert by name (Supplier.name is @unique). Vendor IDs
+// Idempotent - re-runs upsert by name (Supplier.name is @unique). Vendor IDs
 // are minted via the same RAPS/SUP/<NNNN> sequence used by supplier.routes.js,
 // so newly created rows continue the existing counter.
 //
@@ -7,7 +7,7 @@
 //
 //   node prisma/import-approved-suppliers.js
 //
-// PDFs (vendor evaluation / supplier assessment) are NOT imported here —
+// PDFs (vendor evaluation / supplier assessment) are NOT imported here -
 // the user will upload them later via the UI.
 //
 const path = require('path');
@@ -22,7 +22,7 @@ const SRC = path.join(__dirname, 'seed-data', 'Approved supplier list.xlsx');
 // "Raw material" sheet has 4 header rows before the data starts, "Consumbles"
 // starts immediately. The third sheet "Raw" is a duplicate subset of
 // "Raw material" with extra performance-review columns and is intentionally
-// skipped — those re-evaluation rows live in SupplierReEvaluation, not here.
+// skipped - those re-evaluation rows live in SupplierReEvaluation, not here.
 const SHEETS = [
   { name: 'Raw material', skipRows: 4, materialType: 'MATERIAL' },
   { name: 'Consumbles',   skipRows: 0, materialType: 'MATERIAL' },

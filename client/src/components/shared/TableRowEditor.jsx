@@ -218,7 +218,7 @@ export function RowEditor({ title, subtitle, fields, omitEmpty, submitLabel, bus
 
           {advanced ? (
             <div>
-              <div className="text-xs text-gray-600 mb-1">{omitEmpty ? 'JSON for new row (omit id/createdAt):' : 'Partial JSON — only the fields you change:'}</div>
+              <div className="text-xs text-gray-600 mb-1">{omitEmpty ? 'JSON for new row (omit id/createdAt):' : 'Partial JSON - only the fields you change:'}</div>
               <textarea
                 value={jsonText}
                 onChange={(e) => setJsonText(e.target.value)}

@@ -11,7 +11,7 @@ import { formatDate } from '../../utils/formatters';
 // PDC (delivery commitment) radar for dashboards. Read-only: pulls the same
 // /work-orders list the Work Orders page uses and buckets open WOs by how
 // close their effective PDC is. The server already computes daysToPdc,
-// overdue and the 3-month ack-pending flags — this just surfaces them.
+// overdue and the 3-month ack-pending flags - this just surfaces them.
 const OPEN_STATUSES = ['PENDING_ADMIN', 'ADMIN_ACCEPTED', 'UNIT_ACCEPTED', 'IN_PROGRESS', 'ON_HOLD'];
 
 const bucketOf = (wo) => {
@@ -72,7 +72,7 @@ export default function PdcStatusBoard({ showAllClear = true }) {
           icon={CalendarClock}
           tone="green"
           title="PDC Radar"
-          subtitle="Work-order delivery commitments — overdue and ≤ 90 day window"
+          subtitle="Work-order delivery commitments - overdue and ≤ 90 day window"
           actions={<Button variant="secondary" size="sm" onClick={() => navigate('/work-orders')}>Work Orders</Button>}
         />
         <div className="flex items-center gap-3 py-4">
@@ -107,7 +107,7 @@ export default function PdcStatusBoard({ showAllClear = true }) {
                 {criticalCount > 0 && `${criticalCount} within 30 days`}
               </p>
               <p className="text-xs text-red-700/80 mt-0.5">
-                Delivery commitments need action{ackPending > 0 ? ` — ${ackPending} still awaiting the 3-month status remark` : ''}.
+                Delivery commitments need action{ackPending > 0 ? ` - ${ackPending} still awaiting the 3-month status remark` : ''}.
               </p>
             </div>
           </div>
@@ -166,7 +166,7 @@ export default function PdcStatusBoard({ showAllClear = true }) {
                     <td className="px-3 py-2.5 font-mono text-xs font-semibold text-navy-700 group-hover:underline">
                       <span className="underline decoration-navy-200 underline-offset-2 hover:decoration-navy-500">{w.workOrderNumber}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-gray-600 max-w-[150px] truncate">{w.customerName || '—'}</td>
+                    <td className="px-3 py-2.5 text-gray-600 max-w-[150px] truncate">{w.customerName || '-'}</td>
                     <td className="px-3 py-2.5 max-w-[200px]">
                       {w.supplyOrderNo && (
                         <div className="text-[10px] font-mono text-navy-500 mb-0.5">SO: {w.supplyOrderNo}</div>
@@ -179,14 +179,14 @@ export default function PdcStatusBoard({ showAllClear = true }) {
                       {(w.items || []).length > 2 && (
                         <div className="text-[10px] text-gray-400">+{w.items.length - 2} more</div>
                       )}
-                      {!(w.items || []).length && <span className="text-xs text-gray-400">—</span>}
+                      {!(w.items || []).length && <span className="text-xs text-gray-400">-</span>}
                     </td>
                     <td className="px-3 py-2.5">
                       {w.assignedUnit
                         ? <Badge color="blue">{w.assignedUnit.code || w.assignedUnit.name}</Badge>
                         : w.assignedUnitName
                           ? <Badge color="yellow">{w.assignedUnitName}</Badge>
-                          : <span className="text-xs text-gray-400">—</span>}
+                          : <span className="text-xs text-gray-400">-</span>}
                     </td>
                     <td className="px-3 py-2.5 text-gray-600 text-xs whitespace-nowrap">
                       {formatDate(w.effectivePdcDate)}
@@ -214,7 +214,7 @@ export default function PdcStatusBoard({ showAllClear = true }) {
                           <ShieldCheck size={12} /> Filed
                         </span>
                       ) : (
-                        <span className="text-[11px] text-gray-400">—</span>
+                        <span className="text-[11px] text-gray-400">-</span>
                       )}
                     </td>
                   </tr>

@@ -41,7 +41,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen relative flex items-center justify-center p-4 overflow-hidden bg-navy-900">
-      {/* Rocket photo background — subtle */}
+      {/* Rocket photo background - subtle */}
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat scale-110"
         style={{ backgroundImage: "url('/rocket.jpg')" }}
@@ -70,7 +70,7 @@ export default function Login() {
           <div className="flex flex-col items-center mb-8">
             <div className="relative mb-4">
               <div className="absolute inset-0 bg-blue-500/30 blur-2xl rounded-full" aria-hidden="true" />
-              {/* Logo tile stays light in both themes — the mark is dark navy. */}
+              {/* Logo tile stays light in both themes - the mark is dark navy. */}
               <div className="on-dark relative bg-gradient-to-br from-blue-50 to-white rounded-2xl p-3 ring-1 ring-blue-100 shadow-lg">
                 <img
                   src="/rapslogo6.png"
@@ -160,7 +160,7 @@ export default function Login() {
 
             <div className="flex items-center justify-center gap-1.5 text-[11px] text-navy-400 pt-1">
               <ShieldCheck size={12} />
-              <span>Secure session — stays signed in until you sign out</span>
+              <span>Secure session - stays signed in until you sign out</span>
             </div>
           </form>
         </div>

@@ -8,7 +8,7 @@ const generateAccessToken = (user) => {
   );
 };
 
-// Refresh token has no `exp` claim — it never JWT-expires. The DB Session row
+// Refresh token has no `exp` claim - it never JWT-expires. The DB Session row
 // is the sole kill switch and is deleted only on explicit logout.
 const generateRefreshToken = (user) => {
   return jwt.sign(

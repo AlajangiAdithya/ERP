@@ -121,11 +121,11 @@ model User {
   qmsCertificationsUploaded QmsCertification[] @relation("QmsCertUploader")
   qmsDocumentsUploaded      QmsDocument[]      @relation("QmsDocUploader")
 
-  // Team Chat — primary in-house messaging channel (dashboard).
+  // Team Chat - primary in-house messaging channel (dashboard).
   messagesSent     Message[] @relation("MessageSender")
   messagesReceived Message[] @relation("MessageRecipient")
 
-  // Personal calendar — private per-user events/reminders.
+  // Personal calendar - private per-user events/reminders.
   calendarEvents CalendarEvent[] @relation("CalendarOwner")
 }
 
@@ -146,10 +146,15 @@ enum Role {
   ACCOUNTING
   QC
   // Inward-only QC operator. Can ONLY perform the inward-material QC review
-  // (take review + finish review) on the Material Inward register — no dashboard,
+  // (take review + finish review) on the Material Inward register - no dashboard,
   // no other modules. Full QC keeps its existing wider access; this is a stripped
   // single-purpose login. Mirrored in middleware/rbac.js + materialInward.routes.js.
   INWARD_QC
+  // In-process QC operator. Works exactly like INWARD_QC - same single-purpose
+  // login, same material-inward review actions (take review + finish review), and
+  // its own PRs go straight to ADMIN - kept as its own role so the register
+  // records which QC function inspected the lot.
+  IN_PROCESS_QC
   LAB
   METROLOGY
   NDT
@@ -160,20 +165,20 @@ enum Role {
   FINANCE
   PLANNING
   LOGISTICS
-  // Human Resources — owns Employees, Skill Matrix, Annual Training Plan and
+  // Human Resources - owns Employees, Skill Matrix, Annual Training Plan and
   // Training Session records. Managers can also append training items for
   // their team into the active Annual Training Plan.
   HR
   // Receives OUTSIDE gate passes at the destination site (e.g., Hyderabad office).
   // Acknowledges arrival with reached-date; this closes the gate pass.
   SITE_OFFICE
-  // Hidden owner-only role — never appears in UI lists, dashboards, notification
+  // Hidden owner-only role - never appears in UI lists, dashboards, notification
   // broadcasts, approval chains. Has Real-time Corrections + Backups + Audit pages.
   SUPERADMIN
   // Edit-only data corrector. Single-purpose login: lands straight on the
   // "Edit Data" page where it can change values in existing rows via a simple
   // form (no insert / delete / JSON). Backed by /api/data-editor. Enforced by
-  // middleware/dataEditorOnly.js — NOT by the role hierarchy.
+  // middleware/dataEditorOnly.js - NOT by the role hierarchy.
   DATA_EDITOR
 }
 
@@ -232,7 +237,7 @@ model Product {
   unit                 String                     @default("pcs")
   currentStock         Float                      @default(0)
   minStockLevel        Float                      @default(0)
-  // Storage handling — filled by Stores at inward, editable anytime from the
+  // Storage handling - filled by Stores at inward, editable anytime from the
   // products list. Free text (e.g. "12 months", "2-8°C / dry"). MSDS = Material
   // Safety Data Sheet (uploaded PDF).
   shelfLife            String?
@@ -276,7 +281,7 @@ model Product {
 // type, specification, shelf life, storage temp, min level …). Captures who,
 // when, their role and a JSON array of { field, label, from, to } changes.
 // Surfaced on the Product Detail page only. Added so the Stores team's temporary
-// product-detail edit access (new-system rollout) is fully traceable — every
+// product-detail edit access (new-system rollout) is fully traceable - every
 // change anyone makes to a product is recorded here. changedById/Name/Role are
 // snapshots (no User back-relation) so the User model stays untouched.
 model ProductEditHistory {
@@ -297,7 +302,7 @@ model ProductEditHistory {
 // Populated when raising a PR (pick an existing spec or upload a new one) and
 // manageable directly from the Product Detail page by Stores/Admin. Distinct
 // from Product.msds (single safety sheet) and PurchaseRequestItem.specAttachmentUrl
-// (the one spec chosen for that PR line). uploadedById/Name are snapshots — no
+// (the one spec chosen for that PR line). uploadedById/Name are snapshots - no
 // back-relation on User is kept so that model stays untouched.
 model ProductSpec {
   id             String   @id @default(uuid())
@@ -334,7 +339,7 @@ model ProductUnitStock {
 // Counterpart to ProductUnitStock for non-unit owners. When a PR raised by a
 // non-unit department (QC, Designs, Safety, Lab, Metrology, NDT, Planning) is
 // inwarded, the quantity is reserved to that department here. Reserved dept stock
-// is excluded from the "unassigned pool", so no other role can issue it via a MIV —
+// is excluded from the "unassigned pool", so no other role can issue it via a MIV -
 // they must raise an InventoryTransferRequest to the owning department to get it.
 // Stores is intentionally NOT an owner: Stores-raised stock stays the shared pool.
 model ProductDeptStock {
@@ -367,7 +372,7 @@ model ProductBatch {
   createdAt     DateTime @default(now())
 
   // Direct / cash-purchase inward (Stores → Direct Entry). Supplier is free
-  // text because cash purchases often come from unregistered local vendors —
+  // text because cash purchases often come from unregistered local vendors -
   // surfaced in the product's supplier history alongside PO purchases.
   supplierName        String?
   supplierContact     String?
@@ -380,7 +385,7 @@ model ProductBatch {
   dateOfManufacturing DateTime?
   dateOfExpiry        DateTime?
 
-  // FIM (Free Issue Material — customer's property) linkage.
+  // FIM (Free Issue Material - customer's property) linkage.
   // Set when this batch was inwarded via an INWARD gate pass.
   isFim                      Boolean       @default(false)
   sourceInwardGatePassId     String?
@@ -407,6 +412,11 @@ model ProductBatch {
   readyToSendOutById String?
   readyToSendOutBy   User?     @relation("FimReadyToSendOutBy", fields: [readyToSendOutById], references: [id])
   readyToSendOutNote String?
+
+  // Last time the return-due reminder went out for this FIM (jobs/fimReturns.js).
+  // Keeps the daily nudge idempotent - one notification per batch per day, not one
+  // per cron tick.
+  fimReturnReminderAt DateTime?
 
   // PO-flow lot linkage: which QC inspection (lot) this batch came from.
   // Lets the product list show PR → PO → Lot N (invoice) → Batch chain.
@@ -463,7 +473,7 @@ model ProductRequest {
   // Selected in place of a Work Order when the MIV is for product R&D / research
   // (mirrors PurchaseRequest.isRnd). Mutually exclusive with workOrderId.
   isRnd             Boolean          @default(false)
-  // Which Purchase Request this material was issued against — filled in by STORES
+  // Which Purchase Request this material was issued against - filled in by STORES
   // at clearance (they mention the PR number only; the link is resolved from it).
   // Optional: plenty of MIVs draw general stock with no PR behind them. SetNull so
   // deleting a PR never deletes the MIVs that referenced it.
@@ -519,7 +529,7 @@ model PurchaseRequest {
   managerId            String?
   manager              User?                        @relation("PurchaseRequestManager", fields: [managerId], references: [id], onDelete: SetNull)
   // Null for global requester roles (STORE_MANAGER, DESIGNS, PLANNING, QC,
-  // LAB, METROLOGY, NDT, SAFETY) — they raise PRs in their own name.
+  // LAB, METROLOGY, NDT, SAFETY) - they raise PRs in their own name.
   unitId               String?
   unit                 Unit?                        @relation(fields: [unitId], references: [id])
   // Optional header-level link to the Work Order this PR is raised for. Null =
@@ -560,7 +570,7 @@ model PurchaseRequest {
   createdAt            DateTime                     @default(now())
   updatedAt            DateTime                     @updatedAt
   items                PurchaseRequestItem[]
-  // Header-level "note" attachments — files the requester attaches to the PR as a
+  // Header-level "note" attachments - files the requester attaches to the PR as a
   // whole (alongside the free-text notes), independent of any one material line.
   noteAttachments      PurchaseRequestAttachment[]
   quotations           Quotation[]
@@ -577,7 +587,7 @@ model PurchaseRequest {
 }
 
 // One recorded change to a PR line's required-by date. Written by
-// PUT /api/purchase-requests/:id/required-by — one row per line that actually
+// PUT /api/purchase-requests/:id/required-by - one row per line that actually
 // moved (no-op saves record nothing). The date itself lives on
 // PurchaseRequestItem.requiredByDate; this is purely the "who moved it, when,
 // and from what to what" trail shown in the PR detail view.
@@ -596,7 +606,7 @@ model PurchaseRequestDateHistory {
   changedById   String?
   changedByName String?
   changedByRole String?
-  // PR status at the moment of the change — a date moved after the PO is placed
+  // PR status at the moment of the change - a date moved after the PO is placed
   // reads very differently from one moved while still pending.
   prStatus      String?
   createdAt     DateTime        @default(now())
@@ -621,17 +631,17 @@ model PurchaseRequestItem {
   // PRF form fields
   materialType           String? // Raw material / Consumable / Hand Tools & Fastners / Tools & Fixtures / Others
   materialSpecification  String? // Material specification data
-  // Legacy single spec attachment — superseded by the `attachments` relation
+  // Legacy single spec attachment - superseded by the `attachments` relation
   // below (multi-file, any format). Kept populated with the FIRST attachment for
   // backward compatibility with any reader not yet migrated to the list.
   specAttachmentUrl      String?
   specAttachmentName     String?
   qapNo                  String? // QAP no. & QAP attachment reference
   drawingNo              String? // Drawing no. & detailed drawing reference
-  // DEPRECATED — removed from the PR form/PDF (2026-07). Columns kept nullable to
+  // DEPRECATED - removed from the PR form/PDF (2026-07). Columns kept nullable to
   // preserve historical values; no longer written or displayed. R&D moved to the
   // PR header-level `PurchaseRequest.isRnd` flag.
-  materialRequiredFor    String? // (was "Required For — SO no. / R&D")
+  materialRequiredFor    String? // (was "Required For - SO no. / R&D")
   internalWorkOrder      String? // (was "Internal Work Order" free text)
   purpose                String? // Purpose
   sourceOfSupply         String? // Source of supply if any
@@ -641,7 +651,10 @@ model PurchaseRequestItem {
   itemRemarks            String? // Other details/Remarks
   poItemAllocations      PurchaseOrderItemAllocation[]
   materialPoolMembership MaterialPoolItem?
-  // Per-line material-spec attachments — multiple files, any format (PDF, image
+  // Cash-purchase receipts recorded against this exact line. Lets a PR be settled
+  // line by line: receiving the 2 cash lines closes only those, the rest stay open.
+  cashInwardRows         MaterialInwardRegister[]       @relation("CashPurchasePRItem")
+  // Per-line material-spec attachments - multiple files, any format (PDF, image
   // scans, DWG drawings, DOC/XLS, zip). Shown as "View spec" links everywhere the
   // PR line surfaces (PR views, QC inspection, inward reference docs). Each file is
   // also accumulated into the product's reusable ProductSpec library on submit.
@@ -650,7 +663,7 @@ model PurchaseRequestItem {
 
 // One material-spec file attached to a PR line. Multiple per line. uploadedBy*
 // are snapshots (no back-relation on User). Distinct from ProductSpec (the
-// product-level reusable library) — though each of these is copied there too.
+// product-level reusable library) - though each of these is copied there too.
 model PurchaseRequestItemAttachment {
   id             String              @id @default(uuid())
   itemId         String
@@ -685,7 +698,7 @@ enum PurchaseRequestStatus {
   PENDING_QC
   PENDING_ADMIN
   // Admin had a doubt and sent the PR back to the raiser for clarification.
-  // Not a rejection — the raiser answers (and may fix the lines) and resends,
+  // Not a rejection - the raiser answers (and may fix the lines) and resends,
   // which puts it back at PENDING_ADMIN. Mirrors the QC-inward ON_HOLD stage.
   ON_HOLD
   APPROVED
@@ -710,6 +723,11 @@ enum PRItemQuotationStatus {
   QUOTATION_SUBMITTED
   QUOTATION_HELD
   QUOTATION_APPROVED
+  // Bought over the counter instead of going through quotation/PO. Set per LINE,
+  // not per PR: a 10-line PR can have 2 cash lines while the other 8 carry on
+  // through the normal chain. Distinct from CANCELLED - the material is still
+  // coming, it just arrives via the cash route and is received on a MIR.
+  CASH_PURCHASE
   CANCELLED
 }
 
@@ -735,9 +753,19 @@ model Supplier {
   materialType               SupplierMaterialType?
   approvalStatus             SupplierApprovalStatus?
   approvalDate               DateTime?
+  // Admin approval of the supplier itself. Purchase onboards and uploads the
+  // documents; the supplier then sits at PENDING_APPROVAL until an Admin agrees
+  // or disagrees. `approvalSubmitted*` records who sent it up and when,
+  // `approvalDecided*` who ruled on it. `approvalRemark` holds the admin's note -
+  // mandatory when rejecting or approving conditionally.
+  approvalSubmittedAt        DateTime?
+  approvalSubmittedById      String?
+  approvalDecidedAt          DateTime?
+  approvalDecidedById        String?
+  approvalRemark             String?
   typeAndExtentOfControl     String?
   remarks                    String?
-  // Supplier Assessment (SA) — the PRIMARY evaluation captured once at onboarding
+  // Supplier Assessment (SA) - the PRIMARY evaluation captured once at onboarding
   // and kept on file permanently. `supplierAssessmentDate` is the document date the
   // Purchase Officer enters; the SA is valid for 1 year from that date.
   // `assessmentFiscalYear` is legacy and no longer drives validity.
@@ -745,7 +773,7 @@ model Supplier {
   supplierAssessmentDate     DateTime?
   assessmentFiscalYear       String?
   assessmentUploadedAt       DateTime?
-  // Vendor Re-Evaluation (VE) — recurring yearly re-evaluation. Full history lives
+  // Vendor Re-Evaluation (VE) - recurring yearly re-evaluation. Full history lives
   // in `vendorEvaluations`; the fields below denormalize the LATEST VE so the
   // compliance gate and quotation reads stay cheap. Valid 1 year from `vendorEvaluationDate`.
   vendorEvaluationPdfUrl     String?
@@ -786,6 +814,12 @@ enum SupplierMaterialType {
 }
 
 enum SupplierApprovalStatus {
+  // Documents are on file and the supplier has been sent to Admin for the
+  // approval decision. Set automatically when Purchase uploads the required SA
+  // (and on a VE upload for a supplier that is not approved yet), or manually
+  // with "Send for approval". Admin turns this into APPROVED / CONDITIONAL /
+  // REJECTED.
+  PENDING_APPROVAL
   APPROVED
   CONDITIONAL
   REJECTED
@@ -803,7 +837,7 @@ model SupplierReEvaluation {
   financialYear             String // e.g. "26-27"
   initialEvaluationDate     DateTime?
   initialEvaluationScope    String? // Product / Process / Service text
-  // YES/NO criteria — nullable boolean so "not answered" is distinct from NO.
+  // YES/NO criteria - nullable boolean so "not answered" is distinct from NO.
   noOrders6Months           Boolean?
   noOrdersReason            String?
   managementChanged         Boolean?
@@ -889,7 +923,7 @@ enum SupplierBusinessRole {
 
 // ──── SUPPLIER PERFORMANCE RATING (FY-bucketed scorecard) ────
 // Header carries the period and overall summary; one row per (item, supplier)
-// in items. Mirrors the printable rating sheet — the overall % is recomputed
+// in items. Mirrors the printable rating sheet - the overall % is recomputed
 // from item rows on every write.
 model SupplierPerformanceRating {
   id               String                          @id @default(uuid())
@@ -935,7 +969,7 @@ model SupplierPerformanceRatingItem {
 // ──── MATERIAL POOLS (PO bundles same-material lines across PRs before quoting) ────
 // A pool groups ≥2 PurchaseRequestItems that share a material so the PO can
 // collect competing quotes covering all of them at once. Pool membership is
-// orthogonal to itemQuotationStatus — a pooled item stays AWAITING_QUOTATION
+// orthogonal to itemQuotationStatus - a pooled item stays AWAITING_QUOTATION
 // until a union quotation tied to the pool gets submitted. When that quote is
 // approved, the pool flips to APPROVED and the underlying PR-items follow the
 // union PO's allocation chain (PurchaseOrderItemAllocation) for FIFO inward.
@@ -998,7 +1032,7 @@ model Quotation {
   submittedToAdminAt      DateTime?
   submittedToAdminById    String?
   submittedToAdmin        User?             @relation("QuotationSubmitter", fields: [submittedToAdminById], references: [id])
-  // Set when admin approves a competing quote on the same coverage — soft-archives
+  // Set when admin approves a competing quote on the same coverage - soft-archives
   // this quote so it disappears from the queue but stays for supplier-price history.
   supersededAt            DateTime?
   supersededByQuotationId String?
@@ -1054,7 +1088,7 @@ model QuotationItem {
 // ──── PURCHASE ORDERS (created when quotation is selected) ────
 model PurchaseOrder {
   id                    String                @id @default(uuid())
-  // Filled in BY HAND by Purchase — RAPS/PO/<FY>/<n>, never auto-generated.
+  // Filled in BY HAND by Purchase - RAPS/PO/<FY>/<n>, never auto-generated.
   // Null from the moment the approved quotation creates this row until Purchase
   // type the number in; an unnumbered order is a draft and cannot be placed.
   // See PATCH /api/purchase-orders/:id/assign-number.
@@ -1081,7 +1115,7 @@ model PurchaseOrder {
   mirNo                 String? // Auto-generated at stores inward (MIR-YYYYMMDD-NNN)
   inwardedAt            DateTime? // Timestamp of stores inward
   // Signed PO PDF uploaded by Purchase Officer after the quotation is approved.
-  // This is the single source of truth for the PO document — no auto-generated PDF is offered.
+  // This is the single source of truth for the PO document - no auto-generated PDF is offered.
   poDocumentUrl         String?
   status                PurchaseOrderStatus   @default(PENDING_ACCOUNTING)
   // Credit-based order placement: PO Officer can place order on word-of-trust
@@ -1091,7 +1125,7 @@ model PurchaseOrder {
   creditPlacedById      String?
   creditPlacedBy        User?                 @relation("POCreditPlacer", fields: [creditPlacedById], references: [id])
   creditNote            String?
-  // Manual close — Purchase Officer clicks "Close PO" once everything is received & paid.
+  // Manual close - Purchase Officer clicks "Close PO" once everything is received & paid.
   // Force-close is allowed with `forceClosed=true` when some qty is still pending or payment is short;
   // in that case leftover PR items are cancelled.
   closedAt              DateTime?
@@ -1112,11 +1146,11 @@ model PurchaseOrder {
 
 // ──── TEMPORARY (rollout): PO re-numbering trail ────
 // Purchase may correct the running count on a PO number while the team is still
-// reconciling the manual register against the system (RAPS/PO/<FY>/<n> — only
+// reconciling the manual register against the system (RAPS/PO/<FY>/<n> - only
 // <n> changes). One row per rename: who did it, from → to, why, and how many
 // downstream records the cascade rewrote (batch numbers, stock notes, …).
 //
-// The EDIT ACCESS is temporary and will be removed — see PO_NUMBER_EDIT_UNTIL in
+// The EDIT ACCESS is temporary and will be removed - see PO_NUMBER_EDIT_UNTIL in
 // server/src/middleware/rbac.js. This TABLE is permanent: once a number has been
 // changed, the trail has to outlive the feature that changed it.
 model PurchaseOrderNumberHistory {
@@ -1227,7 +1261,7 @@ model PaymentRequest {
   purchaseOrderId String
   purchaseOrder   PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
   // `amount` is the TAXABLE (basic) value and is the only figure that moves the
-  // PO ledger — PO totals come from quotations, which are quoted pre-tax, so
+  // PO ledger - PO totals come from quotations, which are quoted pre-tax, so
   // totalPaid/remaining stay comparable. Tax is recorded alongside it:
   //   taxAmount     = amount × taxPercent / 100
   //   payableAmount = amount + taxAmount  ← what Accounting actually pays out
@@ -1366,7 +1400,7 @@ enum QCResult {
 model GatePass {
   id                   String             @id @default(uuid())
   // Doc/Request No. Entered manually by the stores person at creation (no
-  // auto-count) — intentionally NOT unique so duplicates are allowed.
+  // auto-count) - intentionally NOT unique so duplicates are allowed.
   passNumber           String
   // FIM/Customer Property Register number (INWARD STORES only).
   // Format: RAPS/FIM/<FY>/<N>. Distinct from passNumber (RAPS/GP/...) so the
@@ -1407,7 +1441,7 @@ model GatePass {
   siteOfficeAckBy      User?              @relation("GatePassSiteOfficeAck", fields: [siteOfficeAckById], references: [id])
   siteOfficeAckAt      DateTime?
   reachedDate          DateTime?
-  // Returnable close — both LOCAL_JOB and OUTSIDE: stores acknowledges return.
+  // Returnable close - both LOCAL_JOB and OUTSIDE: stores acknowledges return.
   localReturnedAt      DateTime?
   localReturnedById    String?
   localReturnedBy      User?              @relation("GatePassLocalReturnedBy", fields: [localReturnedById], references: [id])
@@ -1419,7 +1453,7 @@ model GatePass {
   customerName         String?
   customerGatePassNo   String? // customer's gate pass number (their format, not RAPS)
   customerGatePassDate DateTime?
-  customerContact      String? // Deprecated — no longer collected; kept for legacy rows.
+  customerContact      String? // Deprecated - no longer collected; kept for legacy rows.
   // INWARD-only: document type of the customer's gate pass (ORIGINAL or DUPLICATE)
   // and an uploaded PDF of the customer's GP document.
   customerGpDocType    CustomerGpDocType?
@@ -1435,7 +1469,7 @@ model GatePass {
   collectedBy          User?              @relation("GatePassCollector", fields: [collectedById], references: [id])
   vehicleNo            String? // Filled by Store Incharge when arranging the vehicle
   driverName           String? // Filled by Store Incharge when arranging the vehicle
-  driverPhone          String? // Driver contact — captured for private/hired dispatch
+  driverPhone          String? // Driver contact - captured for private/hired dispatch
   // Logistics dispatched this gate pass with a one-off hired/private vehicle that
   // isn't in the Vehicle register. vehicleNo/driverName/driverPhone hold the details
   // and assignedVehicleId stays null.
@@ -1452,7 +1486,7 @@ model GatePass {
   requisitionNo        String?
   remarks              String?
   rejectedReason       String?
-  // 48-hour SLA delay remarks — mandatory when a stage is actioned more than 48h
+  // 48-hour SLA delay remarks - mandatory when a stage is actioned more than 48h
   // after it became pending (Stores step measured from createdAt; Accounts step
   // from storeInchargeAt). Shown in the approval trail so everyone sees the why.
   storeDelayRemark     String?
@@ -1505,7 +1539,7 @@ model GatePassItem {
   remarks              String? // Legacy
 
   // Work order this material is dispatched / sent to machining against. Optional
-  // — FIM/returns and ad-hoc dispatches may have no WO. Any live WO is linkable,
+  // - FIM/returns and ad-hoc dispatches may have no WO. Any live WO is linkable,
   // regardless of which unit it is assigned to.
   workOrderId String?
   workOrder   WorkOrder? @relation("GatePassItemWorkOrder", fields: [workOrderId], references: [id])
@@ -1537,7 +1571,7 @@ model GatePassItem {
 // Material test certificates / inspection reports the customer hands over with
 // Free Issue Material. Captured by Stores on the FIM (INWARD gate pass) entry:
 // `gatePassItemId` set = the report covers that one line; null = it covers the
-// whole FIM entry. Any common document format (PDF, scan, DOC, XLS, ZIP) — they
+// whole FIM entry. Any common document format (PDF, scan, DOC, XLS, ZIP) - they
 // are surfaced as read-only links on the FIM register, the FIM inward list and
 // the product's FIM tab. uploadedBy* are snapshots (no back-relation on User).
 model FimTestReport {
@@ -1621,9 +1655,9 @@ enum GatePassStatus {
   OPEN
 }
 
-// ──── INTER OFFICE NOTE (ION) — MANAGER ↔ LAB / METROLOGY / NDT workflows ────
+// ──── INTER OFFICE NOTE (ION) - MANAGER ↔ LAB / METROLOGY / NDT workflows ────
 // Standard form: Doc No RAMS/ION/00 (LAB / METROLOGY / cross-unit MANAGER).
-// NDT variant:  Doc No RAPS/ION-7 — adds qty + per-activity sub-details (UT/RT/VT).
+// NDT variant:  Doc No RAPS/ION-7 - adds qty + per-activity sub-details (UT/RT/VT).
 model InterOfficeNote {
   id                 String              @id @default(uuid())
   ionNumber          String              @unique
@@ -1675,7 +1709,7 @@ enum IONStatus {
   SENT
   // Displayed as "In Progress". For IONs assigned to a unit manager (cross-unit
   // machining flow) this state can only be reached once a MachineAllocation
-  // exists — allocating a machine auto-advances SENT → WAITING.
+  // exists - allocating a machine auto-advances SENT → WAITING.
   WAITING
   WORK_DONE
   COLLECTED
@@ -1685,7 +1719,7 @@ enum IONStatus {
 model InventoryTransferRequest {
   id              String         @id @default(uuid())
   transferNumber  String         @unique
-  // An owner is EITHER a unit (unitId) OR a department (dept string) — exactly one
+  // An owner is EITHER a unit (unitId) OR a department (dept string) - exactly one
   // per side, enforced in the route. Unit FKs are nullable so dept↔dept / dept↔unit
   // transfers are possible; dept owners use the canonical labels (QC, Designs, …).
   fromUnitId      String?
@@ -1754,7 +1788,7 @@ enum VehicleStatus {
   MAINTENANCE
 }
 
-// Driver register — mirrors Vehicle. A driver may be the default for one vehicle,
+// Driver register - mirrors Vehicle. A driver may be the default for one vehicle,
 // but on any given trip the dispatcher can pair any driver with any vehicle.
 model Driver {
   id               String       @id @default(uuid())
@@ -1763,7 +1797,7 @@ model Driver {
   licenseNo        String?      @unique
   licenseExpiry    DateTime?
   // Optional pointer to the vehicle this driver usually drives. Just a hint
-  // for the dispatch UI — the dispatcher can override per trip.
+  // for the dispatch UI - the dispatcher can override per trip.
   defaultVehicleId String?
   defaultVehicle   Vehicle?     @relation("DriverDefaultVehicle", fields: [defaultVehicleId], references: [id])
   status           DriverStatus @default(ACTIVE)
@@ -1786,8 +1820,8 @@ enum DriverStatus {
 
 // A VehicleTrip is one physical dispatch of one vehicle + (optionally) one driver.
 // It may carry one or more gate-passes (units pooling consignments into the
-// same vehicle), or zero gate-passes (ad-hoc movement — e.g., admin errand,
-// vendor pickup, owner travel — still logged for traceability).
+// same vehicle), or zero gate-passes (ad-hoc movement - e.g., admin errand,
+// vendor pickup, owner travel - still logged for traceability).
 model VehicleTrip {
   id              String  @id @default(uuid())
   tripNumber      String  @unique // RAPS/TRIP/<FY>/<N>
@@ -1795,13 +1829,13 @@ model VehicleTrip {
   vehicle         Vehicle @relation(fields: [vehicleId], references: [id])
   driverId        String?
   driver          Driver? @relation(fields: [driverId], references: [id])
-  // Snapshot fields — captured at dispatch time so trip history stays accurate
+  // Snapshot fields - captured at dispatch time so trip history stays accurate
   // even if the Vehicle/Driver record is later edited.
   driverNameSnap  String?
   driverPhoneSnap String?
   vehicleRegSnap  String?
 
-  // Ad-hoc fields — populated when the trip carries no gatepasses.
+  // Ad-hoc fields - populated when the trip carries no gatepasses.
   purpose     String?
   destination String?
 
@@ -1843,9 +1877,9 @@ enum TripStatus {
 // extension wins) vs. completion date.
 model WorkOrder {
   id              String  @id @default(uuid())
-  // Auto-generated internal Work Order number — RAPS/WO/<FY>/<N>
+  // Auto-generated internal Work Order number - RAPS/WO/<FY>/<N>
   workOrderNumber String  @unique
-  // ION header number on the printable form — RAPS/<UNIT>/<FY>/<N>. Auto.
+  // ION header number on the printable form - RAPS/<UNIT>/<FY>/<N>. Auto.
   ionNumber       String? @unique
 
   // ── External Supply Order (customer's reference) ──
@@ -1863,7 +1897,7 @@ model WorkOrder {
   orderQuantity  Float
   orderUnit      String    @default("Nos")
   // Primary delivery commitment date. Nullable: some imported orders carry only
-  // a relative term (e.g. "FIM+3 Months") instead of a real date — that term is
+  // a relative term (e.g. "FIM+3 Months") instead of a real date - that term is
   // kept in deliveryClause and PLANNING/SC fill the real PDC in later.
   pdcDate        DateTime?
   deliveryClause String?
@@ -1925,7 +1959,7 @@ model WorkOrder {
   deliveryStatus WorkOrderDeliveryStatus @default(NOT_STARTED)
 
   // Aggregated qty trackers (kept in sync from invoices). No monetary tracking
-  // — invoices are doc-only references; payment is confirmed in closure cycles.
+  // - invoices are doc-only references; payment is confirmed in closure cycles.
   deliveredQty Float @default(0)
   invoicedQty  Float @default(0)
 
@@ -1937,7 +1971,7 @@ model WorkOrder {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // ── 3-month PDC alert — BOTH admin AND the assigned unit manager must each
+  // ── 3-month PDC alert - BOTH admin AND the assigned unit manager must each
   // acknowledge with their own remark (extension needed / issues / status).
   // The red blinking alert stays active until both remarks are filed.
   pdc3MonthAckAt           DateTime? // admin's ack
@@ -1958,7 +1992,7 @@ model WorkOrder {
   bgEntries          WorkOrderBgEntry[]
   insuranceEntries   WorkOrderInsuranceEntry[]
   alarms             WorkOrderAlarm[]
-  // Line items — the materials under this WO. Each has its own qty + UOM and is
+  // Line items - the materials under this WO. Each has its own qty + UOM and is
   // tracked lot-wise through delivery. orderQuantity/orderUnit above are kept as
   // aggregates (sum of item qty / first item UOM) for back-compat.
   items              WorkOrderItem[]
@@ -1976,7 +2010,7 @@ model WorkOrder {
 }
 
 // One material line under a Work Order. Multiple per WO (S.No, Description,
-// Quantity, UOM). Delivered lot-wise — see WorkOrderClosureItem.
+// Quantity, UOM). Delivered lot-wise - see WorkOrderClosureItem.
 model WorkOrderItem {
   id          String    @id @default(uuid())
   workOrderId String
@@ -2014,12 +2048,12 @@ model WorkOrderExtension {
   @@index([workOrderId])
 }
 
-// PDC change history — append-only audit of every change to the ORIGINAL (base)
+// PDC change history - append-only audit of every change to the ORIGINAL (base)
 // pdcDate after a WO is created. PDC *extensions* live in WorkOrderExtension
 // (each row is already a who/when record); this table captures DIRECT edits of
 // the base pdcDate (corrections, Planning filling in an imported relative term,
 // etc.) so the "PDC History" timeline can show who changed the date, when, from
-// what, to what, and why — nothing about the PDC changes silently.
+// what, to what, and why - nothing about the PDC changes silently.
 model WorkOrderPdcChange {
   id          String    @id @default(uuid())
   workOrderId String
@@ -2055,7 +2089,7 @@ model WorkOrderEditHistory {
   @@index([workOrderId, createdAt])
 }
 
-// Per-invoice qty log (qty-wise invoice tracking — no monetary amount).
+// Per-invoice qty log (qty-wise invoice tracking - no monetary amount).
 model WorkOrderInvoice {
   id          String    @id @default(uuid())
   workOrderId String
@@ -2137,8 +2171,8 @@ enum WorkOrderDeliveryStatus {
 // payment lands and full qty is covered, the WO auto-closes.
 enum WorkOrderClosureStage {
   UNIT_DOCS_PENDING // lot report with QC for verification
-  QC_VERIFIED // QC approved — Finance must send invoice + DC
-  MGMT_APPROVED // legacy stage (old cycles only) — new flow goes QC → Finance directly
+  QC_VERIFIED // QC approved - Finance must send invoice + DC
+  MGMT_APPROVED // legacy stage (old cycles only) - new flow goes QC → Finance directly
   ON_HOLD
   INVOICE_SENT // ← both Invoice Sent + DC Sent clicked; 48h ack SLA running
   DELIVERY_ACKNOWLEDGED // ← goods ack received; 48h SLA stops, 45-day payment window starts
@@ -2163,7 +2197,7 @@ model WorkOrderClosure {
   unitDocsSubmittedById String?
   unitDocsSubmittedBy   User?     @relation("WOClosureUnitSubmitter", fields: [unitDocsSubmittedById], references: [id])
 
-  // QC verification — remark is mandatory in the new flow and stored here.
+  // QC verification - remark is mandatory in the new flow and stored here.
   qcVerifiedAt        DateTime?
   qcVerifiedById      String?
   qcVerifiedBy        User?     @relation("WOClosureQCVerifier", fields: [qcVerifiedById], references: [id])
@@ -2177,7 +2211,7 @@ model WorkOrderClosure {
   mgmtApprovedBy   User?     @relation("WOClosureMgmtApprover", fields: [mgmtApprovedById], references: [id])
   mgmtApprovalNote String?
 
-  // Finance — invoice + delivery challan (numbers entered manually, no upload)
+  // Finance - invoice + delivery challan (numbers entered manually, no upload)
   invoiceNumber         String?   @unique // entered by Finance
   deliveryChallanNumber String? // entered by Finance
   invoiceDate           DateTime?
@@ -2194,7 +2228,7 @@ model WorkOrderClosure {
   last24hReminderAt     DateTime?
   slaBreachedAt         DateTime?
 
-  // Finance delivery acknowledgement — stops 48h SLA and starts 45-day payment
+  // Finance delivery acknowledgement - stops 48h SLA and starts 45-day payment
   // window. Both ack flags must be set true before deliveryAckAt is stamped.
   invoiceAckReceived   Boolean   @default(false)
   invoiceAckAt         DateTime?
@@ -2212,7 +2246,7 @@ model WorkOrderClosure {
   paymentDelayedAt     DateTime? // set by background job when paymentDueAt has passed without payment
   lastWeeklyReminderAt DateTime?
 
-  // Accounts — payment confirmation closes the cycle
+  // Accounts - payment confirmation closes the cycle
   paymentReceivedAt   DateTime?
   paymentReceivedById String?
   paymentReceivedBy   User?     @relation("WOClosurePaymentLogger", fields: [paymentReceivedById], references: [id])
@@ -2291,7 +2325,7 @@ model WorkOrderHoldRequest {
 // 48h SLA breach, payment due/overdue, BG expiring, lot on hold) and inserts
 // new ACTIVE rows. Users can append remarks at any time (WorkOrderAlarmNote)
 // and acknowledge/resolve to clear the badge. Each transition stores its own
-// remark — full audit trail preserved.
+// remark - full audit trail preserved.
 enum WorkOrderAlarmType {
   PDC_NEAR // PDC within 90 days
   PDC_OVERDUE // PDC passed, WO not completed
@@ -2319,7 +2353,7 @@ model WorkOrderAlarm {
   id             String                 @id @default(uuid())
   workOrderId    String
   workOrder      WorkOrder              @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  closureId      String? // optional — alarms tied to a specific lot/cycle
+  closureId      String? // optional - alarms tied to a specific lot/cycle
   type           WorkOrderAlarmType
   severity       WorkOrderAlarmSeverity
   status         WorkOrderAlarmStatus   @default(ACTIVE)
@@ -2453,7 +2487,7 @@ enum CalibrationCategory {
   WEIGHING_BALANCE
   TESTING_EQUIPMENT
   METROLOGY_INSTRUMENT
-  MMR // Monitoring & Measuring Resources — thermocouples / temperature controllers
+  MMR // Monitoring & Measuring Resources - thermocouples / temperature controllers
 }
 
 // Sub-category buckets used when filtering Monitoring & Measuring Resources
@@ -2502,7 +2536,7 @@ model PushSubscription {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Team Chat — the in-house messaging channel shown on every dashboard.
+// Team Chat - the in-house messaging channel shown on every dashboard.
 // Replaces ad-hoc WhatsApp coordination. A message is either a broadcast
 // (`@everyone`, isBroadcast = true, recipientId null) seen by all users, or a
 // direct message (`@username`, recipientId set) seen only by sender + recipient.
@@ -2534,7 +2568,7 @@ model Message {
 // ──────────────────────────────────────────────────────────────
 // Machinery register (master list of every machine on the shop floor)
 // Owned by Safety; Unit-5 users also have edit rights. Everyone else views.
-// AMC = Annual Maintenance Contract — status text + optional attachment.
+// AMC = Annual Maintenance Contract - status text + optional attachment.
 // ──────────────────────────────────────────────────────────────
 model Machinery {
   id              String              @id @default(uuid())
@@ -2562,7 +2596,7 @@ model Machinery {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Machine allocation / occupation — unit managers schedule Work Order
+// Machine allocation / occupation - unit managers schedule Work Order
 // or ION (Inter-Office Note) work onto a specific machine for a time
 // window on a given day. Drives the daily timeline calendar and the
 // monthly utilisation KPI (working window 09:00–19:00 = 600 min/day).
@@ -2658,17 +2692,17 @@ model FireExtinguisher {
 
 // ──────────────────────────────────────────────────────────────
 // HR / Training domain
-//   • Employee — master register independent of login Users. Most operators
+//   • Employee - master register independent of login Users. Most operators
 //     don't need ERP accounts but still appear in the skill matrix / training
 //     records.
-//   • SkillMatrix — fixed-column 1-4 (+ NA) self/manager rating per employee,
+//   • SkillMatrix - fixed-column 1-4 (+ NA) self/manager rating per employee,
 //     plus a free-text training-needs note. One row per employee.
-//   • TrainingPlan — per fiscal year (e.g. "2026-27"). HR opens it, unit
+//   • TrainingPlan - per fiscal year (e.g. "2026-27"). HR opens it, unit
 //     Managers can append their team's training items.
-//   • TrainingPlanItem — one training topic in the plan.
-//   • TrainingSession — actual delivery record (date, faculty, place, subject).
+//   • TrainingPlanItem - one training topic in the plan.
+//   • TrainingSession - actual delivery record (date, faculty, place, subject).
 //     Optionally linked back to a plan item.
-//   • TrainingAttendee — one row per attendee on a session: evaluation
+//   • TrainingAttendee - one row per attendee on a session: evaluation
 //     details + evaluation date + per-attendee sign file.
 // ──────────────────────────────────────────────────────────────
 
@@ -2717,7 +2751,7 @@ model SkillMatrix {
   employeeId String   @unique
   employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
-  // 16 fixed skill area columns (mirrors the Excel — change with a migration
+  // 16 fixed skill area columns (mirrors the Excel - change with a migration
   // if/when the org adds/removes a skill).
   qmsAwareness           Float?
   risksOpportunities     Float?
@@ -2864,7 +2898,7 @@ model TrainingAttendee {
 // Unit-scoped monthly attendance maintained by each unit's MANAGER.
 // Editing access (employees + day cells + month submission) is restricted to
 // the manager of that unit. ADMIN, SAFETY, and ACCOUNTING (after submission)
-// can view the data but never see the per-cell modification trail —
+// can view the data but never see the per-cell modification trail -
 // `modifiedAt`/`modifiedBy`/`history` are stripped server-side for non-managers.
 model AttendanceEmployee {
   id       String  @id @default(uuid())
@@ -2887,7 +2921,7 @@ model AttendanceEmployee {
 }
 
 // One row per (employee, calendar day). Either a punched IN/OUT pair OR a
-// status code is stored — `statusCode` covers leave / holiday / off-site
+// status code is stored - `statusCode` covers leave / holiday / off-site
 // values like "L", "HYD", "BAKRID", "H".
 model AttendanceEntry {
   id         String             @id @default(uuid())
@@ -2895,7 +2929,7 @@ model AttendanceEntry {
   employee   AttendanceEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   date       DateTime           @db.Date
 
-  inTime     String? // "HH:mm" — stored as text to dodge timezone math
+  inTime     String? // "HH:mm" - stored as text to dodge timezone math
   outTime    String? // "HH:mm"
   statusCode String? // "L", "HYD", "BAKRID", "H" …
 
@@ -2954,7 +2988,7 @@ model QmsCertification {
 
 // ──── QMS DOCUMENTS (SOPs + Work Instructions) ────
 // Document library on the QMS hub. Everyone views; only Unit-5 users
-// (and SUPERADMIN) upload/replace/delete — same gate as certifications.
+// (and SUPERADMIN) upload/replace/delete - same gate as certifications.
 model QmsDocument {
   id           String   @id @default(uuid())
   category     String // "SOP" | "WORK_INSTRUCTION"
@@ -2973,11 +3007,11 @@ model QmsDocument {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Personal Calendar — private per-user events / reminders.
+// Personal Calendar - private per-user events / reminders.
 // Each row is owned by one user; nobody else can see it.
 // Recurrence stored on the base row (NONE/DAILY/WEEKLY/MONTHLY/YEARLY
 // + optional recurUntil). Occurrences are expanded on read within the
-// requested date window — no per-occurrence rows. Editing/deleting a
+// requested date window - no per-occurrence rows. Editing/deleting a
 // recurring event affects the whole series (v1).
 // ──────────────────────────────────────────────────────────────
 model CalendarEvent {
@@ -3009,14 +3043,14 @@ model CalendarEvent {
 // cash purchase. Each row carries its own self-contained QC flow:
 //   DRAFT → QC_REQUESTED → QC_IN_REVIEW → QC_DONE → INWARDED
 // Stock (ProductBatch + StockMovement) is created only on the final INWARD
-// step. The MIV no. column is NOT stored here — it is derived at read time
+// step. The MIV no. column is NOT stored here - it is derived at read time
 // by matching this row's batchNo to the batch a unit later draws via its MIV.
 // FK columns are kept as plain ids (no Prisma relations) so this table is
 // fully additive and needs no back-relation edits on existing models.
 // ──────────────────────────────────────────────────────────────
 model MaterialInwardRegister {
   id             String   @id @default(uuid())
-  // RAPS/MIR/<FY>/<N> — auto. Not unique: a cash purchase can carry several
+  // RAPS/MIR/<FY>/<N> - auto. Not unique: a cash purchase can carry several
   // items (one register row each) that share a single MIR number.
   mirNo          String
   inwardDate     DateTime @default(now())
@@ -3044,18 +3078,18 @@ model MaterialInwardRegister {
   itemDescription     String?
   uom                 String?
   // Product / material type (Raw Material / Consumable / Hand Tools & Fastners /
-  // Tools & Fixtures / Others) — captured at entry, same vocabulary as the PR.
+  // Tools & Fixtures / Others) - captured at entry, same vocabulary as the PR.
   materialType        String?
   qtyReceived         Float?
   productId           String? // resolved product (for stock + MIV match)
 
-  // Where the material is bound for — derived from the PO's PR(s). A union PO
+  // Where the material is bound for - derived from the PO's PR(s). A union PO
   // may map to several units; issuedToLabel holds the joined, human label.
   // issuedToDept is set when the PR was raised by a non-unit department role.
   issuedToUnitId String?
   issuedToDept   String?
   issuedToLabel  String?
-  // Indenter — whoever raised the PR (the requester the material is for).
+  // Indenter - whoever raised the PR (the requester the material is for).
   // Snapshotted from the PO's PR manager at creation; null for direct entries
   // or PRs with no recorded raiser.
   indenterId     String?
@@ -3080,11 +3114,11 @@ model MaterialInwardRegister {
 
   status InwardStatus @default(DRAFT)
 
-  // Inward Inspection ION No. — auto-generated when Stores sends the lot to QC
+  // Inward Inspection ION No. - auto-generated when Stores sends the lot to QC
   // (RAPS/IION/<FY>/<N>). Stores never controls/edits it.
   ionNo String? @unique
 
-  // QC request — filled by Stores when handing the lot to QC.
+  // QC request - filled by Stores when handing the lot to QC.
   qcRequestedAt    DateTime?
   qcRequestedById  String?
   qcRequestNote    String?
@@ -3094,14 +3128,14 @@ model MaterialInwardRegister {
   // Auto-filled header fields come from the row itself; this holds the extras.
   qcRequest        Json?
 
-  // QC review — filled by QC.
+  // QC review - filled by QC.
   qcReviewerId      String?
   qcReviewStartedAt DateTime?
   qcResult          QCResult?
   qtyAccepted       Float?
   qtyRejected       Float?
   qtyHeld           Float?
-  qcReportNo        String? // Inward Inspection No. — entered/confirmed by QC
+  qcReportNo        String? // Inward Inspection No. - entered/confirmed by QC
   qcReportRemark    String?
 
   // Hold + re-inspection. When QC puts a lot ON_HOLD (e.g. pending docs / retest)
@@ -3119,11 +3153,26 @@ model MaterialInwardRegister {
   qcReport     Json?
   qcFinishedAt DateTime?
 
-  // QC waiver ("QC not required"). Not every received lot needs an inspection —
+  // QC sign-off on an inspection carried out by an inspection-only operator
+  // (INWARD_QC / IN_PROCESS_QC). Their finished review sits at
+  // QC_PENDING_APPROVAL until QC / Admin approves it here; only then is the lot
+  // QC_DONE and inwardable, and only then do the Stores / NCR notifications go
+  // out. Sending one back archives the round into qcHistory and resets the row to
+  // QC_REQUESTED for a fresh inspection.
+  // qcApprovalRemark carries the remark from the LAST approval decision on this
+  // row - the approver's optional note when approved, or the mandatory reason when
+  // the inspection was sent back (the full send-back is also archived in
+  // qcHistory). qcApprovedById / At are set only on an approval and are cleared
+  // when a fresh review is filed or an inspection is sent back.
+  qcApprovedById   String?
+  qcApprovedAt     DateTime?
+  qcApprovalRemark String?
+
+  // QC waiver ("QC not required"). Not every received lot needs an inspection -
   // standard consumables, stationery, re-orders of a proven part. When Stores
   // sends such a lot to QC, the owning unit's manager (and QC / Admin) is notified
   // and can mark it QC-not-required: the lot skips inspection and goes straight to
-  // the inward step. Deliberately NOT a Stores action — the call belongs to QC or
+  // the inward step. Deliberately NOT a Stores action - the call belongs to QC or
   // the manager the material is for, so Stores can't wave its own receipt through.
   // Reversible: Stores can still resend a waived lot to QC, which clears these.
   qcWaived       Boolean   @default(false)
@@ -3132,7 +3181,7 @@ model MaterialInwardRegister {
   qcWaivedReason String?
 
   // Non-conformance (NCR). When QC rejects a lot (qcResult = FAILED) it uploads the
-  // NCR document here. This drives the replacement chain below — Stores raises a
+  // NCR document here. This drives the replacement chain below - Stores raises a
   // fresh inward for the replacement material, mapped back to this failed MIR, and
   // the whole QC cycle re-runs on it.
   ncrNo         String?
@@ -3143,11 +3192,11 @@ model MaterialInwardRegister {
   // Replacement chain for an NCR-rejected lot. The replacement row points back to
   // the failed original via replacesInwardId; the failed original is stamped with
   // replacedByInwardId so the register can show "failed here → replaced in MIR X".
-  // Plain id refs (no Prisma self-relation) — resolved in the list endpoint.
+  // Plain id refs (no Prisma self-relation) - resolved in the list endpoint.
   replacesInwardId   String?
   replacedByInwardId String?
 
-  // Inward completion — stock created.
+  // Inward completion - stock created.
   inwardedAt DateTime?
   batchId    String?
 
@@ -3156,10 +3205,15 @@ model MaterialInwardRegister {
   // row. [{ at, byId, byName, byRole, changes: [{ field, label, from, to }] }]
   editHistory Json?
 
-  // Cash purchase PR link — set when a cash inward is recorded against a
+  // Cash purchase PR link - set when a cash inward is recorded against a
   // CASH_PURCHASE PR (i.e. a PR the purchase officer converted to cash purchase).
   cashPurchaseRequestId String?
   cashPurchaseRequest   PurchaseRequest? @relation("CashPurchasePR", fields: [cashPurchaseRequestId], references: [id])
+  // WHICH line of that PR this row satisfies. A cash purchase usually covers only
+  // some of the PR's lines, so the link has to be per line - without it the whole
+  // PR gets closed the moment any cash material is received.
+  cashPurchaseRequestItemId String?
+  cashPurchaseRequestItem   PurchaseRequestItem? @relation("CashPurchasePRItem", fields: [cashPurchaseRequestItemId], references: [id])
 
   createdById String
   createdAt   DateTime @default(now())
@@ -3171,6 +3225,7 @@ model MaterialInwardRegister {
   @@index([batchNo])
   @@index([mirNo])
   @@index([cashPurchaseRequestId])
+  @@index([cashPurchaseRequestItemId])
 }
 
 enum InwardDocType {
@@ -3184,8 +3239,13 @@ enum InwardStatus {
   DRAFT
   QC_REQUESTED
   QC_IN_REVIEW
+  // An inspection finished by an inspection-only operator (INWARD_QC /
+  // IN_PROCESS_QC) parks here until QC (or Admin) signs it off. The lot is NOT
+  // inwardable in this state. A review finished by QC itself goes straight to
+  // QC_DONE - there is nobody above it to counter-sign.
+  QC_PENDING_APPROVAL
   QC_DONE
-  // QC waived — the material genuinely needed no inspection and QC / the owning
+  // QC waived - the material genuinely needed no inspection and QC / the owning
   // unit's manager / Admin cleared it straight through to the inward step.
   QC_NOT_REQUIRED
   ON_HOLD

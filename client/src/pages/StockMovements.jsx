@@ -129,9 +129,9 @@ export default function StockMovements() {
                       </td>
                       <td className="px-3 py-2 text-gray-700 font-medium">{m.quantity} {m.product?.unit}</td>
                       <td className="px-3 py-2 font-mono text-xs text-amber-800">
-                        {m.batchNumber || <span className="text-gray-300">—</span>}
+                        {m.batchNumber || <span className="text-gray-300">-</span>}
                       </td>
-                      <td className="px-3 py-2 text-gray-600">{m.referenceType || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">{m.referenceType || '-'}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         {m.performedByUser ? (
                           <div>
@@ -141,7 +141,7 @@ export default function StockMovements() {
                         ) : m.unit ? (
                           <span className="text-xs text-gray-500">{m.unit.code || m.unit.name}</span>
                         ) : (
-                          <span className="text-gray-300">—</span>
+                          <span className="text-gray-300">-</span>
                         )}
                       </td>
                       <td className="px-3 py-2"><MovementNotes notes={m.notes} /></td>

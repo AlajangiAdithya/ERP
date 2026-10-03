@@ -100,9 +100,9 @@ const TESTING_EQUIPMENT = [
   { sNo: 10, name: 'Barcol Hardness',                          make: 'BAKER',          model: '934-1',      serialNo: '2020/015',     rapsplSerialNo: 'RAMS/BH-01/MMR/31', calibrationOn: null, calibrationDueDate: null, recallDueDate: null, calibrationCertificate: 'SELF' },
 ];
 
-// Metrology Instruments — Vernier Calipers, Micrometers, etc.
+// Metrology Instruments - Vernier Calipers, Micrometers, etc.
 // Approximate transcription from the WhatsApp image (some serial / cert columns
-// were partially illegible — left as null where unreadable so Metrology can
+// were partially illegible - left as null where unreadable so Metrology can
 // fill in correct values via the UI).
 const METROLOGY_INSTRUMENTS = [
   { sNo: 1,  name: 'Dial Vernier Caliper',     operatingRange: '0-300mm', leastCount: '0.01', make: null, model: null, serialNo: '15349907', rapsplSerialNo: 'RAMS/DVC/01', calibrationOn: '2025-02-10', calibrationDueDate: '2026-02-09', recallDueDate: '2026-01-26', calibrationCertificate: 'VKRCL/2025-26/M/F', unitLocation: 'UNIT-1' },
@@ -125,7 +125,7 @@ const METROLOGY_INSTRUMENTS = [
   { sNo: 18, name: 'Outside Micro Meter',      operatingRange: '175-200mm', leastCount: '0.01', make: null, model: null, serialNo: null,     rapsplSerialNo: 'RAMS/OMM/08', calibrationOn: '2025-11-12', calibrationDueDate: '2026-11-11', recallDueDate: '2026-10-28', calibrationCertificate: 'VKRCL/2025-26/M/F', unitLocation: 'UNIT-1' },
 ];
 
-// Monitoring & Measuring Resources (MMR) — thermocouples and PID controllers,
+// Monitoring & Measuring Resources (MMR) - thermocouples and PID controllers,
 // transcribed from the WhatsApp image. Hot Air Circulating Oven + 3 Zone PID
 // controllers and J-type thermocouples.
 const MMR_RESOURCES = [

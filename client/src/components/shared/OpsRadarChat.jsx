@@ -1,7 +1,7 @@
 import PdcStatusBoard from './PdcStatusBoard';
 import TeamChat from './TeamChat';
 
-// Dashboard "operations row" — the PDC delivery radar and the org Team Chat
+// Dashboard "operations row" - the PDC delivery radar and the org Team Chat
 // shown side by side, since both are day-to-day priorities. On wide screens the
 // radar takes two-thirds and the chat one-third; they stack on smaller screens.
 // The radar always renders (showAllClear) so the two columns stay balanced.

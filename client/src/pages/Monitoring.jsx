@@ -63,7 +63,7 @@ export default function Monitoring() {
           </div>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">Monitoring</h1>
           <p className="text-sm text-blue-100/90 mt-2 max-w-2xl leading-relaxed">
-            Stock movement, audit, and unit-usage views in one place — track activity and review history across the plant.
+            Stock movement, audit, and unit-usage views in one place - track activity and review history across the plant.
           </p>
         </div>
       </div>

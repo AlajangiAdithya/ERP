@@ -80,7 +80,7 @@ export default function AuditLogs() {
   };
 
   const formatDetails = (details) => {
-    if (!details) return '—';
+    if (!details) return '-';
     if (typeof details === 'string') return details;
 
     const parts = [];
@@ -91,7 +91,7 @@ export default function AuditLogs() {
       details.paymentNumber || details.productName || details.batchNumber;
     if (ident) parts.push(ident);
 
-    // 2) What happened — sub-action and/or status transition.
+    // 2) What happened - sub-action and/or status transition.
     if (details.action) parts.push(prettify(details.action));
     const newStatus = details.newStatus || details.status;
     if (newStatus) parts.push(`→ ${prettify(newStatus)}`);
@@ -101,7 +101,7 @@ export default function AuditLogs() {
     if (details.quantity != null) parts.push(`qty ${details.quantity}`);
     if (details.amount != null) parts.push(`₹${Number(details.amount).toLocaleString('en-IN')}`);
 
-    // 4) Context — unit, supplier, department.
+    // 4) Context - unit, supplier, department.
     if (details.unit) parts.push(`Unit ${details.unit}`);
     if (details.supplierName) parts.push(details.supplierName);
     if (details.assignedDept) parts.push(details.assignedDept);
@@ -114,7 +114,7 @@ export default function AuditLogs() {
 
     // Fallback: derive a friendly phrase from the HTTP method + path.
     if (details.path) return friendlyFromPath(details.method, details.path);
-    return '—';
+    return '-';
   };
 
   return (
@@ -175,7 +175,7 @@ export default function AuditLogs() {
                           {log.user?.role?.replace('_', ' ')}
                         </Badge>
                       </td>
-                      <td className="px-3 py-2 text-gray-500 text-xs">{log.user?.unit?.code || '—'}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{log.user?.unit?.code || '-'}</td>
                       <td className="px-3 py-2"><Badge color={actionColors[log.action] || 'gray'}>{log.action}</Badge></td>
                       <td className="px-3 py-2 text-gray-600">{log.entity}</td>
                       <td className="px-3 py-2 text-gray-500 text-xs max-w-64 truncate" title={log.details ? JSON.stringify(log.details) : ''}>

@@ -147,7 +147,7 @@ export default function TeamChat({ heightClass = 'h-80' } = {}) {
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-gray-800">Team Chat</h3>
             <p className="text-[11px] text-gray-500 mt-0.5 truncate">
-              Primary channel — type <span className="font-mono text-navy-600">@everyone</span> or{' '}
+              Primary channel - type <span className="font-mono text-navy-600">@everyone</span> or{' '}
               <span className="font-mono text-navy-600">@username</span> then your message
             </p>
           </div>
@@ -224,7 +224,7 @@ export default function TeamChat({ heightClass = 'h-80' } = {}) {
                       {m.isBroadcast ? (
                         <Badge color="purple"><Megaphone size={9} className="inline mr-0.5 -mt-0.5" />@everyone</Badge>
                       ) : mine ? (
-                        <Badge color="blue"><AtSign size={9} className="inline mr-0.5 -mt-0.5" />to @{m.recipient?.username || '—'}</Badge>
+                        <Badge color="blue"><AtSign size={9} className="inline mr-0.5 -mt-0.5" />to @{m.recipient?.username || '-'}</Badge>
                       ) : (
                         <Badge color="green"><AtSign size={9} className="inline mr-0.5 -mt-0.5" />to you</Badge>
                       )}
@@ -243,7 +243,7 @@ export default function TeamChat({ heightClass = 'h-80' } = {}) {
                     <div className="flex items-center gap-2 mt-0.5" style={{ flexDirection: mine ? 'row-reverse' : 'row' }}>
                       <span className="text-[10px] text-gray-400">{formatDateTime(m.createdAt)}</span>
                       {deleted && <span className="text-[10px] text-red-400 font-medium">deleted {formatDateTime(m.deletedAt)}</span>}
-                      {/* Closed-work indicator — both parties see it once the receiver is done */}
+                      {/* Closed-work indicator - both parties see it once the receiver is done */}
                       {done && !deleted && (
                         <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600 font-medium" title={`Marked done ${formatDateTime(m.doneAt)}`}>
                           <CheckCircle2 size={11} /> Done
@@ -263,7 +263,7 @@ export default function TeamChat({ heightClass = 'h-80' } = {}) {
                       )}
                     </div>
 
-                    {/* Receiver's "Done" button — closes the work request so the sender can clear it */}
+                    {/* Receiver's "Done" button - closes the work request so the sender can clear it */}
                     {canMarkDone && (
                       <button
                         onClick={() => markDone(m)}
@@ -325,7 +325,7 @@ export default function TeamChat({ heightClass = 'h-80' } = {}) {
               onChange={(e) => { setInput(e.target.value); if (error) setError(''); }}
               onKeyDown={onKeyDown}
               rows={4}
-              placeholder="@everyone or @username — then your message…"
+              placeholder="@everyone or @username - then your message…"
               className="flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-500 focus:border-navy-400 max-h-40"
             />
             <button

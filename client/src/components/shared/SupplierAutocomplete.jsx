@@ -10,7 +10,7 @@ import api from '../../api/axios';
 // for that material before typing anything.
 // REJECTED / TERMINATED suppliers are never suggested.
 
-// Module-level cache: many rows/cards mount their own autocomplete at once —
+// Module-level cache: many rows/cards mount their own autocomplete at once -
 // share one in-flight request and reuse the result for up to a minute.
 let aslCache = null;
 let aslFetchedAt = 0;
@@ -58,7 +58,7 @@ const tokenize = (str) =>
     .filter(Boolean);
 
 // Word-by-word prefix matching against name / vendor ID / scope of supply.
-// requireAll=true (typed search): every typed word must match — precise.
+// requireAll=true (typed search): every typed word must match - precise.
 // requireAll=false (product context, e.g. "Acetone 99%"): any word ≥2 chars
 // matching is enough, so multi-word product names still hit scope words.
 export function matchSuppliers(suppliers, query, limit = 8, requireAll = true) {
@@ -114,8 +114,8 @@ function ScopeLine({ scope, qWords }) {
 
 export default function SupplierAutocomplete({
   value,
-  onChange, // (text) => void — user typed; ASL link should be dropped by caller
-  onSelect, // (supplier) => void — picked from the ASL dropdown
+  onChange, // (text) => void - user typed; ASL link should be dropped by caller
+  onSelect, // (supplier) => void - picked from the ASL dropdown
   contextQuery = '', // usually the row's product name
   placeholder = 'Supplier name',
   className = '',
@@ -187,7 +187,7 @@ export default function SupplierAutocomplete({
           <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-gray-400 border-b bg-gray-50 sticky top-0">
             {usingContext
               ? `Approved suppliers for "${contextQuery.trim()}"`
-              : 'Approved Supplier List — matched by name / scope of supply'}
+              : 'Approved Supplier List - matched by name / scope of supply'}
           </div>
           {results.map((s, i) => (
             <button

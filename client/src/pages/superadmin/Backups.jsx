@@ -41,7 +41,7 @@ export default function Backups() {
     try {
       const { data } = await api.get('/superadmin/system-info');
       setSysInfo(data);
-    } catch (_) { /* ignore — card just won't render */ }
+    } catch (_) { /* ignore - card just won't render */ }
   }
 
   async function fetchTree() {
@@ -77,7 +77,7 @@ export default function Backups() {
   async function downloadFile(file) {
     try {
       const { data } = await api.get(`/superadmin/backups/signed-url?key=${encodeURIComponent(file.key)}`);
-      // Open in a new tab — browser will download directly from S3.
+      // Open in a new tab - browser will download directly from S3.
       window.open(data.url, '_blank', 'noopener,noreferrer');
     } catch (e) {
       setError(e.response?.data?.error || e.message);

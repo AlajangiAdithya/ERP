@@ -12,21 +12,22 @@ const router = express.Router();
 // METROLOGY, NDT) so they can issue the stock reserved to their department,
 // plus the support departments (LOGISTICS, HR) which have no reserved bucket and
 // draw from the unassigned/general pool.
-// PLANNING / ACCOUNTING / FINANCE / ADMIN are intentionally excluded here — they
+// PLANNING / ACCOUNTING / FINANCE / ADMIN are intentionally excluded here - they
 // keep org-wide read visibility (see every MIV), so they never get scoped down.
 const REQUESTER_ROLES = ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT', 'LOGISTICS', 'HR'];
 // Roles allowed to create/collect/cancel MIVs. PLANNING, ACCOUNTING, FINANCE and
 // ADMIN may raise/issue their own (every handler below re-checks
 // `request.managerId === req.user.id`, so the org-wide listing never lets them
-// act on somebody else's MIV) while still monitoring the whole org — so they are
+// act on somebody else's MIV) while still monitoring the whole org - so they are
 // added here but NOT to REQUESTER_ROLES above.
 // STORE_MANAGER is deliberately absent: Stores *clears* MIVs (/request-clearance),
-// so letting them raise one would be self-approval. INWARD_QC, SITE_OFFICE,
-// PURCHASE_OFFICER and SUPPLY_CHAIN are out by the same product decision.
+// so letting them raise one would be self-approval. INWARD_QC, IN_PROCESS_QC,
+// SITE_OFFICE, PURCHASE_OFFICER and SUPPLY_CHAIN are out by the same product
+// decision.
 const MANAGE_ROLES = [...REQUESTER_ROLES, 'PLANNING', 'ACCOUNTING', 'FINANCE', 'ADMIN'];
 // Unit-bound roles must belong to a unit; everyone else (QC, LAB, SAFETY,
 // DESIGNS, PLANNING, ACCOUNTING, FINANCE, LOGISTICS, HR, ADMIN …) may file
-// without one — their MIV draws from their department's reserved bucket (only the
+// without one - their MIV draws from their department's reserved bucket (only the
 // owner departments in DEPT_BY_ROLE have one) plus the unassigned pool.
 const UNIT_BOUND_ROLES = ['MANAGER', 'RND'];
 
@@ -51,7 +52,7 @@ const OFFSITE_GP_LINK_INCLUDE = {
 const createRequestSchema = z.object({
   notes: z.string().optional(),
   remarks: z.string().optional(),
-  // Optional link to the Work Order this MIV is issued against — or R&D instead.
+  // Optional link to the Work Order this MIV is issued against - or R&D instead.
   // null / omitted = "No work order" (mirrors the PR form).
   workOrderId: z.string().uuid().optional().nullable(),
   // True when "R & D (product research)" is chosen instead of a Work Order.
@@ -64,7 +65,7 @@ const createRequestSchema = z.object({
   })).min(1),
 });
 
-// Same shape as create — used when the owner edits a still-PENDING MIV before
+// Same shape as create - used when the owner edits a still-PENDING MIV before
 // the store accepts it. Items are fully replaced (no stock has moved yet).
 const editRequestSchema = createRequestSchema;
 
@@ -77,10 +78,10 @@ const PR_LINK_SELECT = {
 };
 
 // Resolve the Purchase Request that Stores says this material is being issued
-// against. Stores mentions the PR NUMBER only — an id is accepted too so the
+// against. Stores mentions the PR NUMBER only - an id is accepted too so the
 // picker can skip the lookup. Returns:
-//   { ok: true, purchaseRequestId }  — id, or null when the link is being cleared
-//   { ok: true, skip: true }         — neither field was sent; leave as-is
+//   { ok: true, purchaseRequestId }  - id, or null when the link is being cleared
+//   { ok: true, skip: true }         - neither field was sent; leave as-is
 //   { ok: false, error }
 async function resolvePurchaseRequestLink(client, body) {
   const hasNumber = body && 'purchaseRequestNumber' in body;
@@ -113,9 +114,9 @@ async function resolvePurchaseRequestLink(client, body) {
 }
 
 // ──── Shared MIV issue helpers (used by both /approve and /issue-available) ────
-// Per-item availability = (a) the requester's own bucket — a unit bucket
+// Per-item availability = (a) the requester's own bucket - a unit bucket
 // (ProductUnitStock) for unit requesters, or a department bucket
-// (ProductDeptStock) for non-unit owner roles (QC, Designs, …) — plus (b) the
+// (ProductDeptStock) for non-unit owner roles (QC, Designs, …) - plus (b) the
 // unassigned pool = currentStock minus every unit AND department reservation.
 // Stock reserved to a *different* unit or department is off-limits.
 async function computeAvailability(client, request, requesterDept) {
@@ -155,7 +156,7 @@ async function computeAvailability(client, request, requesterDept) {
 
 // Issue `take` units of one request item inside a transaction: FIFO batch
 // draw-down, currentStock + own-bucket decrement, and an OUT stockMovement.
-// Does NOT touch the RequestItem row — callers update qtyIssued/collectedQty
+// Does NOT touch the RequestItem row - callers update qtyIssued/collectedQty
 // themselves (set on first issue, increment on top-up). Returns FIFO slices.
 async function issueItemQty(tx, { request, item, take, requesterDept, availability, performedBy, note }) {
   if (!(take > 0)) return [];
@@ -184,7 +185,7 @@ async function issueItemQty(tx, { request, item, take, requesterDept, availabili
   });
 
   // Draw from the requester's own bucket first (unit OR department ledger),
-  // then from the unassigned pool (no ledger row — only currentStock moves).
+  // then from the unassigned pool (no ledger row - only currentStock moves).
   const av = availability || {};
   if (request.unitId) {
     const fromOwn = Math.min(av.ownUnitQty || 0, take);
@@ -221,7 +222,7 @@ async function issueItemQty(tx, { request, item, take, requesterDept, availabili
   return slices;
 }
 
-// GET /api/requests — list requests based on role
+// GET /api/requests - list requests based on role
 router.get('/', authenticate, async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate } = req.query;
@@ -230,7 +231,7 @@ router.get('/', authenticate, async (req, res) => {
     const where = {};
     applyDateFilter(where, { fromDate, toDate });
 
-    // Role-based filtering — requester roles see only their own
+    // Role-based filtering - requester roles see only their own
     if (REQUESTER_ROLES.includes(req.user.role)) {
       where.managerId = req.user.id;
     }
@@ -322,7 +323,7 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/requests — Requester creates a product request
+// POST /api/requests - Requester creates a product request
 router.post('/', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
   try {
     const data = createRequestSchema.parse(req.body);
@@ -335,7 +336,7 @@ router.post('/', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
     // regardless of which unit it is assigned to.
     const woLink = await validateWorkOrderLink(prisma, data.workOrderId, req.user.unitId || null);
     if (!woLink.ok) return res.status(400).json({ error: woLink.error });
-    // R&D and a Work Order are mutually exclusive — R&D always clears the WO link.
+    // R&D and a Work Order are mutually exclusive - R&D always clears the WO link.
     const isRnd = !!data.isRnd;
 
     // Offsite units route to ADMIN for approval (with qty edit) instead of the
@@ -356,7 +357,7 @@ router.post('/', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
         isRnd,
         notes: data.notes || null,
         remarks: data.remarks || null,
-        // referenceNo auto-mirrors the MIV request number — no manual entry.
+        // referenceNo auto-mirrors the MIV request number - no manual entry.
         referenceNo: requestNumber,
         items: {
           create: data.items.map(item => ({
@@ -421,7 +422,7 @@ router.post('/', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
   }
 });
 
-// PUT /api/requests/:id/edit — Owner edits a still-PENDING MIV before the store
+// PUT /api/requests/:id/edit - Owner edits a still-PENDING MIV before the store
 // accepts it. Replaces notes/remarks and the full item list. Only the creator
 // may edit, and only while PENDING (nothing has been issued, so it's safe).
 router.put('/:id/edit', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
@@ -443,10 +444,10 @@ router.put('/:id/edit', authenticate, authorize(...MANAGE_ROLES), async (req, re
     // Re-validate the optional Work Order link (any live WO, any unit).
     const woLink = await validateWorkOrderLink(prisma, data.workOrderId, request.unitId);
     if (!woLink.ok) return res.status(400).json({ error: woLink.error });
-    // R&D and a Work Order are mutually exclusive — R&D always clears the WO link.
+    // R&D and a Work Order are mutually exclusive - R&D always clears the WO link.
     const isRnd = !!data.isRnd;
 
-    // Full replace of items inside a transaction — no stock has moved on a
+    // Full replace of items inside a transaction - no stock has moved on a
     // PENDING MIV, so deleting and recreating the rows is safe.
     await prisma.$transaction(async (tx) => {
       await tx.requestItem.deleteMany({ where: { requestId: request.id } });
@@ -515,13 +516,13 @@ router.put('/:id/edit', authenticate, authorize(...MANAGE_ROLES), async (req, re
   }
 });
 
-// PUT /api/requests/:id/approve — Store Manager accepts the MIV.
-// Body: {} — store fills nothing. Everything is auto-derived:
+// PUT /api/requests/:id/approve - Store Manager accepts the MIV.
+// Body: {} - store fills nothing. Everything is auto-derived:
 //   • approvedQty = qtyIssued = original requested qty
 //   • issueNo auto-generated, issueDate = now()
 //   • materialBatchNo = FIFO-picked product batch numbers
 //   • stock decremented immediately (global + per-unit), batch remaining drawn down
-//   • status flips straight to COLLECTED — no separate "collect" step
+//   • status flips straight to COLLECTED - no separate "collect" step
 router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
     const request = await prisma.productRequest.findUnique({
@@ -535,7 +536,7 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
 
     if (!request) return res.status(404).json({ error: 'Request not found' });
     if (request.unit?.isOffsite) {
-      return res.status(400).json({ error: 'Offsite MIVs are approved by an admin and dispatched on a gate pass — this store-issue path does not apply.' });
+      return res.status(400).json({ error: 'Offsite MIVs are approved by an admin and dispatched on a gate pass - this store-issue path does not apply.' });
     }
     if (request.status !== 'PENDING') {
       return res.status(400).json({ error: 'Only pending requests can be approved' });
@@ -650,7 +651,7 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
         title: `MIV ${request.requestNumber} accepted`,
         message: allDone
           ? `Your MIV ${request.requestNumber} has been accepted by ${req.user.name}. Issue No: ${issueNo}. Materials issued from stock.`
-          : `Your MIV ${request.requestNumber} has been accepted by ${req.user.name} (partial). ${fullyIssuedCount}/${request.items.length} item(s) issued${issueNo ? ` — Issue No: ${issueNo}` : ''}; the remaining items are waiting on stock and will be issued when available.`,
+          : `Your MIV ${request.requestNumber} has been accepted by ${req.user.name} (partial). ${fullyIssuedCount}/${request.items.length} item(s) issued${issueNo ? ` - Issue No: ${issueNo}` : ''}; the remaining items are waiting on stock and will be issued when available.`,
         targetUserId: request.managerId,
         sentById: req.user.id,
       },
@@ -684,9 +685,9 @@ router.put('/:id/approve', authenticate, authorize('STORE_MANAGER', 'ADMIN'), as
   }
 });
 
-// PUT /api/requests/:id/purchase-request — Stores records (or corrects, or
+// PUT /api/requests/:id/purchase-request - Stores records (or corrects, or
 // clears) the Purchase Request this MIV was issued against, without touching
-// stock. Separate from /approve so the number can be added after the fact —
+// stock. Separate from /approve so the number can be added after the fact -
 // Stores often issues first and matches the PR afterwards.
 //
 // Body: { purchaseRequestNumber } (what Stores actually types) or
@@ -764,7 +765,7 @@ router.put('/:id/purchase-request', authenticate, authorize('STORE_MANAGER', 'AD
   }
 });
 
-// PUT /api/requests/:id/issue-available — Store Manager tops up a PARTIAL MIV.
+// PUT /api/requests/:id/issue-available - Store Manager tops up a PARTIAL MIV.
 // Issues whatever is now available against each item's still-pending qty
 // (pending = approvedQty − qtyIssued). Advances the MIV to COLLECTED once every
 // item is fully issued, otherwise it stays PARTIAL for the next top-up.
@@ -781,7 +782,7 @@ router.put('/:id/issue-available', authenticate, authorize('STORE_MANAGER', 'ADM
 
     if (!request) return res.status(404).json({ error: 'Request not found' });
     if (request.unit?.isOffsite) {
-      return res.status(400).json({ error: 'Offsite MIVs are dispatched on gate passes — this store-issue path does not apply.' });
+      return res.status(400).json({ error: 'Offsite MIVs are dispatched on gate passes - this store-issue path does not apply.' });
     }
     if (request.status !== 'PARTIAL') {
       return res.status(400).json({ error: 'Only partially-issued MIVs can be topped up' });
@@ -935,7 +936,7 @@ router.put('/:id/issue-available', authenticate, authorize('STORE_MANAGER', 'ADM
   }
 });
 
-// PUT /api/requests/:id/reject — Store Manager rejects
+// PUT /api/requests/:id/reject - Store Manager rejects
 router.put('/:id/reject', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
     const { clearanceNotes } = req.body;
@@ -995,8 +996,8 @@ router.put('/:id/reject', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
   }
 });
 
-// PUT /api/requests/:id/collect — Requester collects items (full or partial)
-// Body: { items?: [{ id, collectedQty }] }  — defaults to each item's remaining approvedQty
+// PUT /api/requests/:id/collect - Requester collects items (full or partial)
+// Body: { items?: [{ id, collectedQty }] }  - defaults to each item's remaining approvedQty
 router.put('/:id/collect', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
   try {
     const request = await prisma.productRequest.findUnique({
@@ -1048,7 +1049,7 @@ router.put('/:id/collect', authenticate, authorize(...MANAGE_ROLES), async (req,
     }
 
     if (plan.length === 0) {
-      return res.status(400).json({ error: 'Nothing to collect — provide at least one item with qty > 0' });
+      return res.status(400).json({ error: 'Nothing to collect - provide at least one item with qty > 0' });
     }
 
     // FIFO: deduct from oldest batches first
@@ -1086,14 +1087,14 @@ router.put('/:id/collect', authenticate, authorize(...MANAGE_ROLES), async (req,
 
         // Decrement the requester's own reserved bucket. Unit requesters draw from
         // their unit bucket; non-unit owner departments (QC, Designs, …) from their
-        // department bucket. Unit-less non-owner MIVs draw the unassigned pool —
+        // department bucket. Unit-less non-owner MIVs draw the unassigned pool -
         // only Product.currentStock is decremented (done above).
         if (request.unitId) {
           const pus = await tx.productUnitStock.findUnique({
             where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
           });
           if (!pus || pus.quantity < take - 0.001) {
-            throw new Error(`Unit ${request.unit?.code || request.unitId} stock for ${item.product?.name || 'product'} is insufficient — please raise an inventory transfer first.`);
+            throw new Error(`Unit ${request.unit?.code || request.unitId} stock for ${item.product?.name || 'product'} is insufficient - please raise an inventory transfer first.`);
           }
           await tx.productUnitStock.update({
             where: { productId_unitId: { productId: item.productId, unitId: request.unitId } },
@@ -1104,7 +1105,7 @@ router.put('/:id/collect', authenticate, authorize(...MANAGE_ROLES), async (req,
             where: { productId_dept: { productId: item.productId, dept: requesterDept } },
           });
           if (!pds || pds.quantity < take - 0.001) {
-            throw new Error(`${requesterDept} department stock for ${item.product?.name || 'product'} is insufficient — please raise an inventory transfer first.`);
+            throw new Error(`${requesterDept} department stock for ${item.product?.name || 'product'} is insufficient - please raise an inventory transfer first.`);
           }
           await tx.productDeptStock.update({
             where: { productId_dept: { productId: item.productId, dept: requesterDept } },
@@ -1205,7 +1206,7 @@ router.put('/:id/collect', authenticate, authorize(...MANAGE_ROLES), async (req,
   }
 });
 
-// PUT /api/requests/:id/kill-remaining — Requester closes a PARTIAL request without collecting more
+// PUT /api/requests/:id/kill-remaining - Requester closes a PARTIAL request without collecting more
 router.put('/:id/kill-remaining', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
   try {
     const request = await prisma.productRequest.findUnique({
@@ -1260,7 +1261,7 @@ router.put('/:id/kill-remaining', authenticate, authorize(...MANAGE_ROLES), asyn
   }
 });
 
-// PUT /api/requests/:id/cancel — Requester cancels own pending request
+// PUT /api/requests/:id/cancel - Requester cancels own pending request
 router.put('/:id/cancel', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
   try {
     const request = await prisma.productRequest.findUnique({
@@ -1304,7 +1305,7 @@ router.put('/:id/cancel', authenticate, authorize(...MANAGE_ROLES), async (req, 
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// OFFSITE MIV DISPATCH  (units flagged Unit.isOffsite — ANSP, CPDC, Adibatla, …)
+// OFFSITE MIV DISPATCH  (units flagged Unit.isOffsite - ANSP, CPDC, Adibatla, …)
 // ────────────────────────────────────────────────────────────────────────────
 // Flow:  site MANAGER raises MIV → ADMIN approves (may edit qty) → central store
 // builds NON_RETURNABLE gate passes for selected lines/qty (one GP = one site,
@@ -1334,7 +1335,7 @@ async function dispatchFifo(tx, productId, take) {
   return { batchNo: slices.map(s => s.batchNo).filter(Boolean).join(', ') || null, slices };
 }
 
-// Notify the active MANAGERs of a unit by user id (scoped — avoids paging every
+// Notify the active MANAGERs of a unit by user id (scoped - avoids paging every
 // manager org-wide). `extra` merges into each notification.
 async function notifyUnitManagers(unitId, extra) {
   const managers = await prisma.user.findMany({
@@ -1376,7 +1377,7 @@ async function recomputeOffsiteMivStatus(tx, requestId) {
   return next;
 }
 
-// PUT /api/requests/:id/admin-approve — ADMIN approves an offsite MIV and may edit
+// PUT /api/requests/:id/admin-approve - ADMIN approves an offsite MIV and may edit
 // per-line quantities. Body: { items?: [{ id, approvedQty }], notes? }. Lines not
 // listed keep their requested qty. Moves the MIV to APPROVED (awaiting dispatch).
 router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, res) => {
@@ -1474,7 +1475,7 @@ router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, r
   }
 });
 
-// GET /api/requests/offsite/queue — APPROVED/PARTIAL offsite MIVs that still have
+// GET /api/requests/offsite/queue - APPROVED/PARTIAL offsite MIVs that still have
 // qty left to dispatch. Powers the store's gate-pass builder. STORE_MANAGER/ADMIN.
 router.get('/offsite/queue', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
@@ -1497,7 +1498,7 @@ router.get('/offsite/queue', authenticate, authorize('STORE_MANAGER', 'ADMIN'), 
   }
 });
 
-// GET /api/requests/offsite/gatepasses — dispatched-lot tracker. Each GP with its
+// GET /api/requests/offsite/gatepasses - dispatched-lot tracker. Each GP with its
 // items, MIV-no mapping, vehicle and ack status. MANAGERs see only their own
 // unit's; STORE_MANAGER/ADMIN/LOGISTICS see all.
 router.get('/offsite/gatepasses', authenticate, async (req, res) => {
@@ -1531,7 +1532,7 @@ router.get('/offsite/gatepasses', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/requests/offsite/gatepass — central store builds a NON_RETURNABLE gate
+// POST /api/requests/offsite/gatepass - central store builds a NON_RETURNABLE gate
 // pass for selected offsite-MIV lines (one site only; may bundle several MIVs).
 // Body: { unitId, passNumber?, items: [{ requestItemId, quantity }] }. FIFO-draws
 // stock now; the GP then awaits a vehicle. STORE_MANAGER/ADMIN.
@@ -1668,7 +1669,7 @@ router.post('/offsite/gatepass', authenticate, authorize('STORE_MANAGER', 'ADMIN
   }
 });
 
-// POST /api/requests/offsite/gatepass/:gpId/dispatch — attach a vehicle and send
+// POST /api/requests/offsite/gatepass/:gpId/dispatch - attach a vehicle and send
 // the consignment. Body: { vehicleId?, driverId?, privateVehicle?{regNumber,
 // driverName, driverPhone} }. STORE_MANAGER, LOGISTICS or ADMIN.
 router.post('/offsite/gatepass/:gpId/dispatch', authenticate, authorize('STORE_MANAGER', 'LOGISTICS', 'ADMIN'), async (req, res) => {
@@ -1746,10 +1747,15 @@ router.post('/offsite/gatepass/:gpId/dispatch', authenticate, authorize('STORE_M
   }
 });
 
-// PUT /api/requests/offsite/gatepass/:gpId/ack — the destination site's MANAGER
+// PUT /api/requests/offsite/gatepass/:gpId/ack - the destination site's MANAGER
 // acknowledges receipt. Closes the GP (non-returnable) and re-evaluates closure of
 // every MIV it carried. MANAGER (own unit only) or ADMIN.
-router.put('/offsite/gatepass/:gpId/ack', authenticate, authorize('MANAGER', 'ADMIN'), async (req, res) => {
+// SITE_OFFICE is included deliberately: that role exists to receive OUTSIDE gate
+// passes at the destination site and acknowledge arrival (see the Role enum), and
+// an offsite MIV dispatch IS an OUTSIDE pass. It was excluded here, so at a site
+// with no unit manager nobody but Admin could close the pass - which leaves the
+// MIV stuck at PARTIAL forever.
+router.put('/offsite/gatepass/:gpId/ack', authenticate, authorize('MANAGER', 'SITE_OFFICE', 'ADMIN'), async (req, res) => {
   try {
     const gp = await prisma.gatePass.findUnique({
       where: { id: req.params.gpId },
@@ -1761,7 +1767,11 @@ router.put('/offsite/gatepass/:gpId/ack', authenticate, authorize('MANAGER', 'AD
     if (!gp) return res.status(404).json({ error: 'Gate pass not found' });
     if (gp.kind !== 'OUTSIDE' || !gp.destinationUnit?.isOffsite) return res.status(400).json({ error: 'Not an offsite gate pass' });
     if (gp.status !== 'IN_TRANSIT') return res.status(400).json({ error: 'Gate pass is not in transit' });
-    if (req.user.role === 'MANAGER' && req.user.unitId !== gp.destinationUnitId) {
+    // A unit-bound acknowledger can only close what was sent to their own site. A
+    // SITE_OFFICE login with no unit set is a general receiving desk and may
+    // acknowledge any offsite pass.
+    const unitBound = req.user.role === 'MANAGER' || (req.user.role === 'SITE_OFFICE' && req.user.unitId);
+    if (unitBound && req.user.unitId !== gp.destinationUnitId) {
       return res.status(403).json({ error: 'You can only acknowledge gate passes sent to your unit' });
     }
 

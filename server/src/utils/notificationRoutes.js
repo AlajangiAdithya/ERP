@@ -44,6 +44,19 @@ const NOTIFICATION_ROUTES = {
   INWARD_QC_HOLD: '/inward-entry',
   INWARD_QC_FAILED: '/inward-entry',
 
+  // Offsite MIV chaser (daily job in jobs/offsiteMiv.js)
+  OFFSITE_MIV_PENDING: '/all-requests',
+  OFFSITE_MIV_DISPATCH_DUE: '/request-clearance',
+
+  // FIM return tracking (daily job in jobs/fimReturns.js)
+  FIM_RETURN_DUE: '/inward-entry',
+  FIM_RETURN_OVERDUE: '/inward-entry',
+
+  // Supplier approval (Purchase submits → Admin decides)
+  SUPPLIER_APPROVAL_REQUEST: '/suppliers',
+  SUPPLIER_APPROVED: '/suppliers',
+  SUPPLIER_APPROVAL_REJECTED: '/suppliers',
+
   // Purchase requests / inspections
   INSPECTION_PASSED: '/purchase-requests',
   INSPECTION_FAILED: '/purchase-requests',
@@ -99,7 +112,7 @@ const NOTIFICATION_ROUTES = {
   MESSAGE_RECEIVED: '/messaging',
   MESSAGE_DONE: '/messaging',
 
-  // Generic / system — no dedicated page, open the inbox.
+  // Generic / system - no dedicated page, open the inbox.
   INFO: '/notifications',
   BROADCAST: '/notifications',
 };

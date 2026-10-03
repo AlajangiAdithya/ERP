@@ -11,7 +11,7 @@ import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { useAuth } from '../context/AuthContext';
 import { formatDateTime } from '../utils/formatters';
 
-// Mirror of server utils/helpers DEPT_BY_ROLE — non-unit roles that own reserved
+// Mirror of server utils/helpers DEPT_BY_ROLE - non-unit roles that own reserved
 // stock. Stores is intentionally absent (its stock is the shared pool).
 const DEPT_BY_ROLE = {
   DESIGNS: 'Designs', PLANNING: 'Planning', QC: 'QC', LAB: 'Lab',
@@ -35,10 +35,10 @@ const parseOwner = (token) => {
   return null;
 };
 // Short label for a transfer's from/to side, straight off the transfer record.
-const fromLabel = (t) => (t.fromUnit ? `${t.fromUnit.code}` : (t.fromDept ? `${t.fromDept} (dept)` : '—'));
-const toLabel = (t) => (t.toUnit ? `${t.toUnit.code}` : (t.toDept ? `${t.toDept} (dept)` : '—'));
-const fromFull = (t) => (t.fromUnit ? `${t.fromUnit.name} (${t.fromUnit.code})` : (t.fromDept ? `${t.fromDept} (department)` : '—'));
-const toFull = (t) => (t.toUnit ? `${t.toUnit.name} (${t.toUnit.code})` : (t.toDept ? `${t.toDept} (department)` : '—'));
+const fromLabel = (t) => (t.fromUnit ? `${t.fromUnit.code}` : (t.fromDept ? `${t.fromDept} (dept)` : '-'));
+const toLabel = (t) => (t.toUnit ? `${t.toUnit.code}` : (t.toDept ? `${t.toDept} (dept)` : '-'));
+const fromFull = (t) => (t.fromUnit ? `${t.fromUnit.name} (${t.fromUnit.code})` : (t.fromDept ? `${t.fromDept} (department)` : '-'));
+const toFull = (t) => (t.toUnit ? `${t.toUnit.name} (${t.toUnit.code})` : (t.toDept ? `${t.toDept} (department)` : '-'));
 
 export default function InventoryTransfers() {
   const { user } = useAuth();
@@ -161,7 +161,7 @@ export default function InventoryTransfers() {
   };
 
   const approve = async (id) => {
-    if (!confirm('Approve this transfer? Ownership of the stock will move to the destination immediately — this cannot be undone.')) return;
+    if (!confirm('Approve this transfer? Ownership of the stock will move to the destination immediately - this cannot be undone.')) return;
     try {
       await api.put(`/inventory-transfers/${id}/approve`);
       setDetail(null);
@@ -293,7 +293,7 @@ export default function InventoryTransfers() {
         <div className="space-y-4">
           <p className="text-xs text-gray-500">
             You can only pull stock INTO your own unit/department. The source owner (the unit's Manager
-            or the owning department — or an Admin) must approve. Stock is reserved <strong>per owner</strong> —
+            or the owning department - or an Admin) must approve. Stock is reserved <strong>per owner</strong> -
             you can only request what the source actually holds. Once approved, ownership moves immediately
             and the request is final.
           </p>
@@ -311,7 +311,7 @@ export default function InventoryTransfers() {
                 ))}
             </Select>
             <Select
-              label="To (destination — yours)"
+              label="To (destination - yours)"
               value={form.toOwner}
               onChange={(e) => setForm({ ...form, toOwner: e.target.value })}
               disabled
@@ -337,7 +337,7 @@ export default function InventoryTransfers() {
               .filter(({ atSource }) => atSource > 0)
               .map(({ p, atSource }) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} — at source: {atSource} {p.unit}
+                  {p.name} - at source: {atSource} {p.unit}
                 </option>
               ))}
           </Select>

@@ -14,7 +14,7 @@ export default function StockStatementPdf({ movements = [], filters = {} }) {
         <View style={styles.header}>
           <Text style={styles.title}>STOCK MOVEMENT REGISTER</Text>
           <Text style={styles.subtitle}>
-            {fromDate || toDate ? `Period: ${fromDate ? formatDate(fromDate) : '—'} to ${toDate ? formatDate(toDate) : '—'}` : 'All records'}
+            {fromDate || toDate ? `Period: ${fromDate ? formatDate(fromDate) : '-'} to ${toDate ? formatDate(toDate) : '-'}` : 'All records'}
             {typeFilter ? `  Type: ${typeFilter}` : ''}
           </Text>
         </View>
@@ -40,13 +40,13 @@ export default function StockStatementPdf({ movements = [], filters = {} }) {
           ) : movements.map((m, idx) => (
             <View key={m.id || idx} style={styles.row} wrap={false}>
               <View style={[styles.cell, { width: '13%' }]}><Text>{formatDateTime(m.createdAt)}</Text></View>
-              <View style={[styles.cell, { width: '22%' }]}><Text>{m.product?.name || '—'}</Text></View>
-              <View style={[styles.cell, { width: '10%' }]}><Text>{m.product?.sku || '—'}</Text></View>
+              <View style={[styles.cell, { width: '22%' }]}><Text>{m.product?.name || '-'}</Text></View>
+              <View style={[styles.cell, { width: '10%' }]}><Text>{m.product?.sku || '-'}</Text></View>
               <View style={[styles.cell, { width: '8%' }]}><Text>{m.type}</Text></View>
               <View style={[styles.cell, { width: '7%' }]}><Text>{m.quantity}</Text></View>
-              <View style={[styles.cell, { width: '6%' }]}><Text>{m.product?.unit || '—'}</Text></View>
-              <View style={[styles.cell, { width: '14%' }]}><Text>{m.batchNumber || '—'}</Text></View>
-              <View style={[styles.cell, { width: '9%' }]}><Text>{m.referenceType || '—'}</Text></View>
+              <View style={[styles.cell, { width: '6%' }]}><Text>{m.product?.unit || '-'}</Text></View>
+              <View style={[styles.cell, { width: '14%' }]}><Text>{m.batchNumber || '-'}</Text></View>
+              <View style={[styles.cell, { width: '9%' }]}><Text>{m.referenceType || '-'}</Text></View>
               <View style={[styles.cell, { width: '11%' }]}><Text>{formatNotes(m.notes).slice(0, 80)}</Text></View>
             </View>
           ))}

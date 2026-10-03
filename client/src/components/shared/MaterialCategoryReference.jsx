@@ -6,7 +6,7 @@ import { formatMaterialCode } from '../../utils/materialTypes';
 // ─── Material category & code register ───
 // The company's material-code list: which block of codes belongs to which
 // material type, and what goes in it. Shown wherever someone has to pick a
-// Material Type — on the requisition form and on the master-data screens — so the
+// Material Type - on the requisition form and on the master-data screens - so the
 // category is chosen from the register rather than from memory.
 //
 // `highlight` outlines the row of the category currently selected.
@@ -19,7 +19,7 @@ export default function MaterialCategoryReference({ highlight = '', defaultOpen 
   const others = categories.filter((c) => !c.from);
 
   // Rows the register leaves unassigned (e.g. 0801–1000) are shown as reserved
-  // rather than silently skipped — the printed list has them too.
+  // rather than silently skipped - the printed list has them too.
   const rows = [];
   ranged.forEach((cat, i) => {
     const prev = ranged[i - 1];
@@ -41,7 +41,7 @@ export default function MaterialCategoryReference({ highlight = '', defaultOpen 
         <ListOrdered size={13} className="text-navy-700" />
         <span>Material categories &amp; code list</span>
         <span className="font-normal text-gray-500">
-          — which material type covers what, and the codes reserved for it
+          - which material type covers what, and the codes reserved for it
         </span>
       </button>
 
@@ -63,7 +63,7 @@ export default function MaterialCategoryReference({ highlight = '', defaultOpen 
                       <td className="border border-gray-200 px-2 py-1 font-mono">
                         {formatMaterialCode(row.from)}–{formatMaterialCode(row.to)}
                       </td>
-                      <td className="border border-gray-200 px-2 py-1 italic" colSpan={2}>Reserved — not allotted yet</td>
+                      <td className="border border-gray-200 px-2 py-1 italic" colSpan={2}>Reserved - not allotted yet</td>
                     </tr>
                   );
                 }
@@ -71,7 +71,7 @@ export default function MaterialCategoryReference({ highlight = '', defaultOpen 
                 return (
                   <tr key={row.label} className={isCurrent ? 'bg-navy-50 font-semibold text-navy-900' : 'text-gray-700'}>
                     <td className="border border-gray-200 px-2 py-1 font-mono whitespace-nowrap">
-                      {row.from ? `${formatMaterialCode(row.from)}–${formatMaterialCode(row.to)}` : '—'}
+                      {row.from ? `${formatMaterialCode(row.from)}–${formatMaterialCode(row.to)}` : '-'}
                     </td>
                     <td className="border border-gray-200 px-2 py-1">{row.label}</td>
                     <td className="border border-gray-200 px-2 py-1">{row.description}</td>

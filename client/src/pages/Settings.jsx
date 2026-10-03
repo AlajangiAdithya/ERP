@@ -12,8 +12,8 @@ import PageHero from '../components/shared/PageHero';
 // Appearance options. Each tile carries a mini preview of the theme it selects
 // so the choice reads at a glance without switching first.
 const THEME_OPTIONS = [
-  { key: 'light', label: 'Light', icon: Sun, hint: 'Bright surfaces — best in daylight', swatch: ['#EDF0F7', '#FFFFFF', '#16306E'] },
-  { key: 'dark', label: 'Dark', icon: Moon, hint: 'Low-glare navy — easier at night', swatch: ['#0B111D', '#131A2A', '#AECBF8'] },
+  { key: 'light', label: 'Light', icon: Sun, hint: 'Bright surfaces - best in daylight', swatch: ['#EDF0F7', '#FFFFFF', '#16306E'] },
+  { key: 'dark', label: 'Dark', icon: Moon, hint: 'Low-glare navy - easier at night', swatch: ['#0B111D', '#131A2A', '#AECBF8'] },
   { key: 'system', label: 'System', icon: Monitor, hint: 'Follows your device setting', swatch: ['#EDF0F7', '#131A2A', '#5C8AF2'] },
 ];
 
@@ -26,7 +26,7 @@ function AppearanceCard() {
         <div>
           <h3 className="text-sm font-semibold text-gray-700">Appearance</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Applies to this device only — it stays put when you sign out.
+            Applies to this device only - it stays put when you sign out.
           </p>
         </div>
         <Badge color={theme === 'dark' ? 'navy' : 'yellow'}>
@@ -54,7 +54,7 @@ function AppearanceCard() {
                 <span className={`text-sm font-semibold ${active ? 'text-navy-800' : 'text-gray-700'}`}>{label}</span>
                 {active && <Check size={14} className="ml-auto text-navy-700" />}
               </div>
-              {/* Theme preview strip — real hexes, so it looks the same in both themes */}
+              {/* Theme preview strip - real hexes, so it looks the same in both themes */}
               <div className="mt-2.5 flex h-8 overflow-hidden rounded-lg ring-1 ring-black/5">
                 {swatch.map((c) => (
                   <span key={c} className="flex-1" style={{ backgroundColor: c }} />

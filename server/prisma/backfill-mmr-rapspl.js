@@ -33,7 +33,7 @@ const SUB_LABEL = {
 
 async function main() {
   const dryRun = process.argv.includes('--dry');
-  if (dryRun) console.log('DRY RUN — no writes will happen.\n');
+  if (dryRun) console.log('DRY RUN - no writes will happen.\n');
 
   const rows = await prisma.calibrationItem.findMany({
     where: { category: 'MMR' },

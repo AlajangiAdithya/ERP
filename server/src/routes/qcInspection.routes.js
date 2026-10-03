@@ -53,7 +53,7 @@ const PR_SPEC_SELECT = {
 const INSPECTION_INCLUDE = {
   inspectedBy: { select: { id: true, name: true } },
   requestCreatedBy: { select: { id: true, name: true, role: true } },
-  // Per-PO-item arrived qty rows for THIS lot — lets QC see exactly
+  // Per-PO-item arrived qty rows for THIS lot - lets QC see exactly
   // which items arrived and how much of each.
   items: {
     include: {
@@ -70,7 +70,7 @@ const INSPECTION_INCLUDE = {
       id: true, orderNumber: true, customName: true, supplierName: true,
       totalAmount: true, status: true, goodsArrivedAt: true, poDocumentUrl: true,
       isUnion: true,
-      // MIR is auto-generated on the PO at stores inward — surface it everywhere QC
+      // MIR is auto-generated on the PO at stores inward - surface it everywhere QC
       // looks at the order (header, fill form, view).
       mirNo: true, inwardedAt: true,
       // Supplier compliance PDFs (Vendor Evaluation + current-FY Assessment) so QC
@@ -103,7 +103,7 @@ const INSPECTION_INCLUDE = {
   },
 };
 
-// GET /api/qc-inspections — list inspections.
+// GET /api/qc-inspections - list inspections.
 // Once an inspection report is filled, everyone in the originating PR chain (PR manager and
 // requester roles MANAGER/LAB/SAFETY) can see it scoped to PRs they raised.
 router.get('/', authenticate, authorize('ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'PLANNING', 'SAFETY'), async (req, res) => {
@@ -133,7 +133,7 @@ router.get('/', authenticate, authorize('ADMIN', 'MANAGER', 'QC', 'DESIGNS', 'RN
       prisma.qCInspection.count({ where }),
     ]);
 
-    // Orders awaiting inspection — includes repeat deliveries (partial delivery support).
+    // Orders awaiting inspection - includes repeat deliveries (partial delivery support).
     // PR originators don't need this section (they can't act on it), so skip the query for them.
     const pendingOrders = originatorRoles.includes(req.user.role)
       ? []
@@ -192,7 +192,7 @@ router.get('/:id', authenticate, authorize('ADMIN', 'MANAGER', 'QC', 'DESIGNS', 
   }
 });
 
-// POST /api/qc-inspections — QC/Purchase/Stores create inspection request.
+// POST /api/qc-inspections - QC/Purchase/Stores create inspection request.
 // The signed PO PDF that QC reads is uploaded on the PurchaseOrder itself
 // (POST /api/purchase-orders/:id/po-document), not on the inspection.
 router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGER'), async (req, res) => {
@@ -233,7 +233,7 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
     let generatedReportNo;
     const inspection = await withDocRetry(() => prisma.$transaction(async (tx) => {
       inspectionNumber = await generateSequentialNumber(tx, 'QC');
-      // Auto-generate the Inspection Report number (RAPS/IR/FY/N) — QC no longer
+      // Auto-generate the Inspection Report number (RAPS/IR/FY/N) - QC no longer
       // hand-keys this; it mirrors the way PR/PO/QC numbers are minted.
       generatedReportNo = reportNo && String(reportNo).trim()
         ? String(reportNo).trim()
@@ -317,7 +317,7 @@ router.post('/', authenticate, authorize('QC', 'PURCHASE_OFFICER', 'STORE_MANAGE
   }
 });
 
-// PUT /api/qc-inspections/:id/result — QC submits inspection result
+// PUT /api/qc-inspections/:id/result - QC submits inspection result
 router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
   try {
     const {
@@ -357,7 +357,7 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
       if (accNum > recNum) {
         return res.status(400).json({ error: 'Qty Accepted cannot exceed Qty Received' });
       }
-      // The client enforces these — also enforce on the server so direct API
+      // The client enforces these - also enforce on the server so direct API
       // calls can't slip a malformed result past validation.
       if (result === 'PASSED' && accNum !== recNum) {
         return res.status(400).json({ error: 'PASSED requires Qty Accepted to equal Qty Received' });
@@ -400,7 +400,7 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
         inspectedById: req.user.id,
         inspectedAt: new Date(),
       };
-      // reportNo is auto-generated at creation — QC never overrides it now.
+      // reportNo is auto-generated at creation - QC never overrides it now.
       if (reportDate !== undefined) updateData.reportDate = reportDate ? new Date(reportDate) : null;
       if (materialDescription !== undefined) updateData.materialDescription = materialDescription || null;
       if (materialCategory !== undefined) updateData.materialCategory = materialCategory || null;
@@ -523,7 +523,7 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
         data: {
           type: `INSPECTION_${result}`,
           title: `Inspection Report Filed: ${inspection.inspectionNumber}`,
-          message: `Inspection report for PR ${order.purchaseRequest.requestNumber} (PO ${order.orderNumber} — ${order.customName}) has been submitted. Result: ${result}.`,
+          message: `Inspection report for PR ${order.purchaseRequest.requestNumber} (PO ${order.orderNumber} - ${order.customName}) has been submitted. Result: ${result}.`,
           targetUserId: order.purchaseRequest.managerId,
           sentById: req.user.id,
         },
@@ -548,10 +548,10 @@ router.put('/:id/result', authenticate, authorize('QC'), async (req, res) => {
   }
 });
 
-// PUT /api/qc-inspections/:id/upload-docs — PO uploads supporting documents for QC verification
-// PUT /api/qc-inspections/:id/iir — Store Manager edits the page-1 IIR fields.
+// PUT /api/qc-inspections/:id/upload-docs - PO uploads supporting documents for QC verification
+// PUT /api/qc-inspections/:id/iir - Store Manager edits the page-1 IIR fields.
 // Allowed while QC has not yet submitted a result (PENDING or ON_HOLD). Lot items
-// (per-PO-item arrived quantities) are NOT editable here — that requires reversing
+// (per-PO-item arrived quantities) are NOT editable here - that requires reversing
 // receivedQty on the PO, which is out of scope. Invoice number, invoice date and
 // invoice PDF are locked to whatever the PO set at goods-arrival and cannot be
 // changed here.
@@ -602,7 +602,7 @@ router.put('/:id/iir', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async 
 
     if (!['PENDING', 'ON_HOLD'].includes(inspection.result)) {
       return res.status(400).json({
-        error: `Cannot edit IIR — inspection result is already ${inspection.result}. The form is locked after QC submits.`,
+        error: `Cannot edit IIR - inspection result is already ${inspection.result}. The form is locked after QC submits.`,
       });
     }
 
@@ -703,7 +703,7 @@ router.put('/:id/upload-docs', authenticate, authorize('PURCHASE_OFFICER', 'STOR
   }
 });
 
-// PUT /api/qc-inspections/:id/re-review — PO sends an ON_HOLD inspection back to QC for re-review
+// PUT /api/qc-inspections/:id/re-review - PO sends an ON_HOLD inspection back to QC for re-review
 router.put('/:id/re-review', authenticate, authorize('PURCHASE_OFFICER', 'STORE_MANAGER'), async (req, res) => {
   try {
     const { responseNote } = req.body || {};

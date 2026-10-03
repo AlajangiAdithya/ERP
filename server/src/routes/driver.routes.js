@@ -55,7 +55,7 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/drivers/:id — driver + previous movement history.
+// GET /api/drivers/:id - driver + previous movement history.
 // History = every VehicleTrip + every legacy GatePass directly assigned to the
 // driver (older flows didn't go through trips).
 router.get('/:id', authenticate, async (req, res) => {
@@ -104,7 +104,7 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/drivers — create
+// POST /api/drivers - create
 router.post('/', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
   try {
     const {
@@ -220,7 +220,7 @@ router.put('/:id', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, re
   }
 });
 
-// DELETE /api/drivers/:id — only if no trips or gatepasses reference them.
+// DELETE /api/drivers/:id - only if no trips or gatepasses reference them.
 router.delete('/:id', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
   try {
     const driver = await prisma.driver.findUnique({

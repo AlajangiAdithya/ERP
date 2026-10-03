@@ -6,10 +6,10 @@ import MachineryRegister from './MachineryRegister';
 import AllocationBoard from '../components/machinery/AllocationBoard';
 import MachineKpiPanel from '../components/machinery/MachineKpiPanel';
 
-// Machinery hub — tabbed page (mirrors the procurement-style single page):
-//   • Allocation — daily occupation timeline; unit managers schedule WO/ION work
-//   • Register   — machine master list + AMC (everyone views; Safety/Unit-5 edit)
-//   • Monthly KPI — utilisation KPI + auto per-machine monthly report
+// Machinery hub - tabbed page (mirrors the procurement-style single page):
+//   • Allocation - daily occupation timeline; unit managers schedule WO/ION work
+//   • Register   - machine master list + AMC (everyone views; Safety/Unit-5 edit)
+//   • Monthly KPI - utilisation KPI + auto per-machine monthly report
 // All tabs are visible to everyone (view-only); only the concerned unit's
 // manager can allocate/edit, enforced server-side per machine.
 const ALLOCATION_FIRST_ROLES = ['MANAGER', 'ADMIN', 'PLANNING', 'SUPERADMIN', 'SAFETY'];

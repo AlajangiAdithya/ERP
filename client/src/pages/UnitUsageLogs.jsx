@@ -87,7 +87,7 @@ export default function UnitUsageLogs() {
                       <td className="px-3 py-2"><Badge color="blue">{m.unitCode}</Badge></td>
                       <td className="px-3 py-2 text-navy-700 font-medium">{m.requestNumber}</td>
                       <td className="px-3 py-2 text-gray-700">{m.product?.name}</td>
-                      <td className="px-3 py-2 text-gray-500">{m.product?.category || '—'}</td>
+                      <td className="px-3 py-2 text-gray-500">{m.product?.category || '-'}</td>
                       <td className="px-3 py-2 text-gray-700 font-medium">{m.quantity} {m.product?.unit}</td>
                     </tr>
                   ))}

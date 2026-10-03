@@ -26,14 +26,14 @@ const amountPhrase = (r) => (r.taxPercent
 
 const createSchema = z.object({
   purchaseOrderId: z.string().uuid(),
-  // Taxable (basic) value — the tax % rides on top, see PaymentRequest in schema.prisma.
+  // Taxable (basic) value - the tax % rides on top, see PaymentRequest in schema.prisma.
   amount: z.number().positive(),
   taxPercent: z.number().min(0).max(100).optional(),
   paymentType: z.enum(['ADVANCE', 'PARTIAL', 'FINAL']),
   notes: z.string().optional(),
 });
 
-// GET /api/payment-requests — role-filtered list
+// GET /api/payment-requests - role-filtered list
 router.get('/', authenticate, authorize(...PAYMENT_VIEW_ROLES), async (req, res) => {
   try {
     const { status, purchaseOrderId, page, limit, fromDate, toDate } = req.query;
@@ -108,7 +108,7 @@ router.get('/:id', authenticate, authorize(...PAYMENT_VIEW_ROLES), async (req, r
   }
 });
 
-// POST /api/payment-requests — PO creates payment request
+// POST /api/payment-requests - PO creates payment request
 router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
@@ -194,7 +194,7 @@ router.post('/', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) =
   }
 });
 
-// PUT /api/payment-requests/:id/approve — ADMIN approves, then it goes to ACCOUNTING
+// PUT /api/payment-requests/:id/approve - ADMIN approves, then it goes to ACCOUNTING
 router.put('/:id/approve', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
     const request = await prisma.paymentRequest.findUnique({
@@ -249,7 +249,7 @@ router.put('/:id/approve', authenticate, authorize('ADMIN'), async (req, res) =>
   }
 });
 
-// PUT /api/payment-requests/:id/pay — ACCOUNTING marks as paid (after admin approval)
+// PUT /api/payment-requests/:id/pay - ACCOUNTING marks as paid (after admin approval)
 router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (req, res) => {
   try {
     const request = await prisma.paymentRequest.findUnique({
@@ -421,7 +421,7 @@ router.put('/:id/pay', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (re
   }
 });
 
-// PUT /api/payment-requests/:id/reject — ACCOUNTING rejects
+// PUT /api/payment-requests/:id/reject - ACCOUNTING rejects
 router.put('/:id/reject', authenticate, authorize('ACCOUNTING', 'ADMIN'), async (req, res) => {
   try {
     const { notes } = req.body;

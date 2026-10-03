@@ -1,4 +1,4 @@
-// Skill Matrix — per-employee rating across 15 fixed competencies (0–4 scale).
+// Skill Matrix - per-employee rating across 15 fixed competencies (0–4 scale).
 // HR/ADMIN edit ratings; everyone else view-only.
 import { useEffect, useMemo, useState } from 'react';
 import { Grid3x3, Save, Upload, FileText, Search } from 'lucide-react';
@@ -182,9 +182,9 @@ export default function SkillMatrix() {
                     <div className="font-semibold text-navy-900 truncate">{emp.name}</div>
                     <div className="text-[10px] text-gray-500 truncate">{emp.designation || emp.category || ''}</div>
                   </td>
-                  <td className="py-1.5 px-2 font-mono text-[10px] text-gray-700">{emp.empCode || '—'}</td>
-                  <td className="py-1.5 px-2 text-[11px] text-gray-700 whitespace-normal">{emp.category || '—'}</td>
-                  <td className="py-1.5 px-2 text-[10px] text-gray-700">{emp.dateOfJoining ? emp.dateOfJoining.slice(0, 10) : '—'}</td>
+                  <td className="py-1.5 px-2 font-mono text-[10px] text-gray-700">{emp.empCode || '-'}</td>
+                  <td className="py-1.5 px-2 text-[11px] text-gray-700 whitespace-normal">{emp.category || '-'}</td>
+                  <td className="py-1.5 px-2 text-[10px] text-gray-700">{emp.dateOfJoining ? emp.dateOfJoining.slice(0, 10) : '-'}</td>
                   {SKILLS.map((s) => (
                     <td key={s.key} className="py-1 px-1 text-center">
                       <input
@@ -215,7 +215,7 @@ export default function SkillMatrix() {
                       <a href={emp.skillMatrix.headOfDeptSig} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline inline-flex items-center gap-1">
                         <FileText size={12} /> View
                       </a>
-                    ) : <span className="text-gray-400">—</span>}
+                    ) : <span className="text-gray-400">-</span>}
                     {rowEdit && (
                       <label className="block mt-1 cursor-pointer text-[10px] text-violet-700 hover:underline">
                         <span className="inline-flex items-center gap-1"><Upload size={10} /> Upload</span>

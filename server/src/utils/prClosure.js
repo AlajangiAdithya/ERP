@@ -1,7 +1,7 @@
 // Per-PR-item quotation status sync + PR closure helpers.
 //
 // A PR may contain several materials. Each material's quotation lifecycle is
-// independent — one can be approved and on a PO while another is still
+// independent - one can be approved and on a PO while another is still
 // waiting on a supplier quote. These helpers compute each item's
 // `itemQuotationStatus` from the quotations that reference it, and roll up to
 // the overall PR.status so the UI shows accurate per-item badges.
@@ -20,6 +20,9 @@ const PR_ITEM_QUOTATION_STATUS = {
   QUOTATION_SUBMITTED: 'QUOTATION_SUBMITTED',
   QUOTATION_HELD: 'QUOTATION_HELD',
   QUOTATION_APPROVED: 'QUOTATION_APPROVED',
+  // Off the quotation track entirely - bought over the counter. Like CANCELLED it
+  // is terminal for quotation purposes, so the recompute below leaves it alone.
+  CASH_PURCHASE: 'CASH_PURCHASE',
   CANCELLED: 'CANCELLED',
 };
 
@@ -81,7 +84,10 @@ async function recomputePRItemQuotationStatus(tx, prItemIds) {
     });
 
     for (const item of prItems) {
-      if (item.itemQuotationStatus === PR_ITEM_QUOTATION_STATUS.CANCELLED) continue;
+      // CANCELLED and CASH_PURCHASE are both terminal: a quotation covering the
+      // same product name must never drag a cash line back into the chain.
+      if (item.itemQuotationStatus === PR_ITEM_QUOTATION_STATUS.CANCELLED
+        || item.itemQuotationStatus === PR_ITEM_QUOTATION_STATUS.CASH_PURCHASE) continue;
 
       let best = PR_ITEM_QUOTATION_STATUS.AWAITING_QUOTATION;
       const itemNameKey = normalizeName(item.productName);
@@ -142,44 +148,74 @@ async function syncPRStatusAfterChange(tx, prId) {
 
   // PRs that are still pending admin / rejected don't get auto-advanced.
   // PRs that have already moved past quotation review (ORDER_PLACED onwards)
-  // must not be downgraded back to IN_PROGRESS / QUOTATION_SUBMITTED — the
+  // must not be downgraded back to IN_PROGRESS / QUOTATION_SUBMITTED - the
   // computed `target` below only knows the quotation-stage statuses and would
   // otherwise wipe progress recorded by PO placement, goods receipt, QC, etc.
+  const live = pr.items.filter(i => i.itemQuotationStatus !== 'CANCELLED');
+
+  // Cash-purchase lines have left the quotation track: they are bought over the
+  // counter and received on a MIR. They must not be counted as "awaiting a
+  // quotation" (which would hold the PR open forever) nor block the rest of the
+  // lines from reaching QUOTATION_APPROVED.
+  const cash = live.filter(i => i.itemQuotationStatus === 'CASH_PURCHASE');
+  const quoted = live.filter(i => i.itemQuotationStatus !== 'CASH_PURCHASE');
+
+  // ── Cash settlement, checked BEFORE the terminal guard below ──
+  // A wholly-cash PR sits AT status CASH_PURCHASE, which is itself in that guard.
+  // Checking it afterwards made this branch unreachable and left such a PR open
+  // forever once Stores had received everything. Restricted to the live
+  // procurement states so a rejected or already-closed PR is never reopened.
+  if (live.length > 0 && quoted.length === 0
+    && ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'CASH_PURCHASE'].includes(pr.status)) {
+    const allReceived = cash.every(i => i.itemStatus === 'RECEIVED');
+    const next = allReceived ? 'COMPLETED' : 'CASH_PURCHASE';
+    if (next !== pr.status) {
+      await tx.purchaseRequest.update({ where: { id: prId }, data: { status: next } });
+    }
+    return;
+  }
+
+  // PRs that are still pending admin / rejected don't get auto-advanced.
+  // PRs that have already moved past quotation review (ORDER_PLACED onwards)
+  // must not be downgraded back to IN_PROGRESS / QUOTATION_SUBMITTED - the
+  // computed `target` below only knows the quotation-stage statuses and would
+  // otherwise wipe progress recorded by PO placement, goods receipt, QC, etc.
+  // CASH_PURCHASE stays here too: a PR at that status with lines still on the
+  // quotation track must not be dragged backwards by the derivation below.
   if ([
     'PENDING_QC', 'PENDING_ADMIN', 'ON_HOLD', 'REJECTED',
     'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED',
     'CASH_PURCHASE',
   ].includes(pr.status)) return;
 
-  const live = pr.items.filter(i => i.itemQuotationStatus !== 'CANCELLED');
   if (live.length === 0) {
-    // Everything cancelled → close PR.
+    // Everything cancelled -> close PR.
     await tx.purchaseRequest.update({ where: { id: prId }, data: { status: 'COMPLETED' } });
     return;
   }
 
-  const everyApproved = live.every(i => i.itemQuotationStatus === 'QUOTATION_APPROVED');
-  const anyHeld = live.some(i => i.itemQuotationStatus === 'QUOTATION_HELD');
-  const anySubmitted = live.some(i => i.itemQuotationStatus === 'QUOTATION_SUBMITTED');
-  const anyApproved = live.some(i => i.itemQuotationStatus === 'QUOTATION_APPROVED');
-  const anyAwaiting = live.some(i => i.itemQuotationStatus === 'AWAITING_QUOTATION');
+  const everyApproved = quoted.every(i => i.itemQuotationStatus === 'QUOTATION_APPROVED');
+  const anyHeld = quoted.some(i => i.itemQuotationStatus === 'QUOTATION_HELD');
+  const anySubmitted = quoted.some(i => i.itemQuotationStatus === 'QUOTATION_SUBMITTED');
+  const anyApproved = quoted.some(i => i.itemQuotationStatus === 'QUOTATION_APPROVED');
+  const anyAwaiting = quoted.some(i => i.itemQuotationStatus === 'AWAITING_QUOTATION');
 
   // Compute target status without ever downgrading a PR past where it already is.
   // AWAITING takes priority over SUBMITTED/HELD because the PR still needs PO
-  // attention — if a sibling item just got pooled into a union, the PR must
+  // attention - if a sibling item just got pooled into a union, the PR must
   // stay visible in the "needs quotes" list so the PO can quote the rest.
   let target = pr.status;
   if (everyApproved) {
     target = 'QUOTATION_APPROVED';
   } else if (anyAwaiting) {
     // Partially covered: some items already in flight (submitted/held/approved),
-    // others still waiting. IN_PROGRESS keeps the PR on the PO's radar — but
+    // others still waiting. IN_PROGRESS keeps the PR on the PO's radar - but
     // only if at least one quote has been sent to admin; otherwise the PR is
     // still in PO drafting territory.
     const anyInFlight = anySubmitted || anyHeld || anyApproved;
     target = (anyInFlight && hasSubmittedQuote) ? 'IN_PROGRESS' : 'APPROVED';
   } else if (anyHeld || anySubmitted) {
-    // Every item has a quote — but if none of them have been sent to admin yet
+    // Every item has a quote - but if none of them have been sent to admin yet
     // we stay at APPROVED so admin doesn't see anything until the PO clicks
     // "Send to Admin".
     target = hasSubmittedQuote ? 'QUOTATION_SUBMITTED' : 'APPROVED';
@@ -197,7 +233,7 @@ async function syncPRStatusAfterChange(tx, prId) {
 // cancelled items: a union quotation whose allocations include a now-cancelled
 // item is structurally invalid (its sourceAllocations point at dead rows), and
 // a single-PR quotation on a fully-cancelled PR is dead weight. Selected
-// (already approved) quotations are left alone — they're the audit trail for
+// (already approved) quotations are left alone - they're the audit trail for
 // POs that may still be in flight.
 async function cancelLeftoverPRItems(tx, prItemIds, reason) {
   if (!prItemIds || prItemIds.length === 0) return;
@@ -220,7 +256,7 @@ async function cancelLeftoverPRItems(tx, prItemIds, reason) {
   });
 
   // 1) Unselected union quotations whose sourceAllocations touch a cancelled
-  // item — delete entirely (PO can re-pool from surviving lines if needed).
+  // item - delete entirely (PO can re-pool from surviving lines if needed).
   const unionQuotes = await tx.quotation.findMany({
     where: {
       isUnion: true,
@@ -264,7 +300,7 @@ async function cancelLeftoverPRItems(tx, prItemIds, reason) {
     await syncPRStatusAfterChange(tx, prId);
   }
 
-  // Reason is intentionally written by the caller into auditLog/closeReason —
+  // Reason is intentionally written by the caller into auditLog/closeReason -
   // we don't persist it on the PR item itself to keep the schema tight.
   return { affectedPRIds: prIds, reason: reason || null };
 }
@@ -277,6 +313,12 @@ function buildCoverageSummary(items) {
     submitted: 0,
     held: 0,
     approved: 0,
+    // Lines bought over the counter. They have their own bucket because the
+    // `default` branch below would otherwise count them as "awaiting a
+    // quotation", which is exactly the opposite of the truth - nobody is going
+    // to quote them.
+    cash: 0,
+    cashReceived: 0,
     cancelled: 0,
   };
   for (const it of items) {
@@ -284,6 +326,10 @@ function buildCoverageSummary(items) {
       case 'QUOTATION_SUBMITTED': summary.submitted += 1; break;
       case 'QUOTATION_HELD': summary.held += 1; break;
       case 'QUOTATION_APPROVED': summary.approved += 1; break;
+      case 'CASH_PURCHASE':
+        summary.cash += 1;
+        if (it.itemStatus === 'RECEIVED') summary.cashReceived += 1;
+        break;
       case 'CANCELLED': summary.cancelled += 1; break;
       default: summary.awaiting += 1;
     }

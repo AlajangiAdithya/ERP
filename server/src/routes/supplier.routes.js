@@ -6,6 +6,7 @@ const { authorize, authorizeMinRole } = require('../middleware/rbac');
 const { auditLog } = require('../middleware/audit');
 const { paginate, getFinancialYear, withDocRetry } = require('../utils/helpers');
 const { supplierComplianceStatus } = require('../utils/supplierCompliance');
+const { validateReason } = require('../utils/reasonValidation');
 const {
   vendorEvaluationUpload,
   supplierAssessmentUpload,
@@ -14,7 +15,7 @@ const {
 
 const router = express.Router();
 
-// Approved Supplier List viewers: per client spec — admin, managers, purchase,
+// Approved Supplier List viewers: per client spec - admin, managers, purchase,
 // stores, designs. (Other procurement roles can still see suppliers through
 // quotation/PO contexts; this scope governs the register UI.)
 // ACCOUNTING + FINANCE added as read-only observers; the client hides edit
@@ -30,7 +31,7 @@ const decorate = (supplier, currentFY) => {
   const latestReEval = supplier.reEvaluations?.find((r) => r.financialYear === fy)
                     || supplier.reEvaluations?.[0]
                     || null;
-  // Strip the array — the panel only needs the latest record.
+  // Strip the array - the panel only needs the latest record.
   const { reEvaluations, ...rest } = supplier;
   return {
     ...rest,
@@ -43,6 +44,48 @@ const decorate = (supplier, currentFY) => {
   };
 };
 
+// ─── Admin approval of a supplier ───────────────────────────────────────
+// Purchase onboards the vendor and uploads its documents; an Admin then agrees or
+// disagrees. A supplier is "ready" for that decision once the Supplier Assessment
+// - the primary document - is on file.
+const approvalReady = (s) => !!s.supplierAssessmentPdfUrl;
+// Statuses that mean "an Admin has already ruled on this one". Uploading a fresh
+// document for an approved supplier does NOT drag it back into the queue; only a
+// supplier that has never been decided (or was rejected) is sent up.
+const DECIDED_STATUSES = ['APPROVED', 'CONDITIONAL', 'TERMINATED'];
+
+// Puts a supplier in front of the admins. Returns the updated row, or null when
+// there is nothing to do (docs missing, or already decided / already queued).
+async function submitForApproval(supplier, user, { reason } = {}) {
+  if (!approvalReady(supplier)) return null;
+  if (supplier.approvalStatus === 'PENDING_APPROVAL') return null;
+  if (DECIDED_STATUSES.includes(supplier.approvalStatus)) return null;
+
+  const updated = await prisma.supplier.update({
+    where: { id: supplier.id },
+    data: {
+      approvalStatus: 'PENDING_APPROVAL',
+      approvalSubmittedAt: new Date(),
+      approvalSubmittedById: user.id,
+      // A re-submission after a rejection starts with a clean decision slate.
+      approvalDecidedAt: null,
+      approvalDecidedById: null,
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      type: 'SUPPLIER_APPROVAL_REQUEST',
+      title: `Approve supplier: ${supplier.name}`,
+      message: `${user.name} submitted ${supplier.name}${supplier.vendorIdNo ? ` (${supplier.vendorIdNo})` : ''} for approval - ${reason || 'documents are on file'}. Open the Approved Suppliers register to approve or reject it.`,
+      targetRole: 'ADMIN',
+      sentById: user.id,
+    },
+  });
+
+  return updated;
+}
+
 const supplierSchema = z.object({
   name: z.string().min(1).transform((s) => s.trim()),
   contact: z.string().optional().nullable(),
@@ -54,6 +97,8 @@ const supplierSchema = z.object({
   notes: z.string().optional().nullable(),
   scopeOfSupply: z.string().optional().nullable(),
   materialType: z.enum(['MATERIAL', 'JOB_WORK', 'SERVICE']).optional().nullable(),
+  // PENDING_APPROVAL is deliberately absent: it is reached by submitting for
+  // approval, not by typing it into the row form.
   approvalStatus: z.enum(['APPROVED', 'CONDITIONAL', 'REJECTED', 'TERMINATED']).optional().nullable(),
   approvalDate: z.string().optional().nullable(),
   typeAndExtentOfControl: z.string().optional().nullable(),
@@ -96,10 +141,10 @@ const resolveSort = (sort) => SORT_MAP[sort] || SORT_MAP.vendor_asc;
 
 // ─── List & detail ──────────────────────────────────────────────────────
 
-// GET /api/suppliers?search=&productId=&page=&limit=&fy=&sort=
+// GET /api/suppliers?search=&productId=&page=&limit=&fy=&sort=&approvalStatus=
 router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
   try {
-    const { search, productId, page, limit, fy, sort } = req.query;
+    const { search, productId, page, limit, fy, sort, approvalStatus } = req.query;
     const targetFY = fy || getFinancialYear();
     const orderBy = resolveSort(sort);
 
@@ -133,6 +178,10 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       ];
     }
     if (supplierIdFilter) where.id = { in: supplierIdFilter.length ? supplierIdFilter : ['__none__'] };
+    // Approval filter - drives the "waiting for your approval" list the admins
+    // see pinned above the register.
+    if (approvalStatus === 'NONE') where.approvalStatus = null;
+    else if (approvalStatus) where.approvalStatus = approvalStatus;
 
     // Pull the latest 2 re-evaluations per supplier so decorate() can pick the
     // FY-matching one (or fall back to the most recent).
@@ -237,7 +286,7 @@ router.post(
         where: { supplierId: supplier.id },
         orderBy: { documentDate: 'desc' },
       });
-      const updated = await prisma.supplier.update({
+      let updated = await prisma.supplier.update({
         where: { id: req.params.id },
         data: {
           vendorEvaluationPdfUrl: latest.pdfUrl,
@@ -245,6 +294,13 @@ router.post(
           vendorEvaluationUploadedAt: new Date(),
         },
       });
+
+      // A VE on a supplier that has never been through the approval (or was
+      // rejected) completes its paperwork - send it up. An already-approved
+      // supplier just gets its yearly re-evaluation filed, no re-approval.
+      updated = await submitForApproval(updated, req.user, {
+        reason: 'Vendor Re-Evaluation uploaded',
+      }) || updated;
 
       await prisma.auditLog.create({
         data: {
@@ -282,7 +338,7 @@ router.post(
 
       const url = publicUrlFor('supplier-assessments', req.file.filename);
       const fy = getFinancialYear(documentDate);
-      const updated = await prisma.supplier.update({
+      let updated = await prisma.supplier.update({
         where: { id: req.params.id },
         data: {
           supplierAssessmentPdfUrl: url,
@@ -291,6 +347,12 @@ router.post(
           assessmentUploadedAt: new Date(),
         },
       });
+
+      // The SA is the document the approval waits on - with it on file the
+      // supplier goes straight to the admins, no extra step for Purchase.
+      updated = await submitForApproval(updated, req.user, {
+        reason: 'Supplier Assessment uploaded',
+      }) || updated;
 
       await prisma.auditLog.create({
         data: {
@@ -313,7 +375,7 @@ router.post(
 
 // ─── Create / update supplier ───────────────────────────────────────────
 
-// POST /api/suppliers — create (Purchase Officer + Admin)
+// POST /api/suppliers - create (Purchase Officer + Admin)
 router.post('/', authenticate, authorizeMinRole('PURCHASE_OFFICER'), auditLog('CREATE', 'Supplier'), async (req, res) => {
   try {
     const parsed = supplierSchema.parse(req.body);
@@ -342,6 +404,127 @@ router.post('/', authenticate, authorizeMinRole('PURCHASE_OFFICER'), auditLog('C
       return res.status(409).json({ error: 'Supplier name or vendor ID already exists' });
     }
     console.error('Create supplier error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── Approval workflow ──────────────────────────────────────────────────
+
+// POST /api/suppliers/:id/submit-approval - Purchase sends a supplier up for the
+// admin decision by hand. Uploading the SA does this automatically; this covers
+// suppliers whose documents were already on file, and re-submission after a
+// rejection has been addressed.
+router.post('/:id/submit-approval', authenticate, authorizeMinRole('PURCHASE_OFFICER'), async (req, res) => {
+  try {
+    const supplier = await prisma.supplier.findUnique({ where: { id: req.params.id } });
+    if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
+    if (!approvalReady(supplier)) {
+      return res.status(400).json({ error: 'Upload the Supplier Assessment (SA) before sending this supplier for approval' });
+    }
+    if (supplier.approvalStatus === 'PENDING_APPROVAL') {
+      return res.status(400).json({ error: 'This supplier is already waiting for approval' });
+    }
+    if (DECIDED_STATUSES.includes(supplier.approvalStatus)) {
+      return res.status(400).json({ error: `This supplier is already ${supplier.approvalStatus.toLowerCase()}` });
+    }
+
+    const updated = await submitForApproval(supplier, req.user, { reason: 'sent for approval by Purchase' });
+    res.json(decorate(updated || supplier));
+  } catch (error) {
+    console.error('Submit supplier for approval error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/suppliers/:id/approval-decision - the Admin's call on a supplier
+// waiting in the queue: APPROVED, CONDITIONAL (approved with conditions) or
+// REJECTED. Anything other than a clean approval must say why.
+router.post('/:id/approval-decision', authenticate, authorize('ADMIN'), async (req, res) => {
+  try {
+    const decision = String(req.body?.decision || '').toUpperCase();
+    if (!['APPROVED', 'CONDITIONAL', 'REJECTED'].includes(decision)) {
+      return res.status(400).json({ error: 'Decision must be APPROVED, CONDITIONAL or REJECTED' });
+    }
+    const supplier = await prisma.supplier.findUnique({ where: { id: req.params.id } });
+    if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
+    if (supplier.approvalStatus !== 'PENDING_APPROVAL') {
+      return res.status(400).json({ error: 'This supplier is not waiting for approval' });
+    }
+
+    let remark = req.body?.remark?.trim() || null;
+    if (decision !== 'APPROVED') {
+      const check = validateReason(remark, {
+        minLength: 12,
+        minWords: 2,
+        fieldLabel: decision === 'REJECTED' ? 'reason for rejecting' : 'condition',
+      });
+      if (!check.ok) return res.status(400).json({ error: check.error });
+      remark = check.cleaned;
+    }
+
+    const now = new Date();
+    const updated = await prisma.supplier.update({
+      where: { id: supplier.id },
+      data: {
+        approvalStatus: decision,
+        // The ASL "approval date" column is the date the supplier was approved.
+        approvalDate: decision === 'REJECTED' ? null : now,
+        approvalDecidedAt: now,
+        approvalDecidedById: req.user.id,
+        approvalRemark: remark,
+      },
+    });
+
+    const label = { APPROVED: 'approved', CONDITIONAL: 'approved with conditions', REJECTED: 'rejected' }[decision];
+    const vendor = `${supplier.name}${supplier.vendorIdNo ? ` (${supplier.vendorIdNo})` : ''}`;
+    const message = `${req.user.name} ${label} supplier ${vendor}${remark ? ` - ${remark}` : '.'}${decision === 'REJECTED' ? ' Address the points raised and send it for approval again.' : ''}`;
+
+    const notes = [{
+      type: decision === 'REJECTED' ? 'SUPPLIER_APPROVAL_REJECTED' : 'SUPPLIER_APPROVED',
+      title: `Supplier ${label}: ${supplier.name}`,
+      message,
+      targetRole: 'PURCHASE_OFFICER',
+      sentById: req.user.id,
+    }];
+    // Whoever sent it up hears back directly, not just via the role feed.
+    if (supplier.approvalSubmittedById) {
+      notes.push({
+        type: decision === 'REJECTED' ? 'SUPPLIER_APPROVAL_REJECTED' : 'SUPPLIER_APPROVED',
+        title: `Supplier ${label}: ${supplier.name}`,
+        message,
+        targetUserId: supplier.approvalSubmittedById,
+        sentById: req.user.id,
+      });
+    }
+    await prisma.notification.createMany({ data: notes });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'UPDATE',
+        entity: 'Supplier.Approval',
+        entityId: supplier.id,
+        details: { supplierName: supplier.name, decision, remark },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(decorate(updated));
+  } catch (error) {
+    console.error('Supplier approval decision error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/suppliers/pending-approval/count - how many suppliers are sitting on
+// an admin decision, for the banner on the register. Two path segments, so
+// `GET /:id` (one segment) does not swallow it.
+router.get('/pending-approval/count', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
+  try {
+    const count = await prisma.supplier.count({ where: { approvalStatus: 'PENDING_APPROVAL' } });
+    res.json({ count });
+  } catch (error) {
+    console.error('Pending supplier approvals count error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -629,7 +812,7 @@ router.get('/performance-ratings/all', authenticate, authorize(...VIEW_ROLES), a
   }
 });
 
-// GET /api/suppliers/performance-ratings/:fy  — single FY's rating
+// GET /api/suppliers/performance-ratings/:fy  - single FY's rating
 router.get('/performance-ratings/by-fy/:fy', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
   try {
     const rating = await prisma.supplierPerformanceRating.findUnique({
@@ -644,7 +827,7 @@ router.get('/performance-ratings/by-fy/:fy', authenticate, authorize(...VIEW_ROL
   }
 });
 
-// POST /api/suppliers/performance-ratings  — upsert by FY
+// POST /api/suppliers/performance-ratings  - upsert by FY
 router.post('/performance-ratings', authenticate, authorizeMinRole('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const parsed = ratingSchema.parse(req.body);

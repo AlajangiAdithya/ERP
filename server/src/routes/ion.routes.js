@@ -1,9 +1,9 @@
 // ──────────────────────────────────────────────────────────────
-// Inter Office Note (ION) — work-order workflow
+// Inter Office Note (ION) - work-order workflow
 // Sender:    MANAGER, LAB, METROLOGY, NDT, RND (per access chart).
 // Recipient: LAB / METROLOGY / NDT / RND (role bucket)
 //            OR a specific MANAGER (cross-unit machining flow).
-// Monitor:   PLANNING — read-only oversight; sees every ION but cannot
+// Monitor:   PLANNING - read-only oversight; sees every ION but cannot
 //            create one or move its status.
 // Doc: RAMS/ION/00
 // ──────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ const router = express.Router();
 const ION_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'];
 const ION_RECIPIENT_ROLES = ['LAB', 'METROLOGY', 'NDT', 'RND'];
 const ION_CREATOR_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND'];
-// Read-only monitor roles — can list/view every ION but never create one or
+// Read-only monitor roles - can list/view every ION but never create one or
 // transition its status. Used only on the GET routes.
 const ION_MONITOR_ROLES = ['PLANNING'];
 const ION_VIEW_ROLES = [...ION_ROLES, ...ION_MONITOR_ROLES];
@@ -29,7 +29,7 @@ const ION_INCLUDE = {
   items: true,
 };
 
-// GET /api/ion — list, filtered by role + assignment
+// GET /api/ion - list, filtered by role + assignment
 router.get('/', authenticate, authorize(...ION_VIEW_ROLES), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate } = req.query;
@@ -48,14 +48,14 @@ router.get('/', authenticate, authorize(...ION_VIEW_ROLES), async (req, res) => 
     } else if (ION_RECIPIENT_ROLES.includes(req.user.role)) {
       // Recipient roles (LAB/METROLOGY/NDT/RND) see ions sent to their role:
       // either unassigned with createdBy targeting their role (handled implicitly
-      // by recipientRole field — we filter on either no assignee with matching
+      // by recipientRole field - we filter on either no assignee with matching
       // role bucket OR assigned to a user of that same role).
       where.OR = [
         { assignedToId: null, recipientRole: req.user.role },
         { assignedTo: { is: { role: req.user.role } } },
       ];
     }
-    // PLANNING (monitor): no filter applied — sees every ION.
+    // PLANNING (monitor): no filter applied - sees every ION.
 
     const [ions, total] = await Promise.all([
       prisma.interOfficeNote.findMany({
@@ -79,7 +79,7 @@ router.get('/', authenticate, authorize(...ION_VIEW_ROLES), async (req, res) => 
   }
 });
 
-// GET /api/ion/:id — single. Sender, assignee, or LAB (for unassigned/lab-assigned) can see it.
+// GET /api/ion/:id - single. Sender, assignee, or LAB (for unassigned/lab-assigned) can see it.
 router.get('/:id', authenticate, authorize(...ION_VIEW_ROLES), async (req, res) => {
   try {
     const ion = await prisma.interOfficeNote.findUnique({
@@ -108,7 +108,7 @@ router.get('/:id', authenticate, authorize(...ION_VIEW_ROLES), async (req, res) 
   }
 });
 
-// POST /api/ion — MANAGER / LAB / METROLOGY / NDT / RND create
+// POST /api/ion - MANAGER / LAB / METROLOGY / NDT / RND create
 //   recipientType:  'LAB' (default) | 'METROLOGY' | 'NDT' | 'RND' | 'UNIT'
 //   assignedUnitId: required when recipientType === 'UNIT' (routes to that unit's manager)
 router.post('/', authenticate, authorize(...ION_CREATOR_ROLES), async (req, res) => {
@@ -150,7 +150,7 @@ router.post('/', authenticate, authorize(...ION_CREATOR_ROLES), async (req, res)
       resolvedAssigneeId = unitManager.id;
       resolvedRecipientRole = null;
     } else if (recipientType === 'MANAGER') {
-      // legacy path — keep for backwards compat
+      // legacy path - keep for backwards compat
       if (!assignedToId) {
         return res.status(400).json({ error: 'Select a manager to send the ION to' });
       }
@@ -239,7 +239,7 @@ router.post('/', authenticate, authorize(...ION_CREATOR_ROLES), async (req, res)
   }
 });
 
-// PUT /api/ion/:id/status — recipient transitions SENT → WAITING → WORK_DONE → COLLECTED
+// PUT /api/ion/:id/status - recipient transitions SENT → WAITING → WORK_DONE → COLLECTED
 //   Recipient = LAB/METROLOGY/NDT/RND user (for unassigned/role-assigned) OR the specific manager assigned to it.
 router.put('/:id/status', authenticate, authorize(...ION_ROLES), async (req, res) => {
   try {
@@ -254,7 +254,7 @@ router.put('/:id/status', authenticate, authorize(...ION_ROLES), async (req, res
     });
     if (!existing) return res.status(404).json({ error: 'ION not found' });
 
-    // Authorisation — only the recipient can move the status forward
+    // Authorisation - only the recipient can move the status forward
     if (req.user.role === 'MANAGER') {
       if (existing.assignedToId !== req.user.id) {
         return res.status(403).json({ error: 'Only the assigned manager can update this ION' });
@@ -274,7 +274,7 @@ router.put('/:id/status', authenticate, authorize(...ION_ROLES), async (req, res
 
     // Machining gate: an ION handled by a unit MANAGER can only start (go
     // In Progress) once a machine has been allocated to it. Lab/Metrology/NDT
-    // recipients are unaffected — they have no machine-allocation step.
+    // recipients are unaffected - they have no machine-allocation step.
     if (status === 'WAITING' && req.user.role === 'MANAGER') {
       const allocCount = await prisma.machineAllocation.count({
         where: { ionId: existing.id, status: { not: 'CANCELLED' } },
@@ -313,7 +313,7 @@ router.put('/:id/status', authenticate, authorize(...ION_ROLES), async (req, res
     if (existing.createdBy?.id && existing.createdBy.id !== req.user.id) {
       const notifMap = {
         WAITING:   { title: `ION ${updated.ionNumber}: Work Started`,              msg: `${req.user.name} has started work on your ION ${updated.ionNumber}.` },
-        WORK_DONE: { title: `ION ${updated.ionNumber}: Work Done — Ready to Collect`, msg: `${req.user.name} has completed work on ION ${updated.ionNumber}. Report: ${reportNoAndDate}. Please collect.` },
+        WORK_DONE: { title: `ION ${updated.ionNumber}: Work Done - Ready to Collect`, msg: `${req.user.name} has completed work on ION ${updated.ionNumber}. Report: ${reportNoAndDate}. Please collect.` },
         COLLECTED: { title: `ION ${updated.ionNumber}: Collected`,                 msg: `Items for ION ${updated.ionNumber} have been collected by ${collectedBy}.` },
       };
       const n = notifMap[status];

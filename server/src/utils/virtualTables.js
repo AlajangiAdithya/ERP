@@ -10,13 +10,13 @@
 //
 //  2. VIRTUAL TABLES. A virtual table is a REAL model plus a fixed filter,
 //     published under a business-facing name. FIM entries, for example, are
-//     GatePass rows sharing a table with every outward gate pass — so "FIM
+//     GatePass rows sharing a table with every outward gate pass - so "FIM
 //     Entry" lists only the FIM rows and writes straight back to GatePass.
 //     Reads, updates and deletes all stay inside the filter, so a curated view
 //     can never be used to reach a row outside it; inserts get the view's
 //     defining columns forced on so a new row lands where it was created.
 
-// A GatePass row is a FIM / customer-property entry when it is INWARD — the
+// A GatePass row is a FIM / customer-property entry when it is INWARD - the
 // same filter the FIM register itself uses (InwardEntry → Inward FIM tab), so
 // every row an operator can see there is reachable here. Deliberately NOT
 // narrowed to `fimNumber != null`: that column is only stamped on newer STORES
@@ -29,13 +29,13 @@ const VIRTUAL_TABLES = {
   FimEntry: {
     model: 'GatePass',
     label: 'FIM Entry',
-    hint: 'Customer FIM / free-issue-material inward entries — the FIM register',
+    hint: 'Customer FIM / free-issue-material inward entries - the FIM register',
     group: FIM_GROUP,
     where: FIM_GATEPASS_WHERE,
     createDefaults: { direction: 'INWARD' },
     // GatePass carries ~60 columns because OUTWARD dispatch, job-work, logistics
     // and the multi-stage approval trail all live on the same model. On a FIM row
-    // those are permanently null — gatepass.routes.js writes NULL to kind /
+    // those are permanently null - gatepass.routes.js writes NULL to kind /
     // jobWorkNo / requestedById for inward and never touches dispatchedAt,
     // logisticsAt, reachedDate, siteOfficeAckAt, approvedAt, localReturnedAt…
     // Listing them just produced a wall of blank cells, so the table shows the
@@ -54,7 +54,7 @@ const VIRTUAL_TABLES = {
   },
   FimEntryItem: {
     model: 'GatePassItem',
-    label: 'FIM Entry — Items',
+    label: 'FIM Entry - Items',
     hint: 'Line items recorded on a FIM inward entry',
     group: FIM_GROUP,
     where: { gatePass: FIM_GATEPASS_WHERE },
@@ -76,7 +76,7 @@ const VIRTUAL_TABLES = {
     where: { isFim: true },
     createDefaults: { isFim: true },
     // Drops the direct/cash-purchase columns (supplier*, unitCost, expiry, QC lot
-    // linkage) — those belong to bought stock, never to customer property.
+    // linkage) - those belong to bought stock, never to customer property.
     columns: [
       'productId', 'batchNo', 'receivedDate', 'quantity', 'remaining',
       'sourceInwardGatePassId', 'sourceInwardGatePassItemId',
@@ -90,15 +90,15 @@ const VIRTUAL_TABLES = {
 
 // Every model, filed by business area. Order here is the order the editor shows
 // them in. Anything missing (a newly added model) falls into "Other" rather than
-// disappearing — see assertCatalogueCovers* below.
+// disappearing - see assertCatalogueCovers* below.
 const GROUPS = {
   [FIM_GROUP]: ['FimTestReport'],
-  'Procurement — Requests': [
+  'Procurement - Requests': [
     'PurchaseRequest', 'PurchaseRequestItem', 'PurchaseRequestAttachment',
     'PurchaseRequestItemAttachment', 'PurchaseRequestDateHistory',
     'ProductRequest', 'RequestItem', 'MaterialPool', 'MaterialPoolItem',
   ],
-  'Procurement — Quotations & Orders': [
+  'Procurement - Quotations & Orders': [
     'Quotation', 'QuotationItem', 'QuotationSource',
     'PurchaseOrder', 'PurchaseOrderItem', 'PurchaseOrderItemAllocation',
     'PurchaseOrderNumberHistory', 'PurchaseOrderSource', 'PaymentRequest',
@@ -157,7 +157,7 @@ const TABLE_HINTS = {
   WorkOrderEditHistory: 'Audit trail of edits to work order scope details',
   PurchaseOrderNumberHistory: 'Record of PO re-numbering',
   PurchaseRequestDateHistory: 'Record of required-by date changes on a PR',
-  Session: 'Active login sessions — deleting one logs that device out',
+  Session: 'Active login sessions - deleting one logs that device out',
   AuditLog: 'System-wide action log',
 };
 
@@ -170,7 +170,7 @@ const ABBREVIATIONS = { Qms: 'QMS', Fim: 'FIM', Bg: 'BG', Pdc: 'PDC', Miv: 'MIV'
 const TABLE_LABELS = {
   SupplierReEvaluation: 'Supplier Re-Evaluation',
   InterOfficeNote: 'Inter-Office Note',
-  WorkOrderClosureWeeklyFollowup: 'Work Order Closure — Weekly Follow-up',
+  WorkOrderClosureWeeklyFollowup: 'Work Order Closure - Weekly Follow-up',
 };
 
 function prettyTableLabel(name) {
@@ -229,7 +229,7 @@ async function mapPool(items, concurrency, fn) {
 }
 
 // Everything that makes up FIM / customer-property data. This is the whole
-// surface the admin-facing FIM editor exposes — the register entries, their
+// surface the admin-facing FIM editor exposes - the register entries, their
 // lines, the stock batches they produced, and the customer test certificates.
 const FIM_TABLES = [
   ...Object.keys(VIRTUAL_TABLES).filter((n) => VIRTUAL_TABLES[n].group === FIM_GROUP),

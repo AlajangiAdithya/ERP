@@ -19,27 +19,27 @@ export default function IONPdf({ data }) {
         <View style={styles.table}>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>ION No.</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{n.ionNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{n.ionNumber || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Date</Text></View>
             <View style={[styles.cell, { width: '30%' }]}><Text>{formatDate(n.createdAt)}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>User Ref No.</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{n.userReferenceNo || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{n.userReferenceNo || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Status</Text></View>
             <View style={[styles.cell, { width: '30%' }]}><Text>{statusLabel(n.status)}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Section</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{n.section || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{n.section || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Project Name</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{n.projectName || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{n.projectName || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Supply Order No.</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{n.supplyOrderNo || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{n.supplyOrderNo || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Ref Doc / QA Plan</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{n.referenceDocQA || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{n.referenceDocQA || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Material Supply Date</Text></View>
@@ -55,9 +55,9 @@ export default function IONPdf({ data }) {
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>External QA Witness</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{n.externalQAWitness || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{n.externalQAWitness || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>QC Contact</Text></View>
-            <View style={[styles.cell, { width: '30%' }]}><Text>{n.qcContactDetails || '—'}</Text></View>
+            <View style={[styles.cell, { width: '30%' }]}><Text>{n.qcContactDetails || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '20%' }]}><Text>Completed Date</Text></View>
@@ -78,11 +78,11 @@ export default function IONPdf({ data }) {
           {items.map((it, idx) => (
             <View key={idx} style={styles.row} wrap={false}>
               <View style={[styles.cell, { width: '5%' }]}><Text>{idx + 1}</Text></View>
-              <View style={[styles.cell, { width: '22%' }]}><Text>{it.jobIdentification || '—'}</Text></View>
-              <View style={[styles.cell, { width: '19%' }]}><Text>{it.activityRequired || '—'}</Text></View>
-              <View style={[styles.cell, { width: '18%' }]}><Text>{it.materialComposition || '—'}</Text></View>
-              <View style={[styles.cell, { width: '18%' }]}><Text>{it.drawingNo || '—'}</Text></View>
-              <View style={[styles.cell, { width: '18%' }]}><Text>{it.specification || '—'}</Text></View>
+              <View style={[styles.cell, { width: '22%' }]}><Text>{it.jobIdentification || '-'}</Text></View>
+              <View style={[styles.cell, { width: '19%' }]}><Text>{it.activityRequired || '-'}</Text></View>
+              <View style={[styles.cell, { width: '18%' }]}><Text>{it.materialComposition || '-'}</Text></View>
+              <View style={[styles.cell, { width: '18%' }]}><Text>{it.drawingNo || '-'}</Text></View>
+              <View style={[styles.cell, { width: '18%' }]}><Text>{it.specification || '-'}</Text></View>
             </View>
           ))}
         </View>

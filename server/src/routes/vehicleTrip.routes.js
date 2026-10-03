@@ -189,7 +189,7 @@ router.post('/', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res)
   }
 });
 
-// PUT /api/vehicle-trips/:id — edit purpose/destination/remarks while not yet returned/cancelled
+// PUT /api/vehicle-trips/:id - edit purpose/destination/remarks while not yet returned/cancelled
 router.put('/:id', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
   try {
     const existing = await prisma.vehicleTrip.findUnique({ where: { id: req.params.id } });
@@ -254,7 +254,7 @@ router.post('/:id/dispatch', authenticate, authorize('LOGISTICS', 'ADMIN'), asyn
   }
 });
 
-// POST /api/vehicle-trips/:id/return — mark returned (ad-hoc completion; doesn't
+// POST /api/vehicle-trips/:id/return - mark returned (ad-hoc completion; doesn't
 // auto-close gatepasses since those have their own return-ack flow).
 router.post('/:id/return', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
   try {

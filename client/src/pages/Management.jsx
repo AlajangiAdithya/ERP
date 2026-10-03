@@ -14,7 +14,7 @@ const isFixedAdmin = (user) => FIXED_ADMINS.includes(user.username);
 
 const GLOBAL_ONLY_ROLES = [
   'STORE_MANAGER', 'PURCHASE_OFFICER', 'SUPPLY_CHAIN', 'SAFETY',
-  'FINANCE', 'LOGISTICS', 'DESIGNS', 'PLANNING', 'SITE_OFFICE', 'HR', 'INWARD_QC',
+  'FINANCE', 'LOGISTICS', 'DESIGNS', 'PLANNING', 'SITE_OFFICE', 'HR', 'INWARD_QC', 'IN_PROCESS_QC',
 ];
 
 const roleLabel = (role) => ({
@@ -25,6 +25,7 @@ const roleLabel = (role) => ({
   ACCOUNTING: 'Accounting',
   QC: 'Quality Control',
   INWARD_QC: 'Inward QC',
+  IN_PROCESS_QC: 'In-Process QC',
   LAB: 'Lab',
   METROLOGY: 'Metrology',
   NDT: 'NDT',
@@ -47,6 +48,7 @@ const roleBadgeColor = (role) => ({
   ACCOUNTING: 'green',
   QC: 'purple',
   INWARD_QC: 'purple',
+  IN_PROCESS_QC: 'purple',
   LAB: 'purple',
   METROLOGY: 'blue',
   NDT: 'blue',
@@ -209,7 +211,7 @@ function UsersSection() {
                         {roleLabel(u.role)}
                       </Badge>
                     </td>
-                    <td className="px-3 py-2 text-gray-600">{u.unit?.name || '— (Global)'}</td>
+                    <td className="px-3 py-2 text-gray-600">{u.unit?.name || '- (Global)'}</td>
                     <td className="px-3 py-2">
                       <Badge color={u.isActive ? 'green' : 'red'}>{u.isActive ? 'Active' : 'Inactive'}</Badge>
                     </td>
@@ -253,6 +255,7 @@ function UsersSection() {
             <option value="FINANCE">Finance</option>
             <option value="QC">Quality Control</option>
             <option value="INWARD_QC">Inward QC</option>
+            <option value="IN_PROCESS_QC">In-Process QC</option>
             <option value="LAB">Lab</option>
             <option value="METROLOGY">Metrology</option>
             <option value="NDT">NDT</option>
@@ -268,7 +271,7 @@ function UsersSection() {
 
           {GLOBAL_ONLY_ROLES.includes(form.role) ? (
             <p className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-              {roleLabel(form.role)} is a global role — not assigned to any unit.
+              {roleLabel(form.role)} is a global role - not assigned to any unit.
             </p>
           ) : (
             <Select label="Assign Unit" value={form.unitId} onChange={(e) => setForm({ ...form, unitId: e.target.value })}>

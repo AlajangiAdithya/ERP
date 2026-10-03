@@ -130,7 +130,7 @@ function QCInspectionCard({ qc }) {
     dt.dimInspAtSupplier && 'At Supplier place',
     dt.dimInspAtRapsInward && 'At RAPS inward',
   ].filter(Boolean);
-  const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '—';
+  const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '-';
   const reportFilled = !!qc.reportNo || !!qc.inspectedAt;
   const lotLabel = qc.lotNumber ? `Lot ${qc.lotNumber}` : null;
 
@@ -184,7 +184,7 @@ function QCInspectionCard({ qc }) {
 
       {open && (
         <div className="border-t border-gray-200 p-3 text-xs space-y-3">
-          {/* Lot summary — what arrived in THIS lot */}
+          {/* Lot summary - what arrived in THIS lot */}
           {(qc.lotNumber || qc.arrivedQty != null || qc.invoiceFileUrl || qc.lotReportFileUrl || (qc.items && qc.items.length > 0)) && (
             <div className="bg-navy-50/60 border border-navy-200 rounded p-2">
               <div className="font-semibold text-navy-800 mb-1 flex items-center gap-2 flex-wrap">
@@ -211,8 +211,8 @@ function QCInspectionCard({ qc }) {
                 )}
               </div>
               <div className="grid grid-cols-3 gap-x-4 gap-y-1">
-                <div><span className="text-gray-500">Lot total:</span> <span className="font-medium">{qc.arrivedQty ?? '—'}</span></div>
-                <div><span className="text-gray-500">Invoice:</span> {qc.invoiceNo || '—'}</div>
+                <div><span className="text-gray-500">Lot total:</span> <span className="font-medium">{qc.arrivedQty ?? '-'}</span></div>
+                <div><span className="text-gray-500">Invoice:</span> {qc.invoiceNo || '-'}</div>
                 <div><span className="text-gray-500">Receipt date:</span> {fmt(qc.materialReceiptDate)}</div>
               </div>
               {Array.isArray(qc.items) && qc.items.length > 0 && (
@@ -226,7 +226,7 @@ function QCInspectionCard({ qc }) {
                   <tbody>
                     {qc.items.map((li) => (
                       <tr key={li.id}>
-                        <td>{li.purchaseOrderItem?.productName || '—'}</td>
+                        <td>{li.purchaseOrderItem?.productName || '-'}</td>
                         <td className="text-right font-medium">
                           {li.arrivedQty} {li.purchaseOrderItem?.productUnit || ''}
                         </td>
@@ -238,15 +238,15 @@ function QCInspectionCard({ qc }) {
             </div>
           )}
 
-          {/* Page 1 — Request details (filled by PO) */}
+          {/* Page 1 - Request details (filled by PO) */}
           <div>
             <div className="font-semibold text-gray-700 mb-1">
               Inspection Request (filled by {qc.requestCreatedBy?.name || 'Purchase'})
             </div>
             <div className="grid grid-cols-3 gap-x-4 gap-y-1">
-              <div><span className="text-gray-500">Invoice:</span> {qc.invoiceNo || '—'} · {fmt(qc.invoiceDate)}</div>
-              <div><span className="text-gray-500">DC No.:</span> {qc.dcNo || '—'}</div>
-              <div><span className="text-gray-500">Gate Pass:</span> {qc.gatePassNo || '—'} {qc.gatePassType ? `(${qc.gatePassType})` : ''}</div>
+              <div><span className="text-gray-500">Invoice:</span> {qc.invoiceNo || '-'} · {fmt(qc.invoiceDate)}</div>
+              <div><span className="text-gray-500">DC No.:</span> {qc.dcNo || '-'}</div>
+              <div><span className="text-gray-500">Gate Pass:</span> {qc.gatePassNo || '-'} {qc.gatePassType ? `(${qc.gatePassType})` : ''}</div>
               <div><span className="text-gray-500">Material Receipt:</span> {fmt(qc.materialReceiptDate)}</div>
               {qc.probableDateOfReturn && (
                 <div><span className="text-gray-500">Prob. Return:</span> {fmt(qc.probableDateOfReturn)}</div>
@@ -267,32 +267,32 @@ function QCInspectionCard({ qc }) {
             )}
           </div>
 
-          {/* Page 2 — Inspection report (filled by QC) */}
+          {/* Page 2 - Inspection report (filled by QC) */}
           {reportFilled ? (
             <div className="border-t border-gray-100 pt-2">
               <div className="font-semibold text-gray-700 mb-1">
                 Inspection Report (filled by {qc.inspectedBy?.name || 'QC'}{qc.inspectedAt ? ` · ${formatDateTime(qc.inspectedAt)}` : ''})
               </div>
               <div className="grid grid-cols-3 gap-x-4 gap-y-1">
-                <div><span className="text-gray-500">Report No.:</span> {qc.reportNo || '—'}</div>
+                <div><span className="text-gray-500">Report No.:</span> {qc.reportNo || '-'}</div>
                 <div><span className="text-gray-500">Report Date:</span> {fmt(qc.reportDate)}</div>
-                <div><span className="text-gray-500">Ref. No.:</span> {qc.reportReferenceNo || '—'}</div>
+                <div><span className="text-gray-500">Ref. No.:</span> {qc.reportReferenceNo || '-'}</div>
                 {qc.materialDescription && (
                   <div className="col-span-3"><span className="text-gray-500">Material:</span> {qc.materialDescription}</div>
                 )}
-                <div><span className="text-gray-500">Packing:</span> {qc.packingCondition || '—'} {qc.packingDamageNotes ? `· ${qc.packingDamageNotes}` : ''}</div>
-                <div><span className="text-gray-500">Batch:</span> {qc.batchNo || '—'}</div>
+                <div><span className="text-gray-500">Packing:</span> {qc.packingCondition || '-'} {qc.packingDamageNotes ? `· ${qc.packingDamageNotes}` : ''}</div>
+                <div><span className="text-gray-500">Batch:</span> {qc.batchNo || '-'}</div>
                 <div><span className="text-gray-500">Mfg / Exp:</span> {fmt(qc.dateOfManufacturing)} / {fmt(qc.dateOfExpiry)}</div>
                 {qc.tappedHolesCondition && (
                   <div className="col-span-3"><span className="text-gray-500">Tapped holes / weld lugs:</span> {qc.tappedHolesCondition}</div>
                 )}
               </div>
               <div className="grid grid-cols-5 gap-2 mt-2 border-t border-gray-100 pt-2">
-                <div><div className="text-gray-500">Qty PR</div><div className="font-medium">{qc.qtyAsPerPR ?? '—'}</div></div>
-                <div><div className="text-gray-500">Qty Ordered</div><div className="font-medium">{qc.qtyOrdered ?? '—'}</div></div>
-                <div><div className="text-gray-500">Qty Received</div><div className="font-medium">{qc.qtyReceived ?? '—'}</div></div>
-                <div><div className="text-gray-500">Qty Accepted</div><div className="font-medium text-green-700">{qc.qtyAccepted ?? '—'}</div></div>
-                <div><div className="text-gray-500">Qty Rejected</div><div className="font-medium text-red-700">{qc.qtyRejected ?? '—'}</div></div>
+                <div><div className="text-gray-500">Qty PR</div><div className="font-medium">{qc.qtyAsPerPR ?? '-'}</div></div>
+                <div><div className="text-gray-500">Qty Ordered</div><div className="font-medium">{qc.qtyOrdered ?? '-'}</div></div>
+                <div><div className="text-gray-500">Qty Received</div><div className="font-medium">{qc.qtyReceived ?? '-'}</div></div>
+                <div><div className="text-gray-500">Qty Accepted</div><div className="font-medium text-green-700">{qc.qtyAccepted ?? '-'}</div></div>
+                <div><div className="text-gray-500">Qty Rejected</div><div className="font-medium text-red-700">{qc.qtyRejected ?? '-'}</div></div>
               </div>
               {qc.rejectionReason && (
                 <div className="mt-2"><span className="text-gray-500">Rejection / non-conformity:</span> {qc.rejectionReason}</div>
@@ -333,7 +333,7 @@ function QCInspectionCard({ qc }) {
             <div className="border-t border-gray-100 pt-2 text-gray-500 italic">
               Awaiting QC to fill the inspection report.
               {qc.pendingReason && (
-                <span className="block mt-1 text-orange-700 not-italic">On hold — {qc.pendingReason}</span>
+                <span className="block mt-1 text-orange-700 not-italic">On hold - {qc.pendingReason}</span>
               )}
             </div>
           )}
@@ -364,13 +364,13 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
 
   const prNumber = order.purchaseRequest?.requestNumber
     || (order.sourceRequests || []).map(s => s.purchaseRequest?.requestNumber).filter(Boolean).join(', ')
-    || '—';
+    || '-';
   const prDate = order.purchaseRequest?.createdAt
     ? new Date(order.purchaseRequest.createdAt).toLocaleDateString('en-IN')
-    : '—';
+    : '-';
   const poDate = order.createdAt
     ? new Date(order.createdAt).toLocaleDateString('en-IN')
-    : '—';
+    : '-';
 
   const prItemsById = new Map((order.purchaseRequest?.items || []).map(it => [it.id, it]));
   const materialDescription = (order.items || [])
@@ -378,7 +378,7 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
       const prItem = prItemsById.get(i.purchaseRequestItemId);
       return `${i.productName}${prItem?.materialSpecification ? ` (${prItem.materialSpecification})` : ''}`;
     })
-    .join('; ') || '—';
+    .join('; ') || '-';
   const totalQty = (order.items || []).reduce((s, i) => s + (i.quantity || 0), 0);
   const qtyText = (order.items || []).map(i => `${i.quantity} ${i.productUnit || ''}`).join(', ');
   const scopeOfWork = order.customName || materialDescription;
@@ -442,14 +442,14 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
         <div className="border border-gray-300 rounded-md mb-6 overflow-hidden">
           <div className="bg-blue-50 px-3 py-2 border-b border-gray-300 flex items-center justify-between">
             <div className="text-xs font-bold uppercase text-blue-900">Auto-filled from Purchase Order</div>
-            <div className="text-[10px] italic text-blue-700">Read-only — pulled from PR & PO records</div>
+            <div className="text-[10px] italic text-blue-700">Read-only - pulled from PR & PO records</div>
           </div>
           <div className="bg-white">
             <AutoFillRow sno="01" label="PR No. & Date" value={<span><span className="font-semibold">{prNumber}</span> · {prDate}</span>} />
             <AutoFillRow sno="02" label="Material Description" value={materialDescription} />
             <AutoFillRow sno="03" label="Qty as per PR" value={qtyText || totalQty} />
-            <AutoFillRow sno="04" label="Supplier Details" value={order.supplierName || '—'} />
-            <AutoFillRow sno="05" label="Quote Details" value={order.quotation?.quotationNumber || '—'} />
+            <AutoFillRow sno="04" label="Supplier Details" value={order.supplierName || '-'} />
+            <AutoFillRow sno="05" label="Quote Details" value={order.quotation?.quotationNumber || '-'} />
             <AutoFillRow sno="06" label="Assessment Status of Supplier" value={<span className="italic text-gray-500">Verified by Purchase</span>} />
             <AutoFillRow sno="07" label="PO No. & Date" value={<span><span className="font-semibold">{order.orderNumber}</span> · {poDate}</span>} />
             <AutoFillRow sno="08" label="Qty as per PO" value={qtyText || totalQty} />
@@ -571,7 +571,7 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
                 <span className="inline-block px-2.5 py-1 rounded border border-gray-300 bg-gray-50 text-xs font-medium text-gray-800">
                   {iir.materialCategory || <span className="italic text-gray-400 font-normal">Not set on PR</span>}
                 </span>
-                <span className="text-[10px] text-gray-400 italic">Carried over from the purchase request — set at PR creation.</span>
+                <span className="text-[10px] text-gray-400 italic">Carried over from the purchase request - set at PR creation.</span>
               </div>
             </div>
 
@@ -622,7 +622,7 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
         {/* Quantities Table - Partial delivery (lot items locked in edit mode) */}
         <div className="border border-amber-300 rounded mb-6 overflow-hidden shadow-sm">
           <div className="bg-amber-100 p-2 font-bold text-[10px] uppercase text-amber-900 border-b border-amber-300 flex justify-between">
-            <span>Lot Itemization — Physical Arrival{isEdit ? ' (Locked)' : ''}</span>
+            <span>Lot Itemization - Physical Arrival{isEdit ? ' (Locked)' : ''}</span>
             <span>Lot Total: {isEdit ? (editingInspection?.arrivedQty ?? lotTotal) : lotTotal}</span>
           </div>
           <table className="w-full text-xs">
@@ -675,7 +675,7 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
         {/* Invoice File */}
         <div className="bg-blue-50 border border-blue-200 rounded p-4 mb-4">
           <div className="text-xs font-bold text-blue-900 mb-2">
-            Supporting Invoice PDF {isEdit ? <span className="text-gray-500 font-normal">(locked — uploaded at goods-arrival)</span> : <span className="text-red-500">*</span>}
+            Supporting Invoice PDF {isEdit ? <span className="text-gray-500 font-normal">(locked - uploaded at goods-arrival)</span> : <span className="text-red-500">*</span>}
           </div>
           {isEdit ? (
             editingInspection?.invoiceFileUrl ? (
@@ -696,8 +696,8 @@ function IIRForm({ order, iir, setIir, lotItems, setLotItems, invoiceFile, setIn
         {/* Lot Report File (supplier test report / COA / COC) */}
         <div className="bg-indigo-50 border border-indigo-200 rounded p-4 mb-4">
           <div className="text-xs font-bold text-indigo-900 mb-2">
-            Lot Report PDF <span className="text-gray-500 font-normal">(test report / COA / COC / mill cert — optional but recommended)</span>
-            {isEdit && <span className="text-gray-500 font-normal"> (locked — uploaded at goods-arrival)</span>}
+            Lot Report PDF <span className="text-gray-500 font-normal">(test report / COA / COC / mill cert - optional but recommended)</span>
+            {isEdit && <span className="text-gray-500 font-normal"> (locked - uploaded at goods-arrival)</span>}
           </div>
           {isEdit ? (
             editingInspection?.lotReportFileUrl ? (
@@ -799,7 +799,7 @@ function TaxSummary({ amount, taxChoice, customTax }) {
 
 // ─── Update the PO number ───
 // An approved quotation creates its purchase orders WITHOUT a number, so they
-// read as the placeholder "000" until Purchase type the real one in here —
+// read as the placeholder "000" until Purchase type the real one in here -
 // financial year + running count. Only then does the order become a real PO that
 // can be placed. The prefix is fixed so the number stays parseable by everything
 // downstream (batch numbers, the register).
@@ -819,7 +819,7 @@ function AssignPoNumberForm({ order, onCancel, onDone }) {
     (parseInt(fy.trim().slice(0, 2), 10) + 1) % 100 === parseInt(fy.trim().slice(3), 10);
 
   // Ask the server for the next free count whenever the year is complete and
-  // valid. Only pre-fills an untouched box — never overwrites what was typed.
+  // valid. Only pre-fills an untouched box - never overwrites what was typed.
   useEffect(() => {
     if (!fyValid) { setSuggested(null); return; }
     let cancelled = false;
@@ -857,7 +857,7 @@ function AssignPoNumberForm({ order, onCancel, onDone }) {
 
   return (
     <div className="space-y-4">
-      {/* Which order this is — the modal can be opened from a long list, so name
+      {/* Which order this is - the modal can be opened from a long list, so name
           it before asking for anything. */}
       <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm">
         <div className="font-semibold text-navy-800">{order.customName}</div>
@@ -871,10 +871,10 @@ function AssignPoNumberForm({ order, onCancel, onDone }) {
         <Hash size={18} className="text-blue-700 mt-0.5 shrink-0" />
         <div>
           <div className="font-semibold">
-            Currently <span className="font-mono">{PO_NUMBER_PENDING_LABEL}</span> — enter the number from your PO register.
+            Currently <span className="font-mono">{PO_NUMBER_PENDING_LABEL}</span> - enter the number from your PO register.
           </div>
           <div className="text-xs mt-0.5">
-            Nothing on this order can move while it is on the placeholder — the number is what
+            Nothing on this order can move while it is on the placeholder - the number is what
             the supplier, the payment requests and every batch label are keyed to. The count
             below is only a suggestion; type the number you actually issued.
           </div>
@@ -949,18 +949,18 @@ function AssignPoNumberForm({ order, onCancel, onDone }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// TEMPORARY FEATURE — PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
+// TEMPORARY FEATURE - PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
 // ════════════════════════════════════════════════════════════════════════════
 // Purchase are still reconciling the old manual PO register against the system,
 // so they may correct the running COUNT on a PO number. The prefix and financial
-// year are fixed — only the number after the last slash is editable.
+// year are fixed - only the number after the last slash is editable.
 //
 // The server rewrites every downstream copy of the number (derived batch
 // numbers, stock/batch notes, MIV lines, inward register, notification text);
 // everything else follows the PO by relation. To remove the feature: delete this
 // component, the pencil button in the header block below, and the
 // canEditPoNumber/parsePoNumber block in client/src/utils/roles.js. Keep the
-// "Number history" panel — past renames must stay visible.
+// "Number history" panel - past renames must stay visible.
 function RenumberPoForm({ order, onCancel, onDone }) {
   const parsed = parsePoNumber(order.orderNumber);
   const [count, setCount] = useState(parsed ? String(parsed.count) : '');
@@ -1070,7 +1070,7 @@ function RenumberPoForm({ order, onCancel, onDone }) {
           className="w-full px-3.5 py-2 bg-white border border-navy-200 rounded-lg text-sm text-navy-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-600"
         />
         <p className="mt-1 text-xs text-gray-500">
-          Recorded against the order permanently. Write a real reason — at least 12 characters.
+          Recorded against the order permanently. Write a real reason - at least 12 characters.
         </p>
       </div>
 
@@ -1087,7 +1087,7 @@ function RenumberPoForm({ order, onCancel, onDone }) {
     </div>
   );
 }
-// ════════════════ END TEMPORARY FEATURE — PO RE-NUMBERING ═══════════════════
+// ════════════════ END TEMPORARY FEATURE - PO RE-NUMBERING ═══════════════════
 
 // ─── Order Detail Modal ───
 function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }) {
@@ -1115,9 +1115,9 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
   const [closePending, setClosePending] = useState(null);
   const [closeReason, setCloseReason] = useState('');
   const [closing, setClosing] = useState(false);
-  // Filling in the PO number on a draft order — see AssignPoNumberForm above.
+  // Filling in the PO number on a draft order - see AssignPoNumberForm above.
   const [showAssignNumber, setShowAssignNumber] = useState(false);
-  // TEMPORARY (rollout): PO number correction — see RenumberPoForm above.
+  // TEMPORARY (rollout): PO number correction - see RenumberPoForm above.
   const [showRenumber, setShowRenumber] = useState(false);
   const [iir, setIir] = useState({
     batchNumber: '',
@@ -1225,12 +1225,12 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
   const isCreditPlaced = order.status === 'CREDIT_PLACED';
 
   // Drafts created by an approved quotation have no number until Purchase fill
-  // one in. Every action on the order is held back until they do — the server
+  // one in. Every action on the order is held back until they do - the server
   // enforces the same rule, this just stops the buttons being offered.
   const needsNumber = !order.orderNumber;
   const canFillNumber = canAssignPoNumber({ role: userRole });
 
-  // 48-hour placement SLA — measured from when the PO became "awaiting placement"
+  // 48-hour placement SLA - measured from when the PO became "awaiting placement"
   // (createdAt), matching the ageing badge in the list. Past 48h the Purchase
   // Officer must record a validated delay remark before the order can be placed.
   const placementSla = slaRemarkState(order?.createdAt, delayNote);
@@ -1253,7 +1253,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
   };
 
   const confirmLine = ({ base, percent, tax, payable }) => (percent
-    ? `${formatCurrency(payable)} — basic ${formatCurrency(base)} + ${percent}% tax ${formatCurrency(tax)}`
+    ? `${formatCurrency(payable)} - basic ${formatCurrency(base)} + ${percent}% tax ${formatCurrency(tax)}`
     : formatCurrency(base));
 
   const placeOrder = async () => {
@@ -1335,7 +1335,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
       gatePassType: '',
       probableDateOfReturn: '',
       materialReceiptDate: today,
-      // Carried over from the PR — stores don't re-select it.
+      // Carried over from the PR - stores don't re-select it.
       materialCategory: derivePRMaterialCategory(order),
       documentTypes: {
         testReport: false,
@@ -1366,7 +1366,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
     const pending = (order.qcInspections || [])
       .filter(q => q.result === 'PENDING' || q.result === 'ON_HOLD')
       .sort((a, b) => (b.lotNumber || 0) - (a.lotNumber || 0))[0];
-    if (!pending) return alert('No editable IIR found — QC has already submitted for every lot.');
+    if (!pending) return alert('No editable IIR found - QC has already submitted for every lot.');
     const toDateStr = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
     setIir({
       batchNumber: pending.batchNo || '',
@@ -1392,7 +1392,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
   };
 
   const submitIir = async () => {
-    if (!iir.batchNumber.trim()) return alert('Batch number is required — it is locked to this lot for inspection, inward, and the product list.');
+    if (!iir.batchNumber.trim()) return alert('Batch number is required - it is locked to this lot for inspection, inward, and the product list.');
     if (!iir.materialReceiptDate) return alert('Material receipt date is required.');
     // Material category is auto-carried from the PR, not picked here.
     if (iir.gatePassType === 'Returnable' && !iir.probableDateOfReturn) {
@@ -1509,7 +1509,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
     setProcessing(false);
   };
 
-  // PO clicks "Close PO". First attempt — let the server decide if it's complete.
+  // PO clicks "Close PO". First attempt - let the server decide if it's complete.
   // If it returns 409 with the pending list, surface the confirm dialog so the
   // PO can review and choose to force-close.
   const attemptClose = async () => {
@@ -1553,7 +1553,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
           <div className="text-xl font-bold text-navy-700">{order.customName}</div>
         </div>
 
-        {/* Closed-PO banner — terminal state, surfaces who closed and why */}
+        {/* Closed-PO banner - terminal state, surfaces who closed and why */}
         {(order.status === 'CLOSED' || order.status === 'COMPLETED') && order.closedAt && (
           <div className={`border-l-4 rounded-md p-3 flex items-start gap-2 ${
             order.forceClosed
@@ -1590,7 +1590,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
               </div>
               <div className="text-xs text-blue-800">
                 {canFillNumber
-                  ? 'It carries the placeholder number until you update it. Enter the financial year and the number from your PO register — until it has one the order cannot be placed, paid against or documented.'
+                  ? 'It carries the placeholder number until you update it. Enter the financial year and the number from your PO register - until it has one the order cannot be placed, paid against or documented.'
                   : 'Purchase have not issued a number for this order yet. It cannot move forward until they do.'}
               </div>
               {canFillNumber && (
@@ -1602,7 +1602,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
           </div>
         )}
 
-        {/* Awaiting Accounting banner — visible to everyone viewing the order */}
+        {/* Awaiting Accounting banner - visible to everyone viewing the order */}
         {!needsNumber && isPendingAccounting && (
           <div className="bg-amber-50 border-l-4 border-amber-500 rounded-md p-3 flex items-start gap-2">
             <Clock size={18} className="text-amber-700 mt-0.5 shrink-0" />
@@ -1615,12 +1615,12 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
           </div>
         )}
 
-        {/* Credit-placed banner — order is live, payment is still owed */}
+        {/* Credit-placed banner - order is live, payment is still owed */}
         {isCreditPlaced && (
           <div className="bg-orange-50 border-l-4 border-orange-500 rounded-md p-3 flex items-start gap-2">
             <Handshake size={18} className="text-orange-700 mt-0.5 shrink-0" />
             <div className="flex-1">
-              <div className="text-sm font-bold text-orange-900">Order Placed on Credit — Payment Pending</div>
+              <div className="text-sm font-bold text-orange-900">Order Placed on Credit - Payment Pending</div>
               <div className="text-xs text-orange-800">
                 {order.creditPlacedBy?.name
                   ? <>Placed on credit by <span className="font-semibold">{order.creditPlacedBy.name}</span></>
@@ -1662,7 +1662,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
               <>
                 <span
                   className="font-mono font-semibold text-blue-800 bg-blue-50 border border-blue-300 rounded px-1.5 py-0.5"
-                  title="Placeholder — Purchase have not issued this order's number yet"
+                  title="Placeholder - Purchase have not issued this order's number yet"
                 >
                   {PO_NUMBER_PENDING_LABEL}
                 </span>
@@ -1725,7 +1725,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
           </div>
         )}
 
-        {/* Number history — only ever rendered for a PO that was actually
+        {/* Number history - only ever rendered for a PO that was actually
             renumbered, so it stays out of the way and outlives the temporary
             edit button that creates these rows. */}
         {(order.numberHistory || []).length > 0 && (
@@ -1746,7 +1746,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
                   {h.reason && <div className="italic text-gray-600 mt-0.5">Reason: {h.reason}</div>}
                   {Number(h.cascade?.batchNumbers || 0) > 0 && (
                     <div className="text-[11px] text-gray-500 mt-0.5">
-                      {h.cascade.batchNumbers} batch number(s) renamed to match — material labelled
+                      {h.cascade.batchNumbers} batch number(s) renamed to match - material labelled
                       with the old batch number needs re-printed stickers.
                     </div>
                   )}
@@ -1758,7 +1758,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
 
         {order.delayNote && (
           <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm">
-            <div className="text-xs font-semibold text-amber-900 uppercase tracking-wide mb-1">⚠ Placement delayed beyond 48h — delay remark</div>
+            <div className="text-xs font-semibold text-amber-900 uppercase tracking-wide mb-1">⚠ Placement delayed beyond 48h - delay remark</div>
             <div className="text-gray-700">{order.delayNote}</div>
           </div>
         )}
@@ -1786,7 +1786,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
           </div>
         )}
 
-        {/* Signed PO PDF — uploaded by Purchase Officer after the quotation is approved.
+        {/* Signed PO PDF - uploaded by Purchase Officer after the quotation is approved.
             Anyone in the chain can open it; only PO can upload/replace/delete. */}
         <div className="border border-navy-200 bg-navy-50/40 rounded-md p-3 space-y-2">
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1822,7 +1822,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
               <div className="space-y-1">
                 <p className="text-xs text-gray-600">
                   {needsNumber
-                    ? 'The signed PO carries its number on the face of it — update the PO number first, then upload the PDF.'
+                    ? 'The signed PO carries its number on the face of it - update the PO number first, then upload the PDF.'
                     : 'Upload the final signed PO PDF. Until uploaded, no one (including QC) can see the PO document.'}
                 </p>
                 <Button size="sm" onClick={() => poFileInputRef.current?.click()} disabled={uploadingPo || needsNumber}>
@@ -1882,7 +1882,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
             })()}
           </div>
 
-          {/* Partial arrival banner — everyone sees this when at least one item is short or missing */}
+          {/* Partial arrival banner - everyone sees this when at least one item is short or missing */}
           {(() => {
             const totalOrdered = (order.items || []).reduce((s, it) => s + (it.quantity || 0), 0);
             const totalReceived = (order.items || []).reduce((s, it) => s + (it.receivedQty || 0), 0);
@@ -1893,7 +1893,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
             return (
               <div className="mb-2 bg-amber-50 border-l-4 border-amber-500 rounded-r-md p-2 text-xs text-amber-900">
                 <div className="font-semibold flex items-center gap-1">
-                  <AlertTriangle size={14} className="text-amber-700" /> Partial arrival — only {totalReceived} of {totalOrdered} units have arrived
+                  <AlertTriangle size={14} className="text-amber-700" /> Partial arrival - only {totalReceived} of {totalOrdered} units have arrived
                 </div>
                 <ul className="mt-1 ml-5 list-disc">
                   {short.map(it => (
@@ -1901,8 +1901,8 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
                       <span className="font-medium">{it.productName}:</span>{' '}
                       {(it.receivedQty || 0)} of {it.quantity} {it.productUnit} arrived
                       {(it.receivedQty || 0) === 0
-                        ? <span className="text-amber-700"> — not yet arrived</span>
-                        : <span className="text-amber-700"> — {(it.quantity - (it.receivedQty || 0)).toFixed(2)} {it.productUnit} pending</span>}
+                        ? <span className="text-amber-700"> - not yet arrived</span>
+                        : <span className="text-amber-700"> - {(it.quantity - (it.receivedQty || 0)).toFixed(2)} {it.productUnit} pending</span>}
                     </li>
                   ))}
                 </ul>
@@ -2052,11 +2052,11 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
                     }
                   });
                   const suppliers = Array.from(supplierMap.values());
-                  const supplierNames = suppliers.map(s => s.name).join(', ') || '—';
+                  const supplierNames = suppliers.map(s => s.name).join(', ') || '-';
                   const supplierContacts = suppliers
                     .map(s => s.contact)
                     .filter(Boolean)
-                    .join(', ') || '—';
+                    .join(', ') || '-';
                   return (
                     <tr
                       key={q.id}
@@ -2112,7 +2112,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
                     <td className="px-2 py-1"><Badge color={p.paymentType === 'ADVANCE' ? 'blue' : 'navy'}>{p.paymentType}</Badge></td>
                     <td className="px-2 py-1">{formatCurrency(p.amount)}</td>
                     <td className="px-2 py-1 text-gray-600">
-                      {p.taxPercent ? `${p.taxPercent}% · ${formatCurrency(p.taxAmount)}` : '—'}
+                      {p.taxPercent ? `${p.taxPercent}% · ${formatCurrency(p.taxAmount)}` : '-'}
                     </td>
                     <td className="px-2 py-1 font-medium">{formatCurrency(p.payableAmount || p.amount)}</td>
                     <td className="px-2 py-1">
@@ -2137,7 +2137,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
         )}
 
         {/* Action Buttons.
-            An order still on 000 offers exactly one action — update the number.
+            An order still on 000 offers exactly one action - update the number.
             Everything else is withheld until it has a real one. */}
         <div className="flex flex-wrap gap-3 pt-2 border-t items-center">
           {needsNumber ? (
@@ -2176,14 +2176,14 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
                     </h4>
                     <p className="text-xs text-orange-800 mt-1">
                       Use this when the order is being placed on word-of-trust with {order.supplierName}.
-                      The order will move forward immediately — supplier ships, items show as <span className="font-semibold">Ordered</span>,
+                      The order will move forward immediately - supplier ships, items show as <span className="font-semibold">Ordered</span>,
                       and the source PR moves to <span className="font-semibold">Order Placed</span>.
                       You will still raise a Payment Request afterwards so Accounting can clear the dues.
                     </p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Credit note <span className="text-gray-400">(optional — e.g. verbal confirmation from contact, agreed payment terms)</span>
+                      Credit note <span className="text-gray-400">(optional - e.g. verbal confirmation from contact, agreed payment terms)</span>
                     </label>
                     <textarea
                       value={creditNote}
@@ -2197,7 +2197,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={placeOnCredit} disabled={processing}>
-                      {processing ? 'Placing...' : 'Confirm — Place on Credit'}
+                      {processing ? 'Placing...' : 'Confirm - Place on Credit'}
                     </Button>
                     <Button size="sm" variant="secondary" onClick={() => { setShowCreditForm(false); setCreditNote(''); }}>
                       Cancel
@@ -2206,7 +2206,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
                 </div>
               ) : (
                 <div className="w-full bg-amber-50 border border-amber-200 rounded-md p-4 space-y-3">
-                  <h4 className="text-sm font-semibold text-amber-900">Place Order — First Payment Request</h4>
+                  <h4 className="text-sm font-semibold text-amber-900">Place Order - First Payment Request</h4>
                   <div className="grid grid-cols-4 gap-3">
                     <Input label="Basic amount (₹)" type="number" value={paymentAmount}
                       onChange={(e) => setPaymentAmount(e.target.value)} min="1" max={order.totalAmount} />
@@ -2277,7 +2277,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
           )}
 
           {/* Goods arrival, QC and inward now happen in the Material Inward
-              Register (when material reaches the store) — no PO-side buttons. */}
+              Register (when material reaches the store) - no PO-side buttons. */}
           {isSM && (
             <a
               href="/inward-entry"
@@ -2287,7 +2287,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
             </a>
           )}
 
-          {/* Close PO — PO can close once work is wrapped up. Server decides whether
+          {/* Close PO - PO can close once work is wrapped up. Server decides whether
               the close is clean or whether it needs a force-confirm (handled below). */}
           {isPO && !['COMPLETED', 'CLOSED', 'PENDING_ACCOUNTING'].includes(order.status) && (
             <Button variant="secondary" onClick={attemptClose} disabled={closing || processing}>
@@ -2420,7 +2420,7 @@ function OrderDetailModal({ order, onClose, onUpdated, onReloadOrder, userRole }
         <Modal
           isOpen
           onClose={() => setShowIirForm(false)}
-          title={`${iirMode === 'edit' ? 'Edit Inward Inspection Request' : 'Inward Inspection Request Form'} — ${order.orderNumber}`}
+          title={`${iirMode === 'edit' ? 'Edit Inward Inspection Request' : 'Inward Inspection Request Form'} - ${order.orderNumber}`}
           size="xl"
         >
           <IIRForm
@@ -2514,7 +2514,7 @@ function SupplierGroup({ supplier, orders, onOpenOrder }) {
                       </span>
                     )}
                   </div>
-                  {/* Overall received progress — visible to every role */}
+                  {/* Overall received progress - visible to every role */}
                   {totalOrdered > 0 && (
                     <div className="mt-1.5">
                       <div className="flex items-center justify-between text-[11px] text-gray-600 mb-0.5">
@@ -2620,7 +2620,7 @@ function PRGroup({ prNumber, prInfo, isUnion = false, sourceRequests = [], order
                       • {sourceRequests.length} PRs:{' '}
                       {sourceRequests
                         .slice(0, 5)
-                        .map(s => `${s.purchaseRequest?.requestNumber} (${s.purchaseRequest?.unit?.code || s.purchaseRequest?.unit?.name || '—'})`)
+                        .map(s => `${s.purchaseRequest?.requestNumber} (${s.purchaseRequest?.unit?.code || s.purchaseRequest?.unit?.name || '-'})`)
                         .join(', ')}
                       {sourceRequests.length > 5 && ` +${sourceRequests.length - 5} more`}
                     </span>
@@ -2696,7 +2696,7 @@ export default function PurchaseOrders() {
     setLoading(true);
     try {
       const params = { limit: 100, fromDate: fromDate || undefined, toDate: toDate || undefined };
-      // "Awaiting PO number" isn't a status — it's the drafts with no number yet.
+      // "Awaiting PO number" isn't a status - it's the drafts with no number yet.
       if (tab === NEEDS_NUMBER_TAB) params.awaitingNumber = '1';
       else if (tab !== 'ALL') params.status = tab;
       const [ordersRes, dashRes] = await Promise.all([
@@ -2757,7 +2757,7 @@ export default function PurchaseOrders() {
     });
   }, [orders, search]);
 
-  // Purchase (and Admin) get the numbering queue as their first tab — it is the
+  // Purchase (and Admin) get the numbering queue as their first tab - it is the
   // gate every new order has to pass through before anything else can happen.
   const tabs = user?.role === 'STORE_MANAGER'
     ? ['ALL', 'ORDERED', 'CREDIT_PLACED', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED']
@@ -2786,11 +2786,11 @@ export default function PurchaseOrders() {
     <div className="space-y-6">
       <PageHero
         title="Purchase Orders"
-        subtitle="Issue purchase orders to suppliers, monitor delivery, payment, and QC status — grouped by PR → supplier → material."
+        subtitle="Issue purchase orders to suppliers, monitor delivery, payment, and QC status - grouped by PR → supplier → material."
         eyebrow="Order Tracking"
         icon={Truck}
         actions={
-          /* Exports every PO matching the current status tab and date range — the
+          /* Exports every PO matching the current status tab and date range - the
              search box is a client-side narrowing of the loaded page, so it is
              deliberately not applied to the export. */
           <ExportExcelButton
@@ -2907,7 +2907,7 @@ export default function PurchaseOrders() {
             <PRGroup
               key={groupKey}
               // A union group is titled by its PO number, which a draft doesn't
-              // have yet — fall back so the header never renders blank.
+              // have yet - fall back so the header never renders blank.
               prNumber={isUnion ? poNumberLabel(prOrders[0]) : groupKey}
               prInfo={prInfo}
               isUnion={isUnion}

@@ -20,7 +20,7 @@ prisma.$use(async (params, next) => {
   if (params.model === 'Notification' && (params.action === 'create' || params.action === 'createMany')) {
     const { sendForNotifications } = require('../services/push');
     // create returns the row (with id); createMany only returns a count, so
-    // fall back to the input data — push payloads don't strictly need the id.
+    // fall back to the input data - push payloads don't strictly need the id.
     const rows = params.action === 'create' ? result : params.args?.data;
     if (rows) sendForNotifications(prisma, rows);
   }

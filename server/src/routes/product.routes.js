@@ -10,8 +10,12 @@ const { auditLog } = require('../middleware/audit');
 const { msdsUpload, prSpecsUpload, publicUrlFor } = require('../middleware/upload');
 const {
   paginate, normalizeMaterialType, MATERIAL_TYPES, MATERIAL_CATEGORIES,
-  codeRangeFor, nextMaterialCode,
+  codeRangeFor, nextMaterialCode, formatCodeRange,
 } = require('../utils/helpers');
+const {
+  EXPORT_ROW_CAP, addInfoSheet, addSheet, createWorkbook, dateCell,
+  exportFileName, sendWorkbook, yesNo,
+} = require('../utils/excel');
 
 const router = express.Router();
 
@@ -24,7 +28,7 @@ async function annotateMirAndExpiry(products) {
   if (!products.length) return;
   const ids = products.map((p) => p.id);
   const rows = await prisma.productBatch.findMany({
-    // Direct entries carry their own dateOfExpiry (no inspection) — include them.
+    // Direct entries carry their own dateOfExpiry (no inspection) - include them.
     where: {
       productId: { in: ids },
       OR: [{ sourceQcInspectionId: { not: null } }, { dateOfExpiry: { not: null } }],
@@ -61,10 +65,10 @@ async function annotateMirAndExpiry(products) {
   }
 }
 
-// Attaches `deptStocks: [{ dept, quantity }]` to each product — the stock reserved
+// Attaches `deptStocks: [{ dept, quantity }]` to each product - the stock reserved
 // to each non-unit department (QC, Designs, Safety, Lab, Metrology, NDT, Planning).
 // This is the department counterpart to unitStocks (per-unit ownership), read from
-// the ProductDeptStock ledger — the single source of truth that MIV issue and
+// the ProductDeptStock ledger - the single source of truth that MIV issue and
 // inventory transfers both move against.
 async function annotateDeptStocks(products) {
   if (!products.length) {
@@ -88,7 +92,7 @@ async function annotateDeptStocks(products) {
 
 const productSchema = z.object({
   name: z.string().min(1),
-  // Material code from the category register (utils/materialCategories.js) — the
+  // Material code from the category register (utils/materialCategories.js) - the
   // number is issued inside the block reserved for the material's category. Also
   // stored as SKU.
   materialCode: z.string().trim().min(1),
@@ -96,7 +100,7 @@ const productSchema = z.object({
   category: z.string().optional(),
   unit: z.string().optional(),
   minStockLevel: z.number().min(0).optional(),
-  // Storage handling — free text, editable from the products list.
+  // Storage handling - free text, editable from the products list.
   shelfLife: z.string().trim().optional().nullable(),
   storageTemp: z.string().trim().optional().nullable(),
 });
@@ -116,11 +120,46 @@ const PRODUCT_FIELD_LABELS = {
 };
 
 // GET /api/products
+// Shared filter for the products / master-data list. The export endpoint runs the
+// identical clause, so a downloaded workbook is exactly the list on screen -
+// unpaged, never the whole table.
+//
+// RAPS products list excludes FIM-only items - those belong on the FIM Status tab.
+// A product is "FIM-only" when every batch it has is isFim=true. Products with no
+// batches yet (newly created, never inwarded) stay visible so Stores can manage them.
+function buildProductListWhere({ search, category, masterData }) {
+  const where = {
+    isActive: true,
+    AND: [
+      {
+        OR: [
+          { batches: { none: {} } },
+          { batches: { some: { isFim: false } } },
+        ],
+      },
+    ],
+  };
+  if (search) {
+    where.AND.push({
+      OR: [
+        { name: { contains: search, mode: 'insensitive' } },
+        { sku: { contains: search, mode: 'insensitive' } },
+        { materialCode: { contains: search, mode: 'insensitive' } },
+      ],
+    });
+  }
+  if (category) where.category = category;
+  // Master Data screen filter: only products whose master data hasn't been
+  // added/completed yet (the ones that block Stores inward until enriched).
+  if (masterData === 'pending') where.masterDataComplete = false;
+  return where;
+}
+
 router.get('/', authenticate, async (req, res) => {
   try {
     const { search, category, page, limit, includeUnitStock, includeMir, includeStockSummary, sort, masterData } = req.query;
 
-    // Sort presets — default to alphabetical by name, which is what Stores asked for.
+    // Sort presets - default to alphabetical by name, which is what Stores asked for.
     // `recent` (newest first) drives the Master Data "needs master data" view so
     // freshly auto-created (PR-time) products surface at the top for enrichment.
     const sortPresets = {
@@ -131,33 +170,7 @@ router.get('/', authenticate, async (req, res) => {
     };
     const orderBy = sortPresets[sort] || sortPresets.name;
 
-    // RAPS products list excludes FIM-only items — those belong on the FIM Status tab.
-    // A product is "FIM-only" when every batch it has is isFim=true. Products with no
-    // batches yet (newly created, never inwarded) stay visible so Stores can manage them.
-    const where = {
-      isActive: true,
-      AND: [
-        {
-          OR: [
-            { batches: { none: {} } },
-            { batches: { some: { isFim: false } } },
-          ],
-        },
-      ],
-    };
-    if (search) {
-      where.AND.push({
-        OR: [
-          { name: { contains: search, mode: 'insensitive' } },
-          { sku: { contains: search, mode: 'insensitive' } },
-          { materialCode: { contains: search, mode: 'insensitive' } },
-        ],
-      });
-    }
-    if (category) where.category = category;
-    // Master Data screen filter: only products whose master data hasn't been
-    // added/completed yet (the ones that block Stores inward until enriched).
-    if (masterData === 'pending') where.masterDataComplete = false;
+    const where = buildProductListWhere({ search, category, masterData });
 
     const wantUnitStock = includeUnitStock === 'true' || includeUnitStock === '1';
     const wantMir = includeMir === 'true' || includeMir === '1';
@@ -237,12 +250,12 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/products/material-types — fixed dropdown values for PR/inward forms
+// GET /api/products/material-types - fixed dropdown values for PR/inward forms
 router.get('/material-types', authenticate, (_req, res) => {
   res.json(MATERIAL_TYPES);
 });
 
-// GET /api/products/material-categories — the material-code register: each
+// GET /api/products/material-categories - the material-code register: each
 // category with the block of codes reserved for it and what belongs in it. Drives
 // the Material Type dropdowns AND the reference table shown on a requisition.
 router.get('/material-categories', authenticate, (_req, res) => {
@@ -250,7 +263,7 @@ router.get('/material-categories', authenticate, (_req, res) => {
 });
 
 // GET /api/products/next-material-code?category=<label>
-// The next free material code for a category — codes are counted inside the block
+// The next free material code for a category - codes are counted inside the block
 // the register reserves for that category, so a new resin gets 1501…2000 and a
 // new consumable 3001…3300. Deactivated products still hold their code (the
 // column is unique), so every product is considered, active or not.
@@ -259,13 +272,13 @@ router.get('/next-material-code', authenticate, async (req, res) => {
     const category = normalizeMaterialType(req.query.category);
     const range = codeRangeFor(category);
     if (!range) {
-      // 'Others' and the retired labels have no reserved block — the code is
+      // 'Others' and the retired labels have no reserved block - the code is
       // typed by hand. Answer plainly rather than 400-ing; the form just doesn't
       // prefill.
       return res.json({ category, code: null, from: null, to: null, used: 0, capacity: 0, full: false });
     }
     // Both columns carry the identification number (sku mirrors materialCode),
-    // and older rows have only one of the two — read both.
+    // and older rows have only one of the two - read both.
     const rows = await prisma.product.findMany({ select: { materialCode: true, sku: true } });
     const used = [];
     for (const r of rows) { used.push(r.materialCode, r.sku); }
@@ -347,6 +360,122 @@ router.get('/categories', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Get categories error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/products/export - the Master Data list as a formatted .xlsx.
+// Takes the same `search` / `category` / `masterData` / `sort` filters as the list
+// endpoint and runs the identical where-clause, so the workbook holds exactly what
+// the screen is showing - just unpaged. Two sheets: one row per material, and the
+// material-code register itself (category, its reserved code block, what belongs
+// in it) so the sheet can be read without the app open.
+// Must stay ABOVE `GET /:id` or that route swallows "export".
+router.get('/export', authenticate, async (req, res) => {
+  try {
+    const { search, category, masterData, sort } = req.query;
+    const where = buildProductListWhere({ search, category, masterData });
+
+    const sortPresets = {
+      name: [{ name: 'asc' }],
+      category: [{ category: 'asc' }, { name: 'asc' }],
+      id: [{ materialCode: 'asc' }, { sku: 'asc' }],
+      recent: [{ createdAt: 'desc' }],
+    };
+
+    const [total, products] = await Promise.all([
+      prisma.product.count({ where }),
+      prisma.product.findMany({
+        where,
+        orderBy: sortPresets[sort] || sortPresets.name,
+        include: { createdBy: { select: { name: true, role: true } } },
+        take: EXPORT_ROW_CAP,
+      }),
+    ]);
+
+    const rows = products.map((p) => ({
+      materialCode: p.materialCode || p.sku || '',
+      name: p.name,
+      category: p.category || '',
+      codeBlock: formatCodeRange(p.category),
+      unit: p.unit,
+      description: p.description || '',
+      shelfLife: p.shelfLife || '',
+      storageTemp: p.storageTemp || '',
+      msds: yesNo(!!p.msdsUrl),
+      masterData: p.masterDataComplete ? 'Added' : 'Needs master data',
+      addedBy: p.createdBy?.name || '',
+      addedOn: dateCell(p.createdAt),
+      updatedOn: dateCell(p.updatedAt),
+    }));
+
+    const wb = createWorkbook();
+    addInfoSheet(wb, {
+      title: 'Product Master Data',
+      user: req.user,
+      filters: [
+        { label: 'Search', value: search || '' },
+        { label: 'Material Type', value: category || '' },
+        { label: 'View', value: masterData === 'pending' ? 'Needs master data only' : 'All materials' },
+        { label: 'Sort', value: sort || 'name' },
+      ],
+      counts: [
+        { label: 'Materials Exported', value: rows.length },
+        { label: 'Materials Matching Filters', value: total },
+        { label: 'Needs Master Data', value: rows.filter((r) => r.masterData !== 'Added').length },
+      ],
+      truncated: total > rows.length,
+    });
+
+    addSheet(wb, {
+      name: 'Master Data',
+      columns: [
+        { header: 'Material Code', key: 'materialCode', width: 14 },
+        { header: 'Name', key: 'name', width: 34 },
+        { header: 'Material Type', key: 'category', width: 26 },
+        { header: 'Code Block', key: 'codeBlock', width: 13 },
+        { header: 'UOM', key: 'unit', width: 8 },
+        { header: 'Specification', key: 'description', wrap: true },
+        { header: 'Shelf Life', key: 'shelfLife', width: 18 },
+        { header: 'Storage Temp', key: 'storageTemp', width: 18 },
+        { header: 'MSDS', key: 'msds', width: 8 },
+        { header: 'Master Data', key: 'masterData', width: 20 },
+        { header: 'Added By', key: 'addedBy', width: 20 },
+        { header: 'Added On', key: 'addedOn', fmt: 'date' },
+        { header: 'Last Updated', key: 'updatedOn', fmt: 'date' },
+      ],
+      rows,
+    });
+
+    // The register sheet - the printed material-code list, with a live count of
+    // how many codes in each block are already issued.
+    const usedByCategory = await prisma.product.groupBy({
+      by: ['category'],
+      where: { isActive: true },
+      _count: { _all: true },
+    });
+    const usedFor = (label) =>
+      usedByCategory.find((g) => (g.category || '') === label)?._count?._all || 0;
+
+    addSheet(wb, {
+      name: 'Code Register',
+      columns: [
+        { header: 'Material Code', key: 'block', width: 16 },
+        { header: 'Material Type', key: 'label', width: 30 },
+        { header: 'Material Description', key: 'description', wrap: true },
+        { header: 'Materials Entered', key: 'used', fmt: 'int', width: 18 },
+      ],
+      rows: MATERIAL_CATEGORIES.map((c) => ({
+        block: c.from ? formatCodeRange(c.label) : '-',
+        label: c.label,
+        description: c.description,
+        used: usedFor(c.label),
+      })),
+    });
+
+    await sendWorkbook(res, wb, exportFileName('Product_Master_Data'));
+  } catch (error) {
+    console.error('Export products error:', error);
+    res.status(500).json({ error: 'Could not generate the Excel file' });
   }
 });
 
@@ -501,7 +630,7 @@ router.get('/:id/supplier-history', authenticate, async (req, res) => {
     ].filter(Boolean));
 
     const lastBought = purchased[0] || null;
-    // Direct entries may have no price — exclude them from the cheapest calc.
+    // Direct entries may have no price - exclude them from the cheapest calc.
     const priced = purchased.filter(p => p.unitPrice != null);
     const cheapest = priced.length
       ? [...priced].sort((a, b) => a.unitPrice - b.unitPrice)[0]
@@ -536,7 +665,7 @@ router.get('/:id/supplier-history', authenticate, async (req, res) => {
 });
 
 // Per-product master-data gate for the document routes (spec PDFs, MSDS).
-// Master owners, or the person who entered this material — the same rule as the
+// Master owners, or the person who entered this material - the same rule as the
 // detail edit, minus the Stores rollout window (Stores never owned the files).
 // Runs BEFORE the uploader so a refused request never writes a file to disk.
 const requireProductMasterDataEditor = async (req, res, next) => {
@@ -557,7 +686,7 @@ const requireProductMasterDataEditor = async (req, res, next) => {
 };
 
 // ──── PRODUCT MATERIAL SPECS (reusable spec-PDF library) ────
-// GET /api/products/:id/specs — list a product's spec PDFs (newest first).
+// GET /api/products/:id/specs - list a product's spec PDFs (newest first).
 // Open to any authenticated user (PR picker + Product Detail read it).
 router.get('/:id/specs', authenticate, async (req, res) => {
   try {
@@ -572,7 +701,7 @@ router.get('/:id/specs', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/products/:id/specs — add a spec PDF to the library. Master owners,
+// POST /api/products/:id/specs - add a spec PDF to the library. Master owners,
 // or whoever entered this material in master data.
 // Reuses the pr-specs uploader so PR-time and product-page uploads share storage.
 router.post('/:id/specs', authenticate, requireProductMasterDataEditor, prSpecsUpload.single('file'), async (req, res) => {
@@ -594,7 +723,7 @@ router.post('/:id/specs', authenticate, requireProductMasterDataEditor, prSpecsU
   }
 });
 
-// DELETE /api/products/:id/specs/:specId — remove a spec link.
+// DELETE /api/products/:id/specs/:specId - remove a spec link.
 router.delete('/:id/specs/:specId', authenticate, requireProductMasterDataEditor, async (req, res) => {
   try {
     await prisma.productSpec.delete({ where: { id: req.params.specId } });
@@ -615,7 +744,7 @@ router.get('/:id', authenticate, async (req, res) => {
         stockMovements: { orderBy: { createdAt: 'desc' }, take: 50 },
         unitStocks: { include: { unit: { select: { id: true, name: true, code: true } } } },
         specs: { orderBy: { createdAt: 'desc' } },
-        // Who entered this material in master data — shown on the master-data
+        // Who entered this material in master data - shown on the master-data
         // page and used there to decide whether the form is editable.
         createdBy: { select: { id: true, name: true, role: true } },
         // Full field-level edit trail (who changed what, when). Surfaced on the
@@ -675,10 +804,10 @@ router.get('/:id', authenticate, async (req, res) => {
             invoiceNo: true, invoiceDate: true, invoiceFileUrl: true, lotReportFileUrl: true,
             materialReceiptDate: true, result: true,
             dcNo: true, gatePassNo: true, gatePassType: true,
-            // Inspection request (IIR) metadata — who raised it, when
+            // Inspection request (IIR) metadata - who raised it, when
             requestCreatedBy: { select: { id: true, name: true } },
             createdAt: true,
-            // Inspection report metadata — who QC'd, when, accept/reject totals
+            // Inspection report metadata - who QC'd, when, accept/reject totals
             inspectedBy: { select: { id: true, name: true } },
             inspectedAt: true,
             reportNo: true, reportDate: true,
@@ -713,7 +842,7 @@ router.get('/:id', authenticate, async (req, res) => {
       },
     });
 
-    // New inward-register batches don't use the legacy QCInspection — their full
+    // New inward-register batches don't use the legacy QCInspection - their full
     // chain (PR → PO → lot → QC report) lives on the MaterialInwardRegister row.
     // Synthesize a sourceQcInspection-shaped object from it so the procurement
     // chain tab links them up exactly like PO-flow batches (instead of showing
@@ -830,7 +959,7 @@ router.get('/:id', authenticate, async (req, res) => {
     }
     const mirCount = mirSet.size;
 
-    // Earliest expiry across batches with remaining stock — drives the warning badge.
+    // Earliest expiry across batches with remaining stock - drives the warning badge.
     // Direct entries carry their own dateOfExpiry (no inspection).
     let earliestExpiry = null;
     for (const b of poBatches) {
@@ -847,13 +976,13 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/products/material-types — fixed dropdown values for PR/inward forms.
-// MUST be declared before any `/:id`-style route — declared at top of file for safety.
+// GET /api/products/material-types - fixed dropdown values for PR/inward forms.
+// MUST be declared before any `/:id`-style route - declared at top of file for safety.
 
-// POST /api/products — sku is just the materialCode (identification number).
-// Restricted to Admin, QC and the unit managers (PRODUCT_CREATE_ROLES) — master
+// POST /api/products - sku is just the materialCode (identification number).
+// Restricted to Admin, QC and the unit managers (PRODUCT_CREATE_ROLES) - master
 // data is theirs to own. Any other requester who needs a new material asks one
-// of them to enter it. createdById stamps the author — they and the Unit 1–5
+// of them to enter it. createdById stamps the author - they and the Unit 1–5
 // managers are the only ones who can edit the entry afterwards.
 router.post('/', authenticate, authorizeProductCreate, auditLog('CREATE', 'Product'), async (req, res) => {
   try {
@@ -877,7 +1006,7 @@ router.post('/', authenticate, authorizeProductCreate, auditLog('CREATE', 'Produ
   }
 });
 
-// POST /api/products/bulk — create several products in one go. Stores often
+// POST /api/products/bulk - create several products in one go. Stores often
 // enters a batch of new items together, so the form lets them add rows and
 // submit them at once. All-or-nothing: any invalid / duplicate row rolls back
 // the whole batch and names the offender.
@@ -904,7 +1033,7 @@ router.post('/bulk', authenticate, authorizeProductCreate, auditLog('CREATE', 'P
       }
     });
 
-    // Duplicate ID numbers — catch within the batch and against existing stock
+    // Duplicate ID numbers - catch within the batch and against existing stock
     // up front so the message can name them (the DB unique error can't).
     const codes = parsed.map((p) => p.materialCode);
     const dupInBatch = codes.find((c, i) => codes.indexOf(c) !== i);
@@ -931,16 +1060,16 @@ router.post('/bulk', authenticate, authorizeProductCreate, auditLog('CREATE', 'P
 
 // PUT /api/products/:id
 // Who may edit is decided per product, not per role alone:
-//   • master owners (Unit 1–5 managers + Admin) — any product
-//   • the person who entered it in master data  — their own entry
-//   • Stores — temporary rollout access, descriptive details only, and their
+//   • master owners (Unit 1–5 managers + Admin) - any product
+//   • the person who entered it in master data  - their own entry
+//   • Stores - temporary rollout access, descriptive details only, and their
 //     edit does NOT flip the master-data gate
 // Everyone else is read-only. Every change (by anyone) goes to ProductEditHistory.
 router.put('/:id', authenticate, auditLog('UPDATE', 'Product'), async (req, res) => {
   try {
     const data = productSchema.partial().parse(req.body);
 
-    // Load first — the gate depends on who created this particular product.
+    // Load first - the gate depends on who created this particular product.
     const prev = await prisma.product.findUnique({
       where: { id: req.params.id },
       select: {
@@ -956,16 +1085,16 @@ router.put('/:id', authenticate, auditLog('UPDATE', 'Product'), async (req, res)
     }
 
     // A master owner, or the author correcting their own master-data entry, is
-    // maintaining master data — their save completes the gate. Stores' temporary
+    // maintaining master data - their save completes the gate. Stores' temporary
     // detail access is not master data and must never flip it.
     const ownsMasterData = canEditProductMasterData(req.user, prev);
     const isMaster = isProductMasterRole(req.user);
-    // Stores (temporary access) may only touch descriptive fields — never the
+    // Stores (temporary access) may only touch descriptive fields - never the
     // stock threshold. currentStock is not in the schema, so it can't be set here.
     if (!isMaster) delete data.minStockLevel;
     // Keep sku mirrored to materialCode when the identification number changes.
     if (data.materialCode) data.sku = data.materialCode;
-    // Saving on the Master Data screen counts as the master data being added —
+    // Saving on the Master Data screen counts as the master data being added -
     // releases the inward hold.
     if (ownsMasterData) data.masterDataComplete = true;
 
@@ -977,7 +1106,7 @@ router.put('/:id', authenticate, auditLog('UPDATE', 'Product'), async (req, res)
 
     // Record a field-level edit-history entry for every detail that actually
     // changed (compared after normalisation/save). Null-safe string compare so
-    // "" ↔ null doesn't register as a change. Best-effort — never blocks the save.
+    // "" ↔ null doesn't register as a change. Best-effort - never blocks the save.
     const changes = [];
     for (const [field, label] of Object.entries(PRODUCT_FIELD_LABELS)) {
       if (!(field in data)) continue;
@@ -1010,7 +1139,7 @@ router.put('/:id', authenticate, auditLog('UPDATE', 'Product'), async (req, res)
           data: {
             type: 'INWARD_MASTER_DATA_READY',
             title: `Master data added: ${product.name}`,
-            message: `${req.user.name} added master data for "${product.name}". ${heldCount} inward ${heldCount === 1 ? 'entry is' : 'entries are'} waiting — you can inward ${heldCount === 1 ? 'it' : 'them'} now.`,
+            message: `${req.user.name} added master data for "${product.name}". ${heldCount} inward ${heldCount === 1 ? 'entry is' : 'entries are'} waiting - you can inward ${heldCount === 1 ? 'it' : 'them'} now.`,
             targetRole: 'STORE_MANAGER',
             sentById: req.user.id,
           },
@@ -1031,7 +1160,7 @@ router.put('/:id', authenticate, auditLog('UPDATE', 'Product'), async (req, res)
   }
 });
 
-// POST /api/products/:id/msds — upload / replace the Material Safety Data Sheet.
+// POST /api/products/:id/msds - upload / replace the Material Safety Data Sheet.
 router.post('/:id/msds', authenticate, requireProductMasterDataEditor, msdsUpload.single('msds'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -1047,7 +1176,7 @@ router.post('/:id/msds', authenticate, requireProductMasterDataEditor, msdsUploa
   }
 });
 
-// DELETE /api/products/:id/msds — remove the MSDS link.
+// DELETE /api/products/:id/msds - remove the MSDS link.
 router.delete('/:id/msds', authenticate, requireProductMasterDataEditor, async (req, res) => {
   try {
     const product = await prisma.product.update({
@@ -1064,7 +1193,7 @@ router.delete('/:id/msds', authenticate, requireProductMasterDataEditor, async (
 
 // ──── DELETING A MASTER-DATA MATERIAL ────
 // Everything that can point at a product. Anything found here means the material
-// has history, so it can only be deactivated — removing the row would either be
+// has history, so it can only be deactivated - removing the row would either be
 // refused by the database or silently orphan a document somebody still reads.
 // ProductSpec / ProductEditHistory / empty unit-dept stock rows are deliberately
 // absent: they belong to the material itself and go with it.
@@ -1099,7 +1228,7 @@ async function productUsage(productId) {
   return { product, counts, referenced, hasStock, canHardDelete: referenced === 0 && !hasStock };
 }
 
-// GET /api/products/:id/usage — what references this material, so the delete
+// GET /api/products/:id/usage - what references this material, so the delete
 // confirmation can say up front whether it will be removed or deactivated.
 router.get('/:id/usage', authenticate, authorizeProductMaster, async (req, res) => {
   try {
@@ -1112,11 +1241,11 @@ router.get('/:id/usage', authenticate, authorizeProductMaster, async (req, res) 
   }
 });
 
-// DELETE /api/products/:id — remove a material from master data.
+// DELETE /api/products/:id - remove a material from master data.
 // Removed for real when nothing references it (a mistyped or duplicate entry);
 // deactivated when it has history, which hides it from every picker and list
 // while leaving the PRs, POs and batches that name it readable. Deliberately NOT
-// opened to the person who added the material — it can break other people's
+// opened to the person who added the material - it can break other people's
 // documents, so it stays with the master owners.
 router.delete('/:id', authenticate, authorizeProductMaster, auditLog('DELETE', 'Product'), async (req, res) => {
   try {
@@ -1130,7 +1259,7 @@ router.delete('/:id', authenticate, authorizeProductMaster, auditLog('DELETE', '
       });
       return res.json({
         deleted: false,
-        message: `"${product.name}" is used elsewhere, so it was deactivated instead of deleted — it is hidden from every picker and list, and the documents that reference it are unchanged.`,
+        message: `"${product.name}" is used elsewhere, so it was deactivated instead of deleted - it is hidden from every picker and list, and the documents that reference it are unchanged.`,
         usage: { counts: usage.counts, referenced: usage.referenced, hasStock: usage.hasStock },
         product,
       });
@@ -1151,7 +1280,7 @@ router.delete('/:id', authenticate, authorizeProductMaster, auditLog('DELETE', '
     });
   } catch (error) {
     if (error.code === 'P2025') return res.status(404).json({ error: 'Product not found' });
-    // A reference we don't count above (foreign key still held somewhere) —
+    // A reference we don't count above (foreign key still held somewhere) -
     // fall back to deactivating rather than failing the request.
     if (error.code === 'P2003') {
       const product = await prisma.product.update({

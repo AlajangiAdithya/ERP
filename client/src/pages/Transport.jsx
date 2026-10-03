@@ -32,7 +32,7 @@ const MODULES = [
     to: '/inward-entry?tab=fim-status',
     icon: PackageSearch,
     title: 'FIM Status',
-    description: 'Customer property from inward to return — unit assignment, acceptance, return dates and send-out.',
+    description: 'Customer property from inward to return - unit assignment, acceptance, return dates and send-out.',
     roles: ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE', 'PLANNING', 'QC'],
     gradient: 'from-fuchsia-500 via-purple-500 to-indigo-500',
     glow: 'group-hover:shadow-purple-500/40',
@@ -43,7 +43,7 @@ const MODULES = [
     to: '/logistics',
     icon: RouteIcon,
     title: 'Logistics Dispatch',
-    description: 'Pending dispatch queue — assign vehicles and confirm outbound movement.',
+    description: 'Pending dispatch queue - assign vehicles and confirm outbound movement.',
     roles: ['ADMIN', 'LOGISTICS'],
     gradient: 'from-emerald-500 via-teal-500 to-cyan-600',
     glow: 'group-hover:shadow-emerald-500/40',
@@ -86,7 +86,7 @@ export default function Transport() {
           </div>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">Gate Pass, Logistics &amp; Vehicle Movement</h1>
           <p className="text-sm text-blue-100/90 mt-2 max-w-2xl leading-relaxed">
-            One workspace for everything that moves in or out of the plant —
+            One workspace for everything that moves in or out of the plant -
             gate passes, dispatch assignments, and the vehicle register with trip history.
           </p>
         </div>

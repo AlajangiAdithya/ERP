@@ -1,4 +1,4 @@
-// List of Employees register — master roster.
+// List of Employees register - master roster.
 // HR/ADMIN/SUPERADMIN can add/edit/delete; everyone else view-only.
 import { useEffect, useMemo, useState } from 'react';
 import { Users, Plus, Pencil, Trash2, X, Search, Save, AlertTriangle } from 'lucide-react';
@@ -103,7 +103,7 @@ export default function Employees() {
           <Users size={13} /> HR · Employees
         </div>
         <div className="text-xl font-bold mt-1">List of Employees</div>
-        <div className="text-xs text-sky-100/80 mt-0.5">Master roster — designation, qualification, experience, department.</div>
+        <div className="text-xs text-sky-100/80 mt-0.5">Master roster - designation, qualification, experience, department.</div>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
@@ -161,10 +161,10 @@ export default function Employees() {
                   <td className="py-2 pr-3 text-gray-500">{e.serialNo}</td>
                   <td className="py-2 pr-3 font-mono text-xs">{e.empCode}</td>
                   <td className="py-2 pr-3 font-semibold text-navy-900">{e.name}</td>
-                  <td className="py-2 pr-3">{e.designation || '—'}</td>
-                  <td className="py-2 pr-3">{e.qualification || '—'}</td>
-                  <td className="py-2 pr-3">{e.experience ?? '—'}</td>
-                  <td className="py-2 pr-3">{e.department || '—'}</td>
+                  <td className="py-2 pr-3">{e.designation || '-'}</td>
+                  <td className="py-2 pr-3">{e.qualification || '-'}</td>
+                  <td className="py-2 pr-3">{e.experience ?? '-'}</td>
+                  <td className="py-2 pr-3">{e.department || '-'}</td>
                   <td className="py-2 pr-3">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
                       e.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'

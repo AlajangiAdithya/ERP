@@ -10,10 +10,10 @@ import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
 
 // ACCOUNTING + FINANCE are admin-level read-only observers across the chain.
-// INWARD_QC is a QC-department requester: its PRs go through QC before ADMIN.
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+// INWARD_QC / IN_PROCESS_QC raise their own PRs; those go straight to ADMIN.
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
 
-// Every authenticated role gets Products visibility — stock data is universal.
+// Every authenticated role gets Products visibility - stock data is universal.
 const ALL_ROLES = [
   'ADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER', 'ACCOUNTING', 'QC', 'LAB',
   'METROLOGY', 'NDT', 'RND', 'SAFETY', 'SUPPLY_CHAIN',
@@ -29,7 +29,7 @@ const PAYMENT_ROLES   = ['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING', 'FINANCE'];
 // Inward Entry: Stores actually records inward (write); Manager/QC/Designs/R&D
 // can see what's ready and what's been inwarded for traceability (read-only).
 // ACCOUNTING + FINANCE get the same read-only traceability view.
-const INWARD_ROLES = ['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'ACCOUNTING', 'FINANCE'];
+const INWARD_ROLES = ['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'DESIGNS', 'RND', 'ACCOUNTING', 'FINANCE'];
 
 const MODULES = [
   {
@@ -115,7 +115,7 @@ const MODULES = [
     icon: ClipboardList,
     title: 'MIV Requests',
     description: 'Material Issue Voucher requests for store withdrawals.',
-    // Open to every department that draws material — Store Manager is excluded
+    // Open to every department that draws material - Store Manager is excluded
     // because they clear MIVs. Mirrors MANAGE_ROLES in server request.routes.js.
     roles: ['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT', 'PLANNING', 'ACCOUNTING', 'FINANCE', 'ADMIN', 'LOGISTICS', 'HR'],
     gradient: 'from-violet-500 via-purple-500 to-fuchsia-500',
@@ -267,7 +267,7 @@ const WORKFLOW_STEPS = [
     summary: 'Collect supplier quotes for the approved PR items and select the winning bid.',
     statuses: ['AWAITING_QUOTATION', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED'],
     docs: [
-      { label: 'Supplier quote files', detail: 'Uploaded per supplier under each PR item — download from the Quotation modal.' },
+      { label: 'Supplier quote files', detail: 'Uploaded per supplier under each PR item - download from the Quotation modal.' },
       { label: 'Approved Supplier List', detail: 'Cross-reference at /suppliers before choosing a vendor.' },
     ],
     color: 'from-indigo-500 to-violet-600',
@@ -281,8 +281,8 @@ const WORKFLOW_STEPS = [
     summary: 'Verify vendor onboarding documents before quoting and ordering.',
     statuses: ['APPROVED', 'CONDITIONAL', 'REJECTED', 'TERMINATED'],
     docs: [
-      { label: 'Vendor Evaluation PDF', detail: 'One-time onboarding doc — open the supplier row to download.' },
-      { label: 'Supplier Assessment PDF', detail: 'FY-bound — must be re-uploaded each new financial year.' },
+      { label: 'Vendor Evaluation PDF', detail: 'One-time onboarding doc - open the supplier row to download.' },
+      { label: 'Supplier Assessment PDF', detail: 'FY-bound - must be re-uploaded each new financial year.' },
       { label: 'Supplier Re-Evaluation Form', detail: 'Latest per FY shown in the Evaluation Details panel.' },
       { label: 'Performance Ratings', detail: 'Generated from PO history; viewable inline on each supplier.' },
     ],
@@ -311,7 +311,7 @@ const WORKFLOW_STEPS = [
     summary: 'Advance, partial, or final payment raised against the PO and cleared by accounting.',
     statuses: ['PENDING', 'APPROVED', 'PAID'],
     docs: [
-      { label: 'Internal ledger record', detail: 'No standalone PDF — visible on the Payment Requests screen and on the PO history.' },
+      { label: 'Internal ledger record', detail: 'No standalone PDF - visible on the Payment Requests screen and on the PO history.' },
     ],
     color: 'from-teal-500 to-sky-500',
     ring: 'ring-teal-200',
@@ -321,11 +321,11 @@ const WORKFLOW_STEPS = [
     title: 'Material Inward Register + QC',
     actor: 'Stores → QC / Unit Manager → Stores',
     to: '/inward-entry',
-    summary: 'When material reaches the store, Stores logs it (PO or direct) and requests QC. QC reviews inline — or QC / the concerned unit manager / Admin marks the lot “QC Not Required” when the item needs no inspection — then Stores inwards the accepted qty into stock.',
+    summary: 'When material reaches the store, Stores logs it (PO or direct) and requests QC. QC reviews inline - or QC / the concerned unit manager / Admin marks the lot “QC Not Required” when the item needs no inspection - then Stores inwards the accepted qty into stock.',
     statuses: ['DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW', 'QC_DONE', 'QC_NOT_REQUIRED', 'INWARDED'],
     docs: [
-      { label: 'MIR row', detail: 'One register row per material line — carries vehicle, document, batch, expiry, issued-to and the QC report remark.' },
-      { label: 'QC waiver', detail: 'Items needing no inspection are cleared by QC / the unit manager / Admin with a recorded reason — no QC report is produced.' },
+      { label: 'MIR row', detail: 'One register row per material line - carries vehicle, document, batch, expiry, issued-to and the QC report remark.' },
+      { label: 'QC waiver', detail: 'Items needing no inspection are cleared by QC / the unit manager / Admin with a recorded reason - no QC report is produced.' },
       { label: 'MIV back-link', detail: 'The MIV no. column auto-fills when a unit later draws the batch.' },
     ],
     color: 'from-orange-500 to-yellow-500',
@@ -366,7 +366,7 @@ function WorkflowModal({ isOpen, onClose }) {
       <div className="space-y-2">
         <p className="text-sm text-gray-600">
           End-to-end flow of how a purchase request travels through the system, who acts at each
-          stage, and where to download or upload the supporting documents. This is read-only — use
+          stage, and where to download or upload the supporting documents. This is read-only - use
           the linked module on each step to actually take action.
         </p>
 
@@ -436,7 +436,7 @@ function WorkflowModal({ isOpen, onClose }) {
                                 <Download size={14} className="text-navy-600 mt-0.5 shrink-0" />
                                 <div>
                                   <span className="font-medium text-navy-800">{d.label}</span>
-                                  <span className="text-gray-600"> — {d.detail}</span>
+                                  <span className="text-gray-600"> - {d.detail}</span>
                                 </div>
                               </li>
                             ))}
@@ -461,7 +461,7 @@ function WorkflowModal({ isOpen, onClose }) {
           <Paperclip size={14} className="mt-0.5 shrink-0" />
           <span>
             Tip: every PDF download is gated by your role. If a "Download" button is missing on a row,
-            check with admin — your role may not have read access to that document type.
+            check with admin - your role may not have read access to that document type.
           </span>
         </div>
       </div>

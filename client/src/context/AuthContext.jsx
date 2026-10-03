@@ -11,7 +11,7 @@ export function AuthProvider({ children }) {
     try {
       return JSON.parse(saved);
     } catch {
-      // Corrupted localStorage shouldn't softlock login — clear and continue.
+      // Corrupted localStorage shouldn't softlock login - clear and continue.
       localStorage.removeItem('user');
       return null;
     }
@@ -28,7 +28,7 @@ export function AuthProvider({ children }) {
           localStorage.setItem('user', JSON.stringify(data.user));
         })
         .catch(() => {
-          // Axios interceptor already tried /auth/refresh and gave up — the
+          // Axios interceptor already tried /auth/refresh and gave up - the
           // refresh-token cookie is gone or invalid, so the session is truly
           // dead. Clearing here is the only auto-logout path; everything else
           // requires the user to click the logout button.
@@ -51,7 +51,7 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    // Stop server push to this device before the token dies — otherwise a
+    // Stop server push to this device before the token dies - otherwise a
     // shared computer keeps showing the previous user's notifications.
     try {
       await removePushSubscription();

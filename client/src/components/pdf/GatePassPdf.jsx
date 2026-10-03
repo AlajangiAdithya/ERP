@@ -67,19 +67,19 @@ export default function GatePassPdf({ data }) {
       <View style={styles.table}>
         <View style={styles.row}>
           <View style={[styles.cellLabel, { width: '10%' }]}><Text>SITE</Text></View>
-          <View style={[styles.cell, { width: '30%' }]}><Text>{g.siteName || '—'}</Text></View>
+          <View style={[styles.cell, { width: '30%' }]}><Text>{g.siteName || '-'}</Text></View>
           <View style={[styles.cellLabel, { width: '15%' }]}><Text>REQUEST No.</Text></View>
-          <View style={[styles.cell, { width: '25%' }]}><Text>{g.passNumber || '—'}</Text></View>
+          <View style={[styles.cell, { width: '25%' }]}><Text>{g.passNumber || '-'}</Text></View>
           <View style={[styles.cellLabel, { width: '8%' }]}><Text>DATE</Text></View>
           <View style={[styles.cell, { width: '12%' }]}><Text>{formatDate(g.date)}</Text></View>
         </View>
         <View style={styles.row}>
           <View style={[styles.cellLabel, { width: '10%' }]}><Text>STATUS</Text></View>
-          <View style={[styles.cell, { width: '30%' }]}><Text>{STATUS_LABEL[g.status] || g.status || '—'}</Text></View>
+          <View style={[styles.cell, { width: '30%' }]}><Text>{STATUS_LABEL[g.status] || g.status || '-'}</Text></View>
           <View style={[styles.cellLabel, { width: '12%' }]}><Text>DRIVER</Text></View>
-          <View style={[styles.cell, { width: '20%' }]}><Text>{g.driverName || '—'}</Text></View>
+          <View style={[styles.cell, { width: '20%' }]}><Text>{g.driverName || '-'}</Text></View>
           <View style={[styles.cellLabel, { width: '12%' }]}><Text>VEHICLE No.</Text></View>
-          <View style={[styles.cell, { width: '16%' }]}><Text>{g.vehicleNo || '—'}</Text></View>
+          <View style={[styles.cell, { width: '16%' }]}><Text>{g.vehicleNo || '-'}</Text></View>
         </View>
       </View>
     </>
@@ -130,7 +130,7 @@ export default function GatePassPdf({ data }) {
 
                 {g.rejectedReason && (
                   <View style={styles.section}>
-                    <Text style={[styles.sectionTitle, { color: '#b91c1c' }]}>Rejected — Reason</Text>
+                    <Text style={[styles.sectionTitle, { color: '#b91c1c' }]}>Rejected - Reason</Text>
                     <View style={[styles.cell, { padding: 6 }]}><Text>{g.rejectedReason}</Text></View>
                   </View>
                 )}

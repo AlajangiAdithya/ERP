@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import {
   Plus, Upload, FileText, CheckCircle2, AlertCircle, Building2,
   ClipboardCheck, Pencil, Star, BarChart3, ArrowUp, ArrowDown, ArrowUpDown,
+  ShieldCheck, Send, XCircle, Clock,
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -17,27 +18,34 @@ import ExpiryDot from '../components/shared/ExpiryDot';
 import { formatDate } from '../utils/formatters';
 import { supplierComplianceStatus } from '../utils/supplierCompliance';
 
-// The structured Re-Evaluation + Assessment data-entry forms are hidden for now —
+// The structured Re-Evaluation + Assessment data-entry forms are hidden for now -
 // per spec only the SA and VE PDF documents matter. Flip to true to restore them.
 const SHOW_STRUCTURED_FORMS = false;
 
 const MATERIAL_TYPE_OPTS = [
-  { value: '', label: '—' },
+  { value: '', label: '-' },
   { value: 'MATERIAL', label: 'Material' },
   { value: 'JOB_WORK', label: 'Job Work' },
   { value: 'SERVICE', label: 'Service' },
 ];
+// PENDING_APPROVAL is not offered here - a supplier reaches it by being sent for
+// approval, and leaves it only through the Admin's decision.
 const APPROVAL_STATUS_OPTS = [
-  { value: '', label: '—' },
+  { value: '', label: '-' },
   { value: 'APPROVED', label: 'Approved' },
   { value: 'CONDITIONAL', label: 'Conditional' },
   { value: 'REJECTED', label: 'Rejected' },
   { value: 'TERMINATED', label: 'Terminated' },
 ];
 const approvalBadgeColor = (s) => ({
+  PENDING_APPROVAL: 'amber',
   APPROVED: 'green', CONDITIONAL: 'amber', REJECTED: 'red', TERMINATED: 'gray',
 }[s] || 'gray');
-const materialTypeLabel = (m) => ({ MATERIAL: 'Material', JOB_WORK: 'Job Work', SERVICE: 'Service' }[m] || '—');
+const approvalLabel = (s) => ({
+  PENDING_APPROVAL: 'Awaiting Admin Approval',
+  APPROVED: 'APPROVED', CONDITIONAL: 'CONDITIONAL', REJECTED: 'REJECTED', TERMINATED: 'TERMINATED',
+}[s] || s);
+const materialTypeLabel = (m) => ({ MATERIAL: 'Material', JOB_WORK: 'Job Work', SERVICE: 'Service' }[m] || '-');
 
 // Server-side sort options (mirrors SORT_MAP in supplier.routes.js).
 const SORT_OPTS = [
@@ -53,7 +61,7 @@ const SORT_OPTS = [
 const toDateInput = (v) => (v ? new Date(v).toISOString().slice(0, 10) : '');
 
 const yesNoOpts = [
-  { value: '', label: '—' },
+  { value: '', label: '-' },
   { value: 'true', label: 'YES' },
   { value: 'false', label: 'NO' },
 ];
@@ -62,6 +70,9 @@ const parseYesNo = (s) => (s === '' || s === undefined || s === null ? null : s 
 export default function Suppliers() {
   const { user } = useAuth();
   const canEdit = user?.role === 'PURCHASE_OFFICER' || user?.role === 'ADMIN';
+  // Only Admin rules on a supplier. Purchase onboards it and sends it up.
+  const canDecide = user?.role === 'ADMIN';
+  const canSubmit = user?.role === 'PURCHASE_OFFICER' || user?.role === 'ADMIN';
 
   const [suppliers, setSuppliers] = useState([]);
   const [currentFY, setCurrentFY] = useState('');
@@ -79,6 +90,10 @@ export default function Suppliers() {
   const [assessmentFor, setAssessmentFor] = useState(null);
   const [uploadingFor, setUploadingFor] = useState(null);
   const [showRatingModal, setShowRatingModal] = useState(false);
+  // Suppliers waiting on an admin decision - pulled separately so they can be
+  // pinned above the register regardless of which page of it is open.
+  const [pending, setPending] = useState([]);
+  const [decideFor, setDecideFor] = useState(null);
 
   const fetchSuppliers = () => {
     setLoading(true);
@@ -93,9 +108,18 @@ export default function Suppliers() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchSuppliers(); /* eslint-disable-next-line */ }, [page, search, selectedFY, sort]);
+  const fetchPending = () => {
+    api.get('/suppliers', { params: { approvalStatus: 'PENDING_APPROVAL', limit: 'all' } })
+      .then(({ data }) => setPending(data.suppliers || []))
+      .catch(() => setPending([]));
+  };
 
-  // Build the FY dropdown from current FY + the last 4 — enough for review history.
+  const reload = () => { fetchSuppliers(); fetchPending(); };
+
+  useEffect(() => { fetchSuppliers(); /* eslint-disable-next-line */ }, [page, search, selectedFY, sort]);
+  useEffect(() => { fetchPending(); }, []);
+
+  // Build the FY dropdown from current FY + the last 4 - enough for review history.
   const fyOptions = useMemo(() => {
     if (!currentFY) return [];
     const [a] = currentFY.split('-').map(Number);
@@ -112,7 +136,7 @@ export default function Suppliers() {
       <PageHero
         title="Approved Suppliers"
         subtitle={currentFY
-          ? `Approved Supplier List · Re-evaluation · Assessment · Performance Rating — current FY ${currentFY}.`
+          ? `Approved Supplier List · Re-evaluation · Assessment · Performance Rating - current FY ${currentFY}.`
           : 'Approved Supplier List · Re-evaluation · Assessment · Performance Rating.'}
         eyebrow="Vendor Register"
         icon={Building2}
@@ -136,6 +160,70 @@ export default function Suppliers() {
           </div>
         }
       />
+
+      {/* Suppliers waiting on an admin decision - pinned above the register so the
+          approvals are the first thing an admin sees, on every page of the list. */}
+      {pending.length > 0 && (
+        <Card className={canDecide ? '!border-amber-300 !bg-amber-50/40' : ''}>
+          <div className="flex items-start gap-3 mb-3">
+            <ShieldCheck size={18} className="mt-0.5 shrink-0 text-amber-600" />
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-bold text-navy-900">
+                {pending.length} supplier{pending.length === 1 ? '' : 's'} waiting for approval
+              </h3>
+              <p className="text-[11px] text-gray-600 mt-0.5">
+                {canDecide
+                  ? 'Documents are on file. Approve, approve with conditions, or reject - Purchase is notified either way.'
+                  : 'Sent to the admins for a decision. You will be notified when they rule on it.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {pending.map((s) => {
+              const st = s.compliance || supplierComplianceStatus(s);
+              return (
+                <div key={s.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-white p-3">
+                  <div className="min-w-[180px] flex-1">
+                    <div className="font-semibold text-navy-800 text-sm">{s.name}</div>
+                    <div className="text-[11px] text-gray-500">
+                      {s.vendorIdNo || '-'}
+                      {s.materialType ? ` · ${materialTypeLabel(s.materialType)}` : ''}
+                      {s.scopeOfSupply ? ` · ${s.scopeOfSupply}` : ''}
+                    </div>
+                  </div>
+
+                  {/* The documents the decision rests on, one click away. */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {s.supplierAssessmentPdfUrl ? (
+                      <a href={s.supplierAssessmentPdfUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded border border-navy-200 px-2 py-1 text-[11px] font-semibold text-navy-700 hover:bg-navy-50">
+                        <FileText size={11} /> SA{s.supplierAssessmentDate ? ` · ${formatDate(s.supplierAssessmentDate)}` : ''}
+                      </a>
+                    ) : <span className="text-[11px] font-semibold text-red-600">SA missing</span>}
+                    {s.vendorEvaluationPdfUrl && (
+                      <a href={s.vendorEvaluationPdfUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded border border-navy-200 px-2 py-1 text-[11px] font-semibold text-navy-700 hover:bg-navy-50">
+                        <FileText size={11} /> VE{s.vendorEvaluationDate ? ` · ${formatDate(s.vendorEvaluationDate)}` : ''}
+                      </a>
+                    )}
+                    <ExpiryDot status={st} />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 text-[11px] text-amber-700">
+                      <Clock size={11} /> Sent {formatDate(s.approvalSubmittedAt)}
+                    </span>
+                    {canDecide ? (
+                      <Button size="sm" onClick={() => setDecideFor(s)}>Review &amp; decide</Button>
+                    ) : (
+                      <Badge color="amber">Awaiting admin</Badge>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       <Card>
         <div className="mb-4 flex items-center gap-3 flex-wrap">
@@ -179,10 +267,21 @@ export default function Suppliers() {
             sort={sort}
             onSortChange={(v) => { setSort(v); setPage(1); }}
             canEdit={canEdit}
+            canDecide={canDecide}
+            canSubmit={canSubmit}
             onEditSupplier={(s) => { setEditingSupplier(s); setShowSupplierModal(true); }}
             onReEvaluate={(s) => setReEvalFor(s)}
             onAssess={(s) => setAssessmentFor(s)}
             onUpload={(s, kind) => setUploadingFor({ supplier: s, kind })}
+            onDecide={(s) => setDecideFor(s)}
+            onSubmitApproval={async (s) => {
+              try {
+                await api.post(`/suppliers/${s.id}/submit-approval`);
+                reload();
+              } catch (err) {
+                alert(err.response?.data?.error || 'Could not send this supplier for approval');
+              }
+            }}
           />
         )}
         <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
@@ -192,7 +291,15 @@ export default function Suppliers() {
         <SupplierFormModal
           supplier={editingSupplier}
           onClose={() => { setShowSupplierModal(false); setEditingSupplier(null); }}
-          onSaved={() => { setShowSupplierModal(false); setEditingSupplier(null); fetchSuppliers(); }}
+          onSaved={() => { setShowSupplierModal(false); setEditingSupplier(null); reload(); }}
+        />
+      )}
+
+      {decideFor && (
+        <ApprovalDecisionModal
+          supplier={decideFor}
+          onClose={() => setDecideFor(null)}
+          onDone={() => { setDecideFor(null); reload(); }}
         />
       )}
 
@@ -218,7 +325,7 @@ export default function Suppliers() {
         <PdfUploadModal
           uploadingFor={uploadingFor}
           onClose={() => setUploadingFor(null)}
-          onSaved={() => { setUploadingFor(null); fetchSuppliers(); }}
+          onSaved={() => { setUploadingFor(null); reload(); }}
         />
       )}
 
@@ -238,9 +345,9 @@ export default function Suppliers() {
 // ─── Wide Approved Supplier List table ────────────────────────────────────
 // Two-banner layout matching the client format: left = master register,
 // right = evaluation details for the selected FY.
-function ApprovedSupplierTable({ suppliers, currentFY, sort, onSortChange, canEdit, onEditSupplier, onReEvaluate, onAssess, onUpload }) {
+function ApprovedSupplierTable({ suppliers, currentFY, sort, onSortChange, canEdit, canDecide, canSubmit, onEditSupplier, onReEvaluate, onAssess, onUpload, onDecide, onSubmitApproval }) {
   // Click "Vendor ID" header to toggle the server-side sort between ascending
-  // and descending — applies across all pages, not just the one on screen.
+  // and descending - applies across all pages, not just the one on screen.
   const vendorSort = sort === 'vendor_asc' ? 'asc' : sort === 'vendor_desc' ? 'desc' : 'none';
   const cycleVendorSort = () => onSortChange(vendorSort === 'asc' ? 'vendor_desc' : 'vendor_asc');
   const sortedSuppliers = suppliers;
@@ -296,51 +403,83 @@ function ApprovedSupplierTable({ suppliers, currentFY, sort, onSortChange, canEd
             const st = supplierComplianceStatus(s);
             return (
               <tr key={s.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
-                <td className="px-2 py-2 border-b text-gray-700 font-mono">{s.vendorIdNo || '—'}</td>
+                <td className="px-2 py-2 border-b text-gray-700 font-mono">{s.vendorIdNo || '-'}</td>
                 <td className="px-2 py-2 border-b">
                   <div className="font-medium text-navy-700">{s.name}</div>
                   {s.gstNumber && <div className="text-[10px] text-gray-500">GST: {s.gstNumber}</div>}
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
                     {st.hasSA ? (
-                      <a href={s.supplierAssessmentPdfUrl} target="_blank" rel="noreferrer" className="text-[10px] text-navy-700 hover:underline" title={s.supplierAssessmentDate ? `SA dated ${formatDate(s.supplierAssessmentDate)}` : 'SA — no date set'}>
+                      <a href={s.supplierAssessmentPdfUrl} target="_blank" rel="noreferrer" className="text-[10px] text-navy-700 hover:underline" title={s.supplierAssessmentDate ? `SA dated ${formatDate(s.supplierAssessmentDate)}` : 'SA - no date set'}>
                         <FileText size={10} className="inline" /> SA{s.supplierAssessmentDate ? ` ${formatDate(s.supplierAssessmentDate)}` : ''}
                       </a>
                     ) : (
                       <span className="text-[10px] text-red-600 font-semibold">SA missing</span>
                     )}
                     {st.hasVE && (
-                      <a href={s.vendorEvaluationPdfUrl} target="_blank" rel="noreferrer" className="text-[10px] text-navy-700 hover:underline" title={s.vendorEvaluationDate ? `Latest VE dated ${formatDate(s.vendorEvaluationDate)}` : 'VE — no date set'}>
+                      <a href={s.vendorEvaluationPdfUrl} target="_blank" rel="noreferrer" className="text-[10px] text-navy-700 hover:underline" title={s.vendorEvaluationDate ? `Latest VE dated ${formatDate(s.vendorEvaluationDate)}` : 'VE - no date set'}>
                         <FileText size={10} className="inline" /> VE{s.vendorEvaluationDate ? ` ${formatDate(s.vendorEvaluationDate)}` : ''}
                       </a>
                     )}
                     <ExpiryDot status={st} />
                   </div>
                 </td>
-                <td className="px-2 py-2 border-b text-gray-700 max-w-[180px]">{s.address || '—'}</td>
+                <td className="px-2 py-2 border-b text-gray-700 max-w-[180px]">{s.address || '-'}</td>
                 <td className="px-2 py-2 border-b text-gray-700">
-                  {s.contactPerson || s.contact || '—'}
+                  {s.contactPerson || s.contact || '-'}
                   {s.contactPhone && <div className="text-[10px] text-gray-500">{s.contactPhone}</div>}
                 </td>
-                <td className="px-2 py-2 border-b text-gray-700 max-w-[180px]">{s.scopeOfSupply || '—'}</td>
+                <td className="px-2 py-2 border-b text-gray-700 max-w-[180px]">{s.scopeOfSupply || '-'}</td>
                 <td className="px-2 py-2 border-b text-gray-700">{materialTypeLabel(s.materialType)}</td>
                 <td className="px-2 py-2 border-b">
                   {s.approvalStatus
-                    ? <Badge color={approvalBadgeColor(s.approvalStatus)}>{s.approvalStatus}</Badge>
-                    : <span className="text-gray-400">—</span>}
+                    ? <Badge color={approvalBadgeColor(s.approvalStatus)}>{approvalLabel(s.approvalStatus)}</Badge>
+                    : <span className="text-gray-400">-</span>}
+                  {/* Who ruled on it, and the admin's note / rejection reason. */}
+                  {s.approvalDecidedAt && s.approvalStatus !== 'PENDING_APPROVAL' && (
+                    <div className="text-[10px] text-gray-500 mt-0.5">by Admin · {formatDate(s.approvalDecidedAt)}</div>
+                  )}
+                  {s.approvalRemark && (
+                    <div
+                      className={`text-[10px] mt-0.5 line-clamp-2 ${s.approvalStatus === 'REJECTED' ? 'text-rose-700' : 'text-gray-600'}`}
+                      title={s.approvalRemark}
+                    >
+                      “{s.approvalRemark}”
+                    </div>
+                  )}
                 </td>
                 <td className="px-2 py-2 border-b text-gray-700">{formatDate(s.approvalDate)}</td>
-                <td className="px-2 py-2 border-b text-gray-700 max-w-[180px]">{s.typeAndExtentOfControl || '—'}</td>
-                <td className="px-2 py-2 border-b text-gray-700 max-w-[160px]">{s.remarks || '—'}</td>
+                <td className="px-2 py-2 border-b text-gray-700 max-w-[180px]">{s.typeAndExtentOfControl || '-'}</td>
+                <td className="px-2 py-2 border-b text-gray-700 max-w-[160px]">{s.remarks || '-'}</td>
                 <td className="px-2 py-2 border-b text-gray-700 border-l border-gray-200">{formatDate(r?.nextReviewDate)}</td>
                 <td className="px-2 py-2 border-b text-gray-700">{formatDate(r?.evaluationDate)}</td>
                 <td className="px-2 py-2 border-b">
                   {ratingValue != null
                     ? <Badge color={ratingBelow ? 'red' : 'green'}>{ratingValue}%</Badge>
-                    : <span className="text-gray-400">—</span>}
+                    : <span className="text-gray-400">-</span>}
                 </td>
-                <td className="px-2 py-2 border-b text-gray-700 max-w-[180px]">{r?.remarks || '—'}</td>
+                <td className="px-2 py-2 border-b text-gray-700 max-w-[180px]">{r?.remarks || '-'}</td>
                 <td className="px-2 py-2 border-b">
                   <div className="flex flex-col gap-1 min-w-[140px]">
+                    {/* Approval - the admin's decision, or Purchase sending it up. */}
+                    {s.approvalStatus === 'PENDING_APPROVAL' && canDecide && (
+                      <button onClick={() => onDecide(s)} className="text-[11px] font-semibold text-amber-700 hover:underline text-left">
+                        <ShieldCheck size={11} className="inline" /> Approve / Reject
+                      </button>
+                    )}
+                    {s.approvalStatus === 'PENDING_APPROVAL' && !canDecide && (
+                      <span className="text-[11px] text-amber-700"><Clock size={11} className="inline" /> With admin</span>
+                    )}
+                    {canSubmit && s.supplierAssessmentPdfUrl
+                      && !['PENDING_APPROVAL', 'APPROVED', 'CONDITIONAL', 'TERMINATED'].includes(s.approvalStatus) && (
+                      <button onClick={() => onSubmitApproval(s)} className="text-[11px] font-semibold text-navy-700 hover:underline text-left">
+                        <Send size={11} className="inline" /> Send for approval
+                      </button>
+                    )}
+                    {canSubmit && !s.supplierAssessmentPdfUrl && !s.approvalStatus && (
+                      <span className="text-[11px] text-gray-400" title="Upload the Supplier Assessment to start the approval">
+                        SA needed to submit
+                      </span>
+                    )}
                     {canEdit ? (
                       <>
                         <button onClick={() => onEditSupplier(s)} className="text-[11px] text-navy-700 hover:underline text-left">
@@ -374,6 +513,106 @@ function ApprovedSupplierTable({ suppliers, currentFY, sort, onSortChange, canEd
         </tbody>
       </table>
     </div>
+  );
+}
+
+// ─── Admin's decision on a supplier waiting for approval ───────────────
+// Everything the call rests on is in front of the admin - the vendor's details,
+// its scope, and the SA / VE documents as links - so approving does not mean
+// going and finding the paperwork first.
+function ApprovalDecisionModal({ supplier, onClose, onDone }) {
+  const [remark, setRemark] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const st = supplier.compliance || supplierComplianceStatus(supplier);
+
+  const decide = async (decision) => {
+    if (decision !== 'APPROVED' && !remark.trim()) {
+      setError(decision === 'REJECTED'
+        ? 'Say why this supplier is being rejected - Purchase needs to know what to fix.'
+        : 'State the condition this approval carries.');
+      return;
+    }
+    setSaving(true); setError('');
+    try {
+      await api.post(`/suppliers/${supplier.id}/approval-decision`, { decision, remark: remark.trim() || null });
+      onDone();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed');
+      setSaving(false);
+    }
+  };
+
+  const Row = ({ label, value }) => (
+    <div className="flex gap-2 text-[12px]">
+      <span className="w-32 shrink-0 text-gray-500">{label}</span>
+      <span className="text-navy-900">{value || '-'}</span>
+    </div>
+  );
+
+  return (
+    <Modal isOpen onClose={onClose} title={`Approve supplier - ${supplier.name}`} size="md">
+      <div className="space-y-3">
+        {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1">
+          <Row label="Vendor ID" value={supplier.vendorIdNo} />
+          <Row label="Type" value={materialTypeLabel(supplier.materialType)} />
+          <Row label="Scope of supply" value={supplier.scopeOfSupply} />
+          <Row label="GST" value={supplier.gstNumber} />
+          <Row label="Contact" value={[supplier.contactPerson || supplier.contact, supplier.contactPhone].filter(Boolean).join(' · ')} />
+          <Row label="Sent for approval" value={formatDate(supplier.approvalSubmittedAt)} />
+        </div>
+
+        <div className="rounded-lg border border-navy-200 bg-navy-50/50 p-3">
+          <p className="text-[11px] font-bold text-navy-800 mb-2">Documents on file</p>
+          <div className="flex flex-wrap items-center gap-2">
+            {supplier.supplierAssessmentPdfUrl ? (
+              <a href={supplier.supplierAssessmentPdfUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded border border-navy-300 bg-white px-2 py-1 text-[11px] font-semibold text-navy-700 hover:bg-navy-50">
+                <FileText size={11} /> Supplier Assessment{supplier.supplierAssessmentDate ? ` · ${formatDate(supplier.supplierAssessmentDate)}` : ''}
+              </a>
+            ) : <span className="text-[11px] font-semibold text-red-600">SA missing</span>}
+            {supplier.vendorEvaluationPdfUrl && (
+              <a href={supplier.vendorEvaluationPdfUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded border border-navy-300 bg-white px-2 py-1 text-[11px] font-semibold text-navy-700 hover:bg-navy-50">
+                <FileText size={11} /> Vendor Re-Evaluation{supplier.vendorEvaluationDate ? ` · ${formatDate(supplier.vendorEvaluationDate)}` : ''}
+              </a>
+            )}
+          </div>
+          {st?.reason && <p className="mt-2 text-[11px] font-semibold text-rose-700">⚠ {st.reason}</p>}
+        </div>
+
+        <Textarea
+          label="Remark (required to reject or to attach a condition)"
+          rows={3}
+          value={remark}
+          onChange={(e) => { setRemark(e.target.value); if (error) setError(''); }}
+          placeholder="e.g. Approved for fasteners only until the ISO certificate is submitted."
+        />
+
+        <p className="text-[11px] text-gray-500">
+          Purchase is notified of the outcome either way, and the person who sent this supplier up is
+          told directly. A rejected supplier can be fixed and sent for approval again.
+        </p>
+
+        <div className="flex flex-wrap justify-end gap-2 pt-2 border-t">
+          <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button
+            variant="secondary"
+            onClick={() => decide('REJECTED')}
+            disabled={saving}
+            className="!text-rose-700 !border-rose-300 hover:!bg-rose-50"
+          >
+            <XCircle size={14} /> Reject
+          </Button>
+          <Button variant="secondary" onClick={() => decide('CONDITIONAL')} disabled={saving}>
+            Approve with conditions
+          </Button>
+          <Button onClick={() => decide('APPROVED')} disabled={saving}>
+            <CheckCircle2 size={14} /> {saving ? 'Saving…' : 'Approve'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -420,7 +659,7 @@ function SupplierFormModal({ supplier, onClose, onSaved }) {
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={isEdit ? `Edit Supplier — ${supplier.vendorIdNo || ''}` : 'Add Supplier'} size="xl">
+    <Modal isOpen onClose={onClose} title={isEdit ? `Edit Supplier - ${supplier.vendorIdNo || ''}` : 'Add Supplier'} size="xl">
       <form onSubmit={submit} className="space-y-3">
         {error && <p className="text-sm text-brand-red">{error}</p>}
         <div className="grid grid-cols-2 gap-3">
@@ -454,7 +693,7 @@ function SupplierFormModal({ supplier, onClose, onSaved }) {
         {!isEdit && (
           <p className="text-xs text-gray-500 bg-amber-50 border border-amber-200 rounded p-2">
             Vendor ID is assigned automatically (format <strong>RAPS/SUP/####</strong>).
-            After saving, upload the <strong>Supplier Assessment (SA)</strong> PDF from the row actions —
+            After saving, upload the <strong>Supplier Assessment (SA)</strong> PDF from the row actions -
             it's required before this supplier can be used on a quotation. Add a <strong>Vendor Re-Evaluation (VE)</strong> each year after that.
           </p>
         )}
@@ -542,7 +781,7 @@ function ReEvaluationModal({ supplier, financialYear, onClose, onSaved }) {
   );
 
   return (
-    <Modal isOpen onClose={onClose} title={`Supplier Re-Evaluation — ${supplier.name} (FY ${financialYear})`} size="full">
+    <Modal isOpen onClose={onClose} title={`Supplier Re-Evaluation - ${supplier.name} (FY ${financialYear})`} size="full">
       <form onSubmit={submit} className="space-y-4">
         {error && <p className="text-sm text-brand-red">{error}</p>}
 
@@ -558,16 +797,16 @@ function ReEvaluationModal({ supplier, financialYear, onClose, onSaved }) {
           <h3 className="text-sm font-semibold text-navy-700 mb-2">Re-evaluation Criteria</h3>
           <div className="grid grid-cols-2 gap-3">
             <YN field="noOrders6Months" label="No orders placed for 6 months or more?" />
-            <Input label="If YES — reason" value={form.noOrdersReason} onChange={(e) => setForm({ ...form, noOrdersReason: e.target.value })} />
+            <Input label="If YES - reason" value={form.noOrdersReason} onChange={(e) => setForm({ ...form, noOrdersReason: e.target.value })} />
 
             <YN field="managementChanged" label="Supplier's management has changed?" />
-            <YN field="newMgmtContinuingTerms" label="If YES — new mgmt continuing on earlier terms?" />
+            <YN field="newMgmtContinuingTerms" label="If YES - new mgmt continuing on earlier terms?" />
 
             <YN field="shiftedLocation" label="Supplier shifted to a new location?" />
-            <Input label="If YES — new address" value={form.newAddress} onChange={(e) => setForm({ ...form, newAddress: e.target.value })} />
+            <Input label="If YES - new address" value={form.newAddress} onChange={(e) => setForm({ ...form, newAddress: e.target.value })} />
 
             <YN field="performanceBelowPar" label="Performance below par (< 85%)?" />
-            <Input label="If YES — corrective action initiated" value={form.correctiveActionInitiated} onChange={(e) => setForm({ ...form, correctiveActionInitiated: e.target.value })} placeholder="Quality / delivery / service / docs" />
+            <Input label="If YES - corrective action initiated" value={form.correctiveActionInitiated} onChange={(e) => setForm({ ...form, correctiveActionInitiated: e.target.value })} placeholder="Quality / delivery / service / docs" />
 
             <YN field="recommendedTermination" label="Recommended top mgmt to terminate?" />
             <YN field="correctiveActionEffective" label="Corrective action effective?" />
@@ -584,7 +823,7 @@ function ReEvaluationModal({ supplier, financialYear, onClose, onSaved }) {
           <h3 className="text-sm font-semibold text-navy-700 mb-2">Decision & Schedule</h3>
           <div className="grid grid-cols-3 gap-3">
             <Select label="Overall Decision" value={form.overallDecision} onChange={(e) => setForm({ ...form, overallDecision: e.target.value })}>
-              <option value="CONTINUES">Approved Source — Continues</option>
+              <option value="CONTINUES">Approved Source - Continues</option>
               <option value="TERMINATED">Terminated</option>
             </Select>
             <Input label="Evaluation Date" type="date" value={form.evaluationDate} onChange={(e) => setForm({ ...form, evaluationDate: e.target.value })} />
@@ -667,7 +906,7 @@ function AssessmentFormModal({ supplier, financialYear, onClose, onSaved }) {
   );
 
   return (
-    <Modal isOpen onClose={onClose} title={`Supplier Assessment Form — ${supplier.name} (FY ${financialYear})`} size="full">
+    <Modal isOpen onClose={onClose} title={`Supplier Assessment Form - ${supplier.name} (FY ${financialYear})`} size="full">
       <form onSubmit={submit} className="space-y-4">
         {error && <p className="text-sm text-brand-red">{error}</p>}
 
@@ -677,14 +916,14 @@ function AssessmentFormModal({ supplier, financialYear, onClose, onSaved }) {
             <Input label="Company Name" value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
             <Textarea label="Address" value={form.companyAddress} onChange={(e) => setForm({ ...form, companyAddress: e.target.value })} rows={2} />
             <Select label="Type of Business" value={form.businessType} onChange={(e) => setForm({ ...form, businessType: e.target.value })}>
-              <option value="">—</option>
+              <option value="">-</option>
               <option value="PROPRIETORSHIP">Proprietorship</option>
               <option value="PARTNERSHIP">Partnership</option>
               <option value="PRIVATE_LTD">Private Ltd.</option>
               <option value="PUBLIC_LTD">Public Ltd.</option>
             </Select>
             <Select label="Business Role" value={form.businessRole} onChange={(e) => setForm({ ...form, businessRole: e.target.value })}>
-              <option value="">—</option>
+              <option value="">-</option>
               <option value="MANUFACTURER">Manufacturer</option>
               <option value="SUPPLIER">Supplier</option>
               <option value="DEALER">Dealer</option>
@@ -779,7 +1018,7 @@ function PdfUploadModal({ uploadingFor, onClose, onSaved }) {
           </p>
         ) : (
           <p className="text-xs text-gray-500">
-            The primary assessment, kept on file. Valid for <strong>1 year</strong> from the date you enter —
+            The primary assessment, kept on file. Valid for <strong>1 year</strong> from the date you enter -
             after that a Vendor Re-Evaluation (VE) is required.
           </p>
         )}
@@ -899,7 +1138,7 @@ function PerformanceRatingModal({ financialYear, suppliers, canEdit, onClose, on
 
   if (loading) {
     return (
-      <Modal isOpen onClose={onClose} title={`Supplier Performance Rating — FY ${financialYear}`} size="full">
+      <Modal isOpen onClose={onClose} title={`Supplier Performance Rating - FY ${financialYear}`} size="full">
         <div className="flex justify-center py-10">
           <div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" />
         </div>
@@ -908,7 +1147,7 @@ function PerformanceRatingModal({ financialYear, suppliers, canEdit, onClose, on
   }
 
   return (
-    <Modal isOpen onClose={onClose} title={`Supplier Performance Rating — FY ${financialYear}`} size="full">
+    <Modal isOpen onClose={onClose} title={`Supplier Performance Rating - FY ${financialYear}`} size="full">
       <form onSubmit={submit} className="space-y-4">
         {error && <p className="text-sm text-brand-red">{error}</p>}
 
@@ -957,7 +1196,7 @@ function PerformanceRatingModal({ financialYear, suppliers, canEdit, onClose, on
                     <td className="px-2 py-1">
                       <select className="w-full px-2 py-1 border rounded text-xs" value={it.supplierId || ''}
                         onChange={(e) => onSupplierChange(idx, e.target.value)} disabled={!canEdit}>
-                        <option value="">— External / unlinked —</option>
+                        <option value="">- External / unlinked -</option>
                         {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
                       {!it.supplierId && (

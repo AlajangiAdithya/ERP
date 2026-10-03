@@ -46,7 +46,7 @@ function unlinkPublicFile(publicUrl) {
   if (!publicUrl || !publicUrl.startsWith('/uploads/')) return;
   const relative = publicUrl.replace(/^\/uploads\//, '');
   const target = path.join(UPLOAD_ROOT, relative);
-  // Block traversal — only delete files inside UPLOAD_ROOT.
+  // Block traversal - only delete files inside UPLOAD_ROOT.
   const resolved = path.resolve(target);
   if (!resolved.startsWith(path.resolve(UPLOAD_ROOT))) return;
   fs.promises.unlink(resolved).catch(() => {});
@@ -60,22 +60,22 @@ const router = express.Router();
 // (they raise PRs and are own-scoped below, mirroring the PR list).
 // ACCOUNTING + FINANCE are admin-level read-only observers (no status scoping
 // below applies to them, so they see every PO like ADMIN).
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'SAFETY', 'LAB', 'METROLOGY', 'NDT'];
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'SAFETY', 'LAB', 'METROLOGY', 'NDT'];
 
 // Requester roles that may reach the PO chain but must only see POs tied to their
-// OWN purchase requests — same own-only model as the PR list. Unit managers see
+// OWN purchase requests - same own-only model as the PR list. Unit managers see
 // their unit's PRs; the non-unit requester depts (Designs, R&D, Safety, Lab,
 // Metrology, NDT) see only PRs they personally raised. ADMIN / PURCHASE_OFFICER /
 // ACCOUNTING / PLANNING keep full chain visibility; QC + STORE_MANAGER are
 // status-scoped to their work queues below.
-const OWN_SCOPED_PO_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'INWARD_QC', 'DESIGNS', 'RND', 'SAFETY'];
+const OWN_SCOPED_PO_ROLES = ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'INWARD_QC', 'IN_PROCESS_QC', 'DESIGNS', 'RND', 'SAFETY'];
 
 // DEPT_BY_ROLE (role → owning department label) is imported from utils/helpers so
 // inward, MIV issue, and inventory transfers all share one source of truth. When a
 // non-unit PR is inwarded we both stamp ProductBatch.assignedDept (lot provenance)
 // and reserve the qty in ProductDeptStock so only that department can issue it.
 
-// An approved quotation creates its purchase orders WITHOUT a number — Purchase
+// An approved quotation creates its purchase orders WITHOUT a number - Purchase
 // type RAPS/PO/<FY>/<n> in by hand (PATCH /:id/assign-number). Until they do the
 // order reads as the placeholder "000" everywhere (poNumberLabel): it is visible
 // to the whole chain so everyone can see what is waiting, but nothing may act on
@@ -169,7 +169,7 @@ const ORDER_INCLUDE = {
     },
     orderBy: { createdAt: 'desc' },
   },
-  // TEMPORARY-feature trail (PO re-numbering). The panel it feeds is permanent —
+  // TEMPORARY-feature trail (PO re-numbering). The panel it feeds is permanent -
   // it only renders when a PO has actually been renumbered, so it costs nothing
   // once the edit button is gone. See PATCH /:id/order-number at the bottom.
   numberHistory: { orderBy: { createdAt: 'desc' }, take: 50 },
@@ -177,7 +177,7 @@ const ORDER_INCLUDE = {
 
 // Role-based status visibility (intersected with the tab/status filter).
 // Stores own "mark goods arrived", so they must see every status an order can
-// be in once it has been placed — including CREDIT_PLACED (credit orders sit
+// be in once it has been placed - including CREDIT_PLACED (credit orders sit
 // here until goods arrive, with no payment step in between).
 const STORE_MANAGER_STATUSES = ['ORDERED', 'PLACED', 'CREDIT_PLACED', 'ADVANCE_PAID', 'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'PARTIAL', 'INWARD_DONE', 'COMPLETED', 'CLOSED'];
 const QC_STATUSES = ['GOODS_ARRIVED', 'QC_PENDING'];
@@ -225,7 +225,7 @@ function buildPoListWhere(user, { status, fromDate, toDate, awaitingNumber }) {
   return where;
 }
 
-// GET /api/purchase-orders — role-filtered list
+// GET /api/purchase-orders - role-filtered list
 router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
   try {
     const { status, page, limit, fromDate, toDate, awaitingNumber } = req.query;
@@ -293,7 +293,7 @@ const sourcePrsOf = (order) => {
   return list.filter(Boolean);
 };
 
-// GET /api/purchase-orders/export — the current PO list as a formatted .xlsx.
+// GET /api/purchase-orders/export - the current PO list as a formatted .xlsx.
 // Same `status` / `fromDate` / `toDate` filters and the same visibility clause as
 // the list endpoint, unpaged. Two sheets: one row per order, and one row per
 // ordered material line for supplier / material level analysis.
@@ -399,7 +399,7 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
       });
 
       items.forEach((i, idx) => {
-        // A union PO line is split across the PRs it fills — name them on the row
+        // A union PO line is split across the PRs it fills - name them on the row
         // so material can be traced back to the indent that asked for it.
         const linePrs = joinUnique((i.allocations || []).map((a) => a.purchaseRequestItem?.request?.requestNumber));
         itemRows.push({
@@ -511,14 +511,14 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
     await sendWorkbook(res, wb, exportFileName('Purchase_Orders'));
   } catch (error) {
     console.error('Export purchase orders error:', error);
-    // The response may already be streaming XLSX bytes by the time this fires —
+    // The response may already be streaming XLSX bytes by the time this fires -
     // sending JSON then would corrupt the download, so only answer if untouched.
     if (!res.headersSent) res.status(500).json({ error: 'Failed to generate Excel export' });
     else res.end();
   }
 });
 
-// GET /api/purchase-orders/dashboard — PO dashboard stats
+// GET /api/purchase-orders/dashboard - PO dashboard stats
 router.get('/dashboard', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), async (req, res) => {
   try {
     const [groups, orders, awaitingNumber] = await Promise.all([
@@ -573,7 +573,7 @@ router.get('/dashboard', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), a
   }
 });
 
-// GET /api/purchase-orders/po-dashboard-feed — actionable lists for the PO dashboard
+// GET /api/purchase-orders/po-dashboard-feed - actionable lists for the PO dashboard
 // Replaces the old "Active Purchase Assignments" tile which incorrectly merged
 // purchasedQty (set via record-purchase) with receivedQty (set via inward).
 // This feed returns four distinct buckets, each computed from authoritative
@@ -605,7 +605,7 @@ router.get('/po-dashboard-feed', authenticate, authorize('PURCHASE_OFFICER', 'AD
         orderBy: { goodsArrivedAt: 'desc' },
         take: 10,
       }),
-      // PRs approved but no quotations entered yet — the PO needs to source quotes.
+      // PRs approved but no quotations entered yet - the PO needs to source quotes.
       prisma.purchaseRequest.findMany({
         where: {
           status: 'APPROVED',
@@ -695,7 +695,7 @@ router.get('/po-dashboard-feed', authenticate, authorize('PURCHASE_OFFICER', 'AD
 // GET /api/purchase-orders/next-number?fy=26-27
 //
 // Feeds the "fill in the PO number" form with the current financial year and the
-// next unused count in it. Purely a convenience — Purchase are typing the number
+// next unused count in it. Purely a convenience - Purchase are typing the number
 // off their own register and may enter anything; the unique index on
 // orderNumber is what actually stops a duplicate.
 //
@@ -742,7 +742,7 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
   }
 });
 
-// Inward Inspection Request (IIR) fields — purchase officer fills these when
+// Inward Inspection Request (IIR) fields - purchase officer fills these when
 // marking goods arrived. They feed straight into the QCInspection record so
 // the QC team sees the full RAPS/IIR Rev 01 form (page 1) on arrival.
 //
@@ -758,7 +758,7 @@ const goodsArrivedItemSchema = z.object({
 });
 
 const goodsArrivedSchema = z.object({
-  // Purchase Officer sets the batch number ONCE here. Locked thereafter — QC, Inward,
+  // Purchase Officer sets the batch number ONCE here. Locked thereafter - QC, Inward,
   // ProductBatch all read from QCInspection.batchNo. The MIV, FIFO list, stock movements
   // all carry this same identifier.
   batchNumber: z.string().trim().min(1, 'Batch number is required').max(64, 'Batch number too long'),
@@ -782,7 +782,7 @@ const goodsArrivedSchema = z.object({
   items: z.array(goodsArrivedItemSchema).min(1, 'At least one item with arrived qty is required'),
 });
 
-// PUT /api/purchase-orders/:id/place-on-credit — PO Officer places the order on word-of-trust.
+// PUT /api/purchase-orders/:id/place-on-credit - PO Officer places the order on word-of-trust.
 // Order moves forward exactly like a paid order (items → ORDERED, source PRs → ORDER_PLACED)
 // but no payment is required yet. The Payment Request is raised later and processed by Accounting;
 // when that payment is marked PAID the PO transitions to PAID just like the normal flow.
@@ -809,7 +809,7 @@ router.put('/:id/place-on-credit', authenticate, authorize('PURCHASE_OFFICER'), 
     if (isUnnumbered(order)) return res.status(400).json({ error: NEEDS_NUMBER_ERROR });
     if (order.status !== 'PENDING_ACCOUNTING') {
       return res.status(400).json({
-        error: `Cannot place on credit — order status is ${order.status}. Only orders awaiting accounting can be placed on credit.`,
+        error: `Cannot place on credit - order status is ${order.status}. Only orders awaiting accounting can be placed on credit.`,
       });
     }
 
@@ -861,7 +861,7 @@ router.put('/:id/place-on-credit', authenticate, authorize('PURCHASE_OFFICER'), 
       return updatedOrder;
     });
 
-    // FYI to Accounting — payment is still pending and will be raised separately.
+    // FYI to Accounting - payment is still pending and will be raised separately.
     await prisma.notification.create({
       data: {
         type: 'ORDER_PLACED_ON_CREDIT',
@@ -925,7 +925,7 @@ router.put('/:id/place-on-credit', authenticate, authorize('PURCHASE_OFFICER'), 
   }
 });
 
-// PUT /api/purchase-orders/:id/goods-arrived — Stores marks a lot as arrived.
+// PUT /api/purchase-orders/:id/goods-arrived - Stores marks a lot as arrived.
 // Accepts multipart/form-data so the invoice PDF can be uploaded alongside
 // the IIR page-1 fields. `items` is a JSON-stringified array of per-PO-item
 // arrived quantities for THIS lot (partial delivery).
@@ -967,7 +967,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('STORE_MANAGER', 'ADMIN
       return res.status(404).json({ error: 'Purchase order not found' });
     }
     // Unreachable in practice (an order can't be placed unnumbered, so goods
-    // can't arrive against one) — but the lot's batch number is derived from the
+    // can't arrive against one) - but the lot's batch number is derived from the
     // PO number, so refuse rather than mint a batch called "null-B1".
     if (isUnnumbered(order)) {
       cleanupUploads();
@@ -1097,7 +1097,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('STORE_MANAGER', 'ADMIN
       data: {
         type: 'INSPECTION_REQUEST',
         title: `Inspection Request ${inspection.inspectionNumber} (Lot ${lotNumber}): ${order.customName}`,
-        message: `${deliveryNote} Inspection request ${inspection.inspectionNumber} has been auto-created — please fill the report.`,
+        message: `${deliveryNote} Inspection request ${inspection.inspectionNumber} has been auto-created - please fill the report.`,
         targetRole: 'QC',
         sentById: req.user.id,
       },
@@ -1110,7 +1110,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('STORE_MANAGER', 'ADMIN
           type: 'GOODS_ARRIVED',
           title: `${isFollowupLot ? 'More ' : ''}Goods Arrived (Lot ${lotNumber}): Your PR ${pr.requestNumber}`,
           message: order.isUnion
-            ? `Lot ${lotNumber} for Union PO "${order.customName}" (${order.orderNumber}) — your PR ${pr.requestNumber} — has arrived (${lotArrivedQty} unit(s)) and is being inspected.`
+            ? `Lot ${lotNumber} for Union PO "${order.customName}" (${order.orderNumber}) - your PR ${pr.requestNumber} - has arrived (${lotArrivedQty} unit(s)) and is being inspected.`
             : (isFollowupLot
               ? `Lot ${lotNumber} for "${order.customName}" (${pr.requestNumber}) has arrived: ${lotArrivedQty} unit(s) in this lot, ${totalReceivedBefore} of ${totalOrdered} previously received.`
               : `Lot ${lotNumber} (${lotArrivedQty} of ${totalOrdered}) for your purchase request "${order.customName}" (${pr.requestNumber}) has arrived and is being inspected.`),
@@ -1148,7 +1148,7 @@ router.put('/:id/goods-arrived', authenticate, authorize('STORE_MANAGER', 'ADMIN
   }
 });
 
-// PUT /api/purchase-orders/:id/inward — Store Manager does inward entry
+// PUT /api/purchase-orders/:id/inward - Store Manager does inward entry
 router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
     const { items } = req.body; // [{ id, receivedQty, batchNumber? }]
@@ -1215,7 +1215,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
       const held = prods.find((p) => p.masterDataComplete === false && normalizeMaterialType(p.category) !== 'Tools & Fixtures');
       if (held) {
         return res.status(400).json({
-          error: `On hold: master data not added yet for "${held.name}" — a unit head or QC must add its master data (specs / shelf life) on the Master Data screen before it can be inwarded.`,
+          error: `On hold: master data not added yet for "${held.name}" - a unit head or QC must add its master data (specs / shelf life) on the Master Data screen before it can be inwarded.`,
         });
       }
     }
@@ -1229,19 +1229,19 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
       orderBy: { lotNumber: 'desc' },
       select: { id: true, lotNumber: true, invoiceNo: true, qtyAccepted: true, batchNo: true },
     });
-    const lotTag = activeInspection?.lotNumber ? ` — Lot ${activeInspection.lotNumber}` : '';
+    const lotTag = activeInspection?.lotNumber ? ` - Lot ${activeInspection.lotNumber}` : '';
     // Locked batch number: set by Purchase Officer at goods-arrived, never editable downstream.
     // Every ProductBatch row created for this inward gets stamped with this exact identifier.
     const lockedBatchNo = activeInspection?.batchNo || null;
 
     // Inward qty is locked to whatever QC finalised on the inspection report.
-    // Stores Incharge cannot reduce / inflate it — the submitted total must
+    // Stores Incharge cannot reduce / inflate it - the submitted total must
     // equal QCInspection.qtyAccepted (within float tolerance).
     if (activeInspection?.qtyAccepted != null) {
       const submittedTotal = items.reduce((s, it) => s + (parseFloat(it.receivedQty) || 0), 0);
       if (Math.abs(submittedTotal - activeInspection.qtyAccepted) > 0.01) {
         return res.status(400).json({
-          error: `Inward qty (${submittedTotal}) does not match QC-accepted qty (${activeInspection.qtyAccepted}). The inward total is locked to whatever QC finalised — Stores Incharge cannot alter it.`,
+          error: `Inward qty (${submittedTotal}) does not match QC-accepted qty (${activeInspection.qtyAccepted}). The inward total is locked to whatever QC finalised - Stores Incharge cannot alter it.`,
         });
       }
     }
@@ -1284,7 +1284,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
 
         // Build per-allocation share list. For union items, allocate FIFO by source-PR
         // creation date: the PR that was raised earliest gets filled first, then the
-        // next, and so on. This is the contract requested by the user — partial lots
+        // next, and so on. This is the contract requested by the user - partial lots
         // honour the queue of requesters rather than splitting pro-rata.
         // For non-union items, this is a single synthetic share covering the original
         // purchaseRequestItemId path.
@@ -1335,7 +1335,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           shares = [{ allocation: null, share: receivedQty }];
         }
 
-        // Resolve / create the product (shared across allocations — products are global).
+        // Resolve / create the product (shared across allocations - products are global).
         // Carry the PR item's materialType through so NRE products inherit their category
         // and existing products get their category synced on inward.
         let productId = null;
@@ -1418,7 +1418,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
           // using the wrong name left union POs with no unit/department attribution.
           const prRef = allocation?.purchaseRequestItem?.request;
           const unitTag = prRef?.unit?.code ? ` [${prRef.unit.code}]` : '';
-          const prTag = prRef?.requestNumber ? ` — ${prRef.requestNumber}` : '';
+          const prTag = prRef?.requestNumber ? ` - ${prRef.requestNumber}` : '';
 
           // Owning unit for this slice: union → from allocation's PR; single → from PO's PR
           const owningUnitId = allocation
@@ -1440,7 +1440,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
               quantity: share,
               referenceType: 'PurchaseOrder',
               referenceId: order.id,
-              notes: `PO ${order.orderNumber} — ${order.supplierName}${prTag}${unitTag} (MIR ${mirNo})`,
+              notes: `PO ${order.orderNumber} - ${order.supplierName}${prTag}${unitTag} (MIR ${mirNo})`,
               performedBy: req.user.id,
               unitId: owningUnitId,
             },
@@ -1452,13 +1452,13 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
               receivedDate: new Date(),
               quantity: share,
               remaining: share,
-              // Locked batch number from the QC inspection — same identifier across PO,
+              // Locked batch number from the QC inspection - same identifier across PO,
               // QC, Inward, MIV, FIFO. Client-supplied batch numbers are intentionally
               // ignored here so no one downstream can change the lot's identity.
               batchNo: lockedBatchNo,
               referenceType: 'PurchaseOrder',
               referenceId: movement.id,
-              notes: `PO ${order.orderNumber}${lotTag} — ${orderItem.productName}${prTag}${unitTag} (MIR ${mirNo})`,
+              notes: `PO ${order.orderNumber}${lotTag} - ${orderItem.productName}${prTag}${unitTag} (MIR ${mirNo})`,
               createdById: req.user.id,
               sourceQcInspectionId: activeInspection?.id || null,
               // Department ownership for non-unit PRs (null when indented to a unit).
@@ -1510,7 +1510,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
         });
         if (sourcePRIds.length) {
           // Close a source PR only when every PO referencing it is fully received.
-          // A PR may have spawned multiple POs (one per product) — wait for all.
+          // A PR may have spawned multiple POs (one per product) - wait for all.
           for (const prId of sourcePRIds) {
             const siblingOrders = await tx.purchaseOrder.findMany({
               where: {
@@ -1555,7 +1555,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
       if (!pr.managerId) continue;
       const inwardMsg = allFullyReceived
         ? (order.isUnion
-          ? `All items for Union PO "${order.customName}" (${order.orderNumber}) — your PR ${pr.requestNumber} — have been received and entered into stores. Please send MIV to collect your items.`
+          ? `All items for Union PO "${order.customName}" (${order.orderNumber}) - your PR ${pr.requestNumber} - have been received and entered into stores. Please send MIV to collect your items.`
           : `All items for order "${order.customName}" (${pr.requestNumber}) have been received and entered into stores. Please send MIV to collect your items.`)
         : (order.isUnion
           ? `Partial delivery for Union PO "${order.customName}" (${order.orderNumber}): ${totalReceived} of ${totalOrdered} items received. Your PR ${pr.requestNumber} share has been incremented pro-rata. Remaining items will follow.`
@@ -1576,7 +1576,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
         data: {
           type: 'PARTIAL_DELIVERY',
           title: `Partial Delivery: ${order.customName}`,
-          message: `${totalReceived} of ${totalOrdered} items received for "${order.customName}" (${order.orderNumber}). Order remains open as PARTIAL — mark goods arrived again when the next batch reaches stores.`,
+          message: `${totalReceived} of ${totalOrdered} items received for "${order.customName}" (${order.orderNumber}). Order remains open as PARTIAL - mark goods arrived again when the next batch reaches stores.`,
           targetRole: 'PURCHASE_OFFICER',
           sentById: req.user.id,
         },
@@ -1608,7 +1608,7 @@ router.put('/:id/inward', authenticate, authorize('STORE_MANAGER', 'ADMIN'), asy
   }
 });
 
-// POST /api/purchase-orders/:id/place-order — PO places the approved order by sending a payment request to accounting
+// POST /api/purchase-orders/:id/place-order - PO places the approved order by sending a payment request to accounting
 const placeOrderSchema = z.object({
   paymentType: z.enum(['ADVANCE', 'PARTIAL', 'FINAL']),
   // Taxable (basic) value; `taxPercent` is added on top for the payable figure.
@@ -1641,7 +1641,7 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
       return res.status(400).json({ error: `Requested amount exceeds outstanding balance (₹${outstanding.toLocaleString('en-IN')})` });
     }
 
-    // 48-hour placement SLA — measured from when the PO became "awaiting placement"
+    // 48-hour placement SLA - measured from when the PO became "awaiting placement"
     // (createdAt). Past 48h, the Purchase Officer MUST record why it was delayed.
     const SLA_48H = 48 * 60 * 60 * 1000;
     const placementLate = order.createdAt && (Date.now() - new Date(order.createdAt).getTime()) > SLA_48H;
@@ -1719,7 +1719,7 @@ router.post('/:id/place-order', authenticate, authorize('PURCHASE_OFFICER'), asy
   }
 });
 
-// PUT /api/purchase-orders/:id/items/:itemId/status — PO updates per-item procurement status
+// PUT /api/purchase-orders/:id/items/:itemId/status - PO updates per-item procurement status
 const itemStatusSchema = z.object({
   itemStatus: z.enum(['WAITING', 'ORDERED', 'ON_THE_WAY', 'RECEIVED', 'CANCELLED']),
 });
@@ -1818,7 +1818,7 @@ router.put('/:id/items/:itemId/status', authenticate, authorize('PURCHASE_OFFICE
   }
 });
 
-// POST /api/purchase-orders/:id/po-document — PO uploads the signed PO PDF.
+// POST /api/purchase-orders/:id/po-document - PO uploads the signed PO PDF.
 // Replaces any previously-uploaded copy and deletes the old file from disk.
 router.post('/:id/po-document', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), acceptPoDocument, async (req, res) => {
   try {
@@ -1865,7 +1865,7 @@ router.post('/:id/po-document', authenticate, authorize('PURCHASE_OFFICER', 'ADM
   }
 });
 
-// DELETE /api/purchase-orders/:id/po-document — PO removes the uploaded PDF entirely.
+// DELETE /api/purchase-orders/:id/po-document - PO removes the uploaded PDF entirely.
 router.delete('/:id/po-document', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), async (req, res) => {
   try {
     const order = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id } });
@@ -1898,7 +1898,7 @@ router.delete('/:id/po-document', authenticate, authorize('PURCHASE_OFFICER', 'A
   }
 });
 
-// POST /api/purchase-orders/:id/close — Purchase Officer manually closes a PO.
+// POST /api/purchase-orders/:id/close - Purchase Officer manually closes a PO.
 //
 // Two outcomes:
 //   1. Clean close: every item fully received AND fully paid → status COMPLETED.
@@ -1907,7 +1907,7 @@ router.delete('/:id/po-document', authenticate, authorize('PURCHASE_OFFICER', 'A
 //
 // If the PO is incomplete and `force` is not set, returns 409 with the pending
 // summary so the client can render a confirmation dialog ("X kg short, ₹Y unpaid
-// — close anyway?").
+// - close anyway?").
 const closeSchema = z.object({
   force: z.boolean().optional(),
   reason: z.string().trim().min(1).max(500).optional(),
@@ -1991,7 +1991,7 @@ router.post('/:id/close', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), 
           status: finalStatus,
           closedAt: new Date(),
           closedById: req.user.id,
-          closeReason: reason || (isComplete ? 'Clean close — fully received and paid' : 'Force closed with pending items/payment'),
+          closeReason: reason || (isComplete ? 'Clean close - fully received and paid' : 'Force closed with pending items/payment'),
           forceClosed: !isComplete,
         },
         include: ORDER_INCLUDE,
@@ -2004,7 +2004,7 @@ router.post('/:id/close', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), 
       return po;
     });
 
-    // Notifications — managers (for each source PR), store manager team, and admins.
+    // Notifications - managers (for each source PR), store manager team, and admins.
     const closeKindLabel = isComplete ? 'closed (fully received & paid)' : 'force-closed';
     for (const pr of linkedPRs) {
       if (!pr.managerId) continue;
@@ -2069,7 +2069,7 @@ router.post('/:id/close', authenticate, authorize('PURCHASE_OFFICER', 'ADMIN'), 
   }
 });
 
-// PUT /api/purchase-orders/:id/po-creation-delay-remark — PO officer submits remark for SLA-delayed PO creation
+// PUT /api/purchase-orders/:id/po-creation-delay-remark - PO officer submits remark for SLA-delayed PO creation
 router.put('/:id/po-creation-delay-remark', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const { remark } = req.body;
@@ -2101,7 +2101,7 @@ router.put('/:id/po-creation-delay-remark', authenticate, authorize('PURCHASE_OF
 // Nothing is suggested-and-committed here: the count the form pre-fills is only
 // a hint. Purchase are copying the number off their own PO register, so gaps and
 // out-of-order numbers are legitimate. The only hard rule is that no two orders
-// may carry the same number — enforced by the unique index, checked up front so
+// may carry the same number - enforced by the unique index, checked up front so
 // the user gets a readable message instead of a constraint error.
 //
 // Assigning is one-way: once a number exists this route refuses, and corrections
@@ -2145,7 +2145,7 @@ router.patch('/:id/assign-number', authenticate, authorizePoNumberAssign, async 
     });
     if (clash) {
       return res.status(409).json({
-        error: `${orderNumber} is already used by another purchase order ("${clash.customName}" — ${clash.supplierName}). Pick a different number.`,
+        error: `${orderNumber} is already used by another purchase order ("${clash.customName}" - ${clash.supplierName}). Pick a different number.`,
       });
     }
 
@@ -2210,13 +2210,13 @@ router.patch('/:id/assign-number', authenticate, authorizePoNumberAssign, async 
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// TEMPORARY FEATURE — PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
+// TEMPORARY FEATURE - PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
 // ════════════════════════════════════════════════════════════════════════════
 // PATCH /api/purchase-orders/:id/order-number
 //
 // Purchase is still reconciling the old manual PO register against the system,
 // so they may correct the running COUNT on a PO number. The shape is fixed:
-// RAPS/PO/<FY>/<n> — the prefix and financial year come from the number the PO
+// RAPS/PO/<FY>/<n> - the prefix and financial year come from the number the PO
 // already has and are never editable; only <n> changes.
 //
 // The PO number is denormalised into a handful of places, so a rename has to
@@ -2225,13 +2225,13 @@ router.patch('/:id/assign-number', authenticate, authorizePoNumberAssign, async 
 //   • Batch numbers derived from it (RAPS/PO/26-27/101-B1 → …/55-B1). These are
 //     the lot's identity across QCInspection.batchNo, ProductBatch.batchNo,
 //     StockMovement.batchNumber, RequestItem.materialBatchNo (MIV lines) and
-//     MaterialInwardRegister.batchNo — all five move together or FIFO, MIV
+//     MaterialInwardRegister.batchNo - all five move together or FIFO, MIV
 //     matching and the inward register break apart. Batch numbers that were
 //     typed by hand (i.e. don't start with the old PO number) are left alone.
-//   • StockMovement.notes / ProductBatch.notes, which embed "PO <number> — …".
+//   • StockMovement.notes / ProductBatch.notes, which embed "PO <number> - …".
 //   • Notification titles/messages that quote the number.
 //
-// Deliberately NOT rewritten: AuditLog.details — an audit trail records what was
+// Deliberately NOT rewritten: AuditLog.details - an audit trail records what was
 // true at the time and must not be retconned. The rename is itself audit-logged
 // and recorded in PurchaseOrderNumberHistory.
 //
@@ -2239,7 +2239,7 @@ router.patch('/:id/assign-number', authenticate, authorizePoNumberAssign, async 
 // exports, PDFs) reads the number through a relation, so it follows on its own.
 //
 // NOTE: already-printed stickers and paperwork keep the OLD batch number. That
-// was an accepted trade-off when this was requested — the system is treated as
+// was an accepted trade-off when this was requested - the system is treated as
 // the source of truth and physical labels are re-printed as needed.
 
 const renumberSchema = z.object({
@@ -2254,7 +2254,7 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const poNumberOccurrenceRe = (poNumber) => new RegExp(`${escapeRe(poNumber)}(?!\\d)`, 'g');
 
 // True when `batch` is a batch number derived from `poNumber` (e.g. "<po>-B1")
-// or the bare number itself — and not a longer, unrelated PO's batch.
+// or the bare number itself - and not a longer, unrelated PO's batch.
 const isDerivedBatch = (batch, poNumber) =>
   !!batch && new RegExp(`^${escapeRe(poNumber)}(?!\\d)`).test(String(batch).trim());
 
@@ -2280,7 +2280,7 @@ router.patch('/:id/order-number', authenticate, authorizePoNumberEdit, async (re
     const oldNumber = order.orderNumber;
     if (!oldNumber) {
       return res.status(400).json({
-        error: 'This order has no PO number yet — fill it in first, then it can be corrected here.',
+        error: 'This order has no PO number yet - fill it in first, then it can be corrected here.',
       });
     }
     const parsed = parsePoNumber(oldNumber);
@@ -2304,7 +2304,7 @@ router.patch('/:id/order-number', authenticate, authorizePoNumberEdit, async (re
       });
     }
 
-    // A fresh regex per call — poNumberOccurrenceRe is global, so a shared
+    // A fresh regex per call - poNumberOccurrenceRe is global, so a shared
     // instance would carry lastIndex across calls and match inconsistently.
     const rename = (text) => (text ? String(text).replace(poNumberOccurrenceRe(oldNumber), newNumber) : text);
 
@@ -2346,7 +2346,7 @@ router.patch('/:id/order-number', authenticate, authorizePoNumberEdit, async (re
 
     const oldBatchNos = [...batchMap.keys()];
 
-    // MIV lines are matched to a lot purely by the batch string — no PO link —
+    // MIV lines are matched to a lot purely by the batch string - no PO link -
     // so they're found through the batch map rather than through the order.
     const mivItems = oldBatchNos.length
       ? await prisma.requestItem.findMany({
@@ -2501,7 +2501,7 @@ router.patch('/:id/order-number', authenticate, authorizePoNumberEdit, async (re
         action: 'RENUMBER_PO',
         entity: 'PurchaseOrder',
         entityId: order.id,
-        // The old number is kept verbatim here — audit rows are never rewritten
+        // The old number is kept verbatim here - audit rows are never rewritten
         // by the cascade, so this stays a true record of what the PO was called.
         details: {
           fromNumber: oldNumber,
@@ -2527,6 +2527,6 @@ router.patch('/:id/order-number', authenticate, authorizePoNumberEdit, async (re
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-// ════════════════ END TEMPORARY FEATURE — PO RE-NUMBERING ═══════════════════
+// ════════════════ END TEMPORARY FEATURE - PO RE-NUMBERING ═══════════════════
 
 module.exports = router;

@@ -128,7 +128,7 @@ async function importIN2025() {
     const docType = cleanStr(r[4]);
     const docNo = cleanStr(r[5]);
     const qty = toFloat(r[7]) || 0;
-    // IN-2025 doesn't have separate UOM column — try to extract from QTY string
+    // IN-2025 doesn't have separate UOM column - try to extract from QTY string
     const qtyRaw = cleanStr(r[7]) || '';
     const uomMatch = qtyRaw.match(/[A-Za-z]+(?:\.|$|\s)/);
     const uom = uomMatch ? uomMatch[0].replace(/\.$/, '').trim() : 'pcs';
@@ -255,7 +255,7 @@ async function importInwardStatus() {
         });
         updated++;
       } else if (itemDesc && qty > 0) {
-        // No matching MIR — create a fresh record so the data isn't lost
+        // No matching MIR - create a fresh record so the data isn't lost
         const product = await getOrCreateProduct(itemDesc, 'pcs');
         if (!product) { skipped++; continue; }
         const refId = mirNoRaw ? `STATUS-${mirNoRaw}` : `STATUS-ION-${ionNo || i}`;
@@ -346,7 +346,7 @@ async function importSystems() {
         product = await prisma.product.findFirst({ where: { name: { equals: name, mode: 'insensitive' } } });
       }
       if (product) {
-        // Already exists — increment stock by qty (idempotent skip if stock >= qty)
+        // Already exists - increment stock by qty (idempotent skip if stock >= qty)
         skipped++;
         continue;
       }

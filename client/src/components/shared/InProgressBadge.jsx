@@ -70,7 +70,7 @@ export default function InProgressBadge() {
               </div>
               {(summary.prSamples || []).slice(0, 3).map(pr => (
                 <div key={pr.id} className="text-xs text-gray-500 truncate">
-                  • {pr.requestNumber} ({pr.unit?.code || pr.unit?.name || '—'}) — {pr.status}
+                  • {pr.requestNumber} ({pr.unit?.code || pr.unit?.name || '-'}) - {pr.status}
                 </div>
               ))}
               {prCount > (summary.prSamples?.length || 0) && (
@@ -90,7 +90,7 @@ export default function InProgressBadge() {
               </div>
               {(summary.poSamples || []).slice(0, 3).map(po => (
                 <div key={po.id} className="text-xs text-gray-500 truncate">
-                  • {poNumberLabel(po)} — {po.status}
+                  • {poNumberLabel(po)} - {po.status}
                 </div>
               ))}
               {poCount > (summary.poSamples?.length || 0) && (

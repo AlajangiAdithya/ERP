@@ -1,5 +1,5 @@
 // ──────────────────────────────────────────────────────────────
-// Work Order — Supply Chain workflow + per-lot closure cycles.
+// Work Order - Supply Chain workflow + per-lot closure cycles.
 //
 // Order flow:
 //   SUPPLY_CHAIN fills the Work Order form (WORK ORDER.docx fields) and assigns
@@ -13,10 +13,10 @@
 //   QC verifies with a MANDATORY remark and forwards to Finance, or puts the
 //   lot ON_HOLD (unit finishes the work, re-uploads the lot report, resends) →
 //   FINANCE attaches physical invoice + delivery challan to the material (no
-//   upload) and clicks "Invoice Sent" and "DC Sent" — when BOTH are clicked the
+//   upload) and clicks "Invoice Sent" and "DC Sent" - when BOTH are clicked the
 //   48h goods-ack SLA starts →
 //   FINANCE clicks "Goods Ack Received" when the driver returns with the signed
-//   receipt — 48h SLA stops, 45-day payment window starts →
+//   receipt - 48h SLA stops, 45-day payment window starts →
 //   ACCOUNTS sees a day-by-day countdown (45 → 44 → 43…), logs weekly
 //   incoming-money status updates, and confirms payment → lot CLOSED.
 //   When the final lot's payment lands and full qty is covered → WO auto-CLOSED.
@@ -28,12 +28,12 @@
 //     fill in / correct these AFTER release at any live status (much of the form
 //     isn't known when the order is logged). Every change is recorded in
 //     WorkOrderEditHistory (who / when / role / from → to). The unit head edits
-//     scope only — not the order's materials or the unit assignment.
+//     scope only - not the order's materials or the unit assignment.
 //   - Bank Guarantee + Insurance       : append-only history (BgEntry / InsuranceEntry)
 //     editable by SUPPLY_CHAIN / ADMIN only (Accounts may view, not modify)
 //   - Delivery Details                 : SUPPLY_CHAIN / ADMIN / ACCOUNTING
 //   - PDC date and PDC extensions      : SUPPLY_CHAIN / ADMIN / PLANNING, plus
-//     the assigned unit's MANAGER (the "unit head") — all four may change PDC at
+//     the assigned unit's MANAGER (the "unit head") - all four may change PDC at
 //     any time. Every change is recorded with who/when:
 //       · base pdcDate edits  → append a WorkOrderPdcChange row (old → new, by)
 //       · PDC extensions      → WorkOrderExtension row (grantedBy / grantedAt)
@@ -61,10 +61,10 @@ const { validateReason } = require('../utils/reasonValidation');
 const router = express.Router();
 
 // ── Closure workflow constants ──────────────────────────────────────
-// Level-5 management usernames — used for targeted notifications.
+// Level-5 management usernames - used for targeted notifications.
 const L5_USERNAMES = ['sureshbabu', 'rameshbabu', 'madhubabu'];
 
-// 48-hour goods-ack SLA — starts when Finance has clicked BOTH "Invoice Sent"
+// 48-hour goods-ack SLA - starts when Finance has clicked BOTH "Invoice Sent"
 // and "DC Sent"; ends when Finance clicks "Goods Ack Received".
 const SLA_WINDOW_MS = 48 * 60 * 60 * 1000;
 
@@ -85,7 +85,7 @@ const addDays = (date, days) => {
   return out;
 };
 
-// The unit manager uploads exactly ONE lot report PDF per lot — that single
+// The unit manager uploads exactly ONE lot report PDF per lot - that single
 // document is what QC verifies.
 const LOT_REPORT_DOC_TYPE = 'LOT_REPORT';
 
@@ -94,11 +94,11 @@ const LOT_REPORT_DOC_TYPE = 'LOT_REPORT';
 const FINANCE_HIDDEN_ROLES = new Set(['MANAGER', 'QC']);
 
 // FINANCE + QC included so the closure-workflow UI can fetch WO details.
-// WO_VIEW_ROLES also owns WO-body remarks + the closure/finance cycle — PLANNING
+// WO_VIEW_ROLES also owns WO-body remarks + the closure/finance cycle - PLANNING
 // is intentionally absent from it (Planning doesn't run closure or edit WOs).
 const WO_VIEW_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'];
 // Oversight set: view every WO list/detail AND manage its alarms (acknowledge /
-// resolve / note). PLANNING is the level-below-admin overseer — it watches the
+// resolve / note). PLANNING is the level-below-admin overseer - it watches the
 // whole pipeline and clears alarms for everyone, but cannot run the closure
 // cycle, edit PDC/dates, or post WO-body remarks.
 const WO_OVERSIGHT_ROLES = [...WO_VIEW_ROLES, 'PLANNING'];
@@ -150,7 +150,7 @@ const CLOSURE_INCLUDE = {
 const WO_INCLUDE = {
   items:                    { orderBy: { lineNo: 'asc' } },
   assignedUnit:             { select: { id: true, name: true, code: true } },
-  // Lightweight rollup of PRs / MIVs raised against this WO — cheap enough to
+  // Lightweight rollup of PRs / MIVs raised against this WO - cheap enough to
   // ship on every list row (drives the "PR n · MIV n" card badge).
   _count:                   { select: { purchaseRequests: true, productRequests: true } },
   createdBy:                USER_SELECT,
@@ -208,7 +208,7 @@ const WO_DETAIL_INCLUDE = {
   purchaseRequests: PR_MIV_SELECT,
   productRequests:  MIV_SELECT,
   // Field-level audit of every core/scope edit (who/when/role + from→to). Kept
-  // OUT of the lean list include — only loaded on the detail modal.
+  // OUT of the lean list include - only loaded on the detail modal.
   editHistory:      { orderBy: { createdAt: 'desc' }, take: 200 },
 };
 
@@ -312,11 +312,11 @@ const decorate = (wo, user) => {
   const completed = wo.completedAt ? new Date(wo.completedAt) : null;
   // "Delivered" = all lots dispatched (status COMPLETED) or fully closed.
   const isDelivered = wo.status === 'COMPLETED' || wo.status === 'CLOSED';
-  // A WO is only truly DONE — and only counts for on-time delivery — once the
+  // A WO is only truly DONE - and only counts for on-time delivery - once the
   // FULL payment is in and every lot is settled (status CLOSED). Delivered but
   // not yet fully paid = "awaiting payment" (still active, shown as Pending
   // Accounts). completedAt holds the delivery date, so on-time still measures
-  // delivery punctuality vs PDC — it just isn't surfaced until the money lands.
+  // delivery punctuality vs PDC - it just isn't surfaced until the money lands.
   const isPaidClosed = wo.status === 'CLOSED';
   const awaitingPayment = wo.status === 'COMPLETED';
   const onTime = isPaidClosed && completed && pdc ? completed <= new Date(pdc) : null;
@@ -348,7 +348,7 @@ const decorate = (wo, user) => {
 };
 
 // Aggregate on-time % across a list of WOs. ONLY fully-paid (CLOSED) work
-// orders count — a WO is not "completed" until its payment is completely in.
+// orders count - a WO is not "completed" until its payment is completely in.
 // Delivered-but-unpaid (COMPLETED / Pending Accounts) is excluded.
 const computeOnTimeStats = (workOrders) => {
   const completedList = workOrders.filter((w) => w.status === 'CLOSED');
@@ -362,7 +362,7 @@ const computeOnTimeStats = (workOrders) => {
 };
 
 // Notify the L5 admins + FINANCE/ACCOUNTING about a closure-cycle event.
-// (NOT QC or MANAGER — they shouldn't see invoice/payment chatter.)
+// (NOT QC or MANAGER - they shouldn't see invoice/payment chatter.)
 const notifyL5Finance = async (title, message, sentById) => {
   const rows = [];
   for (const username of L5_USERNAMES) {
@@ -416,7 +416,7 @@ const ensureClosureAccess = (wo, user) => {
 };
 
 // Fire-and-forget alarm refresh after a state change. Errors are logged but
-// never propagate — the user-facing request has already responded by then.
+// never propagate - the user-facing request has already responded by then.
 const refreshAlarms = (woId) => {
   if (!woId) return;
   syncAlarmsForWO(woId).catch((e) => console.error(`alarm sync failed for ${woId}:`, e.message));
@@ -464,7 +464,7 @@ router.get('/', authenticate, authorize(...WO_OVERSIGHT_ROLES), async (req, res)
   }
 });
 
-// ── GET /api/work-orders/closure/sla-feed — ticker feed ────────────
+// ── GET /api/work-orders/closure/sla-feed - ticker feed ────────────
 // Returns open SLA cycles (INVOICE_SENT, awaiting delivery ack). Visible to
 // roles who actually own the delivery-follow-up chain.
 router.get(
@@ -506,7 +506,7 @@ router.get(
   },
 );
 
-// ── GET /api/work-orders/closure/payment-feed — 45-day window feed ──
+// ── GET /api/work-orders/closure/payment-feed - 45-day window feed ──
 // Returns open cycles in DELIVERY_ACKNOWLEDGED stage (45-day payment window).
 // Accounting + Admin use this for follow-ups; Finance gets visibility too.
 router.get(
@@ -560,7 +560,7 @@ router.get(
   },
 );
 
-// ── GET /api/work-orders/assignable — WOs a requester can attach a PR/MIV to ──
+// ── GET /api/work-orders/assignable - WOs a requester can attach a PR/MIV to ──
 // Lean list of EVERY live work order (any stage except cancelled/rejected),
 // regardless of which unit it is assigned to, so the PR / MIV forms can offer a
 // "which work order is this for?" dropdown across all orders. The assigned unit
@@ -610,12 +610,12 @@ router.get('/:id', authenticate, authorize(...WO_OVERSIGHT_ROLES), async (req, r
   }
 });
 
-// ── POST /api/work-orders — SUPPLY_CHAIN logs supply order ──────
-// Lands directly in PENDING_ADMIN. No SC review step — ADMIN is notified.
+// ── POST /api/work-orders - SUPPLY_CHAIN logs supply order ──────
+// Lands directly in PENDING_ADMIN. No SC review step - ADMIN is notified.
 router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
     const body = req.body || {};
-    // Supply Chain must pick the unit manager up-front — admin can change it
+    // Supply Chain must pick the unit manager up-front - admin can change it
     // when verifying.
     const required = ['supplyOrderNo', 'supplyOrderDate', 'customerName', 'pdcDate', 'assignedUnitId'];
     for (const f of required) {
@@ -645,7 +645,7 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
     if (!unit) return res.status(400).json({ error: 'Assigned unit not found' });
 
     // The ION header number is user-entered and UNIQUE. A reused number would
-    // fail the create with an opaque unique-constraint error — and withDocRetry
+    // fail the create with an opaque unique-constraint error - and withDocRetry
     // can't fix it (it only re-rolls the auto workOrderNumber, never the ION).
     // Catch a clash up-front with a clear message so SC's submit never 500s.
     const ionNumber = body.ionNumber ? String(body.ionNumber).trim() : null;
@@ -662,7 +662,7 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
     }
 
     const pdcDate = new Date(body.pdcDate);
-    // BG date ALWAYS auto-defaults to PDC + 2 months when not supplied — it is
+    // BG date ALWAYS auto-defaults to PDC + 2 months when not supplied - it is
     // editable (form pre-fills it; SC can overwrite, and it can be changed
     // later via PATCH or a new BG history entry).
     const bgDate = body.bankGuaranteeDate
@@ -671,7 +671,7 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
 
     // No admin gate: Supply Chain's assignment goes STRAIGHT to the unit manager
     // to accept or reject (rejection → ON_HOLD → SC reassigns). Auto-accept units
-    // (e.g. SHAR — no unit manager) are accepted the moment they're assigned and
+    // (e.g. SHAR - no unit manager) are accepted the moment they're assigned and
     // skip the acceptance step entirely.
     const autoAccept = isAutoAcceptUnit(unit);
     const now = new Date();
@@ -750,7 +750,7 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
     }
     if (seedRows.length) await Promise.all(seedRows);
 
-    // Assignment goes straight to the unit's managers to accept/reject — unless
+    // Assignment goes straight to the unit's managers to accept/reject - unless
     // the unit auto-accepts (no manager), in which case just confirm to the SC.
     if (autoAccept) {
       await prisma.notification.create({
@@ -796,14 +796,14 @@ router.post('/', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, r
   }
 });
 
-// ── PATCH /api/work-orders/:id — edit core fields ──
+// ── PATCH /api/work-orders/:id - edit core fields ──
 // Much of the WORK ORDER form (FIM, inspection agency, QAP, drawings, tooling,
 // packing, transportation, scope …) is rarely known when Supply Chain releases
 // the order, so it stays editable AFTERWARDS. Supply Chain / Admin / Planning
 // and the assigned unit's MANAGER (the "unit head") may all fill in / correct
 // these details at any time. Every change is recorded in WorkOrderEditHistory
 // (who / when / role / from → to) so nothing is changed silently.
-// BG / Insurance are no longer edited here — they go through the history
+// BG / Insurance are no longer edited here - they go through the history
 // endpoints below (POST /:id/bg-entries and POST /:id/insurance-entries).
 router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING', 'MANAGER'), async (req, res) => {
   try {
@@ -838,7 +838,7 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'
     for (const f of passthrough) if (body[f] !== undefined) data[f] = body[f] || null;
     if (body.orderQuantity !== undefined) data.orderQuantity = Number(body.orderQuantity);
 
-    // Replace material line items. Only while no lots have been sent — once a lot
+    // Replace material line items. Only while no lots have been sent - once a lot
     // exists its per-item rows reference these items, so editing is locked. The
     // unit head fills in scope/spec details, not the order's materials, so item
     // replacement is reserved for Supply Chain / Admin / Planning.
@@ -874,7 +874,7 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'
     if (body.lotsExpected !== undefined) {
       data.lotsExpected = body.lotsExpected ? Math.max(1, Number(body.lotsExpected)) : null;
     }
-    // Reassigning the unit is an Admin/SC/Planning action — a unit head must not
+    // Reassigning the unit is an Admin/SC/Planning action - a unit head must not
     // move the WO away from their own unit (it would lock them out).
     if (body.assignedUnitId !== undefined && req.user.role !== 'MANAGER') {
       if (body.assignedUnitId) {
@@ -888,7 +888,7 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'
       return res.status(400).json({ error: 'No editable fields supplied' });
     }
 
-    // Build the field-level change list (old → new) for the audit trail —
+    // Build the field-level change list (old → new) for the audit trail -
     // every tracked field that is present in `data` and actually moved.
     const changes = [];
     for (const [field, label] of Object.entries(WO_FIELD_LABELS)) {
@@ -958,7 +958,7 @@ router.patch('/:id', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'
 });
 
 // ── BG / Insurance history ──────────────────────────────────────────
-// Append-only — newest entry becomes the active value on the WO.
+// Append-only - newest entry becomes the active value on the WO.
 // Only SUPPLY_CHAIN (and ADMIN as override) may modify; Accounts can view.
 const BG_INS_ROLES = ['SUPPLY_CHAIN', 'ADMIN'];
 
@@ -1032,7 +1032,7 @@ router.post('/:id/insurance-entries', authenticate, authorize(...BG_INS_ROLES), 
   }
 });
 
-// ── POST /api/work-orders/:id/admin-accept — ADMIN ────────────
+// ── POST /api/work-orders/:id/admin-accept - ADMIN ────────────
 const SLA_48H = 48 * 60 * 60 * 1000;
 
 router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, res) => {
@@ -1054,7 +1054,7 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
       if (!unit) return res.status(400).json({ error: 'Assigned unit not found' });
     }
 
-    // SHAR (and any auto-accept unit) has no unit manager to accept/reject — its
+    // SHAR (and any auto-accept unit) has no unit manager to accept/reject - its
     // work orders are accepted automatically the moment admin assigns them, so
     // they skip ADMIN_ACCEPTED and land straight in UNIT_ACCEPTED.
     const autoAccept = accept && isAutoAcceptUnit(unit);
@@ -1095,7 +1095,7 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
     });
 
     // Only ask a unit manager to accept when it is NOT an auto-accept unit.
-    // Notify ONLY this unit's managers — not every MANAGER in the company.
+    // Notify ONLY this unit's managers - not every MANAGER in the company.
     if (accept && unitId && !autoAccept) {
       const unitManagers = await prisma.user.findMany({
         where: { role: 'MANAGER', unitId, isActive: true },
@@ -1117,7 +1117,7 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
       data: {
         type: accept ? 'WORK_ORDER_ADMIN_ACCEPTED' : 'WORK_ORDER_REJECTED',
         title: `WO ${updated.workOrderNumber} ${accept ? 'accepted' : 'rejected'}`,
-        message: `Admin ${req.user.name} ${accept ? 'accepted' : 'rejected'} Work Order ${updated.workOrderNumber}${autoAccept ? ` (auto-accepted for ${unit.code || unit.name} — no unit acceptance needed)` : ''}.`,
+        message: `Admin ${req.user.name} ${accept ? 'accepted' : 'rejected'} Work Order ${updated.workOrderNumber}${autoAccept ? ` (auto-accepted for ${unit.code || unit.name} - no unit acceptance needed)` : ''}.`,
         targetUserId: existing.createdById,
         sentById: req.user.id,
       },
@@ -1130,7 +1130,7 @@ router.post('/:id/admin-accept', authenticate, authorize('ADMIN'), async (req, r
   }
 });
 
-// ── POST /api/work-orders/:id/unit-accept — MANAGER of assigned unit ──
+// ── POST /api/work-orders/:id/unit-accept - MANAGER of assigned unit ──
 router.post('/:id/unit-accept', authenticate, authorize('MANAGER'), async (req, res) => {
   try {
     const { accept = true, note, unitDelayRemark } = req.body || {};
@@ -1192,14 +1192,14 @@ router.post('/:id/unit-accept', authenticate, authorize('MANAGER'), async (req, 
         data: [
           {
             type: 'WORK_ORDER_UNIT_REJECTED',
-            title: `WO ${updated.workOrderNumber} on hold — unit rejected`,
+            title: `WO ${updated.workOrderNumber} on hold - unit rejected`,
             message: `${req.user.name} rejected Work Order ${updated.workOrderNumber}${note ? `: ${note}` : ''}. Reassign to another unit.`,
             targetUserId: existing.createdById,
             sentById: req.user.id,
           },
           {
             type: 'WORK_ORDER_UNIT_REJECTED',
-            title: `WO ${updated.workOrderNumber} on hold — unit rejected`,
+            title: `WO ${updated.workOrderNumber} on hold - unit rejected`,
             message: `${req.user.name} rejected Work Order ${updated.workOrderNumber}${note ? `: ${note}` : ''}. Reassign to another unit.`,
             targetRole: 'ADMIN',
             sentById: req.user.id,
@@ -1215,7 +1215,7 @@ router.post('/:id/unit-accept', authenticate, authorize('MANAGER'), async (req, 
   }
 });
 
-// ── POST /api/work-orders/:id/reassign — SUPPLY_CHAIN/ADMIN ───
+// ── POST /api/work-orders/:id/reassign - SUPPLY_CHAIN/ADMIN ───
 router.post('/:id/reassign', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
     const { assignedUnitId, note } = req.body || {};
@@ -1276,12 +1276,12 @@ router.post('/:id/reassign', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), a
   }
 });
 
-// ── POST /api/work-orders/:id/extensions — log a PDC extension ────────
+// ── POST /api/work-orders/:id/extensions - log a PDC extension ────────
 // Open to SUPPLY_CHAIN / ADMIN / PLANNING and the assigned unit's MANAGER (the
 // "unit head"). All may change PDC at any time; a MANAGER is restricted to its
 // own unit (checked below). Each extension row records grantedBy/grantedAt, so
 // the change history is always visible.
-// PDC extension MUST carry a bankGuaranteeExtendedUpto date — the BG always
+// PDC extension MUST carry a bankGuaranteeExtendedUpto date - the BG always
 // extends with the PDC.
 router.post('/:id/extensions', authenticate, authorize(...PDC_EDITOR_ROLES), async (req, res) => {
   try {
@@ -1292,7 +1292,7 @@ router.post('/:id/extensions', authenticate, authorize(...PDC_EDITOR_ROLES), asy
     if (!newPdcDate) return res.status(400).json({ error: 'newPdcDate is required' });
     if (!bankGuaranteeExtendedUpto) {
       return res.status(400).json({
-        error: 'bankGuaranteeExtendedUpto is required — Bank Guarantee must be extended whenever PDC is extended',
+        error: 'bankGuaranteeExtendedUpto is required - Bank Guarantee must be extended whenever PDC is extended',
       });
     }
 
@@ -1325,7 +1325,7 @@ router.post('/:id/extensions', authenticate, authorize(...PDC_EDITOR_ROLES), asy
 
     res.status(201).json(ext);
     // The new extension pushes the effective PDC out, so the WO now has more
-    // time — re-run the alarm engine to auto-resolve any PDC_NEAR / PDC_OVERDUE
+    // time - re-run the alarm engine to auto-resolve any PDC_NEAR / PDC_OVERDUE
     // alarms that no longer apply (and re-evaluate against the new date).
     refreshAlarms(existing.id);
   } catch (error) {
@@ -1334,7 +1334,7 @@ router.post('/:id/extensions', authenticate, authorize(...PDC_EDITOR_ROLES), asy
   }
 });
 
-// ── PATCH /api/work-orders/:id/extensions/:extId — update extension fields ─
+// ── PATCH /api/work-orders/:id/extensions/:extId - update extension fields ─
 // Same editors as logging an extension: SC / ADMIN / PLANNING + the assigned
 // unit's MANAGER.
 router.patch('/:id/extensions/:extId', authenticate, authorize(...PDC_EDITOR_ROLES), async (req, res) => {
@@ -1388,10 +1388,10 @@ router.put('/:id/delivery-details', authenticate, authorize('SUPPLY_CHAIN', 'ADM
   }
 });
 
-// ── PATCH /api/work-orders/:id/delivered-qty — manual delivered-qty override ──
+// ── PATCH /api/work-orders/:id/delivered-qty - manual delivered-qty override ──
 // Escape hatch for orders delivered outside the lot cycle (legacy / off-system
 // dispatch). SUPPLY_CHAIN / ADMIN / PLANNING can hand-set the delivered qty; when
-// it reaches the ordered qty the WO auto-marks COMPLETED (delivered) — which stops
+// it reaches the ordered qty the WO auto-marks COMPLETED (delivered) - which stops
 // the recurring PDC-overdue alarm and the "Overdue" flag and moves it into the
 // "Orders Closed" view. Every change is written to the Edit History.
 router.patch('/:id/delivered-qty', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN', 'PLANNING'), async (req, res) => {
@@ -1477,7 +1477,7 @@ router.patch('/:id/remarks', authenticate, authorize(...WO_VIEW_ROLES), async (r
   }
 });
 
-// ── POST /api/work-orders/:id/invoices — qty-wise invoice log (no amount) ─
+// ── POST /api/work-orders/:id/invoices - qty-wise invoice log (no amount) ─
 router.post('/:id/invoices', authenticate, authorize('MANAGER', 'SUPPLY_CHAIN'), async (req, res) => {
   try {
     const { invoiceNo, invoiceDate, quantity, remarks } = req.body || {};
@@ -1545,9 +1545,9 @@ router.post('/:id/invoices', authenticate, authorize('MANAGER', 'SUPPLY_CHAIN'),
   }
 });
 
-// ── POST /api/work-orders/:id/close — manual close ──
+// ── POST /api/work-orders/:id/close - manual close ──
 // Only allowed when every closure cycle is PAYMENT_RECEIVED (or there are
-// no cycles at all — e.g. cancelled mid-flight). Accounts-driven payment
+// no cycles at all - e.g. cancelled mid-flight). Accounts-driven payment
 // confirmation is the real "this WO is done" signal; this endpoint is a
 // safety net for admins.
 router.post('/:id/close', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
@@ -1564,7 +1564,7 @@ router.post('/:id/close', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), asyn
     const openCycles = existing.closures.filter((c) => c.stage !== 'PAYMENT_RECEIVED');
     if (openCycles.length) {
       return res.status(400).json({
-        error: `Cannot close — ${openCycles.length} closure cycle(s) still open. All cycles must reach PAYMENT_RECEIVED first.`,
+        error: `Cannot close - ${openCycles.length} closure cycle(s) still open. All cycles must reach PAYMENT_RECEIVED first.`,
       });
     }
     const shortfall = (existing.orderQuantity || 0) - (existing.deliveredQty || 0);
@@ -1595,7 +1595,7 @@ router.post('/:id/close', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), asyn
 });
 
 // ── POST /api/work-orders/:id/cancel ──
-// Blocked once finance has signed off on any closure cycle — cancelling after
+// Blocked once finance has signed off on any closure cycle - cancelling after
 // an invoice has been sent or payment received would lose audit trail of real
 // customer obligations / revenue.
 router.post('/:id/cancel', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
@@ -1607,14 +1607,14 @@ router.post('/:id/cancel', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), asy
     });
     if (!existing) return res.status(404).json({ error: 'Work order not found' });
     if (['CLOSED', 'CANCELLED'].includes(existing.status)) {
-      return res.status(400).json({ error: `Cannot cancel — WO is already ${existing.status}` });
+      return res.status(400).json({ error: `Cannot cancel - WO is already ${existing.status}` });
     }
     const settled = existing.closures.filter((c) =>
       ['INVOICE_SENT', 'PAYMENT_RECEIVED'].includes(c.stage),
     );
     if (settled.length) {
       return res.status(400).json({
-        error: `Cannot cancel — ${settled.length} closure cycle(s) past finance sign-off. Resolve through the closure workflow instead.`,
+        error: `Cannot cancel - ${settled.length} closure cycle(s) past finance sign-off. Resolve through the closure workflow instead.`,
       });
     }
     const updated = await prisma.workOrder.update({
@@ -1635,7 +1635,7 @@ router.post('/:id/cancel', authenticate, authorize('SUPPLY_CHAIN', 'ADMIN'), asy
   }
 });
 
-// ── PUT /api/work-orders/:id/delivery-status — manual override ──
+// ── PUT /api/work-orders/:id/delivery-status - manual override ──
 router.put('/:id/delivery-status', authenticate, authorize('MANAGER', 'SUPPLY_CHAIN', 'ADMIN'), async (req, res) => {
   try {
     const { deliveryStatus } = req.body || {};
@@ -1660,7 +1660,7 @@ router.put('/:id/delivery-status', authenticate, authorize('MANAGER', 'SUPPLY_CH
 });
 
 // ════════════════════════════════════════════════════════════════════
-// 3-MONTH PDC ALERT — BOTH admin AND unit manager must acknowledge
+// 3-MONTH PDC ALERT - BOTH admin AND unit manager must acknowledge
 //
 // When the effective PDC is ≤ 90 days away, a red blinking alert fires on the
 // WO. The ADMIN and the assigned unit's MANAGER must EACH file their own
@@ -1690,7 +1690,7 @@ router.post(
         data.pdc3MonthAckById = req.user.id;
         data.pdc3MonthAckNote = String(note).trim();
       } else {
-        // MANAGER — must belong to the assigned unit.
+        // MANAGER - must belong to the assigned unit.
         if (existing.assignedUnitId !== req.user.unitId) {
           return res.status(403).json({ error: 'Not your unit' });
         }
@@ -1776,9 +1776,9 @@ const syncWoFromLots = async (woId) => {
   });
 };
 
-// ── POST /api/work-orders/:id/closures — "Work Done" for a lot ──
+// ── POST /api/work-orders/:id/closures - "Work Done" for a lot ──
 // One shot: the unit manager fills the lot details AND uploads the single lot
-// report PDF. The lot is created already submitted to QC — QC is notified
+// report PDF. The lot is created already submitted to QC - QC is notified
 // immediately. multipart/form-data: file + deliveryQty + deliveryNote + deliveredAt.
 router.post(
   '/:id/closures',
@@ -1789,7 +1789,7 @@ router.post(
     try {
       const { deliveryNote, deliveredAt } = req.body || {};
       if (!req.file) {
-        return res.status(400).json({ error: 'Lot report PDF is required — upload exactly one report for this lot' });
+        return res.status(400).json({ error: 'Lot report PDF is required - upload exactly one report for this lot' });
       }
       const wo = await prisma.workOrder.findUnique({
         where: { id: req.params.id },
@@ -1824,7 +1824,7 @@ router.post(
       let closureItemsCreate = [];
 
       if (wo.items.length) {
-        // New multi-material WO — require a per-item breakdown.
+        // New multi-material WO - require a per-item breakdown.
         if (!Array.isArray(lotItems)) {
           return res.status(400).json({ error: 'items[] with per-material quantities is required' });
         }
@@ -1896,13 +1896,13 @@ router.post(
         include: CLOSURE_INCLUDE,
       });
 
-      // Lot qty counts as delivered work — keep WO progress in sync.
+      // Lot qty counts as delivered work - keep WO progress in sync.
       await syncWoFromLots(wo.id);
 
       await prisma.notification.create({
         data: {
           type: 'WO_CLOSURE_QC_PENDING',
-          title: `WO ${wo.workOrderNumber} Lot #${nextCycle} — QC verification pending`,
+          title: `WO ${wo.workOrderNumber} Lot #${nextCycle} - QC verification pending`,
           message: `${req.user.name} marked work done for Lot #${nextCycle} (qty ${qty} ${wo.orderUnit}) and uploaded the lot report. Please verify and write your remark.`,
           targetRole: 'QC',
           sentById: req.user.id,
@@ -1918,7 +1918,7 @@ router.post(
   },
 );
 
-// ── POST /api/work-orders/:id/closures/:closureId/docs — upload a doc ──
+// ── POST /api/work-orders/:id/closures/:closureId/docs - upload a doc ──
 router.post(
   '/:id/closures/:closureId/docs',
   authenticate,
@@ -1974,8 +1974,8 @@ router.delete(
   },
 );
 
-// ── POST .../qc-verify — QC verifies the lot report & forwards to FINANCE ──
-// Remark is MANDATORY — it is stored on the closure (qcRemark) permanently.
+// ── POST .../qc-verify - QC verifies the lot report & forwards to FINANCE ──
+// Remark is MANDATORY - it is stored on the closure (qcRemark) permanently.
 router.post(
   '/:id/closures/:closureId/qc-verify',
   authenticate,
@@ -1984,7 +1984,7 @@ router.post(
     try {
       const { note } = req.body || {};
       if (!note || !String(note).trim()) {
-        return res.status(400).json({ error: 'QC remark is required — write your verification remark before forwarding' });
+        return res.status(400).json({ error: 'QC remark is required - write your verification remark before forwarding' });
       }
       const closure = await prisma.workOrderClosure.findUnique({
         where: { id: req.params.closureId },
@@ -2010,7 +2010,7 @@ router.post(
       await prisma.notification.create({
         data: {
           type: 'WO_CLOSURE_FINANCE_PENDING',
-          title: `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} — Finance action`,
+          title: `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} - Finance action`,
           message: `QC ${req.user.name} approved Lot #${closure.cycleNumber} (certificate ${certificateNumber}). Remark: ${String(note).trim()}. Attach the physical invoice + delivery challan and click "Invoice Sent" and "DC Sent".`,
           targetRole: 'FINANCE',
           sentById: req.user.id,
@@ -2025,11 +2025,11 @@ router.post(
   },
 );
 
-// ── POST .../mark-invoice-sent / .../mark-dc-sent — Finance's two buttons ──
+// ── POST .../mark-invoice-sent / .../mark-dc-sent - Finance's two buttons ──
 // The physical invoice and delivery challan travel WITH the material (no
 // upload). Finance clicks each button as it goes out; the optional number is
 // recorded. Once BOTH are clicked the lot moves to INVOICE_SENT and the 48h
-// goods-ack SLA starts. Idempotent — re-clicking a done button is a no-op.
+// goods-ack SLA starts. Idempotent - re-clicking a done button is a no-op.
 const buildSentRoute = (which) => async (req, res) => {
   try {
     const closure = await prisma.workOrderClosure.findUnique({
@@ -2085,8 +2085,8 @@ const buildSentRoute = (which) => async (req, res) => {
 
     if (bothDone) {
       await notifyL5Finance(
-        `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} — Invoice + DC sent (48h goods-ack SLA started)`,
-        `${req.user.name} confirmed both the invoice and delivery challan went out with the material to ${closure.workOrder.customerName}. The signed goods acknowledgement must come back within 48h — deadline ${data.slaDeadlineAt.toLocaleString('en-IN')}.`,
+        `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} - Invoice + DC sent (48h goods-ack SLA started)`,
+        `${req.user.name} confirmed both the invoice and delivery challan went out with the material to ${closure.workOrder.customerName}. The signed goods acknowledgement must come back within 48h - deadline ${data.slaDeadlineAt.toLocaleString('en-IN')}.`,
         req.user.id,
       );
     }
@@ -2108,9 +2108,9 @@ router.post(
   buildSentRoute('dc'),
 );
 
-// ── POST .../delivery-ack — Finance clicks "Goods Ack Received" ──
+// ── POST .../delivery-ack - Finance clicks "Goods Ack Received" ──
 // Real-world: the driver comes back with the customer-signed receipt. Finance
-// clicks this ONE button — the 48h SLA stops and the 45-day payment countdown
+// clicks this ONE button - the 48h SLA stops and the 45-day payment countdown
 // (Accounts' scope) starts.
 router.post(
   '/:id/closures/:closureId/delivery-ack',
@@ -2150,8 +2150,8 @@ router.post(
         include: CLOSURE_INCLUDE,
       });
       await notifyL5Finance(
-        `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} — Goods ack received (45-day payment window)`,
-        `${req.user.name} confirmed the signed goods acknowledgement came back for invoice ${closure.invoiceNumber || '(no number)'} / DC ${closure.deliveryChallanNumber || '(no number)'}. 48h timer stopped. Accounts' 45-day payment countdown starts now — due by ${paymentDue.toLocaleDateString('en-IN')}.`,
+        `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} - Goods ack received (45-day payment window)`,
+        `${req.user.name} confirmed the signed goods acknowledgement came back for invoice ${closure.invoiceNumber || '(no number)'} / DC ${closure.deliveryChallanNumber || '(no number)'}. 48h timer stopped. Accounts' 45-day payment countdown starts now - due by ${paymentDue.toLocaleDateString('en-IN')}.`,
         req.user.id,
       );
       res.json(updated);
@@ -2163,7 +2163,7 @@ router.post(
   },
 );
 
-// ── POST .../weekly-followup — Accounts logs a weekly customer follow-up ──
+// ── POST .../weekly-followup - Accounts logs a weekly customer follow-up ──
 // During the 45-day payment window, Accounts/Admin see a flashing weekly
 // reminder. They contact the customer, write down what was said, and submit
 // here to silence this week's reminder and start the clock on the next week.
@@ -2215,7 +2215,7 @@ router.post(
   },
 );
 
-// ── POST .../hold — QC or Finance sends the cycle back with a checklist ──
+// ── POST .../hold - QC or Finance sends the cycle back with a checklist ──
 router.post(
   '/:id/closures/:closureId/hold',
   authenticate,
@@ -2260,7 +2260,7 @@ router.post(
         await prisma.notification.createMany({
           data: holdUnitManagers.map((u) => ({
             type: 'WO_CLOSURE_ON_HOLD',
-            title: `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} — On hold`,
+            title: `WO ${closure.workOrder.workOrderNumber} cycle #${closure.cycleNumber} - On hold`,
             message: `${req.user.name} flagged missing items: ${missingItems.map((m) => m.docType).join(', ')}${reason ? `. Reason: ${reason}` : ''}.`,
             targetUserId: u.id,
             sentById: req.user.id,
@@ -2276,7 +2276,7 @@ router.post(
   },
 );
 
-// ── POST .../resubmit — unit finished the pending work; uploads a FRESH lot
+// ── POST .../resubmit - unit finished the pending work; uploads a FRESH lot
 // report and resends the lot to QC. Clears the open hold(s), wipes the old QC
 // verdict, and stamps a new submission. multipart/form-data: file + note.
 router.post(
@@ -2340,7 +2340,7 @@ router.post(
       await prisma.notification.create({
         data: {
           type: 'WO_CLOSURE_HOLD_RESOLVED',
-          title: `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} — resent to QC`,
+          title: `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} - resent to QC`,
           message: `${req.user.name} finished the pending work and re-uploaded the lot report. Please re-verify and write your remark.`,
           targetRole: 'QC',
           sentById: req.user.id,
@@ -2356,7 +2356,7 @@ router.post(
 );
 
 // ────────────────────────────────────────────────────────────────────
-// ALARMS — list / sync / append note / acknowledge / resolve
+// ALARMS - list / sync / append note / acknowledge / resolve
 // Each transition stores a remark in WorkOrderAlarmNote so the timeline
 // is preserved. ACTIVE/ACKNOWLEDGED → RESOLVED is one-way from the UI;
 // the engine may re-create a fresh ACTIVE row if the trigger re-fires.
@@ -2371,7 +2371,7 @@ const ALARM_INCLUDE = {
   },
 };
 
-// GET /api/work-orders/:id/alarms — list (default: active+ack'd; ?includeResolved=1 to see history)
+// GET /api/work-orders/:id/alarms - list (default: active+ack'd; ?includeResolved=1 to see history)
 router.get(
   '/:id/alarms',
   authenticate,
@@ -2395,7 +2395,7 @@ router.get(
   },
 );
 
-// POST /api/work-orders/:id/alarms/sync — recompute alarms for this WO
+// POST /api/work-orders/:id/alarms/sync - recompute alarms for this WO
 router.post(
   '/:id/alarms/sync',
   authenticate,
@@ -2411,7 +2411,7 @@ router.post(
   },
 );
 
-// POST /api/work-orders/:id/alarms/:alarmId/notes — append a remark
+// POST /api/work-orders/:id/alarms/:alarmId/notes - append a remark
 router.post(
   '/:id/alarms/:alarmId/notes',
   authenticate,
@@ -2434,7 +2434,7 @@ router.post(
   },
 );
 
-// POST /api/work-orders/:id/alarms/:alarmId/acknowledge — ack with remark
+// POST /api/work-orders/:id/alarms/:alarmId/acknowledge - ack with remark
 router.post(
   '/:id/alarms/:alarmId/acknowledge',
   authenticate,
@@ -2470,7 +2470,7 @@ router.post(
   },
 );
 
-// POST /api/work-orders/:id/alarms/:alarmId/resolve — manual resolve with remark
+// POST /api/work-orders/:id/alarms/:alarmId/resolve - manual resolve with remark
 router.post(
   '/:id/alarms/:alarmId/resolve',
   authenticate,
@@ -2506,7 +2506,7 @@ router.post(
   },
 );
 
-// ── POST .../payment-received — Accounts closes the lot ──
+// ── POST .../payment-received - Accounts closes the lot ──
 // Payment can only be logged AFTER the goods ack (stage = DELIVERY_ACKNOWLEDGED),
 // since that's when the 45-day clock starts. Setting stage = PAYMENT_RECEIVED
 // stops the countdown and the weekly reminder loop. When this was the FINAL
@@ -2539,7 +2539,7 @@ router.post(
         include: CLOSURE_INCLUDE,
       });
       await notifyL5Finance(
-        `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} — Payment received`,
+        `WO ${closure.workOrder.workOrderNumber} Lot #${closure.cycleNumber} - Payment received`,
         `${req.user.name} confirmed payment received for invoice ${closure.invoiceNumber || '(no number)'}${note ? `. Note: ${note}` : ''}. Lot closed.`,
         req.user.id,
       );
@@ -2562,7 +2562,7 @@ router.post(
             },
           });
           await notifyL5Finance(
-            `WO ${wo.workOrderNumber} — CLOSED (final lot paid)`,
+            `WO ${wo.workOrderNumber} - CLOSED (final lot paid)`,
             `All lots of WO ${wo.workOrderNumber} (${wo.customerName}) are delivered, acknowledged and paid. The work order is closed.`,
             req.user.id,
           );

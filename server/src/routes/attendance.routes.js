@@ -5,9 +5,9 @@
 //   • Edit (employees + day cells + month submission): the MANAGER whose
 //     unitId matches the row's unitId. SUPERADMIN bypasses every check.
 //   • View-only:
-//       - ADMIN, SAFETY                 — can view every unit's current grid
+//       - ADMIN, SAFETY                 - can view every unit's current grid
 //                                         (status of who came today / month-to-date)
-//       - ACCOUNTING                    — can view a unit-month only after
+//       - ACCOUNTING                    - can view a unit-month only after
 //                                         the manager has submitted it.
 //   • Modification trail (modifiedAt / modifiedBy / history) is stripped
 //     from the API response for everyone except the unit's own manager.
@@ -56,7 +56,7 @@ const parseYearMonth = (req) => {
 const daysInMonth = (year, month) => new Date(year, month, 0).getDate();
 
 const monthDateRange = (year, month) => {
-  // [start, end) — UTC dates so the @db.Date column compares cleanly.
+  // [start, end) - UTC dates so the @db.Date column compares cleanly.
   const start = new Date(Date.UTC(year, month - 1, 1));
   const end = new Date(Date.UTC(year, month, 1));
   return { start, end };
@@ -67,7 +67,7 @@ const normalizeTime = (v) => {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
   if (s === '') return null;
-  // Accept "9:30", "09:30", "9:5" — normalize to "HH:mm".
+  // Accept "9:30", "09:30", "9:5" - normalize to "HH:mm".
   const m = s.match(/^(\d{1,2}):(\d{1,2})$/);
   if (!m) return undefined; // signal "invalid"
   const h = parseInt(m[1], 10);
@@ -243,7 +243,7 @@ router.get('/grid', authenticate, async (req, res) => {
     const ym = parseYearMonth(req);
     if (!ym) return res.status(400).json({ error: 'Valid year & month required' });
 
-    // ACCOUNTING + HR gating — they only see a unit-month after submission.
+    // ACCOUNTING + HR gating - they only see a unit-month after submission.
     const user = req.user;
     if (user.role === 'ACCOUNTING' || user.role === 'HR') {
       const sub = await prisma.attendanceMonthSubmission.findUnique({
@@ -364,7 +364,7 @@ router.put('/entry', authenticate, async (req, res) => {
     });
 
     if (!existing) {
-      // First save — no modification trail yet.
+      // First save - no modification trail yet.
       const created = await prisma.attendanceEntry.create({
         data: {
           employeeId,
@@ -390,7 +390,7 @@ router.put('/entry', authenticate, async (req, res) => {
       });
     }
 
-    // Subsequent save — diff against existing values.
+    // Subsequent save - diff against existing values.
     const next = {
       inTime: 'inTime' in patch ? patch.inTime : existing.inTime,
       outTime: 'outTime' in patch ? patch.outTime : existing.outTime,
@@ -404,8 +404,8 @@ router.put('/entry', authenticate, async (req, res) => {
 
     // A change only counts as a *modification* (showing the "modified" mark +
     // history) when a field that ALREADY had a value is overwritten or cleared.
-    // Filling a previously-empty field — e.g. typing OUT after IN on the same
-    // day — is still part of the first-time entry, so it leaves no trail.
+    // Filling a previously-empty field - e.g. typing OUT after IN on the same
+    // day - is still part of the first-time entry, so it leaves no trail.
     const isModification =
       (fieldChanged('inTime') && isFilled(existing.inTime))
       || (fieldChanged('outTime') && isFilled(existing.outTime))
@@ -429,7 +429,7 @@ router.put('/entry', authenticate, async (req, res) => {
     }
 
     if (!isModification) {
-      // Still first-time entry — persist the new values without a trail.
+      // Still first-time entry - persist the new values without a trail.
       const filled = await prisma.attendanceEntry.update({
         where: { id: existing.id },
         data: {

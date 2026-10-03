@@ -31,7 +31,7 @@ const SUB_LABEL = {
   OTHER:                        'Other equipment',
 };
 
-// Keyword-based classifier. Order matters — earlier rules win. Tuned to the
+// Keyword-based classifier. Order matters - earlier rules win. Tuned to the
 // equipment vocabulary used in the RAPS register.
 const RULES = [
   { sub: 'AUTOCLAVE_OVEN_THERMOCOUPLES',
@@ -69,7 +69,7 @@ const classify = (name) => {
 
 async function main() {
   const dryRun = process.argv.includes('--dry');
-  if (dryRun) console.log('DRY RUN — no writes will happen.\n');
+  if (dryRun) console.log('DRY RUN - no writes will happen.\n');
 
   const rows = await prisma.calibrationItem.findMany({
     where: { category: 'MMR' },
@@ -86,10 +86,10 @@ async function main() {
   console.log(`Found ${rows.length} MMR calibration item${rows.length === 1 ? '' : 's'}.\n`);
   if (rows.length === 0) return;
 
-  // Pass 1 — classify each row.
+  // Pass 1 - classify each row.
   const classified = rows.map((row) => ({ ...row, newSub: classify(row.name) }));
 
-  // Pass 2 — walk in chronological order and assign per-bucket serials.
+  // Pass 2 - walk in chronological order and assign per-bucket serials.
   const counters = {};
   const updates = [];
 

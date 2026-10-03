@@ -14,7 +14,7 @@ export function filenameFromDisposition(disposition, fallback) {
 }
 
 // Saves an axios blob response to disk. The object URL is revoked on the next
-// tick — revoking it synchronously cancels the download in Safari/iOS.
+// tick - revoking it synchronously cancels the download in Safari/iOS.
 export function saveBlobResponse(response, fallbackName) {
   const name = filenameFromDisposition(response?.headers?.['content-disposition'], fallbackName);
   const url = URL.createObjectURL(response.data);
@@ -38,7 +38,7 @@ export async function blobErrorMessage(error, fallback = 'Download failed') {
       const text = await data.text();
       const parsed = JSON.parse(text);
       if (parsed?.error) return parsed.error;
-    } catch { /* not JSON — fall through to the generic message */ }
+    } catch { /* not JSON - fall through to the generic message */ }
   }
   return data?.error || error?.message || fallback;
 }

@@ -5,14 +5,14 @@ const { getPublicKey, enabled, countSubscriptions, sendTestToUser } = require('.
 
 const router = express.Router();
 
-// GET /api/push/public-key — VAPID public key the browser needs to subscribe
+// GET /api/push/public-key - VAPID public key the browser needs to subscribe
 router.get('/public-key', authenticate, (req, res) => {
   const key = getPublicKey();
   if (!key) return res.status(503).json({ error: 'Push not configured' });
   res.json({ key });
 });
 
-// GET /api/push/status — is push configured on the server, and how many devices
+// GET /api/push/status - is push configured on the server, and how many devices
 // has this user registered? Powers the "Notifications" settings UI.
 router.get('/status', authenticate, async (req, res) => {
   try {
@@ -24,7 +24,7 @@ router.get('/status', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/push/test — send a test push to the current user's devices and
+// POST /api/push/test - send a test push to the current user's devices and
 // report how many were reached, so a device can verify push works end to end.
 router.post('/test', authenticate, async (req, res) => {
   try {
@@ -36,7 +36,7 @@ router.post('/test', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/push/subscribe — register this browser/device for the logged-in user
+// POST /api/push/subscribe - register this browser/device for the logged-in user
 router.post('/subscribe', authenticate, async (req, res) => {
   try {
     const { endpoint, keys } = req.body || {};
@@ -57,7 +57,7 @@ router.post('/subscribe', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/push/unsubscribe — called on logout so a shared device stops
+// POST /api/push/unsubscribe - called on logout so a shared device stops
 // receiving the previous user's notifications
 router.post('/unsubscribe', authenticate, async (req, res) => {
   try {

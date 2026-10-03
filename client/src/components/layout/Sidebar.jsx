@@ -5,7 +5,7 @@ import {
   BarChart3, Settings, Menu, X,
   CheckSquare, ClipboardCheck, ScrollText,
   Building2, ShieldCheck, Crown, Boxes, Ruler,
-  ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation, Gauge, Table2, FileInput,
+  ClipboardList, Truck, DoorOpen, IdCard, Wrench, GraduationCap, CalendarClock, Navigation, Gauge, Table2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -28,16 +28,17 @@ const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT
 // Procurement & Inventory Management hub is visible to every authenticated
 // user EXCEPT Supply Chain. ACCOUNTING + FINANCE are admin-level read-only
 // observers of the procurement chain, so the hub is open to them. HR is in as
-// well — it can raise MIVs, and the hub is the only route to /my-requests. The
+// well - it can raise MIVs, and the hub is the only route to /my-requests. The
 // cards inside are role-filtered, so HR only sees Stock Details + MIV Requests.
-// INWARD_QC is appended explicitly (it is not in ALL_ROLES): the hub is its only
-// route to Purchase Requests / Purchase Orders, which it may raise and follow.
-const PROCUREMENT_ROLES = [...ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN'), 'INWARD_QC'];
+// INWARD_QC / IN_PROCESS_QC are appended explicitly (neither is in ALL_ROLES):
+// the hub is their only route to Purchase Requests / Purchase Orders, which they
+// may raise and follow.
+const PROCUREMENT_ROLES = [...ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN'), 'INWARD_QC', 'IN_PROCESS_QC'];
 
-// HR hub is hidden from Metrology — not part of their workflow.
+// HR hub is hidden from Metrology - not part of their workflow.
 const NON_METROLOGY_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY');
 
-// Gate Pass / Vehicle Movement / Logistics hub is hidden from Metrology —
+// Gate Pass / Vehicle Movement / Logistics hub is hidden from Metrology -
 // they don't run dispatch. QC is in: it raises its own gate passes like any
 // other requester department.
 const DISPATCH_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY');
@@ -45,53 +46,57 @@ const DISPATCH_ROLES = ALL_ROLES.filter((r) => r !== 'METROLOGY');
 const buildAllItems = () => {
   const items = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES },
-    // INWARD_QC is a near-single-purpose login — the inward QC page, plus the
-    // Procurement hub (PROCUREMENT_ROLES) for the PRs it raises. It is not in
-    // ALL_ROLES, so every other item below stays hidden for it.
+    // INWARD_QC and IN_PROCESS_QC are near-single-purpose logins - the inward QC
+    // page, plus the Procurement hub (PROCUREMENT_ROLES) for the PRs they raise.
+    // Neither is in ALL_ROLES, so every other item below stays hidden for them.
+    // Same page, two entries so each login sees its own function named. A user
+    // only ever holds one of the two roles, so only one of these is ever drawn.
     { to: '/inward-entry', icon: ClipboardCheck, label: 'Inward QC', roles: ['INWARD_QC'] },
+    { to: '/inward-entry', icon: ClipboardCheck, label: 'In-Process QC', roles: ['IN_PROCESS_QC'] },
     { to: '/work-orders', icon: ClipboardList, label: 'Work Orders', roles: ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC', 'PLANNING'] },
     // Messaging stays reachable from the Dashboard card; no sidebar entry.
     { to: '/procurement', icon: Boxes, label: 'Procurement & Inventory', roles: PROCUREMENT_ROLES },
     { to: '/ion', icon: ScrollText, label: 'Inter Office Note', roles: ['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND', 'PLANNING'] },
-    // Dispatch hub — Gate Pass + Logistics + Vehicle Movement. Vehicle
+    // Dispatch hub - Gate Pass + Logistics + Vehicle Movement. Vehicle
     // register is open to everyone, so the hub itself is too; the cards
     // inside are role-filtered, and each sub-page enforces its own gate.
-    // Hidden from Metrology and QC — they don't run dispatch.
+    // Hidden from Metrology and QC - they don't run dispatch.
     { to: '/transport', icon: Navigation, label: 'Gate Pass & Vehicles', roles: DISPATCH_ROLES },
     { to: '/metrology', icon: Ruler, label: 'Measuring and Monitoring Resources', roles: METROLOGY_VIEW_ROLES },
-    // Machinery register — view-only for everyone, edit for SAFETY + Unit-5 (gated server-side).
-    // Hidden from Supply Chain — not part of their workflow. ACCOUNTING + FINANCE
+    // Machinery register - view-only for everyone, edit for SAFETY + Unit-5 (gated server-side).
+    // Hidden from Supply Chain - not part of their workflow. ACCOUNTING + FINANCE
     // get read-only visibility.
     { to: '/machinery', icon: Wrench, label: 'Machinery', roles: ALL_ROLES.filter((r) => r !== 'SUPPLY_CHAIN') },
-    // HR hub — employees, skill matrix, annual training plan, training records.
+    // HR hub - employees, skill matrix, annual training plan, training records.
     // HR + ADMIN edit; Managers can append training items for their unit; all view.
-    // Hidden from Metrology — not part of their workflow.
+    // Hidden from Metrology - not part of their workflow.
     // HIDDEN FROM ERP (code retained, not removed):
     // { to: '/hr', icon: GraduationCap, label: 'Human Resources', roles: NON_METROLOGY_ROLES },
-    // Attendance register — Unit managers edit their own unit; ADMIN + SAFETY
+    // Attendance register - Unit managers edit their own unit; ADMIN + SAFETY
     // can view all units; ACCOUNTING sees only months submitted to them.
     // HIDDEN FROM ERP (code retained, not removed):
     // { to: '/attendance', icon: CalendarClock, label: 'Attendance', roles: ['MANAGER', 'ADMIN', 'SAFETY', 'ACCOUNTING', 'HR'] },
     // Role-specific action hubs.
     { to: '/request-clearance', icon: CheckSquare, label: 'MIV Clearance', roles: ['STORE_MANAGER'] },
     { to: '/safety', icon: ShieldCheck, label: 'Safety Monitor', roles: ['SAFETY'] },
-    // Monitoring hub — Stock Movements, All MIV Requests, Audit Logs, Unit Usage Logs.
+    // Monitoring hub - Stock Movements, All MIV Requests, Audit Logs, Unit Usage Logs.
     { to: '/monitoring', icon: BarChart3, label: 'Monitoring', roles: ['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY', 'ACCOUNTING', 'FINANCE'] },
     // QMS hub (SOPs, Work Instructions, KPIs).
     // Document uploads gated to Unit-5 server-side.
     // HIDDEN FROM ERP (code retained, not removed):
     // { to: '/qms', icon: Gauge, label: 'QMS', roles: ALL_ROLES },
-    // Utility — available to everyone. Notifications intentionally omitted from
+    // Utility - available to everyone. Notifications intentionally omitted from
     // the side menu: it's reachable from the header bell on every page.
     { to: '/settings', icon: Settings, label: 'Settings', roles: ALL_ROLES },
     // Admin-only.
     { to: '/management', icon: UserCog, label: 'Management', roles: ['ADMIN'] },
-    // Admin-only — full edit access over FIM / customer-property records.
-    { to: '/fim-data', icon: FileInput, label: 'FIM Data', roles: ['ADMIN'] },
-    // SUPERADMIN-only owner hatch — invisible to everyone else. One entry
+    // FIM Data is deliberately NOT in the menu. The page still exists at
+    // /fim-data for ADMIN / SUPERADMIN (see App.jsx) - it is just not advertised
+    // in the sidebar.
+    // SUPERADMIN-only owner hatch - invisible to everyone else. One entry
     // takes the owner to the hub; deeper pages link from there.
     { to: '/superadmin', icon: Crown, label: 'Control Hub', roles: ['SUPERADMIN'] },
-    // DATA_EDITOR-only — single-purpose edit-only table corrector.
+    // DATA_EDITOR-only - single-purpose edit-only table corrector.
     { to: '/data-editor', icon: Table2, label: 'Edit Data', roles: ['DATA_EDITOR'] },
   ];
 
@@ -190,7 +195,7 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* Desktop sidebar — fixed so it stays put while the page scrolls */}
+      {/* Desktop sidebar - fixed so it stays put while the page scrolls */}
       <aside className="on-dark hidden lg:flex flex-col bg-gradient-to-b from-navy-800 to-navy-900 fixed left-0 top-0 bottom-0 w-56 shadow-xl z-30 overflow-hidden">
         <div
           className="absolute inset-0 opacity-[0.06] bg-cover bg-center pointer-events-none"

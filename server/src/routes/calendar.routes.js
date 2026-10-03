@@ -1,5 +1,5 @@
 // ──────────────────────────────────────────────────────────────
-// Personal Calendar — private per-user events / reminders.
+// Personal Calendar - private per-user events / reminders.
 // Every row is owned by req.user; no cross-user visibility, no roles.
 // Recurring events are stored once and expanded into occurrences on
 // read, within the requested [from, to] window. Editing/deleting a
@@ -63,7 +63,7 @@ function expandEvent(ev, from, to) {
       // occurrence window (may differ from the stored base for recurring)
       start: s.toISOString(),
       end: new Date(s.getTime() + duration).toISOString(),
-      // the stored anchor — used by the client when opening for edit
+      // the stored anchor - used by the client when opening for edit
       baseStart: ev.startAt,
       baseEnd: ev.endAt,
     });
@@ -190,7 +190,7 @@ router.get('/events', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/calendar/events — create
+// POST /api/calendar/events - create
 router.post('/events', authenticate, async (req, res) => {
   try {
     const { data, error } = buildEventData(req.body);
@@ -206,7 +206,7 @@ router.post('/events', authenticate, async (req, res) => {
   }
 });
 
-// PUT /api/calendar/events/:id — update (owner only). Edits the whole series.
+// PUT /api/calendar/events/:id - update (owner only). Edits the whole series.
 router.put('/events/:id', authenticate, async (req, res) => {
   try {
     const existing = await prisma.calendarEvent.findUnique({ where: { id: req.params.id } });
@@ -228,7 +228,7 @@ router.put('/events/:id', authenticate, async (req, res) => {
   }
 });
 
-// DELETE /api/calendar/events/:id — delete (owner only). Removes the whole series.
+// DELETE /api/calendar/events/:id - delete (owner only). Removes the whole series.
 router.delete('/events/:id', authenticate, async (req, res) => {
   try {
     const existing = await prisma.calendarEvent.findUnique({ where: { id: req.params.id } });

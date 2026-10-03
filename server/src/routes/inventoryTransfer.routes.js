@@ -15,11 +15,12 @@ const router = express.Router();
 // another. The destination owner raises the request; the source owner (or an
 // admin) approves the release.
 // QC, DESIGNS, SAFETY, LAB, METROLOGY, NDT, PLANNING.
-// INWARD_QC is excluded: it maps to the QC department in DEPT_BY_ROLE purely so
-// material it purchases reserves to the QC bucket at inward. It is a narrow
-// inward-inspection login and is not a stock owner — it must not create, approve
-// or reject QC's transfers, nor be an approval target for them.
-const OWNER_DEPT_ROLES = Object.keys(DEPT_BY_ROLE).filter((r) => r !== 'INWARD_QC');
+// INWARD_QC and IN_PROCESS_QC are excluded: they map to the QC department in
+// DEPT_BY_ROLE purely so material they purchase reserves to the QC bucket at
+// inward. They are narrow inspection logins and not stock owners - they must not
+// create, approve or reject QC's transfers, nor be an approval target for them.
+const NON_OWNER_QC_ROLES = ['INWARD_QC', 'IN_PROCESS_QC'];
+const OWNER_DEPT_ROLES = Object.keys(DEPT_BY_ROLE).filter((r) => !NON_OWNER_QC_ROLES.includes(r));
 // Roles that may touch transfers at all (route guard). Monitors (LOGISTICS) get
 // read-only oversight; ownership is enforced per-action below.
 const TRANSFER_ROLES = ['MANAGER', 'ADMIN', 'LOGISTICS', ...OWNER_DEPT_ROLES];
@@ -110,7 +111,7 @@ function resolveSide(unitId, dept) {
 
 // ─── Routes ─────────────────────────────────────────────────────────────
 
-// GET /api/inventory-transfers — list (monitors see all; owners see their own in/out)
+// GET /api/inventory-transfers - list (monitors see all; owners see their own in/out)
 router.get('/', authenticate, authorize(...TRANSFER_ROLES), async (req, res) => {
   try {
     const { status, direction, page, limit, fromDate, toDate } = req.query;
@@ -171,7 +172,7 @@ router.get('/:id', authenticate, authorize(...TRANSFER_ROLES), async (req, res) 
   }
 });
 
-// POST /api/inventory-transfers — the DESTINATION owner requests the stock.
+// POST /api/inventory-transfers - the DESTINATION owner requests the stock.
 router.post('/', authenticate, authorize('MANAGER', ...OWNER_DEPT_ROLES), async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
@@ -258,7 +259,7 @@ router.post('/', authenticate, authorize('MANAGER', ...OWNER_DEPT_ROLES), async 
   }
 });
 
-// PUT /api/inventory-transfers/:id/approve — the SOURCE owner (or admin) releases.
+// PUT /api/inventory-transfers/:id/approve - the SOURCE owner (or admin) releases.
 router.put('/:id/approve', authenticate, authorize('MANAGER', 'ADMIN', ...OWNER_DEPT_ROLES), async (req, res) => {
   try {
     const t = await prisma.inventoryTransferRequest.findUnique({
@@ -358,7 +359,7 @@ router.put('/:id/approve', authenticate, authorize('MANAGER', 'ADMIN', ...OWNER_
   }
 });
 
-// PUT /api/inventory-transfers/:id/reject — source owner or admin
+// PUT /api/inventory-transfers/:id/reject - source owner or admin
 router.put('/:id/reject', authenticate, authorize('MANAGER', 'ADMIN', ...OWNER_DEPT_ROLES), async (req, res) => {
   try {
     const { reason } = req.body || {};

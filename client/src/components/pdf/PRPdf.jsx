@@ -11,7 +11,7 @@ const PAGE_INNER_WIDTH = 842 - 48;
 const MATERIAL_COL_WIDTH = (PAGE_INNER_WIDTH - FIELD_COL_WIDTH) / MATS_PER_PAGE;
 
 // Split items into pages of exactly MATS_PER_PAGE slots. Pads the final page
-// with `null` entries so empty cells still render — keeps the table grid
+// with `null` entries so empty cells still render - keeps the table grid
 // consistent (e.g. 8 materials → page 1 fills all 5, page 2 shows 3 filled + 2 empty).
 function chunkIntoPages(items) {
   if (!items || items.length === 0) return [[null, null, null, null, null]];
@@ -34,7 +34,7 @@ export default function PRPdf({ request }) {
         <View style={[styles.cellLabel, { width: FIELD_COL_WIDTH }]}><Text>{label}</Text></View>
         {pageItems.map((it, idx) => (
           <View key={idx} style={[styles.cell, { width: MATERIAL_COL_WIDTH }]}>
-            <Text>{it ? (getValue(it) || '—') : ''}</Text>
+            <Text>{it ? (getValue(it) || '-') : ''}</Text>
           </View>
         ))}
       </View>
@@ -55,11 +55,11 @@ export default function PRPdf({ request }) {
         </View>
         {row('Material Description', it => it.productName)}
         {/* Material code of the linked Master Data material. Blank for a
-            free-typed Tools & Fixtures line — it is catalogued at inward. */}
+            free-typed Tools & Fixtures line - it is catalogued at inward. */}
         {row('Material Code', it => it.product?.materialCode || it.product?.sku)}
         {row('Material Type', it => it.materialType)}
         {row('Material Specification', it => it.materialSpecification)}
-        {row('Quantity', it => `${it.requestedQty || '—'}${it.adminApprovedQty != null ? ` (appr: ${it.adminApprovedQty})` : ''}`)}
+        {row('Quantity', it => `${it.requestedQty || '-'}${it.adminApprovedQty != null ? ` (appr: ${it.adminApprovedQty})` : ''}`)}
         {row('UOM', it => it.productUnit)}
         {row('Drawing No.', it => it.drawingNo)}
         {row('QAP No.', it => it.qapNo)}
@@ -84,28 +84,28 @@ export default function PRPdf({ request }) {
       <View style={styles.table}>
         <View style={styles.row}>
           <View style={[styles.cellLabel, { width: '15%' }]}><Text>PR No.</Text></View>
-          <View style={[styles.cell, { width: '35%' }]}><Text>{request?.requestNumber || '—'}</Text></View>
+          <View style={[styles.cell, { width: '35%' }]}><Text>{request?.requestNumber || '-'}</Text></View>
           <View style={[styles.cellLabel, { width: '15%' }]}><Text>Date</Text></View>
           <View style={[styles.cell, { width: '35%' }]}><Text>{formatDate(request?.createdAt)}</Text></View>
         </View>
         <View style={styles.row}>
           <View style={[styles.cellLabel, { width: '15%' }]}><Text>Unit</Text></View>
-          <View style={[styles.cell, { width: '35%' }]}><Text>{request?.unit?.name || request?.unit?.code || '—'}</Text></View>
+          <View style={[styles.cell, { width: '35%' }]}><Text>{request?.unit?.name || request?.unit?.code || '-'}</Text></View>
           <View style={[styles.cellLabel, { width: '15%' }]}><Text>Status</Text></View>
-          <View style={[styles.cell, { width: '35%' }]}><Text>{request?.status || '—'}</Text></View>
+          <View style={[styles.cell, { width: '35%' }]}><Text>{request?.status || '-'}</Text></View>
         </View>
         {/* The work order this PR is raised against, and the customer supply
             order behind it. Purchase and the customer both reference material
             by the SO number, so it has to be on the printed requisition.
-            An R&D requisition has no work order — it says so instead. */}
+            An R&D requisition has no work order - it says so instead. */}
         <View style={styles.row}>
           <View style={[styles.cellLabel, { width: '15%' }]}><Text>Work Order No.</Text></View>
           <View style={[styles.cell, { width: '35%' }]}>
-            <Text>{request?.workOrder?.workOrderNumber || (request?.isRnd ? 'R&D — no work order' : '—')}</Text>
+            <Text>{request?.workOrder?.workOrderNumber || (request?.isRnd ? 'R&D - no work order' : '-')}</Text>
           </View>
           <View style={[styles.cellLabel, { width: '15%' }]}><Text>Supply Order No.</Text></View>
           <View style={[styles.cell, { width: '35%' }]}>
-            <Text>{request?.workOrder?.supplyOrderNo || '—'}</Text>
+            <Text>{request?.workOrder?.supplyOrderNo || '-'}</Text>
           </View>
         </View>
       </View>

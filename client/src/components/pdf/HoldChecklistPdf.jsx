@@ -8,7 +8,7 @@ export default function HoldChecklistPdf({ data }) {
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        <CompanyHeader docType="CLOSURE HOLD — MISSING ITEMS CHECKLIST" docNumber={wo.workOrderNumber} />
+        <CompanyHeader docType="CLOSURE HOLD - MISSING ITEMS CHECKLIST" docNumber={wo.workOrderNumber} />
 
         <View style={styles.header}>
           <Text style={styles.title}>HOLD CHECKLIST</Text>
@@ -18,17 +18,17 @@ export default function HoldChecklistPdf({ data }) {
         <View style={styles.table}>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Work Order</Text></View>
-            <View style={[styles.cell, { width: '28%' }]}><Text>{wo.workOrderNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '28%' }]}><Text>{wo.workOrderNumber || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Raised On</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>{formatDate(h.raisedAt)}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Customer</Text></View>
-            <View style={[styles.cell, { width: '78%' }]}><Text>{wo.customerName || '—'}</Text></View>
+            <View style={[styles.cell, { width: '78%' }]}><Text>{wo.customerName || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Raised By</Text></View>
-            <View style={[styles.cell, { width: '78%' }]}><Text>{h.raisedBy?.name || '—'}</Text></View>
+            <View style={[styles.cell, { width: '78%' }]}><Text>{h.raisedBy?.name || '-'}</Text></View>
           </View>
         </View>
 

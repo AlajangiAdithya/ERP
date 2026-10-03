@@ -1,5 +1,5 @@
 // ──────────────────────────────────────────────────────────────
-// Team Chat — primary in-house messaging channel (shown on every dashboard).
+// Team Chat - primary in-house messaging channel (shown on every dashboard).
 // Replaces ad-hoc WhatsApp coordination.
 //
 //   @everyone <text>   → broadcast, every signed-in user sees it
@@ -39,7 +39,7 @@ const visibilityFilter = (userId) => ({
 
 // Strip the leading "@" and return everything after it. Resolution of the
 // target (broadcast token vs a real username) happens in the POST handler
-// because usernames may contain spaces — so we can NOT split on whitespace
+// because usernames may contain spaces - so we can NOT split on whitespace
 // here. Returns { error } | { afterAt }.
 const parseLeadingMention = (raw) => {
   const text = String(raw || '').trim();
@@ -60,7 +60,7 @@ const mentionStartsWith = (lowerAfter, name) => {
   return lowerAfter === n || lowerAfter.startsWith(`${n} `);
 };
 
-// ── GET /api/messages — list visible messages ──
+// ── GET /api/messages - list visible messages ──
 //   ?view=active (default) | deleted   ?page ?limit
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -97,7 +97,7 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// ── GET /api/messages/recipients — usernames for the @mention picker ──
+// ── GET /api/messages/recipients - usernames for the @mention picker ──
 // Every active user except hidden roles (SUPERADMIN, DATA_EDITOR) and the caller.
 router.get('/recipients', authenticate, async (req, res) => {
   try {
@@ -120,7 +120,7 @@ router.get('/recipients', authenticate, async (req, res) => {
   }
 });
 
-// ── POST /api/messages — send a broadcast or direct message ──
+// ── POST /api/messages - send a broadcast or direct message ──
 //   body: { body: "@everyone ..." | "@username ..." }
 router.post('/', authenticate, async (req, res) => {
   try {
@@ -179,7 +179,7 @@ router.post('/', authenticate, async (req, res) => {
 
     // Direct messages also drop a notification so the recipient gets the
     // bell + sound even if their dashboard tab isn't open. Broadcasts skip
-    // this (every-user fan-out is wasteful) — the chat poll surfaces them.
+    // this (every-user fan-out is wasteful) - the chat poll surfaces them.
     if (recipientId) {
       await prisma.notification.create({
         data: {
@@ -199,7 +199,7 @@ router.post('/', authenticate, async (req, res) => {
   }
 });
 
-// ── PATCH /api/messages/:id/done — recipient marks the work done ──
+// ── PATCH /api/messages/:id/done - recipient marks the work done ──
 // Only the recipient of a direct message can close it. Closing stamps doneAt,
 // which unlocks the sender's delete button and notifies the sender.
 router.patch('/:id/done', authenticate, async (req, res) => {
@@ -247,7 +247,7 @@ router.patch('/:id/done', authenticate, async (req, res) => {
   }
 });
 
-// ── DELETE /api/messages/:id — sender-only soft delete ──
+// ── DELETE /api/messages/:id - sender-only soft delete ──
 // A direct message can only be deleted once the recipient has marked it done.
 // Broadcasts have no recipient to close them, so the sender may delete anytime.
 router.delete('/:id', authenticate, async (req, res) => {

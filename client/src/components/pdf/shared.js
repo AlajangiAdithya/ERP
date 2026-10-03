@@ -4,16 +4,16 @@ import React from 'react';
 export const LOGO_URL = `${window.location.origin}/raps-logo-pdf.png`;
 
 export const formatDate = (d) => {
-  if (!d) return '—';
+  if (!d) return '-';
   const dt = new Date(d);
-  if (isNaN(dt.getTime())) return '—';
+  if (isNaN(dt.getTime())) return '-';
   return dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
 export const formatDateTime = (d) => {
-  if (!d) return '—';
+  if (!d) return '-';
   const dt = new Date(d);
-  if (isNaN(dt.getTime())) return '—';
+  if (isNaN(dt.getTime())) return '-';
   return dt.toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
@@ -122,7 +122,7 @@ export const CompanyHeader = ({ docType, docNumber, docSubtitle }) => (
 
 // Pretty-print stock-movement notes that may be JSON (from Excel import) or free text.
 export const formatNotes = (raw) => {
-  if (!raw) return '—';
+  if (!raw) return '-';
   let obj;
   try { obj = JSON.parse(raw); } catch { return raw; }
   if (typeof obj !== 'object' || obj === null) return String(raw);

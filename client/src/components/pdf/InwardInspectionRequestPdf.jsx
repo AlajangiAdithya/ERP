@@ -1,7 +1,7 @@
 import { Document, Page, View, Text, Image } from '@react-pdf/renderer';
 import { LOGO_URL, formatDate } from './shared';
 
-// Inward Inspection Request Form — Form no.: RAPS/IIR Rev 01 (Dt: 01/09/2024).
+// Inward Inspection Request Form - Form no.: RAPS/IIR Rev 01 (Dt: 01/09/2024).
 // Page 1 of the IIR document: filled by Purchase & Stores, then handed to QA/QC.
 // `row` is the decorated MaterialInwardRegister row; `form` is the persisted
 // qcRequest snapshot (the form values).
@@ -71,7 +71,7 @@ function SectionRow({ title }) {
   );
 }
 
-// Page 1 of the IIR — the request form. Exported so the report PDF can bind it
+// Page 1 of the IIR - the request form. Exported so the report PDF can bind it
 // as page 1 of the complete two-page document.
 export function RequestFormPage({ row, form }) {
   const r = row || {};

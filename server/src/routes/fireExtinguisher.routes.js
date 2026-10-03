@@ -1,5 +1,5 @@
 // ──────────────────────────────────────────────────────────────
-// Fire Extinguisher register — sister tab to the Machinery register.
+// Fire Extinguisher register - sister tab to the Machinery register.
 // Access model is identical: SAFETY + Unit-5 edit, everyone else views.
 // ──────────────────────────────────────────────────────────────
 const express = require('express');

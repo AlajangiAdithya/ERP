@@ -27,7 +27,7 @@ const HOW_IT_WORKS = [
     body: (
       <>
         Type <code className="font-mono text-blue-700 bg-blue-50 px-1 rounded">@username</code> and pick from the list,
-        then write your note. Only they see it — and they get a notification.
+        then write your note. Only they see it - and they get a notification.
       </>
     ),
   },
@@ -51,12 +51,12 @@ export default function Messaging() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* Chat — the main column */}
+        {/* Chat - the main column */}
         <div className="lg:col-span-2">
           <TeamChat heightClass="h-[58vh] min-h-[26rem]" />
         </div>
 
-        {/* Helper rail — keeps it obvious for non-technical users */}
+        {/* Helper rail - keeps it obvious for non-technical users */}
         <aside className="space-y-4 lg:sticky lg:top-4">
           <div className="rounded-2xl bg-white border border-navy-100/60 shadow-card overflow-hidden">
             <div className="px-5 py-3.5 border-b border-gray-100 bg-gradient-to-r from-navy-50/70 to-transparent">

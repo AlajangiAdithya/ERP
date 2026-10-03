@@ -1,6 +1,6 @@
 // ────────────────────────────────────────────────────────────────
 // Meaningful-reason validation (client mirror of
-// server/src/utils/reasonValidation.js — keep the two in sync).
+// server/src/utils/reasonValidation.js - keep the two in sync).
 //
 // Rejects gibberish / placeholder text ("dfjdlkjflsd", "asdf", "test") in
 // required reason fields (delay remarks, rejection reasons) so users can't
@@ -86,7 +86,7 @@ export function validateReason(raw, opts = {}) {
   return { ok: true, cleaned: text };
 }
 
-// Convenience: returns the error string (or '' when valid) — handy for inline
+// Convenience: returns the error string (or '' when valid) - handy for inline
 // form state. Returns '' for empty input so callers can decide whether the
 // field is required separately.
 export function reasonError(raw, opts = {}) {

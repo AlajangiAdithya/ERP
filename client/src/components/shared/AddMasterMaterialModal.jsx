@@ -13,7 +13,7 @@ import MaterialCategoryReference from './MaterialCategoryReference';
 // ─── Add a material to Master Data ───
 // A purchase-request line may only name a material that already exists in Master
 // Data, so the requisition form needs a way to put one there without losing the
-// form. This is the same POST /products the Master Data screen uses — the entry
+// form. This is the same POST /products the Master Data screen uses - the entry
 // is a real master-data record, stamped with whoever added it, and only they and
 // the Unit 1–5 managers can change it afterwards.
 //
@@ -66,7 +66,7 @@ export default function AddMasterMaterialModal({ initialName = '', onClose, onCr
           <div>
             <div className="font-semibold">A requisition can only ask for a material that is in Master Data.</div>
             <div className="mt-0.5 text-xs">
-              Fill in what you know now — the entry is saved under your name, and you (or a
+              Fill in what you know now - the entry is saved under your name, and you (or a
               Unit 1–5 manager) can complete the specification, spec PDFs and MSDS later from
               the Master Data screen.
             </div>
@@ -75,7 +75,7 @@ export default function AddMasterMaterialModal({ initialName = '', onClose, onCr
 
         {error && <p className="text-sm text-brand-red">{error}</p>}
 
-        {/* Material Type first — it decides which block the material code is
+        {/* Material Type first - it decides which block the material code is
             counted in, and the field below fills the next free code in. */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Select label="Material Type *" value={form.category} onChange={(e) => set({ category: e.target.value })}>

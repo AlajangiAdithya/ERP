@@ -198,8 +198,8 @@ export const CATEGORY_CARDS = [
 ];
 
 // Fire extinguishers live in their own register (not the calibration list),
-// so this card is kept out of CATEGORY_CARDS — CategoryView resolves slugs
-// against that list — and links straight to its dedicated page instead.
+// so this card is kept out of CATEGORY_CARDS - CategoryView resolves slugs
+// against that list - and links straight to its dedicated page instead.
 const FIRE_EXTINGUISHER_CARD = {
   slug: 'fire-extinguishers',
   to: '/metrology/fire-extinguishers',
@@ -259,7 +259,7 @@ export default function Metrology() {
         </div>
       </div>
 
-      {/* Dashboard summary — totals across every monitoring instrument */}
+      {/* Dashboard summary - totals across every monitoring instrument */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <SummaryCard
           icon={<Activity size={18} />}
@@ -334,14 +334,14 @@ export default function Metrology() {
         })}
       </div>
 
-      {/* Total list — full unified register, also visible on the dashboard. */}
+      {/* Total list - full unified register, also visible on the dashboard. */}
       <div className="space-y-3">
         <div className="flex items-center gap-2 pt-2">
           <div className="p-1.5 rounded-md bg-navy-50 text-navy-700">
             <ListChecks size={16} />
           </div>
           <h2 className="text-lg font-semibold text-navy-800">
-            Total list — every monitoring instrument
+            Total list - every monitoring instrument
           </h2>
         </div>
         <CalibrationList
@@ -368,7 +368,7 @@ function SummaryCard({ icon, label, value, loading, gradient, iconBg }) {
             {label}
           </div>
           <div className="text-2xl font-bold text-navy-800 tabular-nums leading-tight">
-            {loading ? <span className="text-gray-300">—</span> : value}
+            {loading ? <span className="text-gray-300">-</span> : value}
           </div>
         </div>
       </div>

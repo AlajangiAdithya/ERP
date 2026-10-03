@@ -1,6 +1,6 @@
 // Backfill: extract unique suppliers from Quotation / QuotationItem / PurchaseOrder
 // snapshot strings, dedupe by case-insensitive trimmed name, create Supplier rows,
-// and link supplierId on every source record. Idempotent — safe to re-run.
+// and link supplierId on every source record. Idempotent - safe to re-run.
 //
 //   node prisma/backfill-suppliers.js
 //
@@ -93,7 +93,7 @@ async function main() {
       createdCount++;
       if (i % 25 === 0) console.log(`  ...processed ${i}/${acc.size}`);
     } catch (e) {
-      // Unique violation (rare race) — re-fetch
+      // Unique violation (rare race) - re-fetch
       const found = await withRetry(() => prisma.supplier.findFirst({ where: { name: { equals: info.displayName, mode: 'insensitive' } } }), 'refetch supplier');
       if (found) idByKey.set(k, found.id);
       else throw e;

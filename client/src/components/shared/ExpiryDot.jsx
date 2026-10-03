@@ -2,7 +2,7 @@ import { supplierComplianceStatus } from '../../utils/supplierCompliance';
 
 // Red blinking dot shown when a supplier's active SA/VE document is expired or
 // within 7 days of expiry. Renders nothing while the document is comfortably
-// valid (or when there are no documents at all — that's handled elsewhere).
+// valid (or when there are no documents at all - that's handled elsewhere).
 // Pass either a `supplier` (raw fields) or a precomputed `status`.
 export default function ExpiryDot({ supplier, status, showLabel = true, className = '' }) {
   const st = status || supplierComplianceStatus(supplier);

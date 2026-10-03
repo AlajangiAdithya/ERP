@@ -43,7 +43,7 @@ const cleanStr = (v) => {
   return s === '' || s === '-' ? null : s;
 };
 
-// Legacy slug-based SKU is no longer used — we now route through
+// Legacy slug-based SKU is no longer used - we now route through
 // generateProductSku(prisma, materialType) so re-imports stay aligned with the
 // canonical RAW-/CONS-/TOOL-/OTH- numbering and a single counter per prefix.
 
@@ -98,7 +98,7 @@ async function getOrCreateProduct(name, unit = 'pcs', materialType = null) {
     return product;
   }
 
-  // New product — let helpers assign the next slot in its prefix bucket.
+  // New product - let helpers assign the next slot in its prefix bucket.
   const category = normalizeMaterialType(materialType);
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
@@ -153,7 +153,7 @@ async function importPRsAndPOs() {
   // 17:Inward, 18:UOM, 19:Voucher No, 20:Date, 21:Qty, 22:UOM, 23:Unit,
   // 24:Name, 25:Remarks
 
-  // Group by PR No (string) — accumulate items
+  // Group by PR No (string) - accumulate items
   const prMap = new Map(); // prKey → { prNo, date, unit, items: [...] }
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
@@ -227,7 +227,7 @@ async function importPRsAndPOs() {
       const requestNumber = `PR-25-26-${String(idx).padStart(5, '0')}`;
       const requestId = String(prRec.prNo);
 
-      // Pre-resolve products for items — pass materialType so the SKU prefix
+      // Pre-resolve products for items - pass materialType so the SKU prefix
       // and Product.category line up with the canonical RAW/CONS/TOOL/OTH list.
       const itemsData = [];
       for (const it of prRec.items) {

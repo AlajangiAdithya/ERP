@@ -1,4 +1,4 @@
-// Report Postgres storage by table — works against any Postgres backend.
+// Report Postgres storage by table - works against any Postgres backend.
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 

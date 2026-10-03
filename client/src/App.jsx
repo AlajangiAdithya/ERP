@@ -65,10 +65,10 @@ import QmsDocuments from './pages/qms/QmsDocuments';
 // Departments allowed to see the PR → PO → QC → Inward chain.
 // Maps to: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts,
 // Finance, Planning (+ ADMIN). ACCOUNTING + FINANCE are admin-level read-only
-// observers — full chain visibility, no edit/approve controls.
-// INWARD_QC is in as a QC-department requester — it raises its own PRs (which
-// need QC's approval before ADMIN sees them) and follows them through to the PO.
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+// observers - full chain visibility, no edit/approve controls.
+// INWARD_QC and IN_PROCESS_QC are in as requesters - they raise their own PRs
+// (straight to ADMIN, no QC sign-off) and follow them through to the PO.
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
 
 // Metrology calibration registers access (per access chart RAPS/QSP):
 // Full edit = METROLOGY, QC, MANAGER@UNIT-V.
@@ -77,7 +77,7 @@ const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'P
 // (and the server's calibration.routes.js) enforces the unit-aware split.
 const METROLOGY_VIEW_ROLES = ['ADMIN', 'METROLOGY', 'QC', 'MANAGER', 'LAB', 'NDT', 'RND', 'SUPERADMIN', 'PLANNING', 'ACCOUNTING', 'FINANCE'];
 
-// Global ErrorBoundary — catches render-phase errors so a single page bug
+// Global ErrorBoundary - catches render-phase errors so a single page bug
 // doesn't white-screen the entire app. Reload restores normal navigation.
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -101,7 +101,7 @@ class ErrorBoundary extends Component {
         <div className="max-w-md w-full bg-white rounded-lg shadow p-6 text-center">
           <h2 className="text-lg font-semibold text-gray-900 mb-2">Something went wrong</h2>
           <p className="text-sm text-gray-600 mb-4">
-            An unexpected error occurred on this page. Your session is safe — reload to continue.
+            An unexpected error occurred on this page. Your session is safe - reload to continue.
           </p>
           <button
             onClick={this.handleReload}
@@ -152,10 +152,11 @@ export default function App() {
         <PrivateRoute>
           <MainLayout>
             <Routes>
-              {/* INWARD_QC is a single-purpose login: no dashboard, straight to
-                  the Material Inward register where it does its one job (QC review). */}
+              {/* INWARD_QC / IN_PROCESS_QC are single-purpose logins: no dashboard,
+                  straight to the Material Inward register where they do their one
+                  job (QC review). */}
               <Route path="/" element={
-                user?.role === 'INWARD_QC' ? <Navigate to="/inward-entry" replace />
+                ['INWARD_QC', 'IN_PROCESS_QC'].includes(user?.role) ? <Navigate to="/inward-entry" replace />
                 : user?.role === 'DATA_EDITOR' ? <Navigate to="/data-editor" replace />
                 : <Dashboard />
               } />
@@ -174,12 +175,12 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'SAFETY']}><UnitUsageLogs /></PrivateRoute>
               } />
 
-              {/* MIV requesters — Manager / Lab / QC / R&D / Safety / Designs / Planning /
+              {/* MIV requesters - Manager / Lab / QC / R&D / Safety / Designs / Planning /
                   Metrology / NDT, plus Accounting / Finance / Admin / Logistics / HR.
                   The non-unit owner depts can issue the stock reserved to their department;
                   the rest draw the unassigned/general pool. Planning / Accounting / Finance /
                   Admin raise + issue their own while still monitoring all MIVs.
-                  Store Manager stays out — they clear MIVs at /request-clearance.
+                  Store Manager stays out - they clear MIVs at /request-clearance.
                   Mirrors MANAGE_ROLES in server/src/routes/request.routes.js. */}
               <Route path="/my-requests" element={
                 <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'QC', 'RND', 'SAFETY', 'DESIGNS', 'METROLOGY', 'NDT', 'PLANNING', 'ACCOUNTING', 'FINANCE', 'ADMIN', 'LOGISTICS', 'HR']}><MyRequests /></PrivateRoute>
@@ -190,19 +191,19 @@ export default function App() {
                 <PrivateRoute allowedRoles={['STORE_MANAGER']}><RequestClearance /></PrivateRoute>
               } />
 
-              {/* Procurement hub — landing page that links to the modules below.
-                  HR is in for one card only — MIV Requests. The hub filters its
+              {/* Procurement hub - landing page that links to the modules below.
+                  HR is in for one card only - MIV Requests. The hub filters its
                   cards by role, so HR lands on Stock Details + MIV Requests. */}
               <Route path="/procurement" element={
                 <PrivateRoute allowedRoles={[...CHAIN_ROLES, 'LAB', 'LOGISTICS', 'SAFETY', 'HR']}><Procurement /></PrivateRoute>
               } />
 
-              {/* Monitoring hub — Stock Movements, Audit Logs, Unit Usage Logs. */}
+              {/* Monitoring hub - Stock Movements, Audit Logs, Unit Usage Logs. */}
               <Route path="/monitoring" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY', 'ACCOUNTING', 'FINANCE']}><Monitoring /></PrivateRoute>
               } />
 
-              {/* PR → PO → QC → Inward chain — restricted to: Unit Managers, Quality,
+              {/* PR → PO → QC → Inward chain - restricted to: Unit Managers, Quality,
                   Designs, R&D, Purchase, Stores, Accounts (+ ADMIN). */}
               <Route path="/purchase-requests" element={
                 <PrivateRoute allowedRoles={CHAIN_ROLES}><PurchaseRequests /></PrivateRoute>
@@ -219,7 +220,7 @@ export default function App() {
               <Route path="/master-data" element={<Navigate to="/products" replace />} />
               <Route path="/master-data/products" element={<Navigate to="/products" replace />} />
 
-              {/* Approved Supplier List register — client-spec viewers only:
+              {/* Approved Supplier List register - client-spec viewers only:
                   admin, managers, purchase, stores, designs. */}
               <Route path="/suppliers" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'DESIGNS', 'ACCOUNTING', 'FINANCE']}><Suppliers /></PrivateRoute>
@@ -233,43 +234,43 @@ export default function App() {
                 <PrivateRoute allowedRoles={['ADMIN', 'PURCHASE_OFFICER', 'ACCOUNTING', 'FINANCE']}><PaymentRequests /></PrivateRoute>
               } />
 
-              {/* Inward Entry — Stores does the work; Manager/QC/Designs/R&D/Safety
-                  get read-only access for traceability. INWARD_QC lands here as its
-                only page and performs the QC review.
+              {/* Inward Entry - Stores does the work; Manager/QC/Designs/R&D/Safety
+                  get read-only access for traceability. INWARD_QC / IN_PROCESS_QC
+                land here as their only page and perform the QC review.
                 LOGISTICS / SITE_OFFICE / PLANNING are here only for the FIM Status
-                tab, which moved off the Gate Pass page — the page itself hides the
+                tab, which moved off the Gate Pass page - the page itself hides the
                 register tabs from them (see INWARD_REGISTER_ROLES). */}
               <Route path="/inward-entry" element={
-                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SITE_OFFICE', 'PLANNING']}><InwardEntry /></PrivateRoute>
+                <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'MANAGER', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'DESIGNS', 'RND', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SITE_OFFICE', 'PLANNING']}><InwardEntry /></PrivateRoute>
               } />
               <Route path="/stock-movements" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'STORE_MANAGER', 'LOGISTICS', 'PLANNING', 'SAFETY', 'ACCOUNTING', 'FINANCE']}><StockMovements /></PrivateRoute>
               } />
-              {/* Dispatch hub — landing page for Gate Pass, Logistics, Vehicle Movement. */}
+              {/* Dispatch hub - landing page for Gate Pass, Logistics, Vehicle Movement. */}
               <Route path="/transport" element={<PrivateRoute><Transport /></PrivateRoute>} />
               <Route path="/gate-pass" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'LOGISTICS', 'SAFETY', 'SITE_OFFICE', 'PLANNING', 'QC']}><GatePass /></PrivateRoute>
               } />
-              {/* Vehicle Register — viewable by anyone signed in (read-only).
+              {/* Vehicle Register - viewable by anyone signed in (read-only).
                   LOGISTICS + ADMIN get edit/add/delete via the page's canEdit gate. */}
               <Route path="/vehicles" element={<Vehicles />} />
-              {/* Logistics dispatch desk — PENDING_LOGISTICS queue with vehicle
+              {/* Logistics dispatch desk - PENDING_LOGISTICS queue with vehicle
                   assignment + dispatch confirmation. */}
               <Route path="/logistics" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'LOGISTICS']}><Logistics /></PrivateRoute>
               } />
-              {/* Inventory Transfers — unit MANAGERs + owner depts (QC/Designs/Lab/Metrology/NDT/Safety/Planning) + LOGISTICS/ADMIN monitor */}
+              {/* Inventory Transfers - unit MANAGERs + owner depts (QC/Designs/Lab/Metrology/NDT/Safety/Planning) + LOGISTICS/ADMIN monitor */}
               <Route path="/inventory-transfers" element={
                 <PrivateRoute allowedRoles={['MANAGER', 'LOGISTICS', 'SAFETY', 'ADMIN', 'QC', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'PLANNING', 'ACCOUNTING', 'FINANCE']}><InventoryTransfers /></PrivateRoute>
               } />
 
-              {/* ION — MANAGER / LAB / METROLOGY / NDT / RND (creators + recipients);
+              {/* ION - MANAGER / LAB / METROLOGY / NDT / RND (creators + recipients);
                   PLANNING joins as a read-only monitor (sees all, no create/status). */}
               <Route path="/ion" element={
                 <PrivateRoute allowedRoles={['MANAGER', 'LAB', 'METROLOGY', 'NDT', 'RND', 'PLANNING']}><InterOfficeNote /></PrivateRoute>
               } />
 
-              {/* Work Orders — SUPPLY_CHAIN logs supply orders; ADMIN accepts &
+              {/* Work Orders - SUPPLY_CHAIN logs supply orders; ADMIN accepts &
                   assigns to a unit; that unit's MANAGER executes (status +
                   remarks); SUPPLY_CHAIN / ACCOUNTING / ADMIN own BG/Insurance
                   history + delivery details; QC + FINANCE + ACCOUNTING own
@@ -279,7 +280,7 @@ export default function App() {
                 <PrivateRoute allowedRoles={['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC', 'PLANNING']}><WorkOrders /></PrivateRoute>
               } />
 
-              {/* Messaging — org-wide Team Chat (broadcast + direct). Open to every
+              {/* Messaging - org-wide Team Chat (broadcast + direct). Open to every
                   signed-in user; Planning is the primary broadcaster. */}
               <Route path="/messaging" element={
                 <PrivateRoute><Messaging /></PrivateRoute>
@@ -317,20 +318,20 @@ export default function App() {
               <Route path="/metrology/category/:slug" element={
                 <PrivateRoute allowedRoles={METROLOGY_VIEW_ROLES}><MetrologyCategoryView /></PrivateRoute>
               } />
-              {/* Fire Extinguisher register — moved here from Machinery. Keeps the
+              {/* Fire Extinguisher register - moved here from Machinery. Keeps the
                   machinery access model: everyone views, SAFETY + Unit-5 edit
                   (enforced server-side), so no role guard on the route. */}
               <Route path="/metrology/fire-extinguishers" element={
                 <PrivateRoute><FireExtinguishers /></PrivateRoute>
               } />
 
-              {/* Safety / HSE + Production — Machinery hub: register (everyone views,
+              {/* Safety / HSE + Production - Machinery hub: register (everyone views,
                   SAFETY + Unit-5 edit) + allocation timeline + monthly KPI (unit managers) */}
               <Route path="/machinery" element={
                 <PrivateRoute><Machinery /></PrivateRoute>
               } />
 
-              {/* QMS hub — SOPs, Work Instructions, KPIs.
+              {/* QMS hub - SOPs, Work Instructions, KPIs.
                   HIDDEN FROM ERP (code retained, not removed). The `false &&`
                   guard keeps the JSX intact but unregisters the routes, so a
                   direct URL falls through to the catch-all redirect below. */}
@@ -363,7 +364,7 @@ export default function App() {
                 } />
               </>}
 
-              {/* SUPERADMIN-only — owner hatch */}
+              {/* SUPERADMIN-only - owner hatch */}
               <Route path="/superadmin" element={
                 <PrivateRoute allowedRoles={['SUPERADMIN']}><SuperAdminHub /></PrivateRoute>
               } />
@@ -386,12 +387,12 @@ export default function App() {
                 <PrivateRoute allowedRoles={['SUPERADMIN']}><Health /></PrivateRoute>
               } />
 
-              {/* DATA_EDITOR — edit-only "Edit Data" table corrector (SUPERADMIN too). */}
+              {/* DATA_EDITOR - edit-only "Edit Data" table corrector (SUPERADMIN too). */}
               <Route path="/data-editor" element={
                 <PrivateRoute allowedRoles={['DATA_EDITOR', 'SUPERADMIN']}><DataEditor /></PrivateRoute>
               } />
 
-              {/* ADMIN — full edit access over FIM / customer-property records only. */}
+              {/* ADMIN - full edit access over FIM / customer-property records only. */}
               <Route path="/fim-data" element={
                 <PrivateRoute allowedRoles={['ADMIN', 'SUPERADMIN']}><FimDataEditor /></PrivateRoute>
               } />

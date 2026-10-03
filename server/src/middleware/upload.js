@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const UPLOAD_ROOT = path.join(__dirname, '..', '..', 'uploads');
 if (!fs.existsSync(UPLOAD_ROOT)) fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
 
-// Size limits — env-overridable; defaults preserve historical values.
+// Size limits - env-overridable; defaults preserve historical values.
 const MB = 1024 * 1024;
 const SIZE_PDF = (parseInt(process.env.UPLOAD_MAX_PDF_MB, 10) || 10) * MB;
 const SIZE_QC  = (parseInt(process.env.UPLOAD_MAX_QC_MB,  10) || 15) * MB;
@@ -37,7 +37,7 @@ const pdfOrImage = (_req, file, cb) => {
 };
 
 // Work Order closure docs: PDF, images, DWG, DOC/DOCX. DWG mime varies wildly
-// across browsers/OSes — we accept a broad mime list plus an extension fallback
+// across browsers/OSes - we accept a broad mime list plus an extension fallback
 // (browsers commonly send 'application/octet-stream' for unknown types).
 const closureMimeAllowList = (_req, file, cb) => {
   const ok = [
@@ -53,7 +53,7 @@ const closureMimeAllowList = (_req, file, cb) => {
   cb(new Error('Unsupported file type. Allowed: PDF, PNG, JPG, DWG, DOC, DOCX'), false);
 };
 
-// Material spec / PR note attachments — accept any common document or drawing
+// Material spec / PR note attachments - accept any common document or drawing
 // format: PDF, image scans (JPG/PNG), DWG drawings, DOC/DOCX, XLS/XLSX and zip
 // bundles. Mime types for DWG/office/zip vary across browsers/OSes, so we accept
 // a broad mime list plus an extension fallback. Shared by the PR form (per-line
@@ -151,7 +151,7 @@ const supplierAssessmentUpload = multer({
   limits: { fileSize: SIZE_PDF },
 });
 
-// Customer's INWARD gate-pass PDF (FIM document — original or duplicate copy
+// Customer's INWARD gate-pass PDF (FIM document - original or duplicate copy
 // the customer hands over with the material).
 const fimGpUpload = multer({
   storage: makeStorage('fim-gp'),
@@ -161,7 +161,7 @@ const fimGpUpload = multer({
 
 // Customer test reports / material certificates handed over with FIM material.
 // Multiple files per FIM entry, any common document or scan format (the customer
-// sends whatever they have — PDF certificates, scanned images, spreadsheets).
+// sends whatever they have - PDF certificates, scanned images, spreadsheets).
 const fimTestReportUpload = multer({
   storage: makeStorage('fim-test-reports'),
   fileFilter: prSpecMimeAllowList,
@@ -176,7 +176,7 @@ const calibrationCertUpload = multer({
   limits: { fileSize: SIZE_PDF },
 });
 
-// Work Order closure documents — uploaded by unit heads (reports/drawings/
+// Work Order closure documents - uploaded by unit heads (reports/drawings/
 // photos), QC (certificate), Finance (bill/hold-checklist) and Accounts.
 // Mixed file types: pdf, png/jpg/jpeg, dwg, doc/docx. 15 MB cap.
 const closureDocUpload = multer({
@@ -186,7 +186,7 @@ const closureDocUpload = multer({
 });
 
 // AMC contracts / fire-extinguisher service slips attached to the Machinery
-// register. PDFs or scanned images — Safety uploads originals; everyone reads.
+// register. PDFs or scanned images - Safety uploads originals; everyone reads.
 const amcDocUpload = multer({
   storage: makeStorage('amc-docs'),
   fileFilter: pdfOrImage,

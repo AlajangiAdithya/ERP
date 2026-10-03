@@ -11,7 +11,7 @@ const {
 
 const router = express.Router();
 
-// POST /api/inventory/inward — Core inward entry flow
+// POST /api/inventory/inward - Core inward entry flow
 router.post('/inward', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async (req, res) => {
   try {
     const {
@@ -150,7 +150,7 @@ router.get('/movements', authenticate, async (req, res) => {
       prisma.stockMovement.count({ where }),
     ]);
 
-    // performedBy / unitId are plain id strings on StockMovement — resolve
+    // performedBy / unitId are plain id strings on StockMovement - resolve
     // names in one batched lookup each so the UI can show who moved the stock.
     const userIds = [...new Set(movements.map((m) => m.performedBy).filter(Boolean))];
     const unitIds = [...new Set(movements.map((m) => m.unitId).filter(Boolean))];
@@ -215,12 +215,12 @@ router.post('/adjustment', authenticate, authorizeMinRole('STORE_MANAGER'), audi
   }
 });
 
-// POST /api/inventory/inward-new — Create new product and add inward entry in one transaction
+// POST /api/inventory/inward-new - Create new product and add inward entry in one transaction
 router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), async (req, res) => {
   try {
     const schema = z.object({
       name: z.string().min(1),
-      // Material code — the identification number from the register. Stored as
+      // Material code - the identification number from the register. Stored as
       // materialCode and mirrored into sku, same as POST /api/products.
       materialCode: z.string().trim().min(1),
       category: z.string().optional(), // legacy
@@ -317,11 +317,11 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
         return { product, movement, batch };
       });
     } catch (err) {
-      // Material code is user-supplied and unique (materialCode + sku) — duplicates
+      // Material code is user-supplied and unique (materialCode + sku) - duplicates
       // mean the product already exists; point Stores at the Existing Product tab.
       if (isUniqueViolation(err)) {
         return res.status(400).json({
-          error: `A product with material code "${data.materialCode}" already exists — use the Existing Product tab to add stock to it.`,
+          error: `A product with material code "${data.materialCode}" already exists - use the Existing Product tab to add stock to it.`,
         });
       }
       throw err;
@@ -352,7 +352,7 @@ router.post('/inward-new', authenticate, authorize('ADMIN', 'STORE_MANAGER'), as
   }
 });
 
-// GET /api/inventory/batches — list product batches (FIFO view)
+// GET /api/inventory/batches - list product batches (FIFO view)
 router.get('/batches', authenticate, async (req, res) => {
   try {
     const { productId, activeOnly } = req.query;

@@ -48,7 +48,7 @@ function InProgressButton() {
       <Button variant="secondary" onClick={openModal}>
         <Activity size={16} className="mr-1 animate-pulse text-amber-500" /> In Progress
       </Button>
-      <Modal isOpen={open} onClose={() => setOpen(false)} title="In Progress — PRs & POs (All Units)" size="lg">
+      <Modal isOpen={open} onClose={() => setOpen(false)} title="In Progress - PRs & POs (All Units)" size="lg">
         {loading ? (
           <div className="flex justify-center py-8">
             <div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" />
@@ -131,13 +131,13 @@ function InProgressButton() {
                             )}
                           </td>
                           <td className="px-2 py-1.5 text-gray-600">
-                            {pr.manager?.name || '—'}
+                            {pr.manager?.name || '-'}
                             {pr.manager?.role && (
                               <span className="text-[10px] text-gray-400 ml-1">({pr.manager.role})</span>
                             )}
                           </td>
                           <td className={`px-2 py-1.5 ${overdue ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
-                            {reqBy ? reqBy.toLocaleDateString('en-IN') : '—'}
+                            {reqBy ? reqBy.toLocaleDateString('en-IN') : '-'}
                           </td>
                           <td className="px-2 py-1.5"><Badge color="yellow">{pr.status}</Badge></td>
                         </tr>
@@ -178,7 +178,7 @@ function InProgressButton() {
                         .map(s => s.purchaseRequest?.unit?.code || s.purchaseRequest?.unit?.name)
                         .filter(Boolean);
                       const unitLabel = directUnit?.code || directUnit?.name
-                        || (unionUnits.length ? unionUnits.join(', ') : '—');
+                        || (unionUnits.length ? unionUnits.join(', ') : '-');
                       return (
                         <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                           {/* Purchase fill the PO number in by hand, so a newly
@@ -187,8 +187,8 @@ function InProgressButton() {
                             {po.orderNumber || <span className="font-mono text-gray-400" title="PO number not issued yet">{PO_NUMBER_PENDING_LABEL}</span>}
                           </td>
                           <td className="px-2 py-1.5"><Badge color="blue">{unitLabel}</Badge></td>
-                          <td className="px-2 py-1.5 text-gray-600">{po.supplierName || '—'}</td>
-                          <td className="px-2 py-1.5 text-gray-700">{po.totalAmount != null ? `₹${Number(po.totalAmount).toLocaleString('en-IN')}` : '—'}</td>
+                          <td className="px-2 py-1.5 text-gray-600">{po.supplierName || '-'}</td>
+                          <td className="px-2 py-1.5 text-gray-700">{po.totalAmount != null ? `₹${Number(po.totalAmount).toLocaleString('en-IN')}` : '-'}</td>
                           <td className="px-2 py-1.5"><Badge color={po.status === 'QC_PENDING' ? 'amber' : 'navy'}>{po.status}</Badge></td>
                         </tr>
                       );
@@ -207,7 +207,7 @@ function InProgressButton() {
   );
 }
 
-// Standard empty state — icon in a soft ring, headline + hint. tone 'green'
+// Standard empty state - icon in a soft ring, headline + hint. tone 'green'
 // for "all clear" states, 'gray' for plain no-data states.
 function EmptyState({ icon: Icon = Inbox, title, hint, tone = 'gray' }) {
   const ring = tone === 'green' ? 'bg-green-50 ring-green-100' : 'bg-gray-50 ring-gray-100';
@@ -244,7 +244,7 @@ function ProgressBar({ purchased, total, showPending = true }) {
   );
 }
 
-// Half-width "Active Purchase Orders" panel for the admin dashboard — a live
+// Half-width "Active Purchase Orders" panel for the admin dashboard - a live
 // count plus the most recent active POs with their basic details. Reuses the
 // in-progress summary endpoint (same data the In-Progress modal shows).
 function ActivePOOverview() {
@@ -295,16 +295,16 @@ function ActivePOOverview() {
                 const unionUnits = (po.sourceRequests || [])
                   .map((s) => s.purchaseRequest?.unit?.code || s.purchaseRequest?.unit?.name)
                   .filter(Boolean);
-                const unitLabel = directUnit?.code || directUnit?.name || (unionUnits.length ? unionUnits.join(', ') : '—');
+                const unitLabel = directUnit?.code || directUnit?.name || (unionUnits.length ? unionUnits.join(', ') : '-');
                 return (
                   <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/purchase-orders')}>
-                    {/* Purchase fill the PO number in by hand — may be blank. */}
+                    {/* Purchase fill the PO number in by hand - may be blank. */}
                     <td className="px-3 py-2 font-medium text-navy-700">
                       {po.orderNumber || <span className="font-mono text-gray-400" title="PO number not issued yet">{PO_NUMBER_PENDING_LABEL}</span>}
                     </td>
                     <td className="px-3 py-2"><Badge color="blue">{unitLabel}</Badge></td>
-                    <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
-                    <td className="px-3 py-2 text-right text-gray-700">{po.totalAmount != null ? `₹${Number(po.totalAmount).toLocaleString('en-IN')}` : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{po.supplierName || '-'}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{po.totalAmount != null ? `₹${Number(po.totalAmount).toLocaleString('en-IN')}` : '-'}</td>
                     <td className="px-3 py-2"><Badge color={po.status === 'QC_PENDING' ? 'amber' : 'navy'}>{po.status}</Badge></td>
                   </tr>
                 );
@@ -404,7 +404,7 @@ function AdminDashboard() {
         <StatsCard title="Low Stock Alerts" value={stats.lowStockAlerts} icon={AlertTriangle} color="red" onClick={openLowStockModal} />
         <StatsCard
           title="Purchase Requests"
-          value={prStats ? `${(prStats.pendingQc || 0) + (prStats.pendingAdmin || 0) + (prStats.inProgress || 0)} / ${prStats.total || 0}` : '— / —'}
+          value={prStats ? `${(prStats.pendingQc || 0) + (prStats.pendingAdmin || 0) + (prStats.inProgress || 0)} / ${prStats.total || 0}` : '- / -'}
           subtitle="Active / Total"
           icon={ShoppingCart}
           color="blue"
@@ -413,7 +413,7 @@ function AdminDashboard() {
         <StatsCard title="Pending MIV Requests" value={stats.pendingRequests} icon={ClipboardList} color="yellow" onClick={() => navigate('/all-requests')} />
       </div>
 
-      {/* PDC delivery radar — full width */}
+      {/* PDC delivery radar - full width */}
       <PdcStatusBoard showAllClear />
 
       {/* Active Purchase Orders + org Team messaging, side by side */}
@@ -687,7 +687,7 @@ function ManagerDashboard() {
         />
       </div>
 
-      {/* PDC radar + Team Chat for this unit's managers — they must file the
+      {/* PDC radar + Team Chat for this unit's managers - they must file the
           3-month remark, so surface the countdown (and the chat) on their dashboard. */}
       {user?.role === 'MANAGER' && <OpsRadarChat />}
 
@@ -755,7 +755,7 @@ function ManagerDashboard() {
               {products.slice(0, 10).map((p, i) => (
                 <tr key={p.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                   <td className="px-3 py-2 font-medium text-gray-700">{p.name}</td>
-                  <td className="px-3 py-2 text-gray-600">{p.category || '—'}</td>
+                  <td className="px-3 py-2 text-gray-600">{p.category || '-'}</td>
                   <td className="px-3 py-2 text-gray-700">{p.currentStock} {p.unit}</td>
                   <td className="px-3 py-2">
                     {p.currentStock === 0 ? (
@@ -773,7 +773,7 @@ function ManagerDashboard() {
         </div>
       </Card>
 
-      {/* ION pending — LAB only */}
+      {/* ION pending - LAB only */}
       {isLab && (
         <Card>
           <SectionHeader
@@ -802,7 +802,7 @@ function ManagerDashboard() {
                   {ions.slice(0, 10).map((i, idx) => (
                     <tr key={i.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/ion')}>
                       <td className="px-3 py-2.5 font-medium text-navy-700">{i.ionNumber || i.id?.slice(0, 6)}</td>
-                      <td className="px-3 py-2.5 text-gray-600">{i.createdBy?.name || '—'}</td>
+                      <td className="px-3 py-2.5 text-gray-600">{i.createdBy?.name || '-'}</td>
                       <td className="px-3 py-2.5 text-center text-gray-600">{i.items?.length || 0}</td>
                       <td className="px-3 py-2.5">
                         <Badge color={i.status === 'COLLECTED' ? 'green' : i.status === 'WAITING' ? 'yellow' : 'blue'}>
@@ -1047,7 +1047,7 @@ function StoreManagerDashboard() {
                       </td>
                       <td className="px-3 py-2 text-gray-500">{fmt(p.minStockLevel)} {p.unit}</td>
                       <td className="px-3 py-2">
-                        <span className="font-semibold text-red-600">{p.deficit > 0 ? fmt(p.deficit) : '—'}</span>
+                        <span className="font-semibold text-red-600">{p.deficit > 0 ? fmt(p.deficit) : '-'}</span>
                         {p.deficit > 0 && <span className="text-gray-400 ml-1">{p.unit}</span>}
                       </td>
                       <td className="px-3 py-2">
@@ -1216,9 +1216,9 @@ function LogisticsDashboard() {
                   >
                     <td className="px-3 py-2.5 font-medium text-navy-700">{g.passNumber}</td>
                     <td className="px-3 py-2.5">
-                      {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '—'}
+                      {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '-'}
                     </td>
-                    <td className="px-3 py-2.5 text-gray-600">{g.partyName || '—'}</td>
+                    <td className="px-3 py-2.5 text-gray-600">{g.partyName || '-'}</td>
                     <td className="px-3 py-2.5 text-center text-gray-500">{g.items?.length || 0}</td>
                     <td className="px-3 py-2.5 text-gray-600">
                       {g.assignedVehicle ? (
@@ -1268,19 +1268,19 @@ function LogisticsDashboard() {
                   >
                     <td className="px-3 py-2.5 font-medium text-navy-700">{g.passNumber}</td>
                     <td className="px-3 py-2.5">
-                      {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '—'}
+                      {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '-'}
                     </td>
                     <td className="px-3 py-2.5 font-mono text-xs text-gray-700">
-                      {g.assignedVehicle?.regNumber || g.vehicleNo || '—'}
+                      {g.assignedVehicle?.regNumber || g.vehicleNo || '-'}
                     </td>
                     <td className="px-3 py-2.5 text-gray-600">
                       <span className="inline-flex items-center gap-1">
                         <MapPin size={11} className="text-gray-400" />
-                        {g.partyName || '—'}
+                        {g.partyName || '-'}
                       </span>
                     </td>
                     <td className="px-3 py-2.5 text-gray-500 text-xs">
-                      {g.dispatchedAt ? formatDateTime(g.dispatchedAt) : '—'}
+                      {g.dispatchedAt ? formatDateTime(g.dispatchedAt) : '-'}
                     </td>
                   </tr>
                 ))}
@@ -1324,14 +1324,14 @@ function LogisticsDashboard() {
                       onClick={() => navigate('/vehicles')}
                     >
                       <td className="px-3 py-2.5 font-mono font-medium text-navy-700">{v.regNumber}</td>
-                      <td className="px-3 py-2.5 text-gray-600">{v.vehicleType || '—'}</td>
-                      <td className="px-3 py-2.5 text-gray-600">{v.driverName || '—'}</td>
+                      <td className="px-3 py-2.5 text-gray-600">{v.vehicleType || '-'}</td>
+                      <td className="px-3 py-2.5 text-gray-600">{v.driverName || '-'}</td>
                       <td className="px-3 py-2.5 text-xs">
                         {insExp ? (
                           <span className={insSoon ? 'text-red-600 font-semibold' : 'text-gray-500'}>
                             {formatDate(insExp)}
                           </span>
-                        ) : <span className="text-gray-400">—</span>}
+                        ) : <span className="text-gray-400">-</span>}
                       </td>
                       <td className="px-3 py-2.5">
                         <Badge color={v.status === 'ACTIVE' ? 'green' : v.status === 'MAINTENANCE' ? 'yellow' : 'gray'}>
@@ -1408,7 +1408,7 @@ function PurchaseOfficerDashboard() {
         <StatsCard title="Completed" value={stats?.completed || 0} icon={PackageCheck} color="green" onClick={() => navigate('/purchase-requests')} />
       </div>
 
-      {/* Partially received POs — exact received/ordered counts per item */}
+      {/* Partially received POs - exact received/ordered counts per item */}
       <Card>
         <SectionHeader
           icon={Truck}
@@ -1435,7 +1435,7 @@ function PurchaseOfficerDashboard() {
                   </span>
                 </div>
                 <div className="text-xs text-gray-500 mb-2">
-                  <span className="font-medium text-gray-700">Supplier:</span> {po.supplierName || '—'}
+                  <span className="font-medium text-gray-700">Supplier:</span> {po.supplierName || '-'}
                 </div>
                 <div className="space-y-1">
                   {po.items.map((it, idx) => (
@@ -1479,9 +1479,9 @@ function PurchaseOfficerDashboard() {
                 {feed.awaitingQc.map((po, i) => (
                   <tr key={po.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/inward-entry')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{po.orderNumber}</td>
-                    <td className="px-3 py-2 text-gray-600">{po.customName || '—'}</td>
-                    <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
-                    <td className="px-3 py-2 text-gray-500 text-xs">{po.goodsArrivedAt ? formatDateTime(po.goodsArrivedAt) : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{po.customName || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{po.supplierName || '-'}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{po.goodsArrivedAt ? formatDateTime(po.goodsArrivedAt) : '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1490,7 +1490,7 @@ function PurchaseOfficerDashboard() {
         )}
       </Card>
 
-      {/* Pending quotations — approved PRs waiting for the PO to collect quotes */}
+      {/* Pending quotations - approved PRs waiting for the PO to collect quotes */}
       <Card>
         <SectionHeader
           icon={FileSearch}
@@ -1518,8 +1518,8 @@ function PurchaseOfficerDashboard() {
                 {feed.pendingQuotations.map((pr, i) => (
                   <tr key={pr.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/quotations')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{pr.requestNumber}</td>
-                    <td className="px-3 py-2 text-gray-600">{pr.managerName || '—'}</td>
-                    <td className="px-3 py-2"><Badge color="blue">{pr.unit?.code || pr.unit?.name || '—'}</Badge></td>
+                    <td className="px-3 py-2 text-gray-600">{pr.managerName || '-'}</td>
+                    <td className="px-3 py-2"><Badge color="blue">{pr.unit?.code || pr.unit?.name || '-'}</Badge></td>
                     <td className="px-3 py-2 text-gray-600">{pr.itemCount}</td>
                     <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(pr.createdAt)}</td>
                   </tr>
@@ -1530,7 +1530,7 @@ function PurchaseOfficerDashboard() {
         )}
       </Card>
 
-      {/* Overdue POs — past the earliest PR required-by date */}
+      {/* Overdue POs - past the earliest PR required-by date */}
       <Card>
         <SectionHeader
           icon={AlertTriangle}
@@ -1563,8 +1563,8 @@ function PurchaseOfficerDashboard() {
                     <td className="px-3 py-2 font-medium text-navy-700">
                       {po.orderNumber || <span className="font-mono text-gray-400" title="PO number not issued yet">{PO_NUMBER_PENDING_LABEL}</span>}
                     </td>
-                    <td className="px-3 py-2 text-gray-600">{po.customName || '—'}</td>
-                    <td className="px-3 py-2 text-gray-600">{po.supplierName || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{po.customName || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{po.supplierName || '-'}</td>
                     <td className="px-3 py-2 text-gray-500 text-xs">{new Date(po.requiredByDate).toLocaleDateString()}</td>
                     <td className="px-3 py-2"><Badge color="red">{po.daysOverdue} day{po.daysOverdue === 1 ? '' : 's'}</Badge></td>
                     <td className="px-3 py-2"><Badge color="yellow">{po.status}</Badge></td>
@@ -1598,7 +1598,7 @@ function AccountingDashboard() {
         api.get('/payment-requests', { params: { status: 'PENDING', limit: 1 } }),
         // PAID = already processed
         api.get('/payment-requests', { params: { status: 'PAID', limit: 10 } }),
-        // 45-day customer payment window — Accounts run weekly follow-ups here
+        // 45-day customer payment window - Accounts run weekly follow-ups here
         api.get('/work-orders/closure/payment-feed'),
       ]);
 
@@ -1634,7 +1634,7 @@ function AccountingDashboard() {
 
   const fmtINR = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
-  // 45-day customer payment window — same accounting workflow Finance surfaces:
+  // 45-day customer payment window - same accounting workflow Finance surfaces:
   // delivery acknowledged → weekly follow-ups until payment lands.
   const paymentDelayed = paymentFeed.filter((c) => c.delayed).length;
   const followupDueNow = paymentFeed.filter((c) => {
@@ -1672,7 +1672,7 @@ function AccountingDashboard() {
         <StatsCard title="Paid" value={stats?.paidCount || 0} icon={CheckCircle} color="green" onClick={() => navigate('/payment-requests?status=PAID')} />
       </div>
 
-      {/* 45-day customer payment window — Accounts chase customer payment after
+      {/* 45-day customer payment window - Accounts chase customer payment after
           delivery is acknowledged, running weekly follow-ups until it lands. */}
       <Card>
         <SectionHeader
@@ -1680,7 +1680,7 @@ function AccountingDashboard() {
           tone={paymentDelayed > 0 ? 'red' : 'yellow'}
           title="45-Day Payment Window"
           count={paymentFeed.length}
-          subtitle="Delivery acknowledged — run weekly customer follow-ups until payment lands"
+          subtitle="Delivery acknowledged - run weekly customer follow-ups until payment lands"
           actions={followupDueNow > 0 ? <Badge color="amber">{followupDueNow} weekly follow-up{followupDueNow === 1 ? '' : 's'} due</Badge> : null}
         />
 
@@ -1705,10 +1705,10 @@ function AccountingDashboard() {
                   const wo = c.workOrder || {};
                   return (
                     <tr key={c.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
-                      <td className="px-3 py-2 font-medium text-navy-700">{wo.workOrderNumber || '—'}</td>
-                      <td className="px-3 py-2 text-gray-600">{wo.customerName || '—'}</td>
+                      <td className="px-3 py-2 font-medium text-navy-700">{wo.workOrderNumber || '-'}</td>
+                      <td className="px-3 py-2 text-gray-600">{wo.customerName || '-'}</td>
                       <td className="px-3 py-2 text-gray-600">#{c.cycleNumber}</td>
-                      <td className="px-3 py-2 text-gray-600 font-mono text-xs">{c.invoiceNumber || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600 font-mono text-xs">{c.invoiceNumber || '-'}</td>
                       <td className="px-3 py-2">
                         {c.delayed ? (
                           <Badge color="red">Delayed {Math.abs(c.daysLeft ?? 0)}d</Badge>
@@ -1735,12 +1735,12 @@ function AccountingDashboard() {
         )}
       </Card>
 
-      {/* Approved Payments — accounting acts here */}
+      {/* Approved Payments - accounting acts here */}
       <Card>
         <SectionHeader
           icon={CreditCard}
           tone={actionablePayments.length > 0 ? 'red' : 'green'}
-          title="Approved Payments — Ready to Process"
+          title="Approved Payments - Ready to Process"
           count={actionablePayments.length}
           subtitle="Admin-approved supplier payments waiting on you"
           actions={<Button variant="secondary" size="sm" onClick={() => navigate('/payment-requests')}>View All</Button>}
@@ -1767,7 +1767,7 @@ function AccountingDashboard() {
                   <tr key={p.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-navy-700">{p.paymentNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.customName || p.purchaseOrder?.orderNumber}</td>
-                    <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.supplierName || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.supplierName || '-'}</td>
                     <td className="px-3 py-2 text-right font-medium">
                       {fmtINR(p.payableAmount || p.amount)}
                       {p.taxPercent > 0 && (
@@ -1814,8 +1814,8 @@ function AccountingDashboard() {
                     <td className="px-3 py-2 font-medium text-navy-700">{p.paymentNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{p.purchaseOrder?.customName || p.purchaseOrder?.orderNumber}</td>
                     <td className="px-3 py-2 text-right">{fmtINR(p.payableAmount || p.amount)}</td>
-                    <td className="px-3 py-2 text-gray-600">{p.processedBy?.name || '—'}</td>
-                    <td className="px-3 py-2 text-gray-500">{p.processedAt ? formatDateTime(p.processedAt) : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{p.processedBy?.name || '-'}</td>
+                    <td className="px-3 py-2 text-gray-500">{p.processedAt ? formatDateTime(p.processedAt) : '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1899,7 +1899,7 @@ function FinanceDashboard() {
         <StatsCard
           title="SLA Breached"
           value={slaBreached}
-          subtitle="Past 48h — needs reminder"
+          subtitle="Past 48h - needs reminder"
           icon={AlertTriangle}
           color="red"
           onClick={() => navigate('/work-orders')}
@@ -1922,14 +1922,14 @@ function FinanceDashboard() {
         />
       </div>
 
-      {/* Delivery acknowledgement SLA — invoices sent, waiting for customer ack */}
+      {/* Delivery acknowledgement SLA - invoices sent, waiting for customer ack */}
       <Card>
         <SectionHeader
           icon={Send}
           tone={slaBreached > 0 ? 'red' : 'blue'}
           title="Delivery Acknowledgement SLA"
           count={slaFeed.length}
-          subtitle="48h after the invoice is sent, the customer must confirm delivery — breached cycles need a reminder call"
+          subtitle="48h after the invoice is sent, the customer must confirm delivery - breached cycles need a reminder call"
           actions={slaDueSoon > 0 ? <Badge color="amber">{slaDueSoon} due within 12h</Badge> : null}
         />
 
@@ -1954,11 +1954,11 @@ function FinanceDashboard() {
                   const wo = c.workOrder || {};
                   return (
                     <tr key={c.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
-                      <td className="px-3 py-2 font-medium text-navy-700">{wo.workOrderNumber || '—'}</td>
-                      <td className="px-3 py-2 text-gray-600">{wo.customerName || '—'}</td>
+                      <td className="px-3 py-2 font-medium text-navy-700">{wo.workOrderNumber || '-'}</td>
+                      <td className="px-3 py-2 text-gray-600">{wo.customerName || '-'}</td>
                       <td className="px-3 py-2 text-gray-600">#{c.cycleNumber}</td>
-                      <td className="px-3 py-2 text-gray-600 font-mono text-xs">{c.invoiceNumber || '—'}</td>
-                      <td className="px-3 py-2 text-gray-500 text-xs">{c.invoiceSentAt ? formatDate(c.invoiceSentAt) : '—'}</td>
+                      <td className="px-3 py-2 text-gray-600 font-mono text-xs">{c.invoiceNumber || '-'}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{c.invoiceSentAt ? formatDate(c.invoiceSentAt) : '-'}</td>
                       <td className="px-3 py-2">
                         {c.breached ? (
                           <Badge color="red">Breached {Math.abs(c.hoursLeft ?? 0)}h ago</Badge>
@@ -1987,7 +1987,7 @@ function FinanceDashboard() {
           tone={paymentDelayed > 0 ? 'red' : 'yellow'}
           title="45-Day Payment Window"
           count={paymentFeed.length}
-          subtitle="Delivery acknowledged — run weekly customer follow-ups until payment lands"
+          subtitle="Delivery acknowledged - run weekly customer follow-ups until payment lands"
           actions={followupDueNow > 0 ? <Badge color="amber">{followupDueNow} weekly follow-up{followupDueNow === 1 ? '' : 's'} due</Badge> : null}
         />
 
@@ -2012,10 +2012,10 @@ function FinanceDashboard() {
                   const wo = c.workOrder || {};
                   return (
                     <tr key={c.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
-                      <td className="px-3 py-2 font-medium text-navy-700">{wo.workOrderNumber || '—'}</td>
-                      <td className="px-3 py-2 text-gray-600">{wo.customerName || '—'}</td>
+                      <td className="px-3 py-2 font-medium text-navy-700">{wo.workOrderNumber || '-'}</td>
+                      <td className="px-3 py-2 text-gray-600">{wo.customerName || '-'}</td>
                       <td className="px-3 py-2 text-gray-600">#{c.cycleNumber}</td>
-                      <td className="px-3 py-2 text-gray-600 font-mono text-xs">{c.invoiceNumber || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600 font-mono text-xs">{c.invoiceNumber || '-'}</td>
                       <td className="px-3 py-2">
                         {c.delayed ? (
                           <Badge color="red">Delayed {Math.abs(c.daysLeft ?? 0)}d</Badge>
@@ -2107,7 +2107,7 @@ function HRDashboard() {
     return new Date(i.plannedDate) < new Date();
   });
 
-  // Sessions delivered in the last 30 days — quick proxy for training velocity.
+  // Sessions delivered in the last 30 days - quick proxy for training velocity.
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const sessionsLast30 = recentSessions.filter((s) => {
     if (!s.trainingDateFrom) return false;
@@ -2176,7 +2176,7 @@ function HRDashboard() {
           tone="blue"
           title="Active Training Plan"
           subtitle={activePlan
-            ? `${activePlan.fiscalYear} · ${activePlan.title} — item status across the plan`
+            ? `${activePlan.fiscalYear} · ${activePlan.title} - item status across the plan`
             : 'Item status across the current fiscal year plan'}
           actions={<Button variant="secondary" size="sm" onClick={() => navigate('/hr/training-plan')}>Open Plan</Button>}
         />
@@ -2224,10 +2224,10 @@ function HRDashboard() {
                   <tbody>
                     {overdueItems.slice(0, 8).map((it, i) => (
                       <tr key={it.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
-                        <td className="px-3 py-2 text-gray-500 text-xs">{it.serialNo || '—'}</td>
-                        <td className="px-3 py-2 font-medium text-navy-700">{it.subject || '—'}</td>
-                        <td className="px-3 py-2 text-gray-600">{it.unit?.code || it.unit?.name || '—'}</td>
-                        <td className="px-3 py-2 text-gray-500">{it.plannedDate ? formatDate(it.plannedDate) : '—'}</td>
+                        <td className="px-3 py-2 text-gray-500 text-xs">{it.serialNo || '-'}</td>
+                        <td className="px-3 py-2 font-medium text-navy-700">{it.subject || '-'}</td>
+                        <td className="px-3 py-2 text-gray-600">{it.unit?.code || it.unit?.name || '-'}</td>
+                        <td className="px-3 py-2 text-gray-500">{it.plannedDate ? formatDate(it.plannedDate) : '-'}</td>
                         <td className="px-3 py-2"><Badge color={it.status === 'SCHEDULED' ? 'yellow' : 'gray'}>{it.status}</Badge></td>
                       </tr>
                     ))}
@@ -2268,9 +2268,9 @@ function HRDashboard() {
                 {recentSessions.map((s, i) => (
                   <tr key={s.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/hr/training-records')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{s.sessionNumber}</td>
-                    <td className="px-3 py-2 text-gray-700">{s.subject || '—'}</td>
-                    <td className="px-3 py-2 text-gray-600">{s.faculty || '—'}</td>
-                    <td className="px-3 py-2 text-gray-500">{s.trainingDateFrom ? formatDate(s.trainingDateFrom) : '—'}</td>
+                    <td className="px-3 py-2 text-gray-700">{s.subject || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{s.faculty || '-'}</td>
+                    <td className="px-3 py-2 text-gray-500">{s.trainingDateFrom ? formatDate(s.trainingDateFrom) : '-'}</td>
                     <td className="px-3 py-2 text-gray-600">{s.attendees?.length || 0}</td>
                   </tr>
                 ))}
@@ -2283,7 +2283,7 @@ function HRDashboard() {
   );
 }
 
-// Shared between QC / NDT / RND / DESIGNS — all four sit in the inspection &
+// Shared between QC / NDT / RND / DESIGNS - all four sit in the inspection &
 // verification chain (incoming material → QC → release). Labels and the hero
 // subtitle adapt per role so each team sees terms that match their workflow.
 const QC_ROLE_META = {
@@ -2328,7 +2328,7 @@ function QCDashboard() {
         actions={
           <>
             <InProgressButton />
-            {/* QC raises its own gate passes — the other roles on this dashboard don't. */}
+            {/* QC raises its own gate passes - the other roles on this dashboard don't. */}
             {user?.role === 'QC' && (
               <Button variant="secondary" onClick={() => navigate('/gate-pass')}>
                 <DoorOpen size={16} className="mr-1" /> Gate Pass
@@ -2356,7 +2356,7 @@ function QCDashboard() {
             tone="amber"
             title="Orders Awaiting Inspection"
             count={pendingOrders.length}
-            subtitle="Goods arrived — inspection lot not yet opened"
+            subtitle="Goods arrived - inspection lot not yet opened"
             actions={<Button variant="secondary" size="sm" onClick={() => navigate('/inward-entry')}>Open QC</Button>}
           />
           <div className="overflow-x-auto">
@@ -2374,9 +2374,9 @@ function QCDashboard() {
                 {pendingOrders.map((o, i) => (
                   <tr key={o.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/inward-entry')}>
                     <td className="px-3 py-2 font-medium text-navy-700">{o.orderNumber}</td>
-                    <td className="px-3 py-2 text-gray-600">{o.supplierName || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{o.supplierName || '-'}</td>
                     <td className="px-3 py-2 text-gray-600">{o.items?.length || 0} items</td>
-                    <td className="px-3 py-2 text-gray-500">{o.goodsArrivedAt ? formatDateTime(o.goodsArrivedAt) : '—'}</td>
+                    <td className="px-3 py-2 text-gray-500">{o.goodsArrivedAt ? formatDateTime(o.goodsArrivedAt) : '-'}</td>
                     <td className="px-3 py-2"><Badge color="yellow">{o.status}</Badge></td>
                   </tr>
                 ))}
@@ -2414,8 +2414,8 @@ function QCDashboard() {
                 {inspections.slice(0, 10).map((i, idx) => (
                   <tr key={i.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-navy-700">{i.inspectionNumber}</td>
-                    <td className="px-3 py-2 text-gray-600">{i.purchaseOrder?.orderNumber || '—'}</td>
-                    <td className="px-3 py-2 text-gray-600">{i.purchaseOrder?.supplierName || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{i.purchaseOrder?.orderNumber || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{i.purchaseOrder?.supplierName || '-'}</td>
                     <td className="px-3 py-2">
                       <Badge color={
                         i.result === 'PASSED' ? 'green' :
@@ -2501,7 +2501,7 @@ function MetrologyDashboard() {
     <div className="space-y-6">
       <DashboardHero
         title={greet(user, 'Metrology')}
-        subtitle="Calibration registers across all units — overdue and upcoming due dates"
+        subtitle="Calibration registers across all units - overdue and upcoming due dates"
         eyebrow="Metrology Workspace"
         actions={
           <Button onClick={() => navigate('/metrology')}>
@@ -2544,10 +2544,10 @@ function MetrologyDashboard() {
               <tbody>
                 {overdue.slice(0, 10).map((it, i) => (
                   <tr key={it.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate(CATEGORY_ROUTE[it.category] || '/metrology')}>
-                    <td className="px-3 py-2 font-medium text-navy-700">{it.name || '—'}</td>
+                    <td className="px-3 py-2 font-medium text-navy-700">{it.name || '-'}</td>
                     <td className="px-3 py-2 text-gray-600 text-xs">{CATEGORY_LABEL[it.category] || it.category}</td>
-                    <td className="px-3 py-2 text-gray-500 font-mono text-xs">{it.serialNo || '—'}</td>
-                    <td className="px-3 py-2 text-gray-500">{it.unitLocation || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 font-mono text-xs">{it.serialNo || '-'}</td>
+                    <td className="px-3 py-2 text-gray-500">{it.unitLocation || '-'}</td>
                     <td className="px-3 py-2 text-gray-500">{new Date(it.calibrationDueDate).toLocaleDateString()}</td>
                     <td className="px-3 py-2"><Badge color="red">{it.daysOver}d</Badge></td>
                   </tr>
@@ -2587,10 +2587,10 @@ function MetrologyDashboard() {
               <tbody>
                 {dueSoon.slice(0, 10).map((it, i) => (
                   <tr key={it.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate(CATEGORY_ROUTE[it.category] || '/metrology')}>
-                    <td className="px-3 py-2 font-medium text-navy-700">{it.name || '—'}</td>
+                    <td className="px-3 py-2 font-medium text-navy-700">{it.name || '-'}</td>
                     <td className="px-3 py-2 text-gray-600 text-xs">{CATEGORY_LABEL[it.category] || it.category}</td>
-                    <td className="px-3 py-2 text-gray-500 font-mono text-xs">{it.serialNo || '—'}</td>
-                    <td className="px-3 py-2 text-gray-500">{it.unitLocation || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 font-mono text-xs">{it.serialNo || '-'}</td>
+                    <td className="px-3 py-2 text-gray-500">{it.unitLocation || '-'}</td>
                     <td className="px-3 py-2 text-gray-500">{new Date(it.calibrationDueDate).toLocaleDateString()}</td>
                     <td className="px-3 py-2"><Badge color="yellow">{it.daysLeft}d</Badge></td>
                   </tr>
@@ -2677,7 +2677,7 @@ function LowStockModal({ isOpen, onClose, products, loading }) {
                   <td className="px-3 py-2 text-gray-400 text-xs">{idx + 1}</td>
                   <td className="px-3 py-2 font-medium text-gray-700">{p.name}</td>
                   <td className="px-3 py-2 text-gray-500 font-mono text-xs">{p.sku}</td>
-                  <td className="px-3 py-2 text-gray-500">{p.category || '—'}</td>
+                  <td className="px-3 py-2 text-gray-500">{p.category || '-'}</td>
                   <td className="px-3 py-2">
                     <span className={`font-semibold ${p.currentStock === 0 ? 'text-red-600' : 'text-amber-600'}`}>
                       {formatStock(p.currentStock)}
@@ -2687,7 +2687,7 @@ function LowStockModal({ isOpen, onClose, products, loading }) {
                   <td className="px-3 py-2 text-gray-500">{formatStock(p.minStockLevel)} {p.unit}</td>
                   <td className="px-3 py-2">
                     <span className="font-semibold text-red-600">
-                      {p.deficit > 0 ? `${formatStock(p.deficit)}` : '—'}
+                      {p.deficit > 0 ? `${formatStock(p.deficit)}` : '-'}
                     </span>
                     {p.deficit > 0 && <span className="text-gray-400 ml-1">{p.unit}</span>}
                   </td>
@@ -2710,7 +2710,7 @@ function LowStockModal({ isOpen, onClose, products, loading }) {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// Supply Chain Dashboard — Work Order tracker + on-time delivery %
+// Supply Chain Dashboard - Work Order tracker + on-time delivery %
 // ──────────────────────────────────────────────────────────────────
 function SupplyChainDashboard() {
   const { user } = useAuth();
@@ -2756,7 +2756,7 @@ function SupplyChainDashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard
           title="On-Time Delivery"
-          value={onTimePct != null ? `${onTimePct}%` : '—'}
+          value={onTimePct != null ? `${onTimePct}%` : '-'}
           subtitle={`${stats.onTimeCount}/${stats.completedCount} on time`}
           icon={TrendingUp}
           color={onTimePct == null ? 'navy' : onTimePct >= 90 ? 'green' : onTimePct >= 70 ? 'yellow' : 'red'}
@@ -2767,7 +2767,7 @@ function SupplyChainDashboard() {
         <StatsCard title="Overdue" value={overdue} icon={AlertTriangle} color={overdue > 0 ? 'red' : 'green'} onClick={() => navigate('/work-orders')} />
       </div>
 
-      {/* PDC radar + Team Chat — supply chain owns PDC and extensions */}
+      {/* PDC radar + Team Chat - supply chain owns PDC and extensions */}
       <OpsRadarChat />
 
       <Card>
@@ -2806,7 +2806,7 @@ function SupplyChainDashboard() {
                   </div>
                   <div className="text-right text-xs">
                     <p className="text-gray-500">PDC {formatDateTime(w.effectivePdcDate).split(' ')[0]}</p>
-                    <p className="font-semibold text-navy-700">{deliveredPct}% — {w.deliveredQty}/{w.orderQuantity}</p>
+                    <p className="font-semibold text-navy-700">{deliveredPct}% - {w.deliveredQty}/{w.orderQuantity}</p>
                   </div>
                 </div>
               );
@@ -2819,7 +2819,7 @@ function SupplyChainDashboard() {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// Site Office Dashboard — incoming gate-pass acknowledgements
+// Site Office Dashboard - incoming gate-pass acknowledgements
 // SITE_OFFICE acks IN_TRANSIT outward gate passes that have reached
 // the destination site (Customer / Sub-contractor / Outside party).
 // ──────────────────────────────────────────────────────────────────
@@ -2882,7 +2882,7 @@ function SiteOfficeDashboard() {
             </div>
             <div>
               <p className="text-sm font-semibold text-red-900">{urgentCount} gate pass{urgentCount === 1 ? '' : 'es'} need urgent attention</p>
-              <p className="text-xs text-red-700/80 mt-0.5">In transit for over 24 hours — please verify receipt or escalate.</p>
+              <p className="text-xs text-red-700/80 mt-0.5">In transit for over 24 hours - please verify receipt or escalate.</p>
             </div>
           </div>
           <Button size="sm" onClick={() => navigate('/gate-pass')}>Review now <ArrowRight size={14} className="ml-1" /></Button>
@@ -2893,7 +2893,7 @@ function SiteOfficeDashboard() {
         <StatsCard
           title="Awaiting Acknowledgement"
           value={inTransit.length}
-          subtitle={inTransit.length === 0 ? 'Inbox clear ✓' : 'In transit — need ack'}
+          subtitle={inTransit.length === 0 ? 'Inbox clear ✓' : 'In transit - need ack'}
           icon={Inbox}
           color={inTransit.length > 0 ? 'red' : 'green'}
           onClick={() => navigate('/gate-pass')}
@@ -2960,21 +2960,21 @@ function SiteOfficeDashboard() {
                     >
                       <td className="px-3 py-2.5 font-medium text-navy-700">{g.passNumber}</td>
                       <td className="px-3 py-2.5">
-                        {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '—'}
+                        {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '-'}
                       </td>
-                      <td className="px-3 py-2.5 text-gray-600">{g.unit?.name || g.unit?.code || '—'}</td>
+                      <td className="px-3 py-2.5 text-gray-600">{g.unit?.name || g.unit?.code || '-'}</td>
                       <td className="px-3 py-2.5 text-gray-600">
                         <span className="inline-flex items-center gap-1">
                           <MapPin size={11} className="text-gray-400" />
-                          {g.partyName || '—'}
+                          {g.partyName || '-'}
                         </span>
                       </td>
                       <td className="px-3 py-2.5 font-mono text-xs text-gray-700">
-                        {g.assignedVehicle?.regNumber || g.vehicleNo || '—'}
+                        {g.assignedVehicle?.regNumber || g.vehicleNo || '-'}
                       </td>
                       <td className="px-3 py-2.5 text-center text-gray-500">{g.items?.length || 0}</td>
                       <td className="px-3 py-2.5">
-                        {g.dispatchedAt ? urgencyBadge(hrs) : <span className="text-xs text-gray-400">—</span>}
+                        {g.dispatchedAt ? urgencyBadge(hrs) : <span className="text-xs text-gray-400">-</span>}
                       </td>
                     </tr>
                   );
@@ -3016,11 +3016,11 @@ function SiteOfficeDashboard() {
                   >
                     <td className="px-3 py-2.5 font-medium text-navy-700">{g.passNumber}</td>
                     <td className="px-3 py-2.5">
-                      {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '—'}
+                      {g.kind ? <Badge color={GP_KIND_COLOR[g.kind]}>{GP_KIND_LABEL[g.kind]}</Badge> : '-'}
                     </td>
-                    <td className="px-3 py-2.5 text-gray-600">{g.partyName || '—'}</td>
+                    <td className="px-3 py-2.5 text-gray-600">{g.partyName || '-'}</td>
                     <td className="px-3 py-2.5 text-gray-500 text-xs">
-                      {g.acknowledgedAt ? formatDateTime(g.acknowledgedAt) : '—'}
+                      {g.acknowledgedAt ? formatDateTime(g.acknowledgedAt) : '-'}
                     </td>
                   </tr>
                 ))}
@@ -3034,7 +3034,7 @@ function SiteOfficeDashboard() {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// Safety Dashboard — read-only oversight across workflows
+// Safety Dashboard - read-only oversight across workflows
 // SAFETY monitors MIVs, work orders, low stock, and procurement
 // activity. Links to the Safety Monitor for deeper drill-down.
 // ──────────────────────────────────────────────────────────────────
@@ -3070,7 +3070,7 @@ function SafetyDashboard() {
 
   if (loading) return <Loader />;
 
-  // A WO stays "open" until it is fully paid (CLOSED) — delivered-but-unpaid
+  // A WO stays "open" until it is fully paid (CLOSED) - delivered-but-unpaid
   // (COMPLETED / Pending Accounts) is still active and shown here.
   const openWorkOrders = workOrders.filter(w => !['CLOSED', 'CANCELLED', 'REJECTED'].includes(w.status));
   const overdueWO = workOrders.filter(w => w.overdue).length;
@@ -3091,7 +3091,7 @@ function SafetyDashboard() {
     <div className="space-y-6">
       <DashboardHero
         title={greet(user, 'Safety')}
-        subtitle="Cross-workflow oversight — MIVs, work orders, procurement, and stock"
+        subtitle="Cross-workflow oversight - MIVs, work orders, procurement, and stock"
         eyebrow="Safety Oversight"
         actions={
           <>
@@ -3132,7 +3132,7 @@ function SafetyDashboard() {
         />
         <StatsCard
           title="Active POs"
-          value={prStats ? (prStats.inProgress || 0) : '—'}
+          value={prStats ? (prStats.inProgress || 0) : '-'}
           subtitle="Procurement in motion"
           icon={ShoppingCart}
           color="navy"
@@ -3197,8 +3197,8 @@ function SafetyDashboard() {
                 {mivPending.map((r, i) => (
                   <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/all-requests')}>
                     <td className="px-3 py-2.5 font-medium text-navy-700">{r.requestNumber}</td>
-                    <td className="px-3 py-2.5 text-gray-600">{r.manager?.name || '—'}</td>
-                    <td className="px-3 py-2.5"><Badge color="blue">{r.unit?.code || '—'}</Badge></td>
+                    <td className="px-3 py-2.5 text-gray-600">{r.manager?.name || '-'}</td>
+                    <td className="px-3 py-2.5"><Badge color="blue">{r.unit?.code || '-'}</Badge></td>
                     <td className="px-3 py-2.5 text-center text-gray-600">{r.items?.length || 0}</td>
                     <td className="px-3 py-2.5 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
                   </tr>
@@ -3242,12 +3242,12 @@ function SafetyDashboard() {
                         }>{w.status === 'COMPLETED' ? 'Pending Accounts' : w.status === 'CLOSED' ? 'Completed (Paid)' : w.status.replace('_', ' ')}</Badge>
                         {w.overdue && <Badge color="red">Overdue</Badge>}
                       </div>
-                      <p className="text-sm text-navy-800 truncate mt-1">{w.customerName || '—'} <span className="text-gray-400">•</span> SO {w.supplyOrderNo || '—'}</p>
+                      <p className="text-sm text-navy-800 truncate mt-1">{w.customerName || '-'} <span className="text-gray-400">•</span> SO {w.supplyOrderNo || '-'}</p>
                     </div>
                     <div className="text-right text-xs flex-shrink-0">
                       <p className="text-gray-500 flex items-center justify-end gap-1">
                         <Calendar size={10} />
-                        {w.effectivePdcDate ? formatDate(w.effectivePdcDate) : '—'}
+                        {w.effectivePdcDate ? formatDate(w.effectivePdcDate) : '-'}
                       </p>
                       <p className="font-semibold text-navy-700 mt-0.5">{w.deliveredQty}/{w.orderQuantity} <span className="text-gray-400 font-normal">({deliveredPct}%)</span></p>
                     </div>
@@ -3321,7 +3321,7 @@ function Loader() {
   );
 }
 
-// ── Planning — read-only, plant-wide monitor. No raising, no unit. Oversees the
+// ── Planning - read-only, plant-wide monitor. No raising, no unit. Oversees the
 // whole pipeline (PRs, MIVs, work orders) and addresses work-order alarms.
 function PlanningDashboard() {
   const { user } = useAuth();
@@ -3385,14 +3385,14 @@ function PlanningDashboard() {
     <div className="space-y-6">
       <DashboardHero
         title={greet(user, 'Planner')}
-        subtitle="Plant-wide oversight — purchase requests, material issues, work orders and alarms. Read-only monitor."
+        subtitle="Plant-wide oversight - purchase requests, material issues, work orders and alarms. Read-only monitor."
         eyebrow="Planning Control"
         actions={<InProgressButton />}
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard title="Active Purchase Requests" value={prStats ? `${prActive} / ${prStats.total || 0}` : '—'} subtitle="Active / Total" icon={ShoppingCart} color="blue" onClick={() => navigate('/purchase-requests')} />
-        <StatsCard title="Pending MIV Requests" value={stats.pendingRequests ?? '—'} icon={ClipboardList} color="yellow" onClick={() => navigate('/all-requests')} />
+        <StatsCard title="Active Purchase Requests" value={prStats ? `${prActive} / ${prStats.total || 0}` : '-'} subtitle="Active / Total" icon={ShoppingCart} color="blue" onClick={() => navigate('/purchase-requests')} />
+        <StatsCard title="Pending MIV Requests" value={stats.pendingRequests ?? '-'} icon={ClipboardList} color="yellow" onClick={() => navigate('/all-requests')} />
         <StatsCard title="Active Work Orders" value={activeWOs.length} icon={ClipboardCheck} color="navy" onClick={() => navigate('/work-orders')} />
         <StatsCard title="Live WO Alarms" value={totalActiveAlarms} icon={BellRing} color="red" onClick={() => navigate('/work-orders')} />
       </div>
@@ -3431,7 +3431,7 @@ function PlanningDashboard() {
           icon={BellRing}
           tone="red"
           title="Work Order Alarms"
-          subtitle="Live alarms across every unit — acknowledge or resolve"
+          subtitle="Live alarms across every unit - acknowledge or resolve"
           actions={<Button variant="secondary" size="sm" onClick={() => navigate('/work-orders')}>Open Work Orders</Button>}
         />
         {woWithAlarms.length === 0 ? (
@@ -3520,7 +3520,7 @@ function PlanningDashboard() {
                   <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-gray-700">{r.requestNumber}</td>
                     <td className="px-3 py-2 text-gray-600">{r.manager?.name}</td>
-                    <td className="px-3 py-2">{r.unit?.code ? <Badge color="blue">{r.unit.code}</Badge> : <span className="text-gray-400 text-xs">—</span>}</td>
+                    <td className="px-3 py-2">{r.unit?.code ? <Badge color="blue">{r.unit.code}</Badge> : <span className="text-gray-400 text-xs">-</span>}</td>
                     <td className="px-3 py-2">
                       <Badge color={r.status === 'PENDING' ? 'yellow' : r.status === 'APPROVED' ? 'green' : r.status === 'COLLECTED' ? 'blue' : r.status === 'REJECTED' ? 'red' : 'gray'}>{r.status}</Badge>
                     </td>
@@ -3566,7 +3566,7 @@ export default function Dashboard() {
       <SlaTicker />
       {inner}
       {!CHAT_BUILT_IN.includes(user?.role) && <TeamChat heightClass="h-[26rem]" />}
-      {/* HIDDEN FROM ERP (code retained, not removed) — calendar */}
+      {/* HIDDEN FROM ERP (code retained, not removed) - calendar */}
       {/* <CalendarView embedded /> */}
     </div>
   );

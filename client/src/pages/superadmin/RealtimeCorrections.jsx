@@ -1,11 +1,11 @@
 // SUPERADMIN-only direct table editor. Renders the row count + paginated rows
 // for any whitelisted Prisma model and lets the operator update/insert/delete
-// individual rows. No audit log is written — by design, SUPERADMIN actions are
+// individual rows. No audit log is written - by design, SUPERADMIN actions are
 // invisible to other admins.
 //
 // Mobile-first: the table list collapses to a dropdown on phones, rows render
 // as readable cards (instead of a wide horizontal-scroll table), and editing /
-// inserting uses a simple field-by-field form — no hand-written JSON required.
+// inserting uses a simple field-by-field form - no hand-written JSON required.
 // An "Advanced (JSON)" toggle is still available for power edits.
 
 import { useEffect, useState, useMemo } from 'react';
@@ -153,7 +153,7 @@ export default function RealtimeCorrections() {
   const columns = serverColumns?.length ? serverColumns : allColumns;
 
   // Field descriptors for the per-field create form, inferred from loaded rows.
-  // Every column is offered, id/timestamps included — left blank they are simply
+  // Every column is offered, id/timestamps included - left blank they are simply
   // omitted from the insert and Prisma applies its own defaults.
   const createFields = useMemo(() => {
     return allColumns.map((c) => {
@@ -246,9 +246,9 @@ export default function RealtimeCorrections() {
   }, [uploads, uploadFilter, uploadTableFilter]);
 
   const fmtDate = (d) => {
-    if (!d) return '—';
+    if (!d) return '-';
     const dt = new Date(d);
-    if (Number.isNaN(dt.getTime())) return '—';
+    if (Number.isNaN(dt.getTime())) return '-';
     return dt.toLocaleString();
   };
 
@@ -337,7 +337,7 @@ export default function RealtimeCorrections() {
     <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       <PageHero
         title="Real-time Corrections"
-        subtitle="Direct database editor — actions are not audit-logged."
+        subtitle="Direct database editor - actions are not audit-logged."
         eyebrow="SuperAdmin"
         icon={Database}
       />
@@ -465,7 +465,7 @@ export default function RealtimeCorrections() {
                         <span className="font-mono text-gray-800">{u.recordLabel || u.recordId}</span>
                       </td>
                       <td className="px-3 py-2">{u.label}</td>
-                      <td className="px-3 py-2 text-gray-700">{u.uploadedBy || <span className="text-gray-400">—</span>}</td>
+                      <td className="px-3 py-2 text-gray-700">{u.uploadedBy || <span className="text-gray-400">-</span>}</td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(u.uploadedAt)}</td>
                       <td className="px-3 py-2">
                         <a
@@ -486,7 +486,7 @@ export default function RealtimeCorrections() {
         </div>
       ) : (
       <div className="space-y-3">
-        {/* Mobile table picker — a simple dropdown instead of the sidebar */}
+        {/* Mobile table picker - a simple dropdown instead of the sidebar */}
         <div className="md:hidden">
           <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">Choose a table</label>
           <div className="flex gap-2">
@@ -511,7 +511,7 @@ export default function RealtimeCorrections() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-4">
-          {/* Tables sidebar — desktop only */}
+          {/* Tables sidebar - desktop only */}
           <div className="hidden md:block bg-white rounded-lg border border-gray-200 overflow-hidden self-start">
             <div className="px-3 py-2 border-b bg-gray-50 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Tables</span>
@@ -571,7 +571,7 @@ export default function RealtimeCorrections() {
 
                   {activeTable?.virtual && (
                     <div className="text-[11px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-2 py-1">
-                      {activeTable.hint} — a filtered view of the <span className="font-mono">{activeTable.model}</span> table.
+                      {activeTable.hint} - a filtered view of the <span className="font-mono">{activeTable.model}</span> table.
                       Edits, inserts and deletes here stay inside this view.
                     </div>
                   )}

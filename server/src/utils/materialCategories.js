@@ -3,9 +3,9 @@
 // material codes reserved for it, and what belongs in it. This is the single
 // source of truth for the "Material Type" dropdown everywhere (master data,
 // purchase requisition lines, inward entry) AND for the material code a new
-// material is given — codes are counted inside the owning category's block.
+// material is given - codes are counted inside the owning category's block.
 //
-// Mirror of MATERIAL_CATEGORIES in client/src/utils/materialTypes.js — keep both
+// Mirror of MATERIAL_CATEGORIES in client/src/utils/materialTypes.js - keep both
 // in sync. The client falls back to its copy when /products/material-categories
 // can't be reached, so the two lists must stay identical.
 //
@@ -17,7 +17,7 @@ const MATERIAL_CATEGORIES = [
   { label: 'IT Office & Equipment',           from: 501,  to: 800,  description: 'Computers, printers, servers, UPS, office equipment, etc.' },
   // The register labels all five of these simply "Raw material" but gives each
   // its own code block. They are separate categories here so a new material's
-  // code can be counted in the right block — the label keeps the family prefix.
+  // code can be counted in the right block - the label keeps the family prefix.
   { label: 'Raw Material - Fabric / Fiber',   from: 1001, to: 1500, description: 'Any fabric / fiber' },
   { label: 'Raw Material - Resins',           from: 1501, to: 2000, description: 'Any type of resins' },
   { label: 'Raw Material - Rubber',           from: 2001, to: 2500, description: 'Any type of rubber materials' },
@@ -33,9 +33,10 @@ const MATERIAL_CATEGORIES = [
   { label: 'Maintenance Spares',              from: 6001, to: 6300, description: 'Replacement parts, bearings, belts, electrical spares, pneumatic parts, etc.' },
   { label: 'Electrical Items',                from: 6301, to: 6800, description: 'MCB, MCCB, RCCB, contactors, relays, switches, cables, terminals, SMPS, transformers, etc.' },
   { label: 'Safety / PPE Items',              from: 6801, to: 7000, description: 'Safety shoes, safety helmets, safety goggles, gloves, ear plugs / ear muffs, respirators / masks, safety harness, reflective jackets, other PPE' },
-  // Not in the register — the catch-all normalizeMaterialType() falls back to,
+  { label: 'Job Work Orders',                 from: 7001, to: 7500, description: 'Job work orders - work and material booked against outside job work.' },
+  // Not in the register - the catch-all normalizeMaterialType() falls back to,
   // and the only category with no code block: its codes are typed by hand.
-  { label: 'Others',                          from: null, to: null, description: 'Anything that does not belong to a category above. No reserved code block — the material code is entered manually.' },
+  { label: 'Others',                          from: null, to: null, description: 'Anything that does not belong to a category above. No reserved code block - the material code is entered manually.' },
 ];
 
 const MATERIAL_TYPES = MATERIAL_CATEGORIES.map((c) => c.label);
@@ -47,7 +48,7 @@ const categoryFor = (label) =>
   MATERIAL_CATEGORIES.find((c) => c.label.toLowerCase() === String(label || '').trim().toLowerCase()) || null;
 
 // The code block reserved for a category, or null for 'Others' / an unknown
-// (legacy) label — those have no block and are numbered by hand.
+// (legacy) label - those have no block and are numbered by hand.
 const codeRangeFor = (label) => {
   const cat = categoryFor(label);
   return cat && cat.from ? { from: cat.from, to: cat.to } : null;
@@ -91,7 +92,7 @@ const nextMaterialCode = (label, usedNumbers) => {
   if (max + 1 <= to) {
     next = max + 1;
   } else {
-    // The block's tail is taken — fall back to the lowest gap inside it, so a
+    // The block's tail is taken - fall back to the lowest gap inside it, so a
     // stray high code doesn't declare a mostly-empty block full.
     for (let n = from; n <= to; n++) {
       if (!inBlock.has(n)) { next = n; break; }
@@ -107,10 +108,13 @@ const nextMaterialCode = (label, usedNumbers) => {
 };
 
 // Where codes for a category with NO reserved block start. The register runs out
-// at 7000, so 'Others' (and any retired label) is numbered from 7001 up — clear
-// of every block, and clear of the historic 001, 002… serials that products
-// created before the register still carry.
-const UNALLOCATED_CODE_START = 7001;
+// at 7500 (Job Work Orders took 7001–7500), so 'Others' (and any retired label) is
+// numbered from 7501 up - clear of every block, and clear of the historic 001,
+// 002… serials that products created before the register still carry.
+// NOTE: this was 7001 before Job Work Orders was added, so a handful of 'Others'
+// materials numbered 7001+ can already sit inside that block. They keep their
+// codes; new Job Work Orders codes simply count on from the highest one in use.
+const UNALLOCATED_CODE_START = 7501;
 
 const nextUnallocatedCode = (usedNumbers) => {
   let max = UNALLOCATED_CODE_START - 1;
@@ -131,19 +135,19 @@ const codeMatchesCategory = (code, label) => {
   return n >= range.from && n <= range.to;
 };
 
-// "0001–0300" — how a block is shown next to its category.
+// "0001–0300" - how a block is shown next to its category.
 const formatCodeRange = (label) => {
   const range = codeRangeFor(label);
-  return range ? `${formatMaterialCode(range.from)}–${formatMaterialCode(range.to)}` : '—';
+  return range ? `${formatMaterialCode(range.from)}–${formatMaterialCode(range.to)}` : '-';
 };
 
 // ──── LEGACY LABELS ────
 // Categories that were retired when the register above replaced the old ad-hoc
-// list. Products still carrying one keep it — normalizeMaterialType() returns
+// list. Products still carrying one keep it - normalizeMaterialType() returns
 // these unchanged rather than guessing a new block for them, and the forms append
 // the stored label to the dropdown so it stays visible until someone re-picks.
 // A label here must NOT be one that was merely renamed (see the aliases in
-// normalizeMaterialType — 'Machinery' → 'Plant & Machinery' and friends): those
+// normalizeMaterialType - 'Machinery' → 'Plant & Machinery' and friends): those
 // mean the same thing and are safe to move.
 const LEGACY_MATERIAL_TYPES = [
   'Raw Material',
@@ -164,7 +168,7 @@ const normalizeMaterialType = (value) => {
   const exact = categoryFor(raw);
   if (exact) return exact.label;
 
-  // Raw materials — one block per kind, so match on the kind named. 'composites'
+  // Raw materials - one block per kind, so match on the kind named. 'composites'
   // is deliberately absent: the retired 'Raw Materials - Composites' label spans
   // several of these blocks, so it is preserved rather than guessed at.
   if (/\braw\b|resin|rubber|chemlok|loctite|metallic|metalic|fabric|fibre|fiber/.test(t)) {
@@ -176,7 +180,7 @@ const normalizeMaterialType = (value) => {
     if (/metallic|metalic|\bmetal\b/.test(t))      return 'Raw Material - Metallics';
   }
 
-  // Renames — same meaning, new label.
+  // Renames - same meaning, new label.
   if (/^(machinery|machineries|machine|plant (&|and) machinery|plant machinery)$/.test(t)) return 'Plant & Machinery';
   if (/^(land|lands|building|buildings|lands? (&|and) buildings?)$/.test(t)) return 'Lands & Buildings';
   if (/^(it|it office|it equipment|it office (&|and) equipment|office equipment)$/.test(t)) return 'IT Office & Equipment';
@@ -189,8 +193,9 @@ const normalizeMaterialType = (value) => {
   if (/^(maintenance spare|maintenance spares|spares)$/.test(t)) return 'Maintenance Spares';
   if (/^(electrical items?|electrical|electricals|electric items|electrical goods)$/.test(t)) return 'Electrical Items';
   if (/^(safety|ppe|safety items|ppe items|safety ?\/? ?ppe items?|safety (&|and) ppe items?)$/.test(t)) return 'Safety / PPE Items';
+  if (/^(job ?-? ?works?|job ?-? ?work orders?|jobwork|sub ?-? ?contract|sub ?-? ?contract work)$/.test(t)) return 'Job Work Orders';
 
-  // Retired labels stay put — see LEGACY_MATERIAL_TYPES above.
+  // Retired labels stay put - see LEGACY_MATERIAL_TYPES above.
   const legacy = LEGACY_MATERIAL_TYPES.find((l) => l.toLowerCase() === t);
   if (legacy) return legacy;
   if (/^(raw|raw_material|raw material|raw materials)$/.test(t)) return 'Raw Material';

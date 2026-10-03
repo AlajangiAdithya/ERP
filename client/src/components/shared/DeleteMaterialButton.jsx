@@ -5,7 +5,7 @@ import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 
 // ─── Delete a material from Master Data ───
-// Deleting is a master-owner action (Unit 1–5 managers + Admin — the same guard
+// Deleting is a master-owner action (Unit 1–5 managers + Admin - the same guard
 // the server applies). What it does depends on whether the material has any
 // history: an entry nothing points at (a mistype, a duplicate) is removed for
 // real and gives its material code back; one that is named on a PR, PO, batch or
@@ -66,7 +66,7 @@ export default function DeleteMaterialButton({ product, onDeleted, iconOnly = fa
     : [];
   const hard = usage?.canHardDelete;
 
-  // Modal isn't portalled, so it renders where this component sits — inside a
+  // Modal isn't portalled, so it renders where this component sits - inside a
   // clickable master-data row. `display: contents` keeps the layout untouched
   // while giving us a node to stop clicks bubbling into the row's navigation.
   return (

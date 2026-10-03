@@ -179,15 +179,15 @@ function MachineryTable({ items, canWrite, onEdit, onDelete }) {
             <tr key={m.id} className="hover:bg-navy-50/30">
               <td className="px-3 py-2 text-gray-500">{m.serialNumber}</td>
               <td className="px-3 py-2 font-medium text-navy-800">{m.name}</td>
-              <td className="px-3 py-2 whitespace-pre-line text-gray-600">{m.capacity || '—'}</td>
-              <td className="px-3 py-2 text-gray-600">{m.makeModel || '—'}</td>
-              <td className="px-3 py-2 text-gray-600">{m.machineSerialNo || '—'}</td>
+              <td className="px-3 py-2 whitespace-pre-line text-gray-600">{m.capacity || '-'}</td>
+              <td className="px-3 py-2 text-gray-600">{m.makeModel || '-'}</td>
+              <td className="px-3 py-2 text-gray-600">{m.machineSerialNo || '-'}</td>
               <td className="px-3 py-2 font-mono text-xs text-gray-700">{m.rapsId}</td>
-              <td className="px-3 py-2 text-gray-600">{m.place || '—'}</td>
+              <td className="px-3 py-2 text-gray-600">{m.place || '-'}</td>
               <td className="px-3 py-2">
                 <AMCBadge status={m.amcStatus} expiry={m.amcExpiry} attachment={m.amcAttachment} />
               </td>
-              <td className="px-3 py-2 text-gray-600 max-w-xs">{m.remarks || '—'}</td>
+              <td className="px-3 py-2 text-gray-600 max-w-xs">{m.remarks || '-'}</td>
               {canWrite && (
                 <td className="px-3 py-2">
                   <div className="flex justify-end gap-1">
@@ -205,7 +205,7 @@ function MachineryTable({ items, canWrite, onEdit, onDelete }) {
 }
 
 function AMCBadge({ status, expiry, attachment }) {
-  if (!status && !expiry && !attachment) return <span className="text-gray-400">—</span>;
+  if (!status && !expiry && !attachment) return <span className="text-gray-400">-</span>;
   const expired = isOverdue(expiry);
   const due = isDueSoon(expiry);
   const tone = expired ? 'bg-red-50 text-red-700 ring-red-200'
@@ -313,7 +313,7 @@ function MachineryModal({ item, onClose, onSaved }) {
           <h3 className="text-sm font-semibold text-navy-700 mb-3">AMC (Annual Maintenance Contract)</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Select label="Status" value={form.amcStatus} onChange={(e) => setForm({ ...form, amcStatus: e.target.value })}>
-              <option value="">—</option>
+              <option value="">-</option>
               {AMC_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
             </Select>
             <Input label="Vendor" value={form.amcVendor} onChange={(e) => setForm({ ...form, amcVendor: e.target.value })} />

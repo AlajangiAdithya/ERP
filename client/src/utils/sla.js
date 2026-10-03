@@ -28,9 +28,9 @@ export function isPastSla(since) {
  * @param {string|Date|null} since  when the task became pending
  * @param {string} value            current remark text
  * @returns {{ isDelayed: boolean, error: string, blocked: boolean }}
- *   isDelayed — past the 48h window (remark is required)
- *   error     — validation message for the remark (empty when valid / not needed)
- *   blocked   — true when the action must be blocked (overdue + missing/invalid remark)
+ *   isDelayed - past the 48h window (remark is required)
+ *   error     - validation message for the remark (empty when valid / not needed)
+ *   blocked   - true when the action must be blocked (overdue + missing/invalid remark)
  */
 export function slaRemarkState(since, value) {
   const isDelayed = isPastSla(since);

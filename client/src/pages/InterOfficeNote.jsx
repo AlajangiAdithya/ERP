@@ -162,7 +162,7 @@ export default function InterOfficeNote() {
                 <th className={`px-3 py-2 text-left whitespace-nowrap ${GB}`}>Collected By</th>
 
                 <th className="px-3 py-2 text-center whitespace-nowrap">#</th>
-                <th className="px-3 py-2 text-center whitespace-nowrap">—</th>
+                <th className="px-3 py-2 text-center whitespace-nowrap">-</th>
               </tr>
             </thead>
             <tbody>
@@ -183,25 +183,25 @@ export default function InterOfficeNote() {
                   </td>
 
                   {/* Work Details */}
-                  <td className="px-3 py-2 text-gray-700">{n.projectName || '—'}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-gray-600">{n.supplyOrderNo || '—'}</td>
-                  <td className={`px-3 py-2 text-gray-500 ${GB}`}>{n.referenceDocQA || '—'}</td>
+                  <td className="px-3 py-2 text-gray-700">{n.projectName || '-'}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-gray-600">{n.supplyOrderNo || '-'}</td>
+                  <td className={`px-3 py-2 text-gray-500 ${GB}`}>{n.referenceDocQA || '-'}</td>
 
                   {/* Parties */}
                   <td className="px-3 py-2 whitespace-nowrap text-gray-600">
-                    {n.createdBy?.name || '—'}
+                    {n.createdBy?.name || '-'}
                     {n.createdBy?.unit?.code && <span className="text-gray-400"> ({n.createdBy.unit.code})</span>}
                   </td>
                   <td className={`px-3 py-2 whitespace-nowrap text-gray-600 ${GB}`}>{recipientLabel(n)}</td>
 
                   {/* Schedule */}
-                  <td className="px-3 py-2 whitespace-nowrap text-gray-500">{n.materialSupplyDate ? formatDate(n.materialSupplyDate) : '—'}</td>
-                  <td className={`px-3 py-2 whitespace-nowrap text-gray-500 ${GB}`}>{n.requiredByDate ? formatDate(n.requiredByDate) : '—'}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-gray-500">{n.materialSupplyDate ? formatDate(n.materialSupplyDate) : '-'}</td>
+                  <td className={`px-3 py-2 whitespace-nowrap text-gray-500 ${GB}`}>{n.requiredByDate ? formatDate(n.requiredByDate) : '-'}</td>
 
                   {/* Completion */}
-                  <td className="px-3 py-2 whitespace-nowrap text-gray-500">{n.completedDate ? formatDate(n.completedDate) : '—'}</td>
-                  <td className="px-3 py-2 text-gray-600">{n.reportNoAndDate || '—'}</td>
-                  <td className={`px-3 py-2 text-gray-600 ${GB}`}>{n.collectedBy || '—'}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-gray-500">{n.completedDate ? formatDate(n.completedDate) : '-'}</td>
+                  <td className="px-3 py-2 text-gray-600">{n.reportNoAndDate || '-'}</td>
+                  <td className={`px-3 py-2 text-gray-600 ${GB}`}>{n.collectedBy || '-'}</td>
 
                   {/* Items count */}
                   <td className="px-3 py-2 text-center text-gray-500">{n.items?.length || 0}</td>
@@ -319,7 +319,7 @@ function CreateIONModal({ onClose, onCreated }) {
         {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
         <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 rounded">
-          Doc No: RAMS/ION/00 — Work Order / Inter Office Note
+          Doc No: RAMS/ION/00 - Work Order / Inter Office Note
         </div>
 
         {/* Recipient */}
@@ -377,10 +377,10 @@ function FormFields({ form, update, items, updateItem, addItem, removeItem, work
             value={form.supplyOrderNo}
             onChange={(v) => update('supplyOrderNo', v)}
             valueKey="workOrderNumber"
-            emptyLabel="— Select work order —"
+            emptyLabel="- Select work order -"
             className="w-full flex items-center gap-2 px-3.5 py-2 bg-white border border-navy-200 rounded-lg text-sm text-navy-800 text-left hover:border-navy-300 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-600"
             specialOptions={[
-              { value: 'R&D', label: 'R & D', hint: '— Product research (not a work order)' },
+              { value: 'R&D', label: 'R & D', hint: '- Product research (not a work order)' },
               { value: 'Data Generation', label: 'Data Generation', hint: '(not a work order)' },
             ]}
           />
@@ -505,15 +505,15 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
           <Field label="Project Name"        value={n.projectName} />
           <Field label="Work Order No."      value={n.supplyOrderNo} />
           <Field label="Ref Doc / QA Plan"   value={n.referenceDocQA} />
-          <Field label="Material Supply Date" value={n.materialSupplyDate ? formatDate(n.materialSupplyDate) : '—'} />
-          <Field label="Required By"         value={n.requiredByDate ? formatDate(n.requiredByDate) : '—'} />
+          <Field label="Material Supply Date" value={n.materialSupplyDate ? formatDate(n.materialSupplyDate) : '-'} />
+          <Field label="Required By"         value={n.requiredByDate ? formatDate(n.requiredByDate) : '-'} />
           <Field label="Sample Required"     value={n.sampleRequired ? 'Yes' : 'No'} />
           <Field label="Report Generation"   value={n.reportGeneration ? 'Yes' : 'No'} />
           <Field label="External QA Witness" value={n.externalQAWitness} />
           <Field label="QC Contact"          value={n.qcContactDetails} />
-          <Field label="Raised By"           value={`${n.createdBy?.name || '—'}${n.createdBy?.unit?.name ? ' — ' + n.createdBy.unit.name : ''}`} />
+          <Field label="Raised By"           value={`${n.createdBy?.name || '-'}${n.createdBy?.unit?.name ? ' - ' + n.createdBy.unit.name : ''}`} />
           <Field label="Sent To"             value={n.assignedTo
-            ? `${n.assignedTo.name}${n.assignedTo.unit?.name ? ' — ' + n.assignedTo.unit.name : ''} (${n.assignedTo.role})`
+            ? `${n.assignedTo.name}${n.assignedTo.unit?.name ? ' - ' + n.assignedTo.unit.name : ''} (${n.assignedTo.role})`
             : `${n.recipientRole === 'RND' ? 'R&D' : n.recipientRole || 'Lab'} (any available)`} />
         </div>
 
@@ -558,12 +558,12 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
                   <Fragment key={it.id || idx}>
                     <tr className="border-t border-gray-100">
                       <td className="px-3 py-1.5">{idx + 1}</td>
-                      <td className="px-3 py-1.5">{it.nameOfJob || '—'}</td>
+                      <td className="px-3 py-1.5">{it.nameOfJob || '-'}</td>
                       <td className="px-3 py-1.5">{it.jobIdentification}</td>
-                      <td className="px-3 py-1.5 text-gray-500">{it.materialComposition || '—'}</td>
-                      <td className="px-3 py-1.5 text-gray-500">{it.qty || '—'}</td>
-                      <td className="px-3 py-1.5 text-gray-500">{it.activityRequired || '—'}</td>
-                      <td className="px-3 py-1.5 text-gray-500">{it.itemRemarks || '—'}</td>
+                      <td className="px-3 py-1.5 text-gray-500">{it.materialComposition || '-'}</td>
+                      <td className="px-3 py-1.5 text-gray-500">{it.qty || '-'}</td>
+                      <td className="px-3 py-1.5 text-gray-500">{it.activityRequired || '-'}</td>
+                      <td className="px-3 py-1.5 text-gray-500">{it.itemRemarks || '-'}</td>
                     </tr>
                     {it.ndtDetails && (
                       <tr className="border-t border-dashed border-gray-100 bg-gray-50/60">
@@ -575,10 +575,10 @@ function DetailModal({ ion: initial, currentUser, onClose, onAction }) {
                   <tr key={it.id || idx} className="border-t border-gray-100">
                     <td className="px-3 py-1.5">{idx + 1}</td>
                     <td className="px-3 py-1.5">{it.jobIdentification}</td>
-                    <td className="px-3 py-1.5 text-gray-500">{it.activityRequired || '—'}</td>
-                    <td className="px-3 py-1.5 text-gray-500">{it.materialComposition || '—'}</td>
-                    <td className="px-3 py-1.5 text-gray-500">{it.drawingNo || '—'}</td>
-                    <td className="px-3 py-1.5 text-gray-500">{it.specification || '—'}</td>
+                    <td className="px-3 py-1.5 text-gray-500">{it.activityRequired || '-'}</td>
+                    <td className="px-3 py-1.5 text-gray-500">{it.materialComposition || '-'}</td>
+                    <td className="px-3 py-1.5 text-gray-500">{it.drawingNo || '-'}</td>
+                    <td className="px-3 py-1.5 text-gray-500">{it.specification || '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -725,7 +725,7 @@ function Field({ label, value }) {
   return (
     <div>
       <p className="text-xs text-gray-500">{label}</p>
-      <p className="text-gray-800">{value || '—'}</p>
+      <p className="text-gray-800">{value || '-'}</p>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { Document, Page, View, Text } from '@react-pdf/renderer';
 import { styles, formatDate, formatDateTime, CompanyHeader, AuditTrail } from './shared';
 
-// Per-lot invoice. No monetary amount — this is the doc Finance attaches to
+// Per-lot invoice. No monetary amount - this is the doc Finance attaches to
 // the material going to the customer. Pair it with the QC Verification
 // Certificate + lot report as proof of completion.
 export default function InvoicePdf({ data }) {
@@ -20,33 +20,33 @@ export default function InvoicePdf({ data }) {
         <View style={styles.table}>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Invoice No.</Text></View>
-            <View style={[styles.cell, { width: '28%' }]}><Text>{c.invoiceNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '28%' }]}><Text>{c.invoiceNumber || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Invoice Date</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>{formatDate(c.invoiceDate)}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Work Order</Text></View>
-            <View style={[styles.cell, { width: '28%' }]}><Text>{wo.workOrderNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '28%' }]}><Text>{wo.workOrderNumber || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Supply Order</Text></View>
-            <View style={[styles.cell, { width: '28%' }]}><Text>{wo.supplyOrderNo || '—'}</Text></View>
+            <View style={[styles.cell, { width: '28%' }]}><Text>{wo.supplyOrderNo || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Lot No.</Text></View>
-            <View style={[styles.cell, { width: '28%' }]}><Text>#{c.cycleNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '28%' }]}><Text>#{c.cycleNumber || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Lot Qty</Text></View>
-            <View style={[styles.cell, { width: '28%' }]}><Text>{c.deliveryQty != null ? `${c.deliveryQty} ${wo.orderUnit || ''}` : '—'}</Text></View>
+            <View style={[styles.cell, { width: '28%' }]}><Text>{c.deliveryQty != null ? `${c.deliveryQty} ${wo.orderUnit || ''}` : '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Delivery Challan No.</Text></View>
-            <View style={[styles.cell, { width: '78%' }]}><Text>{c.deliveryChallanNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '78%' }]}><Text>{c.deliveryChallanNumber || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Customer</Text></View>
-            <View style={[styles.cell, { width: '78%' }]}><Text>{wo.customerName || '—'}</Text></View>
+            <View style={[styles.cell, { width: '78%' }]}><Text>{wo.customerName || '-'}</Text></View>
           </View>
           <View style={styles.row}>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>QC Certificate</Text></View>
-            <View style={[styles.cell, { width: '28%' }]}><Text>{c.qcCertificateNumber || '—'}</Text></View>
+            <View style={[styles.cell, { width: '28%' }]}><Text>{c.qcCertificateNumber || '-'}</Text></View>
             <View style={[styles.cellLabel, { width: '22%' }]}><Text>Goods-Ack Deadline</Text></View>
             <View style={[styles.cell, { width: '28%' }]}><Text>{formatDateTime(c.slaDeadlineAt)}</Text></View>
           </View>
@@ -64,14 +64,14 @@ export default function InvoicePdf({ data }) {
             {(c.items || []).length ? c.items.map((ci, i) => (
               <View key={ci.id || i} style={styles.row} wrap={false}>
                 <View style={[styles.cell, { width: '8%' }]}><Text>{ci.item?.lineNo ?? i + 1}</Text></View>
-                <View style={[styles.cell, { width: '62%' }]}><Text>{ci.item?.description || '—'}</Text></View>
+                <View style={[styles.cell, { width: '62%' }]}><Text>{ci.item?.description || '-'}</Text></View>
                 <View style={[styles.cell, { width: '15%' }]}><Text>{ci.deliveryQty}</Text></View>
                 <View style={[styles.cell, { width: '15%' }]}><Text>{ci.item?.uom || ''}</Text></View>
               </View>
             )) : (
               <View style={styles.row}>
                 <View style={[styles.cell, { width: '100%', padding: 6 }]}>
-                  <Text>Lot qty: {c.deliveryQty != null ? `${c.deliveryQty} ${wo.orderUnit || ''}` : '—'}</Text>
+                  <Text>Lot qty: {c.deliveryQty != null ? `${c.deliveryQty} ${wo.orderUnit || ''}` : '-'}</Text>
                 </View>
               </View>
             )}
@@ -83,7 +83,7 @@ export default function InvoicePdf({ data }) {
           <View style={[styles.cell, { padding: 8 }]}>
             <Text>
               {c.invoiceDescription
-                || `Delivery lot of ${c.deliveryQty ?? '—'} ${wo.orderUnit || ''} against Work Order ${wo.workOrderNumber || ''} for ${wo.customerName || ''}. Lot report verified by QC.`}
+                || `Delivery lot of ${c.deliveryQty ?? '-'} ${wo.orderUnit || ''} against Work Order ${wo.workOrderNumber || ''} for ${wo.customerName || ''}. Lot report verified by QC.`}
             </Text>
           </View>
         </View>
@@ -95,7 +95,7 @@ export default function InvoicePdf({ data }) {
               This invoice and the delivery challan travel with the material.
               Customer is requested to sign the goods-received acknowledgement
               and hand it back to the driver within 48 hours of dispatch.
-              Monetary value is not included on this document — refer to the
+              Monetary value is not included on this document - refer to the
               underlying Supply Order / contract for commercial terms.
             </Text>
           </View>

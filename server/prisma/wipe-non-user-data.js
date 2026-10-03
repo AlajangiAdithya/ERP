@@ -21,7 +21,7 @@ async function main() {
     ['notification', () => prisma.notification.deleteMany()],
     ['paymentRequest', () => prisma.paymentRequest.deleteMany()],
 
-    // ProductBatch first — it references GatePassItem + QCInspection + Product
+    // ProductBatch first - it references GatePassItem + QCInspection + Product
     // without onDelete, so those parents can't be wiped until batches are gone.
     ['productBatch', () => prisma.productBatch.deleteMany()],
 
@@ -55,10 +55,10 @@ async function main() {
     ['purchaseRequestItem', () => prisma.purchaseRequestItem.deleteMany()],
     ['purchaseRequest', () => prisma.purchaseRequest.deleteMany()],
 
-    // Suppliers — safe to drop now that quotations + POs are gone
+    // Suppliers - safe to drop now that quotations + POs are gone
     ['supplier', () => prisma.supplier.deleteMany()],
 
-    // Work Orders — independent of the procurement chain
+    // Work Orders - independent of the procurement chain
     ['workOrderInvoice', () => prisma.workOrderInvoice.deleteMany()],
     ['workOrderExtension', () => prisma.workOrderExtension.deleteMany()],
     ['workOrder', () => prisma.workOrder.deleteMany()],
@@ -72,7 +72,7 @@ async function main() {
     ['productUnitStock', () => prisma.productUnitStock.deleteMany()],
     ['product', () => prisma.product.deleteMany()],
 
-    // Sessions + audit log — log everyone out, drop the trail
+    // Sessions + audit log - log everyone out, drop the trail
     ['session', () => prisma.session.deleteMany()],
     ['auditLog', () => prisma.auditLog.deleteMany()],
   ];

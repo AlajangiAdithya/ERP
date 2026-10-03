@@ -6,7 +6,7 @@ const { paginate } = require('../utils/helpers');
 
 const router = express.Router();
 
-// GET /api/alerts/low-stock — products below min stock level
+// GET /api/alerts/low-stock - products below min stock level
 router.get('/low-stock', authenticate, async (req, res) => {
   try {
     const products = await prisma.$queryRaw`
@@ -37,7 +37,7 @@ router.get('/low-stock', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/alerts/low-stock-notify — Store Manager sends low-stock alert to Admin
+// POST /api/alerts/low-stock-notify - Store Manager sends low-stock alert to Admin
 router.post('/low-stock-notify', authenticate, authorize('STORE_MANAGER', 'ADMIN'), async (req, res) => {
   try {
     const { productId, message } = req.body;
@@ -90,7 +90,7 @@ router.post('/low-stock-notify', authenticate, authorize('STORE_MANAGER', 'ADMIN
 
 // ──── NOTIFICATIONS ────
 
-// GET /api/alerts/notifications — get notifications (filtered by user role)
+// GET /api/alerts/notifications - get notifications (filtered by user role)
 router.get('/notifications', authenticate, async (req, res) => {
   try {
     const { page, limit } = req.query;
@@ -143,7 +143,7 @@ router.get('/notifications/unread-count', authenticate, async (req, res) => {
   }
 });
 
-// PATCH /api/alerts/notifications/mark-all-read — mark all of the user's
+// PATCH /api/alerts/notifications/mark-all-read - mark all of the user's
 // notifications as read (clears the red unread badge without deleting them, so
 // they're still listed/clickable in the inbox).
 router.patch('/notifications/mark-all-read', authenticate, async (req, res) => {
@@ -166,7 +166,7 @@ router.patch('/notifications/mark-all-read', authenticate, async (req, res) => {
   }
 });
 
-// DELETE /api/alerts/notifications/clear-all — dismiss all notifications for user
+// DELETE /api/alerts/notifications/clear-all - dismiss all notifications for user
 router.delete('/notifications/clear-all', authenticate, async (req, res) => {
   try {
     await prisma.notification.deleteMany({
@@ -185,10 +185,10 @@ router.delete('/notifications/clear-all', authenticate, async (req, res) => {
   }
 });
 
-// DELETE /api/alerts/notifications/:id — dismiss (delete) a single notification
+// DELETE /api/alerts/notifications/:id - dismiss (delete) a single notification
 router.delete('/notifications/:id', authenticate, async (req, res) => {
   try {
-    // Only let a user dismiss a notification actually addressed to them — their
+    // Only let a user dismiss a notification actually addressed to them - their
     // own user, their role, or a global broadcast. Stops anyone deleting another
     // user's personal notification by guessing its id.
     const notif = await prisma.notification.findUnique({ where: { id: req.params.id } });

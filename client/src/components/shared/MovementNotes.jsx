@@ -2,8 +2,8 @@ import { Layers } from 'lucide-react';
 
 // Renders a stock-movement note as structured chips instead of one truncated
 // string. Handles the three note shapes the server writes:
-//   1. JSON (Excel import) — keys like mirNo, ionNo, docNo, supplier, vehicle…
-//   2. Free text with document refs — "Collected by X for Unit (RAPS/MIV/25-26/4) [FIFO: B1×2]"
+//   1. JSON (Excel import) - keys like mirNo, ionNo, docNo, supplier, vehicle…
+//   2. Free text with document refs - "Collected by X for Unit (RAPS/MIV/25-26/4) [FIFO: B1×2]"
 //   3. Plain user-typed text (inward entries).
 const REF_RE = /RAPS\/[A-Z]{2,6}\/\d{2}-\d{2}\/\d+/g;
 const FIFO_RE = /\[FIFO:\s*([^\]]*)\]/;
@@ -34,7 +34,7 @@ function BatchLine({ children }) {
   );
 }
 
-// JSON value may already be a full "RAPS/MIR/25-26/7" — render it as a ref
+// JSON value may already be a full "RAPS/MIR/25-26/7" - render it as a ref
 // chip on its own; otherwise label it.
 const jsonChip = (key, label, value) =>
   String(value).startsWith('RAPS/')
@@ -42,7 +42,7 @@ const jsonChip = (key, label, value) =>
     : <InfoChip key={key} label={label}>{value}</InfoChip>;
 
 export default function MovementNotes({ notes }) {
-  if (!notes) return <span className="text-gray-300">—</span>;
+  if (!notes) return <span className="text-gray-300">-</span>;
 
   let obj = null;
   try { obj = JSON.parse(notes); } catch { /* free text */ }

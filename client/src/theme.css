@@ -1,12 +1,12 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   GENERATED FILE — do not edit by hand.
+   GENERATED FILE - do not edit by hand.
    Regenerate with:  node scripts/generate-theme.cjs
 
    Every colour utility in the app resolves through these variables (see
    tailwind.config.js), so flipping `.dark` on <html> retints the whole UI
    without touching a single component class.
 
-   `.on-dark` pins the light values for a subtree — use it on surfaces that
+   `.on-dark` pins the light values for a subtree - use it on surfaces that
    are dark in BOTH themes (sidebar, gradient heroes) so their white text,
    frosted `bg-white/10` tiles and light rings keep working.
    ───────────────────────────────────────────────────────────────────────── */

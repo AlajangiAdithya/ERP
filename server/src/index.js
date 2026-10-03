@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-// Fail fast if auth secrets are missing or still the placeholder — a blank or
+// Fail fast if auth secrets are missing or still the placeholder - a blank or
 // well-known JWT_SECRET makes every issued token forgeable, so refuse to boot.
 // (Short-but-real secrets only warn, so this can't break an existing deploy.)
 for (const name of ['JWT_SECRET', 'JWT_REFRESH_SECRET']) {
@@ -95,7 +95,7 @@ app.use(cors({
   exposedHeaders: ['Content-Disposition'],
 }));
 
-// Rate limiting on auth routes — brute-force guard on login/refresh.
+// Rate limiting on auth routes - brute-force guard on login/refresh.
 // Keyed per-IP (see trust proxy above). 20 attempts/min is plenty for a real
 // user fat-fingering a password while stopping credential-stuffing bots.
 const authLimiter = rateLimit({
@@ -111,7 +111,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Static — uploaded files (material specs, quotation PDFs, QC docs)
+// Static - uploaded files (material specs, quotation PDFs, QC docs)
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 app.use('/uploads', express.static(uploadsDir, { maxAge: '7d', etag: true }));
 
@@ -164,7 +164,7 @@ app.get('/api/health', (req, res) => {
 // ── Serve React SPA (production only) ─────────────────
 if (process.env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../../client/dist');
-  // Vite emits content-hashed filenames under /assets/* — safe to cache forever.
+  // Vite emits content-hashed filenames under /assets/* - safe to cache forever.
   app.use('/assets', express.static(path.join(clientDist, 'assets'), { maxAge: '1y', immutable: true }));
   // Top-level files (index.html, sw.js, manifest, logo PNGs) keep stable URLs across
   // deploys, so they must NOT be marked immutable or browsers serve stale copies.
@@ -194,11 +194,15 @@ app.use((err, req, res, next) => {
 if (require.main === module) {
   const prisma = require('./config/db');
   const { startSchedulers: startClosureSla } = require('./jobs/closureSla');
+  const { startSchedulers: startFimReturns } = require('./jobs/fimReturns');
+  const { startSchedulers: startOffsiteMiv } = require('./jobs/offsiteMiv');
   prisma.$queryRaw`SELECT 1`
     .then(() => {
       app.listen(PORT, () => {
         console.log(`RAPS ERP Server running on port ${PORT}`);
         startClosureSla();
+        startFimReturns();
+        startOffsiteMiv();
       });
     })
     .catch((err) => {

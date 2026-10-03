@@ -20,7 +20,7 @@ export default function PageHero({
   children,
 }) {
   return (
-    // `on-dark` pins the light palette inside the hero — it's navy in both
+    // `on-dark` pins the light palette inside the hero - it's navy in both
     // themes, so its white text, frosted tiles and light rings must not flip.
     <div className="on-dark relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-900 via-navy-800 to-indigo-900 px-7 py-7 text-white shadow-2xl ring-1 ring-white/10">
       {/* Fine blueprint grid */}

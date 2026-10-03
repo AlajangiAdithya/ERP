@@ -8,7 +8,7 @@ import api from '../../api/axios';
 // this is a picker, not a free-text box: the requester types, matching materials
 // drop down, and picking one links the row to that product (its id, its UOM and
 // its saved spec library). Text that isn't linked to a material is refused at
-// submit — the dropdown offers "Add to Master Data" instead, which creates the
+// submit - the dropdown offers "Add to Master Data" instead, which creates the
 // entry (under the requester's name) and links the row straight away.
 //
 // `allowFreeText` turns that gate off for the one category that is exempt
@@ -25,7 +25,7 @@ export default function MaterialNameInput({
   onPick,
   onUnlink,
   // Opens the "add to Master Data" form pre-filled with what was typed. Omitted
-  // for roles that may not add materials — they only get the "not in Master
+  // for roles that may not add materials - they only get the "not in Master
   // Data" warning.
   onAddToMasterData,
   // Set for material types that may be typed in directly. Suppresses the error
@@ -153,7 +153,7 @@ export default function MaterialNameInput({
             {allowFreeText ? (
               <>
                 <span className="font-medium text-navy-800">“{q}” is not in Master Data.</span>{' '}
-                That’s fine for {freeTextLabel} — it will be catalogued when the material is
+                That’s fine for {freeTextLabel} - it will be catalogued when the material is
                 inwarded. Add it now only if you want it reusable.
               </>
             ) : (
@@ -186,7 +186,7 @@ export default function MaterialNameInput({
         >
           <div className="text-xs font-medium text-gray-800 leading-tight">{p.name}</div>
           <div className="text-[10px] text-gray-400 font-mono">
-            {p.materialCode || p.sku || '—'}
+            {p.materialCode || p.sku || '-'}
             {p.unit ? ` · ${p.unit}` : ''}
             {p.category ? ` · ${p.category}` : ''}
           </div>
@@ -203,7 +203,7 @@ export default function MaterialNameInput({
         value={value}
         autoComplete="off"
         placeholder={placeholder}
-        /* Unlinked text is not a valid line, so the field reads as an error —
+        /* Unlinked text is not a valid line, so the field reads as an error -
            except where free text is allowed for this material type. */
         className={`${className}${q.length > 0 && !productId && !allowFreeText ? ' bg-red-50' : ''}`}
         onChange={(e) => onChange(e.target.value)}
@@ -216,7 +216,7 @@ export default function MaterialNameInput({
           <button
             type="button"
             onClick={onUnlink}
-            title="Clear — pick a different material"
+            title="Clear - pick a different material"
             className="text-gray-400 hover:text-red-600"
           >
             <X size={9} />
@@ -225,11 +225,11 @@ export default function MaterialNameInput({
       ) : q.length > 0 ? (
         allowFreeText ? (
           <div className="flex items-center gap-1 px-1.5 pb-1 pt-0.5 text-[9px] font-medium text-navy-500">
-            <Pencil size={9} /> typed in — catalogued at inward
+            <Pencil size={9} /> typed in - catalogued at inward
           </div>
         ) : (
           <div className="flex items-center gap-1 px-1.5 pb-1 pt-0.5 text-[9px] font-medium text-red-600">
-            <AlertTriangle size={9} /> not in master data — pick from the list
+            <AlertTriangle size={9} /> not in master data - pick from the list
           </div>
         )
       ) : null}

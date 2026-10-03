@@ -1,5 +1,5 @@
 // Categorize all products by name pattern + set min stock levels per category.
-// Categories (priority order — first match wins):
+// Categories (priority order - first match wins):
 //   Tooling, Equipment, Fabric, Chemical, Raw Material, Hardware, PPE / Safety, Office, Others
 
 const { PrismaClient } = require('@prisma/client');

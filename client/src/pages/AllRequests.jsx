@@ -13,6 +13,7 @@ import MaterialIssuePdf from '../components/pdf/MaterialIssuePdf';
 import { formatDateTime } from '../utils/formatters';
 import { ScrollText } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
+import MivWorkflowGuide, { mivAudienceFor } from '../components/shared/MivWorkflowGuide';
 import { useAuth } from '../context/AuthContext';
 
 export default function AllRequests() {
@@ -87,10 +88,15 @@ export default function AllRequests() {
     <div className="space-y-6">
       <PageHero
         title="All MIV Requests"
-        subtitle="Every MIV request across the plant — filter by status and date range."
+        subtitle="Every MIV request across the plant - filter by status and date range."
         eyebrow="Stores Oversight"
         icon={ScrollText}
       />
+
+      {/* Admin gets the approval flow (offsite MIVs stop here and nowhere else);
+          Accounts / Finance / Planning get the watch-only version. Folded away by
+          default so it never sits on top of the queue. */}
+      <MivWorkflowGuide audience={mivAudienceFor(user, 'OVERSIGHT')} defaultOpen={false} />
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
@@ -141,11 +147,11 @@ export default function AllRequests() {
                       <td className="px-3 py-2 text-xs font-mono">
                         {r.purchaseRequest
                           ? <span className="text-green-800 font-semibold">{r.purchaseRequest.requestNumber}</span>
-                          : <span className="text-gray-400">—</span>}
+                          : <span className="text-gray-400">-</span>}
                       </td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
-                      <td className="px-3 py-2 text-gray-500 text-xs">{r.clearedAt ? formatDateTime(r.clearedAt) : '—'}</td>
-                      <td className="px-3 py-2 text-gray-500 text-xs">{r.collectedAt ? formatDateTime(r.collectedAt) : '—'}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{r.clearedAt ? formatDateTime(r.clearedAt) : '-'}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{r.collectedAt ? formatDateTime(r.collectedAt) : '-'}</td>
                       <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                         <DownloadPdfButton
                           document={<MaterialIssuePdf data={r} />}
@@ -195,7 +201,7 @@ export default function AllRequests() {
             {showDetail.clearanceNotes && <div className="bg-blue-50 rounded-md p-3 text-sm"><span className="text-blue-600">Clearance:</span> {showDetail.clearanceNotes}</div>}
             {isOffsitePending && (
               <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-800">
-                Offsite MIV — review and adjust the approved quantities, then approve. Stores will dispatch the material on a gate pass.
+                Offsite MIV - review and adjust the approved quantities, then approve. Stores will dispatch the material on a gate pass.
               </div>
             )}
             <table className="w-full text-sm">
@@ -220,7 +226,7 @@ export default function AllRequests() {
                           <span className="text-xs text-gray-500">{item.product?.unit}</span>
                         </div>
                       ) : (
-                        item.approvedQty != null ? `${item.approvedQty} ${item.product?.unit}` : '—'
+                        item.approvedQty != null ? `${item.approvedQty} ${item.product?.unit}` : '-'
                       )}
                     </td>
                   </tr>

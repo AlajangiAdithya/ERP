@@ -9,11 +9,11 @@ import { useAuth } from '../../context/AuthContext';
 // A plain <select> was unusable once the live-WO list grew: the requester had to
 // scroll past every other unit's orders to reach their own. So this box
 //   1. lets you TYPE to filter (WO no., supply order no., customer, nomenclature,
-//      unit — all tokens must match, in any order), and
+//      unit - all tokens must match, in any order), and
 //   2. lists YOUR unit's work orders first under a sticky header; every other
 //      unit follows below, grouped by unit, so scrolling still reaches them all.
 //
-// `value`/`onChange` speak whichever key the caller stores — `valueKey="id"` for
+// `value`/`onChange` speak whichever key the caller stores - `valueKey="id"` for
 // forms that persist workOrderId, `"workOrderNumber"` for forms that persist the
 // number as text. `specialOptions` are non-WO choices (R&D, Data Generation, …)
 // pinned above the list.
@@ -26,7 +26,7 @@ export default function WorkOrderPicker({
   onChange,
   valueKey = 'id',
   specialOptions = [],
-  emptyLabel = '— No work order —',
+  emptyLabel = '- No work order -',
   allowClear = true,
   disabled = false,
   unitId,
@@ -77,7 +77,7 @@ export default function WorkOrderPicker({
     const out = [];
     if (own.length) {
       const label = user?.unit?.name || user?.unit?.code || 'your unit';
-      out.push({ key: 'own', title: `Your unit — ${label}`, own: true, items: own });
+      out.push({ key: 'own', title: `Your unit - ${label}`, own: true, items: own });
     }
     [...others.entries()]
       .sort(([a], [b]) => (a === 'Unassigned' ? 1 : b === 'Unassigned' ? -1 : a.localeCompare(b)))
@@ -85,7 +85,7 @@ export default function WorkOrderPicker({
     return out;
   }, [workOrders, query, ownUnitId, user]);
 
-  // Flat option list backing keyboard navigation — specials, then every group's
+  // Flat option list backing keyboard navigation - specials, then every group's
   // rows in display order. Specials are hidden while searching (they aren't WOs).
   const flat = useMemo(() => {
     const rows = [];
@@ -107,7 +107,7 @@ export default function WorkOrderPicker({
     const special = specialOptions.find((s) => String(s.value) === String(value));
     if (special) return { kind: 'special', label: special.label };
     // Edit mode can hold a WO that has since been cancelled and dropped off the
-    // assignable list — show the stored value rather than a blank box.
+    // assignable list - show the stored value rather than a blank box.
     return { kind: 'raw', label: String(value) };
   }, [value, workOrders, specialOptions, valueKey]);
 
@@ -173,7 +173,7 @@ export default function WorkOrderPicker({
     }
   };
 
-  // Menu geometry — flip above the trigger when the space below is too tight.
+  // Menu geometry - flip above the trigger when the space below is too tight.
   const menuStyle = (() => {
     if (!anchor) return { display: 'none' };
     const vw = window.innerWidth;
@@ -212,7 +212,7 @@ export default function WorkOrderPicker({
             ) : selected.kind === 'wo' ? (
               <>
                 <span className="font-semibold text-navy-800">{selected.wo.workOrderNumber}</span>
-                {selected.wo.customerName ? <span className="text-gray-600"> — {selected.wo.customerName}</span> : null}
+                {selected.wo.customerName ? <span className="text-gray-600"> - {selected.wo.customerName}</span> : null}
                 <span className="text-gray-400"> · {unitLabelOf(selected.wo)}</span>
               </>
             ) : (
@@ -310,7 +310,7 @@ export default function WorkOrderPicker({
                             {isSel && <Check size={13} className="ml-auto text-navy-600" />}
                           </div>
                           <div className="text-[11px] text-gray-500 truncate">
-                            {wo.customerName || '—'}
+                            {wo.customerName || '-'}
                             {wo.nomenclature ? ` · ${wo.nomenclature}` : ''}
                             {!g.own ? ` · ${unitLabelOf(wo)}` : ''}
                           </div>

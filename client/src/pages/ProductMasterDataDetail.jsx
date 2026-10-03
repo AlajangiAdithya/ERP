@@ -212,7 +212,7 @@ export default function ProductMasterDataDetail() {
 
       <PageHero
         title={product.name}
-        subtitle={`Master data — Material code ${product.materialCode || product.sku || '—'}`}
+        subtitle={`Master data - Material code ${product.materialCode || product.sku || '-'}`}
         eyebrow="Master Data"
         icon={Package}
         actions={
@@ -228,7 +228,7 @@ export default function ProductMasterDataDetail() {
         </div>
       )}
 
-      {/* Authorship — who put this material into master data, and therefore who
+      {/* Authorship - who put this material into master data, and therefore who
           may correct it besides the unit managers. */}
       <div className="rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-600 flex items-start gap-2">
         <UserIcon size={14} className="mt-0.5 shrink-0 text-gray-400" />
@@ -238,10 +238,10 @@ export default function ProductMasterDataDetail() {
               Added to master data by <strong className="text-navy-800">{addedBy.name}</strong>
               {addedBy.role ? ` (${addedBy.role.replace(/_/g, ' ').toLowerCase()})` : ''}
               {product.createdAt ? ` on ${new Date(product.createdAt).toLocaleDateString()}` : ''}
-              {isOwnEntry && ' — this is your entry.'}
+              {isOwnEntry && ' - this is your entry.'}
             </>
           ) : (
-            <>No author recorded — this material predates authorship tracking, so only Unit 1–5 managers can change it.</>
+            <>No author recorded - this material predates authorship tracking, so only Unit 1–5 managers can change it.</>
           )}
         </span>
       </div>
@@ -264,7 +264,7 @@ export default function ProductMasterDataDetail() {
             <div>
               <Input label="Material Code *" value={form.materialCode} disabled={!canEdit}
                 onChange={(e) => setForm((f) => ({ ...f, materialCode: e.target.value }))} placeholder="e.g. 1001" />
-              {/* The block this material's category owns — an existing code is
+              {/* The block this material's category owns - an existing code is
                   never renumbered automatically, but changing the category makes
                   it obvious when the code no longer fits. */}
               <p className="mt-1 text-[11px] text-gray-500">
@@ -365,7 +365,7 @@ export default function ProductMasterDataDetail() {
 
           {(canEdit || canDeleteMaterial) && (
             <div className="flex flex-wrap items-center justify-end gap-3 pt-2 border-t border-gray-200">
-              {/* Deleting is master-owner only — narrower than editing, which the
+              {/* Deleting is master-owner only - narrower than editing, which the
                   material's author also has. */}
               {canDeleteMaterial && (
                 <DeleteMaterialButton

@@ -32,12 +32,12 @@ export function SlaDelayRemark({ isDelayed, value, onChange, error, action = 'th
       <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
         <AlertTriangle size={13} className="shrink-0" aria-hidden="true" />
         <span>
-          <span className="font-bold">SLA overdue</span> — {action} has taken more than {SLA_HOURS} hours.
+          <span className="font-bold">SLA overdue</span> - {action} has taken more than {SLA_HOURS} hours.
           A delay remark is required.
         </span>
       </div>
       <Textarea
-        label={`Delay remark * (required — ${SLA_HOURS}h SLA exceeded)`}
+        label={`Delay remark * (required - ${SLA_HOURS}h SLA exceeded)`}
         rows={2}
         value={value}
         onChange={onChange}

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 // ─── Appearance (light / dark / follow-system) ───
-// The whole UI retints from one class on <html> — every colour utility in the
+// The whole UI retints from one class on <html> - every colour utility in the
 // app resolves through the CSS variables in src/theme.css. Nothing else needs
 // to know which theme is active.
 //
@@ -28,7 +28,7 @@ const readStored = () => {
 };
 
 export function ThemeProvider({ children }) {
-  // 'light' | 'dark' | 'system' — what the user chose.
+  // 'light' | 'dark' | 'system' - what the user chose.
   const [preference, setPreference] = useState(readStored);
   // What that resolves to right now.
   const [resolved, setResolved] = useState(() =>
@@ -42,7 +42,7 @@ export function ThemeProvider({ children }) {
       setResolved(next);
     };
     apply();
-    try { localStorage.setItem(STORAGE_KEY, preference); } catch { /* private mode — session only */ }
+    try { localStorage.setItem(STORAGE_KEY, preference); } catch { /* private mode - session only */ }
 
     if (preference !== 'system') return undefined;
     // Follow the OS while "System" is selected.

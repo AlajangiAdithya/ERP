@@ -16,7 +16,7 @@
 // their billed quantity seeded.
 //
 // Idempotent: an order already imported (matched by supplyOrderNo + the import
-// marker in remarks) is not re-created — instead its unit assignment is
+// marker in remarks) is not re-created - instead its unit assignment is
 // re-resolved, so adding a missing Unit in the DB and re-running this script
 // maps the older imports too. Manually assigned units are never overridden.
 
@@ -57,7 +57,7 @@ function buildUnitResolver(units) {
 const NEW_UNIT_BASELINE = ['SHAR', 'IBRPTM', 'Nasik', 'CPDC', 'Adibatla', 'ANSP', 'Design'];
 
 // Create any unit named in the sheet (or the baseline) that doesn't already
-// resolve to an existing Unit. Idempotent — re-runs only create what's missing.
+// resolve to an existing Unit. Idempotent - re-runs only create what's missing.
 async function ensureUnits(orders) {
   const units = await prisma.unit.findMany({ select: { id: true, name: true, code: true } });
   const resolve = buildUnitResolver(units);
@@ -103,7 +103,7 @@ async function pickImporter() {
 
 async function main() {
   if (!fs.existsSync(DATA_FILE)) {
-    throw new Error(`Missing ${DATA_FILE} — run "python prisma/extract-work-orders.py" first.`);
+    throw new Error(`Missing ${DATA_FILE} - run "python prisma/extract-work-orders.py" first.`);
   }
   const orders = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
 
@@ -112,7 +112,7 @@ async function main() {
 
   // Create any unit named in the sheet that doesn't exist yet (SHAR, IBRPTM,
   // Nasik, CPDC, Adibatla, ANSP, Design …) so every order resolves to a real
-  // unit. SHAR is special downstream (auto-accepted) — handled in the API.
+  // unit. SHAR is special downstream (auto-accepted) - handled in the API.
   await ensureUnits(orders);
 
   const units = await prisma.unit.findMany({ select: { id: true, name: true, code: true } });

@@ -6,7 +6,7 @@
 // This heuristic rejects gibberish and placeholder text while allowing any
 // genuine free-text reason (English or transliterated).
 //
-// It is intentionally lenient — it only blocks text that is obviously not a
+// It is intentionally lenient - it only blocks text that is obviously not a
 // real reason. Kept in sync with client/src/utils/reasonValidation.js.
 // ────────────────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ function validateReason(raw, opts = {}) {
     return { ok: false, error: `This doesn't look like a real ${fieldLabel}. Please describe the actual reason.` };
   }
 
-  // Whole-string vowel ratio — keyboard mashing is vowel-starved.
+  // Whole-string vowel ratio - keyboard mashing is vowel-starved.
   const vowelTotal = [...collapsed].filter((c) => VOWELS.includes(c)).length;
   if (letters.length >= 10 && vowelTotal / letters.length < 0.18) {
     return { ok: false, error: `This doesn't look like a real ${fieldLabel}. Please describe the actual reason.` };

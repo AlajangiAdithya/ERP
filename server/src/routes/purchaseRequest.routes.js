@@ -9,7 +9,7 @@ const {
   paginate, applyDateFilter, isUniqueViolation, validateWorkOrderLink,
   validateRequiredByDate, validateRequiredByDates,
 } = require('../utils/helpers');
-const { buildCoverageSummary, cancelLeftoverPRItems } = require('../utils/prClosure');
+const { buildCoverageSummary, cancelLeftoverPRItems, syncPRStatusAfterChange } = require('../utils/prClosure');
 const { validateReason } = require('../utils/reasonValidation');
 const {
   EXPORT_ROW_CAP, addInfoSheet, addSheet, createWorkbook, dateCell,
@@ -22,38 +22,43 @@ const router = express.Router();
 // PLANNING is included: it raises its own PRs in addition to overseeing the
 // whole pipeline (it is deliberately kept OUT of OWN_ONLY_ROLES below so the
 // listing endpoint still shows it every PR).
-// INWARD_QC raises its own PRs like any other QC-department sub-role; they are
-// gated behind QC's approval (see QC_MANAGED_ROLES below).
-const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'STORE_MANAGER', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'];
+// INWARD_QC and IN_PROCESS_QC raise their own PRs, which go straight to ADMIN -
+// they are NOT in QC_MANAGED_ROLES, so QC does not sign their requests off first.
+// ACCOUNTING raises its own PRs too (office / accounts-department material), on
+// top of the read-only chain visibility it already had. Like STORE_MANAGER and
+// PLANNING it keeps that org-wide visibility - it is not added to OWN_ONLY_ROLES.
+const REQUESTER_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'STORE_MANAGER', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING', 'ACCOUNTING'];
 // Subset that should only see PRs they themselves raised. STORE_MANAGER is
-// intentionally excluded — they also receive goods against everyone's PRs, so
+// intentionally excluded - they also receive goods against everyone's PRs, so
 // they keep full chain visibility like ADMIN.
 // SAFETY raises its own PRs; like other requester roles it only sees its own
 // (not the whole org's). Add to OWN_ONLY so the listing endpoint scopes correctly.
-// PLANNING is intentionally excluded — it raises its own PRs but retains
+// PLANNING is intentionally excluded - it raises its own PRs but retains
 // org-wide read visibility (a monitor that also files).
-const OWN_ONLY_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
-// Monitor roles — full read visibility across the chain. PLANNING also raises
+const OWN_ONLY_ROLES = ['MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+// Monitor roles - full read visibility across the chain. PLANNING also raises
 // its own PRs (see REQUESTER_ROLES), but its visibility stays org-wide.
 const MONITOR_ROLES = ['PLANNING'];
 // Full chain visibility: Unit Managers, Quality, Designs, R&D, Purchase, Stores, Accounts, Finance, Planning (+ ADMIN).
 // LAB / METROLOGY / NDT included so their own raised PRs are visible to them through the listing endpoints.
-// ACCOUNTING + FINANCE are admin-level read-only observers — they see the whole
+// ACCOUNTING + FINANCE are admin-level read-only observers - they see the whole
 // chain (every PR in every status) but never get the approve/edit endpoints.
-const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
-// Roles that are globally-scoped — they raise PRs in their own name, not for any
+const CHAIN_ROLES = ['ADMIN', 'MANAGER', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'DESIGNS', 'RND', 'PURCHASE_OFFICER', 'STORE_MANAGER', 'ACCOUNTING', 'FINANCE', 'PLANNING', 'LAB', 'METROLOGY', 'NDT', 'SAFETY'];
+// Roles that are globally-scoped - they raise PRs in their own name, not for any
 // specific unit. Their PRs have unitId = null and only show up on their own
 // dashboard plus the procurement chain (ADMIN, PURCHASE_OFFICER, ACCOUNTING).
-// Includes QC ("Quality") and the QC-department roles (LAB / METROLOGY / NDT)
-// because Quality acts as a non-unit function here.
-const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'QC', 'INWARD_QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'];
+// Includes QC ("Quality") and the QC-department roles (LAB / METROLOGY / NDT),
+// and ACCOUNTING, because those act as non-unit functions here - an accounts user
+// has no unit link, so their PR is owned by them with unitId = null.
+const GLOBAL_REQUESTER_ROLES = ['STORE_MANAGER', 'DESIGNS', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING', 'ACCOUNTING'];
 // Sub-roles under the QC department. PRs from these roles go to QC for the
-// first-level approval before flowing on to ADMIN. INWARD_QC sits here too — it
-// may raise its own requests, but nothing leaves the QC department without QC's
-// own approval first.
-const QC_MANAGED_ROLES = ['LAB', 'METROLOGY', 'NDT', 'INWARD_QC'];
+// first-level approval before flowing on to ADMIN.
+// INWARD_QC and IN_PROCESS_QC are deliberately NOT here: their PRs go straight to
+// ADMIN like any other requester. They are inspection operators, not a department
+// QC signs for.
+const QC_MANAGED_ROLES = ['LAB', 'METROLOGY', 'NDT'];
 
-// Everything a PURCHASE_OFFICER may see on the PR list — approved and beyond.
+// Everything a PURCHASE_OFFICER may see on the PR list - approved and beyond.
 // Doubles as the whitelist for their status tabs, so a tab can only ever narrow
 // this set, never widen it.
 const PO_VISIBLE_STATUSES = [
@@ -130,9 +135,9 @@ const attachmentSchema = z.object({
 
 const createSchema = z.object({
   notes: z.string().optional(),
-  // Header-level "note" attachments — files tied to the PR as a whole.
+  // Header-level "note" attachments - files tied to the PR as a whole.
   noteAttachments: z.array(attachmentSchema).optional(),
-  // Optional — global-role requesters (STORE_MANAGER, DESIGNS, PLANNING) must
+  // Optional - global-role requesters (STORE_MANAGER, DESIGNS, PLANNING) must
   // specify which unit they are filing the PR for; unit-bound roles ignore this.
   unitId: z.string().uuid().optional().nullable(),
   // Optional header-level link to the Work Order this PR is raised for.
@@ -172,19 +177,19 @@ const createSchema = z.object({
 // "new material" route is gone, and with it the product this route used to
 // auto-create at PR time: those rows landed in the catalogue with no ID number,
 // no specification and nobody's name on them. The requester now adds the
-// material on the Master Data screen first (every requester role may — see
+// material on the Master Data screen first (every requester role may - see
 // PRODUCT_CREATE_ROLES in middleware/rbac.js), then picks it here.
 //
 // Any active catalogue material is pickable, including the ones still flagged
-// "needs master data" — those pre-date this rule and are deliberately not
+// "needs master data" - those pre-date this rule and are deliberately not
 // blocked, so an existing backlog can't stall today's requisitions.
 //
-// ONE EXCEPTION — Tools & Fixtures. A fixture is normally a one-off made to a
+// ONE EXCEPTION - Tools & Fixtures. A fixture is normally a one-off made to a
 // drawing for a single job, so pre-cataloguing it is noise that never gets
 // reused. Those lines may be free-typed: the row is stored with productId null
 // and the catalogue entry is created at inward by the usual find-or-create path
 // (see purchaseOrder.routes.js), which also gives it its ID number. Everything
-// else about a Tools & Fixtures line — quotation, PO, QC, inward — is unchanged.
+// else about a Tools & Fixtures line - quotation, PO, QC, inward - is unchanged.
 // This mirrors the master-data-complete hold, which already exempts the category.
 const FREE_TEXT_MATERIAL_TYPE = 'Tools & Fixtures';
 const allowsFreeTextMaterial = (item) =>
@@ -253,7 +258,7 @@ async function resolvePrItemProducts(items) {
   };
 }
 
-// POST /api/purchase-requests/upload-spec — uploads one or more material-spec /
+// POST /api/purchase-requests/upload-spec - uploads one or more material-spec /
 // note files (any common format) and returns { files: [{url,name,mimeType}] } so
 // the create form can attach them to a line (or the PR note) before submitting.
 // Accepts a single file under `file` (legacy) or many under `files`. Returns the
@@ -262,7 +267,7 @@ async function resolvePrItemProducts(items) {
 router.post(
   '/upload-spec',
   authenticate,
-  authorize('ADMIN', 'MANAGER', 'DESIGNS', 'RND', 'STORE_MANAGER', 'QC', 'INWARD_QC', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'),
+  authorize('ADMIN', ...REQUESTER_ROLES),
   (req, res) => {
     prSpecsUpload.fields([{ name: 'files', maxCount: 10 }, { name: 'file', maxCount: 1 }])(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
@@ -278,11 +283,11 @@ router.post(
   },
 );
 
-// GET /api/purchase-requests — list based on role
+// GET /api/purchase-requests - list based on role
 // Visibility + filter clause for the PR list. Shared by the paged list endpoint
 // and the Excel export so an export can never widen what a role is allowed to
 // see, and can never disagree with the list the user is looking at.
-// `unitId=NONE` picks the PRs that belong to no unit at all — Stores, QC,
+// `unitId=NONE` picks the PRs that belong to no unit at all - Stores, QC,
 // Designs, Planning and the other central departments raise them, and they are
 // otherwise impossible to isolate from a unit-wise list.
 const NO_UNIT_FILTER = 'NONE';
@@ -317,7 +322,7 @@ function buildPrListWhere(user, { status, fromDate, toDate, unitId, search }) {
     ];
   }
 
-  // Role-based filtering — requester roles see only their own.
+  // Role-based filtering - requester roles see only their own.
   // QC is special: in addition to their own PRs they also oversee PRs raised
   // by LAB / METROLOGY / NDT (the sub-roles of the QC department), since
   // QC is the first-level approver for those PRs.
@@ -332,11 +337,12 @@ function buildPrListWhere(user, { status, fromDate, toDate, unitId, search }) {
     // PO sees approved and beyond (including cash purchase PRs they converted)
     where.status = { in: PO_VISIBLE_STATUSES };
   }
-  // ADMIN, STORE_MANAGER, ACCOUNTING and FINANCE see all — accounts/finance are
-  // full read-only observers, so they get every PR in every status (including
-  // the still-floating pending/in-progress ones), exactly like admin.
+  // ADMIN, STORE_MANAGER, ACCOUNTING and FINANCE see all - they get every PR in
+  // every status (including the still-floating pending/in-progress ones), exactly
+  // like admin. FINANCE is purely an observer; ACCOUNTING also raises its own PRs
+  // (see REQUESTER_ROLES) and keeps this org-wide view on top of that.
 
-  // A status tab narrows the list HERE, not in the browser — the client only
+  // A status tab narrows the list HERE, not in the browser - the client only
   // holds one page, so filtering client-side would hide rows that belong on
   // this page and leave the page count meaningless. For the PO the filter is
   // clamped to the statuses they may already see.
@@ -369,7 +375,7 @@ router.get('/', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
           adminApprovedBy: { select: { id: true, name: true } },
           heldBy: { select: { id: true, name: true } },
           noteAttachments: { orderBy: { createdAt: 'asc' } },
-          // Required-by change trail (newest first) — the PR detail modal shows
+          // Required-by change trail (newest first) - the PR detail modal shows
           // who moved each line's date, when, and from what to what.
           dateHistory: { orderBy: { createdAt: 'desc' } },
           items: {
@@ -544,10 +550,10 @@ const earliest = (dates) => {
 };
 const joinUnique = (list) => Array.from(new Set(list.filter(Boolean))).join(', ');
 
-// GET /api/purchase-requests/export — the current PR list as a formatted .xlsx.
+// GET /api/purchase-requests/export - the current PR list as a formatted .xlsx.
 // Takes the same `status` / `fromDate` / `toDate` / `unitId` / `search` filters as
 // the list endpoint and runs through the identical visibility clause, so what
-// downloads is exactly what the user can see on screen — just unpaged. Two sheets:
+// downloads is exactly what the user can see on screen - just unpaged. Two sheets:
 // one row per PR, and one row per material line for anyone pivoting on materials.
 // Must stay ABOVE `GET /:id` or that route swallows "export".
 router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) => {
@@ -590,7 +596,7 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
 
     for (const r of requests) {
       const items = r.items || [];
-      // A PR reaches its PO either directly or through the union pivot — both
+      // A PR reaches its PO either directly or through the union pivot - both
       // carry the same order, so merge and de-dupe by id. (Not by order number:
       // Purchase type those in by hand, so two different drafts can both be
       // waiting for one and would collapse into a single row.)
@@ -599,7 +605,7 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
         ...(r.purchaseOrderSources || []).map((s) => s.purchaseOrder).filter(Boolean),
       ].filter((o, i, arr) => arr.findIndex((x) => x.id === o.id) === i);
       const selectedQuote = (r.quotations || []).find((q) => q.isSelected) || null;
-      const unitLabel = r.unit?.code ? `${r.unit.code}${r.unit.name ? ` — ${r.unit.name}` : ''}` : 'Central / Non-unit';
+      const unitLabel = r.unit?.code ? `${r.unit.code}${r.unit.name ? ` - ${r.unit.name}` : ''}` : 'Central / Non-unit';
       const workOrderLabel = r.isRnd
         ? 'R&D'
         : (r.workOrder?.workOrderNumber
@@ -752,14 +758,14 @@ router.get('/export', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
     await sendWorkbook(res, wb, exportFileName('Purchase_Requests'));
   } catch (error) {
     console.error('Export purchase requests error:', error);
-    // The response may already be streaming XLSX bytes by the time this fires —
+    // The response may already be streaming XLSX bytes by the time this fires -
     // sending JSON then would corrupt the download, so only answer if untouched.
     if (!res.headersSent) res.status(500).json({ error: 'Failed to generate Excel export' });
     else res.end();
   }
 });
 
-// GET /api/purchase-requests/lookup?q= — lean PR-number typeahead.
+// GET /api/purchase-requests/lookup?q= - lean PR-number typeahead.
 // Feeds the "issued against PR" picker on MIV clearance, where Stores mentions
 // the PR number only. Returns just enough to identify a PR in a dropdown; the
 // full list endpoint is far too heavy (every item + attachments) for this.
@@ -794,10 +800,10 @@ router.get('/lookup', authenticate, authorize(...CHAIN_ROLES), async (req, res) 
   }
 });
 
-// GET /api/purchase-requests/in-progress-summary — floating in-progress PR/PO counts visible to ALL roles
+// GET /api/purchase-requests/in-progress-summary - floating in-progress PR/PO counts visible to ALL roles
 router.get('/in-progress-summary', authenticate, async (req, res) => {
   try {
-    // PR statuses considered "PR pending" — the PR still needs procurement action
+    // PR statuses considered "PR pending" - the PR still needs procurement action
     // before the order is in flight. Once admin has approved a quotation and the
     // PO exists (QUOTATION_APPROVED onwards), the PR's procurement work is done;
     // the PO list owns the rest of the lifecycle.
@@ -808,7 +814,7 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
       'PENDING_ACCOUNTING', 'CREDIT_PLACED', 'ORDERED', 'PLACED', 'ADVANCE_PAID',
       'PAYMENT_PENDING', 'PAID', 'GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED', 'QC_FAILED', 'INWARD_DONE',
     ];
-    // "Awaiting Inward" — goods have physically arrived at the gate (or are in
+    // "Awaiting Inward" - goods have physically arrived at the gate (or are in
     // QC) but have not yet been received into stores (INWARD_DONE). This is the
     // real receiving bottleneck on the in-progress board.
     const poAwaitingInwardStatuses = ['GOODS_ARRIVED', 'QC_PENDING', 'QC_PASSED'];
@@ -918,7 +924,7 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
     const prSamplesEnriched = prSamples.map(pr => {
       const dates = (pr.items || []).map(i => i.requiredByDate).filter(Boolean).map(d => new Date(d));
       const earliest = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : null;
-      // Strip items array from the response — only the derived fields are needed by the UI
+      // Strip items array from the response - only the derived fields are needed by the UI
       const { items, ...rest } = pr; // eslint-disable-line no-unused-vars
       return { ...rest, earliestRequiredBy: earliest };
     });
@@ -937,7 +943,7 @@ router.get('/in-progress-summary', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/purchase-requests/unit-dashboard — Unit-scoped PR/PO/MIV stats for the current user's unit
+// GET /api/purchase-requests/unit-dashboard - Unit-scoped PR/PO/MIV stats for the current user's unit
 router.get('/unit-dashboard', authenticate, async (req, res) => {
   try {
     const unitId = req.user.unitId;
@@ -949,7 +955,7 @@ router.get('/unit-dashboard', authenticate, async (req, res) => {
       });
     }
 
-    // A PR is "converted to PO" once at least one purchase order references it —
+    // A PR is "converted to PO" once at least one purchase order references it -
     // either directly (purchaseOrders) or through a union PO (purchaseOrderSources).
     const prConvertedWhere = {
       unitId,
@@ -1018,7 +1024,7 @@ router.get('/unit-dashboard', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/purchase-requests/dashboard-stats — stats for PO dashboard
+// GET /api/purchase-requests/dashboard-stats - stats for PO dashboard
 router.get('/dashboard-stats', authenticate, async (req, res) => {
   try {
     const where = {};
@@ -1032,7 +1038,7 @@ router.get('/dashboard-stats', authenticate, async (req, res) => {
     } else if (req.user.role === 'PURCHASE_OFFICER') {
       where.status = { in: ['APPROVED', 'IN_PROGRESS', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE'] };
     }
-    // ACCOUNTING / FINANCE fall through to the unfiltered count — they observe
+    // ACCOUNTING / FINANCE fall through to the unfiltered count - they observe
     // every PR in every status, same as ADMIN.
 
     const groups = await prisma.purchaseRequest.groupBy({
@@ -1083,7 +1089,7 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
         adminApprovedBy: { select: { id: true, name: true } },
         heldBy: { select: { id: true, name: true } },
         noteAttachments: { orderBy: { createdAt: 'asc' } },
-        // Required-by change trail (newest first) — who moved a line's date, when,
+        // Required-by change trail (newest first) - who moved a line's date, when,
         // and from what to what.
         dateHistory: { orderBy: { createdAt: 'desc' } },
         items: {
@@ -1211,7 +1217,7 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
 
     if (!request) return res.status(404).json({ error: 'Purchase request not found' });
 
-    // Requester roles can only view their own — except QC, who can also view
+    // Requester roles can only view their own - except QC, who can also view
     // PRs from LAB / METROLOGY / NDT under their department oversight.
     if (OWN_ONLY_ROLES.includes(req.user.role) && request.managerId !== req.user.id) {
       const qcOversight =
@@ -1229,7 +1235,7 @@ router.get('/:id', authenticate, authorize(...CHAIN_ROLES), async (req, res) => 
   }
 });
 
-// POST /api/purchase-requests — Requester creates.
+// POST /api/purchase-requests - Requester creates.
 router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
   try {
     const data = createSchema.parse(req.body);
@@ -1239,12 +1245,13 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
     if (!rbCheck.ok) return res.status(400).json({ error: rbCheck.error });
 
     // Unit-bound roles (MANAGER, RND) file PRs against their own unit. Global
-    // roles (STORE_MANAGER, DESIGNS, PLANNING, QC, LAB, METROLOGY, NDT) file
-    // PRs in their own name with no unit attached — their PR is owned by them
+    // roles (STORE_MANAGER, DESIGNS, PLANNING, QC, LAB, METROLOGY, NDT,
+    // ACCOUNTING) file PRs in their own name with no unit attached - owned by them
     // (managerId) and never shows up on any unit dashboard. STORE_MANAGER's
     // PR is effectively "unassigned" (chain-visible); DESIGNS/PLANNING/QC
-    // PRs are own-only. LAB/METROLOGY/NDT/INWARD_QC PRs are own-only but also
-    // visible to QC for first-level approval.
+    // PRs are own-only. LAB/METROLOGY/NDT PRs are own-only but also visible to QC
+    // for first-level approval; INWARD_QC/IN_PROCESS_QC PRs are own-only and go
+    // straight to ADMIN.
     let unitId = null;
     if (GLOBAL_REQUESTER_ROLES.includes(req.user.role)) {
       unitId = null;
@@ -1259,7 +1266,7 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
     // null = "No work order".
     const woLink = await validateWorkOrderLink(prisma, data.workOrderId, unitId);
     if (!woLink.ok) return res.status(400).json({ error: woLink.error });
-    // R&D and a Work Order are mutually exclusive — R&D always clears the WO link.
+    // R&D and a Work Order are mutually exclusive - R&D always clears the WO link.
     const isRnd = !!data.isRnd;
     const workOrderId = isRnd ? null : woLink.workOrderId;
 
@@ -1268,8 +1275,9 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
     if (!resolved.ok) return res.status(400).json({ error: resolved.error });
     const itemsResolved = resolved.items;
 
-    // PRs raised by LAB / METROLOGY / NDT / INWARD_QC enter the QC-approval gate
-    // first. Every other requester role goes straight to ADMIN as before.
+    // PRs raised by LAB / METROLOGY / NDT enter the QC-approval gate first. Every
+    // other requester role - the two QC inspection logins included - goes straight
+    // to ADMIN.
     const needsQcApproval = QC_MANAGED_ROLES.includes(req.user.role);
     const initialStatus = needsQcApproval ? 'PENDING_QC' : 'PENDING_ADMIN';
 
@@ -1378,7 +1386,7 @@ router.post('/', authenticate, authorize(...REQUESTER_ROLES), async (req, res) =
   }
 });
 
-// PUT /api/purchase-requests/:id — Requester edits their own PR while it is
+// PUT /api/purchase-requests/:id - Requester edits their own PR while it is
 // still in an editable status (PENDING_QC for QC-gated requesters, or
 // PENDING_ADMIN for everyone else). Items are fully replaced; productIds are
 // re-resolved just like create so newly added rows still get a Product link.
@@ -1395,7 +1403,7 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
     if (req.user.role !== 'ADMIN' && request.managerId !== req.user.id) {
       return res.status(403).json({ error: 'You can only edit your own requests' });
     }
-    // ON_HOLD is editable too — the whole point of an admin hold is that the
+    // ON_HOLD is editable too - the whole point of an admin hold is that the
     // raiser goes back and fixes what was queried before resending.
     if (!['PENDING_ADMIN', 'PENDING_QC', 'ON_HOLD'].includes(request.status)) {
       return res.status(400).json({ error: 'Only pending requests can be edited' });
@@ -1408,10 +1416,10 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
     // Re-validate the optional Work Order link (any live WO, any unit).
     const woLink = await validateWorkOrderLink(prisma, data.workOrderId, request.unitId);
     if (!woLink.ok) return res.status(400).json({ error: woLink.error });
-    // R&D and a Work Order are mutually exclusive — R&D always clears the WO link.
+    // R&D and a Work Order are mutually exclusive - R&D always clears the WO link.
     const isRnd = !!data.isRnd;
 
-    // Re-resolve each line against Master Data — same rule as create, so a row
+    // Re-resolve each line against Master Data - same rule as create, so a row
     // added during an edit can't slip in as free text either.
     const resolved = await resolvePrItemProducts(data.items);
     if (!resolved.ok) return res.status(400).json({ error: resolved.error });
@@ -1499,7 +1507,7 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
       data: {
         type: 'NEW_PURCHASE_REQUEST',
         title: `Purchase Request ${updated.requestNumber} updated`,
-        message: `${req.user.name} (${unitLabel}) updated PR ${updated.requestNumber} — please review the latest version.`,
+        message: `${req.user.name} (${unitLabel}) updated PR ${updated.requestNumber} - please review the latest version.`,
         targetRole: approverRole,
         sentById: req.user.id,
       },
@@ -1515,7 +1523,7 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
   }
 });
 
-// PUT /api/purchase-requests/:id/required-by — change the required-by date at ANY
+// PUT /api/purchase-requests/:id/required-by - change the required-by date at ANY
 // stage of the PR's life.
 //
 // Deliberately separate from PUT /:id: that route deletes and recreates the item
@@ -1524,9 +1532,9 @@ router.put('/:id', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'), async (
 // updates the date column in place on the existing rows, so it stays safe once
 // the PR is approved, in progress, converted to a PO, or closed.
 //
-// Nothing downstream stores its own copy of this date — the PR list, PR PDF,
+// Nothing downstream stores its own copy of this date - the PR list, PR PDF,
 // quotation screen, PO overdue radar and dashboards all read
-// PurchaseRequestItem.requiredByDate through the relation — so the new date shows
+// PurchaseRequestItem.requiredByDate through the relation - so the new date shows
 // up everywhere the moment it is saved here.
 //
 // Body: { requiredByDate }                    → applies one date to every line
@@ -1584,7 +1592,7 @@ router.put(
         return res.status(400).json({ error: 'Nothing to update' });
       }
 
-      // Only lines whose date actually moved are written and recorded — saving a
+      // Only lines whose date actually moved are written and recorded - saving a
       // row without touching its date must not leave a "changed" entry behind.
       const sameDay = (a, b) => {
         if (!a && !b) return true;
@@ -1666,7 +1674,7 @@ router.put(
         updated.status === 'PENDING_QC' ? 'QC'
           : ['PENDING_ADMIN', 'ON_HOLD'].includes(updated.status) ? 'ADMIN'
             : 'PURCHASE_OFFICER';
-      // Spell out the actual move in the notification — the reader has to know
+      // Spell out the actual move in the notification - the reader has to know
       // the new deadline without opening the PR.
       const dayLabel = (d) => (d ? new Date(d).toLocaleDateString('en-GB') : 'not set');
       const moveLines = realChanges
@@ -1677,9 +1685,9 @@ router.put(
       await prisma.notification.create({
         data: {
           type: 'NEW_PURCHASE_REQUEST',
-          title: `PR ${updated.requestNumber} — required-by date changed`,
+          title: `PR ${updated.requestNumber} - required-by date changed`,
           message:
-            `${req.user.name} (${unitLabel}) changed the required-by date on PR ${updated.requestNumber} — ` +
+            `${req.user.name} (${unitLabel}) changed the required-by date on PR ${updated.requestNumber} - ` +
             `${moveLines}${moreCount > 0 ? ` and ${moreCount} more line(s)` : ''}.`,
           targetRole: approverRole,
           sentById: req.user.id,
@@ -1694,32 +1702,32 @@ router.put(
   },
 );
 
-// ──── PR REMARKS — editable at ANY stage ────
+// ──── PR REMARKS - editable at ANY stage ────
 // Remarks are the running commentary on a PR: the header-level note plus the
 // per-line "Other details / Remarks" column. They keep changing long after the
 // PR is raised (spec clarification, revised urgency, a supplier hint), so they
 // are editable at every status.
 //
 // Deliberately separate from PUT /:id, which deletes and recreates the item rows
-// — only safe while the PR is still pending, because quotations, PO allocations
+// - only safe while the PR is still pending, because quotations, PO allocations
 // and material-pool memberships all point at item IDs. This route updates the
 // remark columns IN PLACE, so it stays safe once the PR is approved, quoted,
 // ordered, closed or rejected.
 //
-// Nothing downstream keeps its own copy of a remark — the PR list/detail, PR
+// Nothing downstream keeps its own copy of a remark - the PR list/detail, PR
 // PDF, quotation screens, record-purchase modal and ION all read
 // PurchaseRequest.notes / PurchaseRequestItem.itemRemarks through the relation
-// — so an edit surfaces everywhere on the next load.
+// - so an edit surfaces everywhere on the next load.
 const MAX_REMARK_LEN = 1000;
 
-// Roles that ACT on what a remark says — Purchase buys against it, Stores
+// Roles that ACT on what a remark says - Purchase buys against it, Stores
 // receives/issues against it. Both are notified on every remark edit; a silent
 // change would leave them working from a stale instruction.
 const REMARK_WATCHER_ROLES = ['PURCHASE_OFFICER', 'STORE_MANAGER'];
 
 // Trims a remark to text-or-null. Remarks are free-form and often very short
 // ("grade SS316"), so they deliberately skip the gibberish `validateReason`
-// check that mandatory delay reasons get — only length is enforced.
+// check that mandatory delay reasons get - only length is enforced.
 function parseRemark(raw, label) {
   if (raw === undefined || raw === null) return { ok: true, value: null };
   const text = String(raw).trim();
@@ -1787,7 +1795,7 @@ router.put('/:id/remarks', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'),
       });
     }
 
-    // Only genuinely-changed remarks are written, audited and notified — resaving
+    // Only genuinely-changed remarks are written, audited and notified - resaving
     // the same text must not spam Purchase and Stores.
     const changes = [];
     if (hasHeader && headerNotes !== (request.notes || null)) {
@@ -1865,11 +1873,11 @@ router.put('/:id/remarks', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'),
     const statusText = String(request.status).replace(/_/g, ' ').toLowerCase();
     const message =
       `${req.user.name} (${unitLabel}) updated remarks on PR ${request.requestNumber} ` +
-      `(${statusText}) — ${parts.join(' · ')}`;
+      `(${statusText}) - ${parts.join(' · ')}`;
 
     const targets = REMARK_WATCHER_ROLES.map((role) => ({
       type: 'PR_REMARK_UPDATED',
-      title: `PR ${request.requestNumber} — remarks updated`,
+      title: `PR ${request.requestNumber} - remarks updated`,
       message,
       targetRole: role,
       sentById: req.user.id,
@@ -1878,7 +1886,7 @@ router.put('/:id/remarks', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'),
     if (request.managerId && request.managerId !== req.user.id) {
       targets.push({
         type: 'PR_REMARK_UPDATED',
-        title: `PR ${request.requestNumber} — remarks updated`,
+        title: `PR ${request.requestNumber} - remarks updated`,
         message,
         targetUserId: request.managerId,
         sentById: req.user.id,
@@ -1893,7 +1901,7 @@ router.put('/:id/remarks', authenticate, authorize(...REQUESTER_ROLES, 'ADMIN'),
   }
 });
 
-// PUT /api/purchase-requests/:id/qc-approve — QC department first-level approval
+// PUT /api/purchase-requests/:id/qc-approve - QC department first-level approval
 // for PRs raised by LAB / METROLOGY / NDT. On success the PR moves on to ADMIN
 // for the second-level approval (status PENDING_QC → PENDING_ADMIN).
 router.put('/:id/qc-approve', authenticate, authorize('QC'), async (req, res) => {
@@ -1917,7 +1925,7 @@ router.put('/:id/qc-approve', authenticate, authorize('QC'), async (req, res) =>
       return res.status(400).json({ error: 'This PR is not under QC oversight' });
     }
 
-    // 48-hour QC SLA — measured from when the PR was raised (createdAt).
+    // 48-hour QC SLA - measured from when the PR was raised (createdAt).
     // Past 48h, QC MUST record a genuine delay remark before approving.
     if ((new Date() - new Date(request.createdAt)) > SLA_48H_PR && !qcDelayRemark?.trim()) {
       return res.status(400).json({ error: 'This QC approval is past the 48-hour SLA. Please provide a delay remark explaining why.' });
@@ -1962,13 +1970,13 @@ router.put('/:id/qc-approve', authenticate, authorize('QC'), async (req, res) =>
         {
           type: 'NEW_PURCHASE_REQUEST',
           title: `New Purchase Request: ${request.requestNumber}`,
-          message: `${request.manager.name} (${request.manager.role}) raised PR ${request.requestNumber} — QC has approved, awaiting your review.`,
+          message: `${request.manager.name} (${request.manager.role}) raised PR ${request.requestNumber} - QC has approved, awaiting your review.`,
           targetRole: 'ADMIN',
           sentById: req.user.id,
         },
         {
           type: 'PURCHASE_REQUEST_APPROVED',
-          title: `Purchase Request ${request.requestNumber} — QC Approved`,
+          title: `Purchase Request ${request.requestNumber} - QC Approved`,
           message: `Your purchase request ${request.requestNumber} has been approved by QC and forwarded to admin.${qcNotes ? ' QC notes: ' + qcNotes : ''}`,
           targetUserId: request.managerId,
           sentById: req.user.id,
@@ -1983,7 +1991,7 @@ router.put('/:id/qc-approve', authenticate, authorize('QC'), async (req, res) =>
   }
 });
 
-// PUT /api/purchase-requests/:id/qc-reject — QC rejects a LAB/METROLOGY/NDT PR
+// PUT /api/purchase-requests/:id/qc-reject - QC rejects a LAB/METROLOGY/NDT PR
 // before it ever reaches ADMIN.
 router.put('/:id/qc-reject', authenticate, authorize('QC'), async (req, res) => {
   try {
@@ -2050,7 +2058,7 @@ router.put('/:id/qc-reject', authenticate, authorize('QC'), async (req, res) => 
 
 const SLA_48H_PR = 48 * 60 * 60 * 1000;
 
-// PUT /api/purchase-requests/:id/admin-approve — Admin approves (can change qty + add notes)
+// PUT /api/purchase-requests/:id/admin-approve - Admin approves (can change qty + add notes)
 router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
     const { adminNotes, items, adminDelayRemark } = req.body;
@@ -2151,7 +2159,7 @@ router.put('/:id/admin-approve', authenticate, authorize('ADMIN'), async (req, r
   }
 });
 
-// PUT /api/purchase-requests/:id/admin-reject — Admin rejects
+// PUT /api/purchase-requests/:id/admin-reject - Admin rejects
 router.put('/:id/admin-reject', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
     const { adminNotes } = req.body;
@@ -2213,14 +2221,14 @@ router.put('/:id/admin-reject', authenticate, authorize('ADMIN'), async (req, re
   }
 });
 
-// ──── ADMIN HOLD — "send back for clarification" ────
+// ──── ADMIN HOLD - "send back for clarification" ────
 // Admin has a doubt but doesn't want to reject: the remark goes to the raiser,
 // the PR parks in ON_HOLD, and the raiser answers (and may fix the lines, since
 // PUT /:id accepts ON_HOLD) before resending. Each round is appended to
 // holdHistory so a PR held twice keeps both exchanges.
 // Same shape as the QC-inward hold (materialInward.routes.js /qc-review).
 
-// PUT /api/purchase-requests/:id/admin-hold — Admin holds the PR for clarification
+// PUT /api/purchase-requests/:id/admin-hold - Admin holds the PR for clarification
 router.put('/:id/admin-hold', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
     const { holdRemark } = req.body;
@@ -2298,7 +2306,7 @@ router.put('/:id/admin-hold', authenticate, authorize('ADMIN'), async (req, res)
         data: {
           type: 'PURCHASE_REQUEST_HELD',
           title: `Clarification needed on ${request.requestNumber}`,
-          message: `${req.user.name} has put your purchase request ${request.requestNumber} on hold and needs a clarification: "${remark}" — answer it (edit the request if needed) and resend for approval.`,
+          message: `${req.user.name} has put your purchase request ${request.requestNumber} on hold and needs a clarification: "${remark}" - answer it (edit the request if needed) and resend for approval.`,
           targetUserId: request.managerId,
           sentById: req.user.id,
         },
@@ -2312,7 +2320,7 @@ router.put('/:id/admin-hold', authenticate, authorize('ADMIN'), async (req, res)
   }
 });
 
-// PUT /api/purchase-requests/:id/hold-response — raiser answers and resends to Admin
+// PUT /api/purchase-requests/:id/hold-response - raiser answers and resends to Admin
 router.put(
   '/:id/hold-response',
   authenticate,
@@ -2408,7 +2416,7 @@ router.put(
         data: {
           type: 'PURCHASE_REQUEST_HOLD_ANSWERED',
           title: `Clarification received on ${request.requestNumber}`,
-          message: `${req.user.name} answered the hold on purchase request ${request.requestNumber}${request.unit ? ` (${request.unit.name})` : ''}: "${answer}" — it is back in your approval queue.`,
+          message: `${req.user.name} answered the hold on purchase request ${request.requestNumber}${request.unit ? ` (${request.unit.name})` : ''}: "${answer}" - it is back in your approval queue.`,
           ...(request.heldById ? { targetUserId: request.heldById } : { targetRole: 'ADMIN' }),
           sentById: req.user.id,
         },
@@ -2422,7 +2430,7 @@ router.put(
   },
 );
 
-// PUT /api/purchase-requests/:id/admin-update-notes — Admin updates notes on any request
+// PUT /api/purchase-requests/:id/admin-update-notes - Admin updates notes on any request
 router.put('/:id/admin-update-notes', authenticate, authorize('ADMIN'), async (req, res) => {
   try {
     const { adminNotes } = req.body;
@@ -2447,7 +2455,7 @@ router.put('/:id/admin-update-notes', authenticate, authorize('ADMIN'), async (r
   }
 });
 
-// PUT /api/purchase-requests/:id/record-purchase — PO records partial/full purchase
+// PUT /api/purchase-requests/:id/record-purchase - PO records partial/full purchase
 router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), async (req, res) => {
   try {
     const { items } = req.body; // [{ id, purchasedQty }]
@@ -2543,7 +2551,7 @@ router.put('/:id/record-purchase', authenticate, authorize('PURCHASE_OFFICER'), 
   }
 });
 
-// PUT /api/purchase-requests/:id/cancel — Requester cancels own pending request
+// PUT /api/purchase-requests/:id/cancel - Requester cancels own pending request
 router.put('/:id/cancel', authenticate, authorize(...REQUESTER_ROLES), async (req, res) => {
   try {
     const request = await prisma.purchaseRequest.findUnique({
@@ -2586,7 +2594,7 @@ router.put('/:id/cancel', authenticate, authorize(...REQUESTER_ROLES), async (re
   }
 });
 
-// POST /api/purchase-requests/:id/close — Unit Manager manually closes their
+// POST /api/purchase-requests/:id/close - Unit Manager manually closes their
 // own PR. Allowed in any non-terminal state. Any still-live items are flipped
 // to CANCELLED (which also prunes their pending quotations) and the PR is
 // forced to COMPLETED so downstream queues stop tracking it.
@@ -2678,23 +2686,54 @@ router.put('/:id/convert-to-cash-purchase', authenticate, authorize('PURCHASE_OF
     });
 
     if (!request) return res.status(404).json({ error: 'Purchase request not found' });
-    if (request.status !== 'APPROVED') {
-      return res.status(400).json({ error: 'Only APPROVED purchase requests can be converted to cash purchase' });
+    if (!['APPROVED', 'IN_PROGRESS', 'CASH_PURCHASE'].includes(request.status)) {
+      return res.status(400).json({ error: 'Only approved purchase requests can be converted to cash purchase' });
     }
 
-    const liveItemIds = request.items
-      .filter((i) => i.itemQuotationStatus !== 'CANCELLED')
+    const liveItems = request.items.filter((i) => i.itemQuotationStatus !== 'CANCELLED');
+    const liveItemIds = liveItems.map((i) => i.id);
+    // Lines still on the quotation track - the only ones a conversion can move.
+    // A line already received as cash must never be reset to WAITING, and a line
+    // already marked cash is not "moved" again.
+    const convertibleIds = liveItems
+      .filter((i) => i.itemQuotationStatus !== 'CASH_PURCHASE' && i.itemStatus !== 'RECEIVED')
       .map((i) => i.id);
 
+    // Cash purchase is a per-LINE decision. `itemIds` names the lines being bought
+    // over the counter; everything else carries on through quotation/PO untouched.
+    // No list = the whole PR goes cash, which is the old whole-PR behaviour.
+    const requested = Array.isArray(req.body?.itemIds) ? req.body.itemIds : null;
+    const convertibleSet = new Set(convertibleIds);
+    const targetIds = requested === null
+      ? convertibleIds
+      : requested.filter((id) => convertibleSet.has(id));
+
+    if (targetIds.length === 0) {
+      return res.status(400).json({ error: 'Select at least one line that is still on the quotation route to buy as a cash purchase' });
+    }
+
     await prisma.$transaction(async (tx) => {
-      if (liveItemIds.length > 0) {
-        await cancelLeftoverPRItems(tx, liveItemIds, 'Converted to cash purchase');
-      }
-      await tx.purchaseRequest.update({
-        where: { id: request.id },
-        data: { status: 'CASH_PURCHASE' },
+      // Mark the chosen lines as cash. They are NOT cancelled: the material is
+      // still coming, it just arrives on a MIR instead of through a PO. The old
+      // code cancelled every line here, which silently killed the lines nobody
+      // intended to buy with cash.
+      await tx.purchaseRequestItem.updateMany({
+        where: { id: { in: targetIds } },
+        data: { itemQuotationStatus: 'CASH_PURCHASE', itemStatus: 'WAITING' },
       });
+      // The PR itself only becomes a cash purchase when nothing is left on the
+      // quotation track. syncPRStatusAfterChange works that out from the lines -
+      // including the case where earlier conversions already moved the rest - so
+      // it decides in both directions rather than being second-guessed here.
+      await syncPRStatusAfterChange(tx, request.id);
     });
+
+    // "Partial" means something is STILL on the quotation route after this. It is
+    // measured against the lines that could be converted, not against every live
+    // line: counting lines already on cash made a PR that is now wholly cash
+    // report that some lines "stay on the normal quotation / PO route".
+    const remainingQuoted = convertibleIds.filter((id) => !targetIds.includes(id)).length;
+    const partial = remainingQuoted > 0;
 
     await prisma.auditLog.create({
       data: {
@@ -2702,24 +2741,38 @@ router.put('/:id/convert-to-cash-purchase', authenticate, authorize('PURCHASE_OF
         action: 'CONVERT_TO_CASH_PURCHASE',
         entity: 'PurchaseRequest',
         entityId: request.id,
-        details: { requestNumber: request.requestNumber },
+        details: {
+          requestNumber: request.requestNumber,
+          lines: targetIds.length,
+          ofLines: liveItemIds.length,
+          partial,
+        },
         ipAddress: req.ip,
       },
     });
+
+    // Say plainly how much of the PR went cash - "converted to cash purchase" on a
+    // 10-line PR where 2 lines were meant is how the confusion started.
+    const scope = partial
+      ? `${targetIds.length} of ${liveItemIds.length} line(s)`
+      : 'every remaining line';
+    const rest = partial
+      ? ` The other ${remainingQuoted} line(s) stay on the normal quotation / PO route.`
+      : '';
 
     await prisma.notification.createMany({
       data: [
         {
           type: 'PURCHASE_REQUEST_APPROVED',
-          title: `PR ${request.requestNumber} converted to Cash Purchase`,
-          message: `Purchase request ${request.requestNumber} has been converted to a cash purchase by ${req.user.name}. Stores will receive the material directly.`,
+          title: `PR ${request.requestNumber}: ${scope} moved to Cash Purchase`,
+          message: `${req.user.name} moved ${scope} of purchase request ${request.requestNumber} to cash purchase. Stores will receive that material directly.${rest}`,
           targetUserId: request.managerId,
           sentById: req.user.id,
         },
         {
           type: 'PURCHASE_REQUEST_APPROVED',
-          title: `PR ${request.requestNumber} — Cash Purchase`,
-          message: `PR ${request.requestNumber} from ${request.manager?.name || 'requester'}${request.unit ? ` (${request.unit.name})` : ''} has been converted to a cash purchase. Awaiting store receipt.`,
+          title: `PR ${request.requestNumber} - Cash Purchase (${scope})`,
+          message: `PR ${request.requestNumber} from ${request.manager?.name || 'requester'}${request.unit ? ` (${request.unit.name})` : ''} has ${scope} to receive as a cash purchase. Record it from Inward Entry: pick Cash Purchase, then this PR, then tick the lines you received.${rest}`,
           targetRole: 'STORE_MANAGER',
           sentById: req.user.id,
         },

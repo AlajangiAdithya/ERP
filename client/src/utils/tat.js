@@ -4,10 +4,10 @@
 // Every pending task (PR acceptance, PO creation, unit acceptance, …) has a
 // "pending since" timestamp. This computes an ageing level so lists can flag
 // slow items at a glance:
-//   • ok     — within the warn window (default < 24h)
-//   • warn   — over the warn window (yellow, default ≥ 24h)
-//   • breach — over the breach window (red, default ≥ 48h)
-//   • none   — no timestamp / not applicable
+//   • ok     - within the warn window (default < 24h)
+//   • warn   - over the warn window (yellow, default ≥ 24h)
+//   • breach - over the breach window (red, default ≥ 48h)
+//   • none   - no timestamp / not applicable
 //
 // Thresholds match the 48h SLA already enforced on the delay-remark fields.
 // ────────────────────────────────────────────────────────────────

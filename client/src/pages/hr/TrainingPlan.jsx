@@ -1,4 +1,4 @@
-// Annual Training Plan — HR creates/edits the plan; Managers add items for
+// Annual Training Plan - HR creates/edits the plan; Managers add items for
 // their unit; everyone else view-only.
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarRange, Plus, Pencil, Trash2, X, Save, AlertTriangle } from 'lucide-react';
@@ -253,11 +253,11 @@ export default function TrainingPlan() {
                         <td className="py-2 pr-2 text-gray-500">{it.serialNo}</td>
                         <td className="py-2 pr-2 font-semibold text-navy-900">{it.subject}</td>
                         <td className="py-2 pr-2">{it.participants}</td>
-                        <td className="py-2 pr-2">{it.faculty || '—'}</td>
-                        <td className="py-2 pr-2">{it.scheduledMonth || '—'}</td>
-                        <td className="py-2 pr-2">{it.actualMonth || '—'}</td>
-                        <td className="py-2 pr-2">{it.hoursPerMonth ?? '—'}</td>
-                        <td className="py-2 pr-2">{it.unit?.code || '—'}</td>
+                        <td className="py-2 pr-2">{it.faculty || '-'}</td>
+                        <td className="py-2 pr-2">{it.scheduledMonth || '-'}</td>
+                        <td className="py-2 pr-2">{it.actualMonth || '-'}</td>
+                        <td className="py-2 pr-2">{it.hoursPerMonth ?? '-'}</td>
+                        <td className="py-2 pr-2">{it.unit?.code || '-'}</td>
                         <td className="py-2 pr-2">
                           <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
                             it.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' :
@@ -265,7 +265,7 @@ export default function TrainingPlan() {
                             it.status === 'CANCELLED' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
                           }`}>{it.status}</span>
                         </td>
-                        <td className="py-2 pr-2 text-[10px] text-gray-500">{it.createdBy?.name || '—'}</td>
+                        <td className="py-2 pr-2 text-[10px] text-gray-500">{it.createdBy?.name || '-'}</td>
                         <td className="py-2 pr-2 text-right">
                           {canEditItem(it) && (
                             <>
@@ -333,13 +333,13 @@ export default function TrainingPlan() {
             </Field>
             <Field label="Scheduled month">
               <select value={itemForm.scheduledMonth} onChange={(e) => setItemForm({ ...itemForm, scheduledMonth: e.target.value })} className={INPUT_CLS}>
-                <option value="">—</option>
+                <option value="">-</option>
                 {MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             </Field>
             <Field label="Actual month">
               <select value={itemForm.actualMonth} onChange={(e) => setItemForm({ ...itemForm, actualMonth: e.target.value })} className={INPUT_CLS}>
-                <option value="">—</option>
+                <option value="">-</option>
                 {MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             </Field>

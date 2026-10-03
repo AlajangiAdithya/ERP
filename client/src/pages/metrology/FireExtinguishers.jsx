@@ -13,7 +13,7 @@ import PageHero from '../../components/shared/PageHero';
 import { formatDate } from '../../utils/formatters';
 
 // ──────────────────────────────────────────────────────────────
-// Fire Extinguisher register — lives under Measuring & Monitoring
+// Fire Extinguisher register - lives under Measuring & Monitoring
 // Resources. SAFETY (department) and Unit-5 users edit; everyone
 // else views. Server enforces via fireExtinguisher.routes.js.
 // ──────────────────────────────────────────────────────────────
@@ -184,18 +184,18 @@ function FireExtinguisherTable({ items, canWrite, onEdit, onDelete }) {
               <td className="px-3 py-2 font-medium text-navy-800">{f.type}</td>
               <td className="px-3 py-2 text-gray-600">{f.capacity}</td>
               <td className="px-3 py-2 font-mono text-xs text-gray-700">{f.rapsId}</td>
-              <td className="px-3 py-2 text-gray-600">{f.refilledOn ? formatDate(f.refilledOn) : '—'}</td>
+              <td className="px-3 py-2 text-gray-600">{f.refilledOn ? formatDate(f.refilledOn) : '-'}</td>
               <td className="px-3 py-2">
                 {f.nextDueOn
                   ? <DueBadge date={f.nextDueOn} />
-                  : <span className="text-gray-400">—</span>}
+                  : <span className="text-gray-400">-</span>}
               </td>
               <td className="px-3 py-2 text-gray-600">{f.unit}</td>
-              <td className="px-3 py-2 text-gray-600">{f.location || '—'}</td>
+              <td className="px-3 py-2 text-gray-600">{f.location || '-'}</td>
               <td className="px-3 py-2">
                 {f.attachment
                   ? <a href={f.attachment} target="_blank" rel="noreferrer" className="text-navy-600"><FileText size={14} /></a>
-                  : <span className="text-gray-300">—</span>}
+                  : <span className="text-gray-300">-</span>}
               </td>
               {canWrite && (
                 <td className="px-3 py-2">

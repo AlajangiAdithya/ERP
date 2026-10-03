@@ -27,7 +27,7 @@ export default function Products() {
   const { user } = useAuth();
   // Master Data lives here as a second tab. Same viewers as the old standalone
   // screen; editing is restricted to Unit 1–5 managers (+ Admin).
-  // (The FIM Status register moved to the Material Inward page — a FIM only
+  // (The FIM Status register moved to the Material Inward page - a FIM only
   // exists because Stores inwarded it, so its lifecycle belongs with that intake.)
   const canSeeMasterData = ['ADMIN', 'MANAGER', 'QC', 'SUPERADMIN'].includes(user?.role);
   // Honor ?tab=master so the dedicated master-data page's "Back to Master Data"
@@ -44,15 +44,15 @@ export default function Products() {
   const [showModal, setShowModal] = useState(false);
   const [categories, setCategories] = useState([]);
   const [catFilter, setCatFilter] = useState('');
-  const [sort, setSort] = useState('name'); // 'name' | 'category' | 'id' — default alphabetical
+  const [sort, setSort] = useState('name'); // 'name' | 'category' | 'id' - default alphabetical
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
   // Adding products + specs/MSDS stays on the Master Data screen (owned by Unit
   // 1–5 managers + QC). The Add Product button here remains master-only.
   const canEdit = false;
-  // TEMPORARY (new-system rollout): Stores can edit a product's *details* — material code,
-  // name, material type, specification, shelf life, storage temp — straight from
+  // TEMPORARY (new-system rollout): Stores can edit a product's *details* - material code,
+  // name, material type, specification, shelf life, storage temp - straight from
   // this list. Never stock numbers. Auto-expires (STORE_PRODUCT_EDIT_UNTIL); every
   // change is logged to the product's Edit History (visible on its detail page).
   // Whether the Edit column exists at all. Who may edit WHICH product is decided
@@ -109,7 +109,7 @@ export default function Products() {
   };
 
   // Fetch every product (paginating internally) and emit a CSV stock statement.
-  // CSV is opened natively by Excel — no extra dependency needed.
+  // CSV is opened natively by Excel - no extra dependency needed.
   const downloadStockStatement = async () => {
     if (downloading) return;
     setDownloading(true);
@@ -181,7 +181,7 @@ export default function Products() {
     }
   };
 
-  // New products are entered as a list — Stores usually adds several items at
+  // New products are entered as a list - Stores usually adds several items at
   // once, so the modal starts with one blank row and grows via "Add More Items".
   const blankItem = () => ({
     materialCode: '', name: '', description: '', category: DEFAULT_MATERIAL_TYPE, unit: 'pcs',
@@ -246,7 +246,7 @@ export default function Products() {
   // Expiry-status colour for the table's Expiry Date column. earliestExpiry comes
   // from the server (computed across all batches with remaining > 0).
   const renderExpiry = (iso) => {
-    if (!iso) return <span className="text-xs text-gray-400">—</span>;
+    if (!iso) return <span className="text-xs text-gray-400">-</span>;
     const d = new Date(iso);
     const days = Math.ceil((d - new Date()) / (1000 * 60 * 60 * 24));
     const label = d.toLocaleDateString();
@@ -268,11 +268,11 @@ export default function Products() {
       key: 'materialCode', label: 'Material Code', width: 100,
       render: (v, row) => {
         const id = v || row.sku;
-        return id ? <span className="text-sm font-semibold text-navy-700">{id}</span> : <span className="text-xs text-gray-400">—</span>;
+        return id ? <span className="text-sm font-semibold text-navy-700">{id}</span> : <span className="text-xs text-gray-400">-</span>;
       },
     },
     { key: 'name', label: 'Name' },
-    { key: 'category', label: 'Category', render: (v) => v || '—' },
+    { key: 'category', label: 'Category', render: (v) => v || '-' },
     {
       key: 'currentStock', label: 'Total Stock',
       render: (v, row) => (
@@ -320,19 +320,19 @@ export default function Products() {
       // expiring lots before issuing them.
       key: 'earliestExpiry', label: 'Expiry Date', render: (v) => renderExpiry(v),
     },
-    { key: 'minStockLevel', label: 'Min Level', render: (v, row) => v > 0 ? `${v} ${row.unit}` : '—' },
+    { key: 'minStockLevel', label: 'Min Level', render: (v, row) => v > 0 ? `${v} ${row.unit}` : '-' },
     {
-      // Storage handling — shown to everyone, edited by Stores (pencil column).
+      // Storage handling - shown to everyone, edited by Stores (pencil column).
       key: 'shelfLife', label: 'Shelf Life',
-      render: (v) => v ? <span className="text-sm text-gray-700">{v}</span> : <span className="text-xs text-gray-400">—</span>,
+      render: (v) => v ? <span className="text-sm text-gray-700">{v}</span> : <span className="text-xs text-gray-400">-</span>,
     },
     {
       key: 'storageTemp', label: 'Room Temp',
-      render: (v) => v ? <span className="text-sm text-gray-700">{v}</span> : <span className="text-xs text-gray-400">—</span>,
+      render: (v) => v ? <span className="text-sm text-gray-700">{v}</span> : <span className="text-xs text-gray-400">-</span>,
     },
   ];
 
-  // Inline edit affordance for the product's details — drawn only on the rows
+  // Inline edit affordance for the product's details - drawn only on the rows
   // this user may actually edit (the server enforces the same rule). Edits are
   // logged to the product's Edit History.
   const tableColumns = canEditDetails
@@ -358,7 +358,7 @@ export default function Products() {
     <div className="space-y-6">
       <PageHero
         title="Stock Details"
-        subtitle="Current stock, batches, per-unit balances and product master data — all in one place."
+        subtitle="Current stock, batches, per-unit balances and product master data - all in one place."
         eyebrow="Stock Details"
         icon={Package}
         actions={
@@ -410,7 +410,7 @@ export default function Products() {
               <span>
                 <strong>Temporary edit access.</strong> You can correct a product's details
                 (material code, name, material type, specification, shelf life, storage temp) using the
-                <span className="inline-flex items-center gap-0.5 font-medium"> <Pencil size={11} /> Edit</span> button — stock numbers can't be changed here.
+                <span className="inline-flex items-center gap-0.5 font-medium"> <Pencil size={11} /> Edit</span> button - stock numbers can't be changed here.
                 Every change is recorded in that product's <strong>Edit History</strong> (open the product to see it).
                 This access ends on {STORE_PRODUCT_EDIT_UNTIL.toLocaleDateString()}.
               </span>
@@ -446,7 +446,7 @@ export default function Products() {
         <ProductMasterData embedded />
       )}
 
-      {/* Add Product(s) Modal — enter one or many items in one go */}
+      {/* Add Product(s) Modal - enter one or many items in one go */}
       {canEdit && (
         <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Products" size="lg">
           <form onSubmit={handleCreate} className="space-y-4">
@@ -512,9 +512,9 @@ export default function Products() {
       )}
 
       {/* Edit product details (master owners + Stores temporary access).
-          Stock numbers are intentionally absent — only descriptive details. */}
+          Stock numbers are intentionally absent - only descriptive details. */}
       {editTarget && canEditProductDetails(user, editTarget) && (
-        <Modal isOpen onClose={() => setEditTarget(null)} title={`Edit details — ${editTarget.name}`} size="lg">
+        <Modal isOpen onClose={() => setEditTarget(null)} title={`Edit details - ${editTarget.name}`} size="lg">
           <form onSubmit={saveEditDetails} className="space-y-4">
             {editError && <p className="text-sm text-brand-red">{editError}</p>}
             <p className="text-xs text-gray-500">
@@ -540,7 +540,7 @@ export default function Products() {
                 value={editForm.category}
                 onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
               >
-                <option value="">—</option>
+                <option value="">-</option>
                 {withStoredType(materialTypes, editForm.category).map((mt) => <option key={mt} value={mt}>{mt}</option>)}
               </Select>
               <Select

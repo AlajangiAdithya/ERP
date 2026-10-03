@@ -84,7 +84,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/reports/unit-usage — Admin: unit-wise product consumption
+// GET /api/reports/unit-usage - Admin: unit-wise product consumption
 router.get('/unit-usage', authenticate, authorize('ADMIN', 'SAFETY'), async (req, res) => {
   try {
     const { unitId, page, limit, startDate, endDate } = req.query;
@@ -143,7 +143,7 @@ router.get('/unit-usage', authenticate, authorize('ADMIN', 'SAFETY'), async (req
   }
 });
 
-// GET /api/reports/audit-logs — Admin / Safety / Planning / Accounting / Finance: full audit logs (read-only)
+// GET /api/reports/audit-logs - Admin / Safety / Planning / Accounting / Finance: full audit logs (read-only)
 router.get('/audit-logs', authenticate, authorize('ADMIN', 'SAFETY', 'PLANNING', 'ACCOUNTING', 'FINANCE'), async (req, res) => {
   try {
     const { userId, action, entity, page, limit, fromDate, toDate, startDate, endDate } = req.query;
@@ -180,7 +180,7 @@ router.get('/audit-logs', authenticate, authorize('ADMIN', 'SAFETY', 'PLANNING',
   }
 });
 
-// GET /api/reports/unit-summary — Admin: summary of unit-wise consumption
+// GET /api/reports/unit-summary - Admin: summary of unit-wise consumption
 router.get('/unit-summary', authenticate, authorize('ADMIN', 'SAFETY'), async (req, res) => {
   try {
     const summaries = await prisma.$queryRaw`

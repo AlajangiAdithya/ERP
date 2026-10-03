@@ -1,4 +1,4 @@
-// Standard dashboard section header — icon chip + title (+ count) + subtitle,
+// Standard dashboard section header - icon chip + title (+ count) + subtitle,
 // with an optional action slot on the right. Keeps every card heading on the
 // same visual rhythm across role dashboards.
 const TONE = {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Building2, Calendar, Truck, User as UserIcon, ArrowRightLeft, AlertTriangle,
   Hash, PackageCheck, RotateCcw, FlaskConical, CheckCircle2, FileText, Pencil,
@@ -19,7 +19,7 @@ import SearchBar from '../shared/SearchBar';
 // the outward gate pass registers.
 
 // Uploaded docs (customer GP scans, FIM test reports) are served from the API
-// origin, not the app origin — strip the trailing /api and prefix.
+// origin, not the app origin - strip the trailing /api and prefix.
 const API_ORIGIN = (api.defaults.baseURL || '').replace(/\/api\/?$/, '') || '';
 const fileUrl = (u) => (u && u.startsWith('http') ? u : `${API_ORIGIN}${u || ''}`);
 
@@ -39,19 +39,40 @@ function returnCountdown(returnDate) {
   return { label: `${diff} days left`, color: 'gray', urgent: false };
 }
 
-// FIM lifecycle stages, in order. Mirrors FIM_STAGES on the server — a batch's
+// FIM lifecycle stages, in order. Mirrors FIM_STAGES on the server - a batch's
 // stage is derived from which columns are set, never stored separately.
 const FIM_STATUS_ORDER = ['IN_STORES', 'ASSIGNED', 'ACCEPTED', 'READY_TO_SEND'];
 const FIM_STATUS_LABELS = {
   IN_STORES: 'In stores (unassigned)',
-  ASSIGNED: 'Assigned to unit — awaiting acceptance',
+  ASSIGNED: 'Assigned to unit - awaiting acceptance',
   ACCEPTED: 'Accepted by unit',
   READY_TO_SEND: 'Ready to collect / send out',
 };
 
+// One count on the register's summary strip.
+const FIM_TILE_TONES = {
+  navy:  'border-navy-200 bg-navy-50 text-navy-800',
+  green: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  amber: 'border-amber-200 bg-amber-50 text-amber-800',
+  red:   'border-rose-300 bg-rose-50 text-rose-800',
+  gray:  'border-gray-200 bg-gray-50 text-gray-600',
+};
+
+function FimTile({ tone = 'navy', label, value, hint }) {
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${FIM_TILE_TONES[tone] || FIM_TILE_TONES.navy}`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">{label}</span>
+        <span className="text-xl font-bold tabular-nums leading-none">{value}</span>
+      </div>
+      {hint && <div className="text-[10px] mt-1 opacity-75 leading-snug">{hint}</div>}
+    </div>
+  );
+}
+
 // Lists every FIM batch (customer-owned material inwarded via INWARD gate pass)
 // with assignment + acceptance controls and a red return-date countdown.
-// `onOpenProduct` is optional — the register links to the product page when the
+// `onOpenProduct` is optional - the register links to the product page when the
 // host screen can navigate there.
 export default function FimStatusRegister({ user, onOpenProduct }) {
   const [batches, setBatches] = useState([]);
@@ -64,11 +85,11 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
   const [editRemarkTarget, setEditRemarkTarget] = useState(null); // { batchId, productName, existing }
   const [readyTarget, setReadyTarget] = useState(null); // batch (unit manager marks ready)
   const [sendOutTarget, setSendOutTarget] = useState(null); // batch (stores ships)
-  // ADMIN status override — the normal transitions are one-way, so this is the
+  // ADMIN status override - the normal transitions are one-way, so this is the
   // only route back when a FIM ends up on the wrong unit or accepted in error.
   const [statusTarget, setStatusTarget] = useState(null); // batch
   const [statusForm, setStatusForm] = useState({ status: '', unitId: '', remark: '', note: '', reason: '' });
-  // Probable return date — lives on the source inward gate pass line, and drives
+  // Probable return date - lives on the source inward gate pass line, and drives
   // the overdue countdown, so changing it is reasoned + logged.
   const [returnTarget, setReturnTarget] = useState(null); // batch
   const [returnForm, setReturnForm] = useState({ date: '', reason: '' });
@@ -148,7 +169,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
       await api.put(`/gatepasses/fim-batches/${readyTarget.id}/mark-ready`, { note: readyNote.trim() || undefined });
       setReadyTarget(null);
       setReadyNote('');
-      setFlash('Marked Ready to Collect — Stores has been notified.');
+      setFlash('Marked Ready to Collect - Stores has been notified.');
       setTimeout(() => setFlash(''), 6000);
       fetchBatches();
     } catch (err) {
@@ -205,7 +226,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
         reason: reason.trim(),
       });
       setStatusTarget(null);
-      setFlash('FIM status updated — the unit and Stores have been notified.');
+      setFlash('FIM status updated - the unit and Stores have been notified.');
       setTimeout(() => setFlash(''), 6000);
       fetchBatches();
     } catch (err) {
@@ -230,7 +251,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
         reason: returnForm.reason.trim(),
       });
       setReturnTarget(null);
-      setFlash('Probable return date updated — the unit and Stores have been notified.');
+      setFlash('Probable return date updated - the unit and Stores have been notified.');
       setTimeout(() => setFlash(''), 6000);
       fetchBatches();
     } catch (err) {
@@ -253,7 +274,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
       );
       setSendOutTarget(null);
       setSendOutForm({ vehicleNo: '', driverName: '', remarks: '' });
-      setFlash(`Return gate pass ${data.passNumber} created — pending Store Incharge.`);
+      setFlash(`Return gate pass ${data.passNumber} created - pending Store Incharge.`);
       setTimeout(() => setFlash(''), 8000);
       fetchBatches();
     } catch (err) {
@@ -262,8 +283,46 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
     setActionBusy(false);
   };
 
-  // Section divider style — used between column groups in the table header
+  // Section divider style - used between column groups in the table header
   const groupBorder = 'border-r-2 border-navy-300';
+
+  // ── Open / closed, split the way FIM actually works ──
+  // RETURNABLE is customer property we are holding: it stays OPEN until it has
+  // physically gone back (the linked outward gate pass carries an actual return
+  // date, or is CLOSED). NON_RETURNABLE is ours to consume: it is settled once
+  // the unit has accepted it, since nothing is owed back to the customer.
+  // Overdue counts only returnable FIM still with us past its return date.
+  const totals = useMemo(() => {
+    const t = {
+      returnable: { open: 0, closed: 0, overdue: 0, dueSoon: 0 },
+      nonReturnable: { open: 0, closed: 0 },
+    };
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    batches.forEach((b) => {
+      const it = b.sourceInwardGatePassItem || {};
+      const links = Array.isArray(it.outwardLinkedItems) ? it.outwardLinkedItems : [];
+      const returned = links.some((l) => l.gatePass?.actualReturnDate || l.gatePass?.status === 'CLOSED');
+
+      if (it.itemPassType === 'RETURNABLE') {
+        if (returned) { t.returnable.closed += 1; return; }
+        t.returnable.open += 1;
+        if (it.probableReturnDate) {
+          const due = new Date(it.probableReturnDate); due.setHours(0, 0, 0, 0);
+          const days = Math.round((due - today) / 86400000);
+          if (days < 0) t.returnable.overdue += 1;
+          else if (days <= 7) t.returnable.dueSoon += 1;
+        }
+      } else {
+        if (b.unitAcceptedAt) t.nonReturnable.closed += 1;
+        else t.nonReturnable.open += 1;
+      }
+    });
+    return t;
+  }, [batches]);
+
+  const openTotal = totals.returnable.open + totals.nonReturnable.open;
+  const closedTotal = totals.returnable.closed + totals.nonReturnable.closed;
 
   return (
     <Card>
@@ -281,6 +340,41 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
         {flash && (
           <div className="px-3 py-2 bg-green-50 border border-green-200 text-green-700 text-sm rounded flex items-center gap-2">
             <CheckCircle2 size={16} /> {flash}
+          </div>
+        )}
+
+        {/* Where the register stands, split by how the two FIM kinds actually
+            settle. Tracks the filters above, so it always matches the rows. */}
+        {batches.length > 0 && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            <FimTile
+              tone="navy"
+              label="Open"
+              value={openTotal}
+              hint={`${totals.returnable.open} returnable · ${totals.nonReturnable.open} non-returnable`}
+            />
+            <FimTile
+              tone="green"
+              label="Closed"
+              value={closedTotal}
+              hint={`${totals.returnable.closed} returned · ${totals.nonReturnable.closed} accepted by unit`}
+            />
+            <FimTile
+              tone="amber"
+              label="Returnable - with us"
+              value={totals.returnable.open}
+              hint={totals.returnable.dueSoon > 0
+                ? `${totals.returnable.dueSoon} due back within 7 days`
+                : 'None due back this week'}
+            />
+            <FimTile
+              tone={totals.returnable.overdue > 0 ? 'red' : 'gray'}
+              label="Return overdue"
+              value={totals.returnable.overdue}
+              hint={totals.returnable.overdue > 0
+                ? 'Past the probable return date - send back'
+                : 'Nothing past its return date'}
+            />
           </div>
         )}
       </div>
@@ -354,7 +448,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
                   <th className={`px-3 py-2 font-medium text-left ${groupBorder}`}>Status</th>
 
                   <th className="px-3 py-2 font-medium text-left bg-amber-50/40" style={{ minWidth: 340 }}>Notes</th>
-                  <th className="px-3 py-2 font-medium text-left" style={{ minWidth: 180 }}>—</th>
+                  <th className="px-3 py-2 font-medium text-left" style={{ minWidth: 180 }}>-</th>
                 </tr>
               </thead>
               <tbody>
@@ -409,7 +503,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
                       {/* ── Inward Details ── */}
                       <td className="px-3 py-3">
                         <div className="font-mono text-[11px] font-bold text-navy-700">
-                          {gp.fimNumber || <span className="text-gray-400 font-normal">—</span>}
+                          {gp.fimNumber || <span className="text-gray-400 font-normal">-</span>}
                         </div>
                         {gp.passNumber && (
                           <div className="text-[10px] text-gray-500 font-mono mt-0.5">{gp.passNumber}</div>
@@ -418,12 +512,12 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
                       <td className="px-3 py-3 text-gray-700">
                         {gp.date ? (
                           <div className="text-[11px]">{new Date(gp.date).toLocaleDateString()}</div>
-                        ) : '—'}
+                        ) : '-'}
                       </td>
                       <td className="px-3 py-3">
                         <div className="text-[11px] text-gray-800 flex items-center gap-1">
                           <Truck size={11} className="text-gray-400" />
-                          {gp.vehicleNo || <span className="text-gray-400">—</span>}
+                          {gp.vehicleNo || <span className="text-gray-400">-</span>}
                         </div>
                         {gp.driverName && (
                           <div className="text-[10px] text-gray-500 flex items-center gap-1 mt-0.5">
@@ -436,10 +530,10 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
                           <Badge color={gp.customerGpDocType === 'ORIGINAL' ? 'green' : 'yellow'}>
                             {gp.customerGpDocType === 'ORIGINAL' ? 'Original' : 'Duplicate'}
                           </Badge>
-                        ) : <span className="text-gray-400 text-[11px]">—</span>}
+                        ) : <span className="text-gray-400 text-[11px]">-</span>}
                       </td>
                       <td className="px-3 py-3">
-                        <div className="font-mono text-[11px] text-gray-800">{gp.customerGatePassNo || '—'}</div>
+                        <div className="font-mono text-[11px] text-gray-800">{gp.customerGatePassNo || '-'}</div>
                         {gp.customerGatePassDate && (
                           <div className="text-[10px] text-gray-500 mt-0.5">{new Date(gp.customerGatePassDate).toLocaleDateString()}</div>
                         )}
@@ -455,7 +549,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
                       {/* Customer test reports: this item's own, plus any that cover the whole FIM entry. */}
                       <td className={`px-3 py-3 ${groupBorder}`}>
                         {testReports.length === 0 ? (
-                          <span className="text-gray-400 text-[11px]">—</span>
+                          <span className="text-gray-400 text-[11px]">-</span>
                         ) : (
                           <div className="space-y-0.5">
                             {testReports.map((r, ri) => (
@@ -487,9 +581,9 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
                         <span className="font-semibold text-gray-900 text-[12px]">{b.quantity}</span>
                         <span className="text-[10px] text-gray-500 ml-1">{b.product.unit}</span>
                       </td>
-                      <td className="px-3 py-3 text-[11px] text-gray-800">{gp.customerName || '—'}</td>
+                      <td className="px-3 py-3 text-[11px] text-gray-800">{gp.customerName || '-'}</td>
                       <td className={`px-3 py-3 ${groupBorder}`}>
-                        <div className="text-[11px] text-gray-700">{it.itemPurpose || '—'}</div>
+                        <div className="text-[11px] text-gray-700">{it.itemPurpose || '-'}</div>
                         {it.itemPassType && (
                           <Badge color={isReturnable ? 'blue' : 'gray'} className="mt-1">
                             {it.itemPassType === 'RETURNABLE' ? 'Returnable' : 'Non-Returnable'}
@@ -502,7 +596,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
                         <div className="flex items-start gap-1">
                           {it.probableReturnDate ? (
                             <div className="text-[11px] text-gray-800">{new Date(it.probableReturnDate).toLocaleDateString()}</div>
-                          ) : <span className="text-gray-400 text-[11px]">—</span>}
+                          ) : <span className="text-gray-400 text-[11px]">-</span>}
                           {canEditReturnDate && (
                             <button
                               onClick={() => openReturnEdit(b)}
@@ -534,7 +628,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
                         ) : lastOutward ? (
                           <div className="text-[10px] text-blue-700">In transit</div>
                         ) : (
-                          <span className="text-gray-400 text-[11px]">—</span>
+                          <span className="text-gray-400 text-[11px]">-</span>
                         )}
                         {lastOutward?.passNumber && (
                           <div className="text-[10px] text-gray-500 font-mono mt-0.5">{lastOutward.passNumber}</div>
@@ -552,7 +646,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
                               </div>
                             )}
                           </>
-                        ) : <span className="text-gray-400 text-[11px]">—</span>}
+                        ) : <span className="text-gray-400 text-[11px]">-</span>}
                       </td>
 
                       {/* ── Unit ── */}
@@ -671,7 +765,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
                               <ArrowRightLeft size={10} /> {lastOutward?.passNumber}
                             </span>
                           )}
-                          {/* Admin override — the only way back once a stage has
+                          {/* Admin override - the only way back once a stage has
                               been passed. Hidden once the return gate pass exists,
                               since the server refuses to rewind past that. */}
                           {user?.role === 'ADMIN' && !alreadySentOut && (
@@ -724,7 +818,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
           <div className="space-y-4">
             {actionError && <div className="p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{actionError}</div>}
             <div className="text-sm text-gray-700">
-              Accepting <strong>{acceptTarget.productName}</strong>. This is final — once accepted, the batch cannot be re-accepted (you can still edit Remarks afterwards).
+              Accepting <strong>{acceptTarget.productName}</strong>. This is final - once accepted, the batch cannot be re-accepted (you can still edit Remarks afterwards).
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Remark *</label>
@@ -788,11 +882,11 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
                 <div className="text-xs text-gray-500">Customer</div>
-                <div className="font-medium">{sendOutTarget.sourceInwardGatePass?.customerName || '—'}</div>
+                <div className="font-medium">{sendOutTarget.sourceInwardGatePass?.customerName || '-'}</div>
               </div>
               <div>
                 <div className="text-xs text-gray-500">Cust. GP No.</div>
-                <div className="font-mono text-[12px]">{sendOutTarget.sourceInwardGatePass?.customerGatePassNo || '—'}</div>
+                <div className="font-mono text-[12px]">{sendOutTarget.sourceInwardGatePass?.customerGatePassNo || '-'}</div>
               </div>
               <div>
                 <div className="text-xs text-gray-500">Item</div>
@@ -815,7 +909,7 @@ export default function FimStatusRegister({ user, onOpenProduct }) {
                 value={sendOutForm.remarks}
                 onChange={(e) => setSendOutForm({ ...sendOutForm, remarks: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-navy-700 focus:border-navy-700"
-                placeholder="Optional — e.g. Returned after grinding; packed in original crate"
+                placeholder="Optional - e.g. Returned after grinding; packed in original crate"
               />
             </div>
 

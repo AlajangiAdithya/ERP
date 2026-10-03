@@ -1,4 +1,4 @@
-// SUPERADMIN landing hub. Mobile-first by design — the owner can drive the
+// SUPERADMIN landing hub. Mobile-first by design - the owner can drive the
 // whole system from a phone. Top: live counters. Below: large tap tiles for
 // the rest of the owner-only pages.
 import { useEffect, useState } from 'react';
@@ -49,7 +49,7 @@ const Stat = ({ label, value, sub, tone = 'slate' }) => {
   return (
     <div className="rounded-xl bg-white border border-gray-200 px-3 py-2.5 sm:p-4">
       <div className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-gray-500">{label}</div>
-      <div className={`mt-0.5 text-xl sm:text-2xl font-bold leading-tight ${tones[tone]}`}>{value ?? '—'}</div>
+      <div className={`mt-0.5 text-xl sm:text-2xl font-bold leading-tight ${tones[tone]}`}>{value ?? '-'}</div>
       {sub && <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5 truncate">{sub}</div>}
     </div>
   );
@@ -74,12 +74,12 @@ export default function SuperAdminHub() {
 
   return (
     <div className="space-y-5 -m-6 p-4 sm:p-6 bg-gradient-to-b from-slate-50 to-white min-h-screen">
-      {/* Header — compact on mobile */}
+      {/* Header - compact on mobile */}
       <div className="rounded-2xl bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 text-white p-4 sm:p-6 shadow-lg">
         <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-purple-100/80">
           <Crown size={14} /> Owner Control
         </div>
-        <div className="mt-1 text-xl sm:text-2xl font-bold">RAPS ERP — Control Hub</div>
+        <div className="mt-1 text-xl sm:text-2xl font-bold">RAPS ERP - Control Hub</div>
         <div className="text-xs sm:text-sm text-purple-100/80 mt-0.5">Everything you need to drive the system from this device.</div>
       </div>
 
@@ -115,7 +115,7 @@ export default function SuperAdminHub() {
         </div>
       </div>
 
-      {/* Shortcuts to read-only views of the main app — handy on phone */}
+      {/* Shortcuts to read-only views of the main app - handy on phone */}
       <div>
         <div className="text-[11px] uppercase tracking-wider font-semibold text-gray-500 mb-2 px-1">Jump into the app</div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3">

@@ -55,7 +55,7 @@ const unitKeyFromLabel = (label) => {
   return bareRom && ROMAN_UNIT[bareRom[1].toUpperCase()] ? ROMAN_UNIT[bareRom[1].toUpperCase()] : null;
 };
 
-// Every unit key the logged-in user can claim (code, unit name, username —
+// Every unit key the logged-in user can claim (code, unit name, username -
 // any spelling). Matching against the set survives mismatched formats like
 // unit name "Unit 5" vs machine place "Unit-5".
 const userUnitKeys = (user) => {
@@ -110,7 +110,7 @@ const ALLOC_INCLUDE = {
 
 // All allocation times are wall-clock values ("09:00 on 2026-07-02") stored in
 // UTC fields verbatim, independent of the server's own timezone. The deployed
-// server may run in UTC while users are in IST — composing timestamps with
+// server may run in UTC while users are in IST - composing timestamps with
 // local setHours() would shift every block by the offset (log 09:00, block
 // lands at 14:30). So: compose with UTC setters, read back with UTC getters,
 // and the client renders UTC parts too.
@@ -242,7 +242,7 @@ router.get('/day', authenticate, async (req, res) => {
       downtimes,
       myUnitKey,
       myUnitKeys: Array.from(myKeys),
-      // "Can this user allocate anything?" — true only if they own an editable machine.
+      // "Can this user allocate anything?" - true only if they own an editable machine.
       canAllocate: taggedMachines.some((m) => m.canEdit),
     });
   } catch (error) {

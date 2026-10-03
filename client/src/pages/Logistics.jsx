@@ -83,7 +83,7 @@ export default function Logistics() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard label="Pending Dispatch" value={pendingCount} Icon={Clock} color="amber" />
         <StatCard label="In Transit" value={inTransitCount} Icon={Send} color="blue" />
-        <StatCard label="Signed in as" value={user?.name || user?.username || '—'} Icon={Truck} color="navy" subtle />
+        <StatCard label="Signed in as" value={user?.name || user?.username || '-'} Icon={Truck} color="navy" subtle />
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-gray-200">
@@ -178,15 +178,15 @@ function DispatchTable({ rows, tab, onOpen }) {
         </thead>
         <tbody className="divide-y divide-gray-100">
           {rows.map((g) => {
-            const kindMeta = KIND_META[g.kind] || { color: 'gray', label: g.kind || '—' };
+            const kindMeta = KIND_META[g.kind] || { color: 'gray', label: g.kind || '-' };
             return (
               <tr key={g.id} className="hover:bg-gray-50">
                 <td className="px-3 py-2 font-mono text-xs">{g.passNumber}</td>
                 <td className="px-3 py-2">{formatDate(g.date)}</td>
                 <td className="px-3 py-2"><Badge color={kindMeta.color}>{kindMeta.label}</Badge></td>
-                <td className="px-3 py-2">{g.siteName || '—'}</td>
+                <td className="px-3 py-2">{g.siteName || '-'}</td>
                 <td className="px-3 py-2 max-w-[16rem] truncate" title={g.partyName || ''}>
-                  {g.partyName || '—'}
+                  {g.partyName || '-'}
                 </td>
                 <td className="px-3 py-2 text-xs">
                   {g.assignedVehicle ? (
@@ -197,7 +197,7 @@ function DispatchTable({ rows, tab, onOpen }) {
                     <span className="text-gray-400">Unassigned</span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-xs text-gray-600">{g.createdBy?.name || '—'}</td>
+                <td className="px-3 py-2 text-xs text-gray-600">{g.createdBy?.name || '-'}</td>
                 <td className="px-3 py-2 text-right">
                   <Button size="sm" variant={tab === 'PENDING_LOGISTICS' ? 'primary' : 'secondary'} onClick={() => onOpen(g)}>
                     {tab === 'PENDING_LOGISTICS' ? <>
@@ -228,7 +228,7 @@ function DispatchModal({ gatePass: initial, onClose, onAction }) {
 
   const itemCount = g.items?.length || 0;
   const canDispatch = g.status === 'PENDING_LOGISTICS';
-  const kindMeta = KIND_META[g.kind] || { color: 'gray', label: g.kind || '—' };
+  const kindMeta = KIND_META[g.kind] || { color: 'gray', label: g.kind || '-' };
 
   return (
     <Modal isOpen onClose={onClose} title={`Gate Pass ${g.passNumber}`} size="lg">
@@ -273,7 +273,7 @@ function DispatchModal({ gatePass: initial, onClose, onAction }) {
                       <td className="px-2 py-1.5">{it.description}</td>
                       <td className="px-2 py-1.5">{it.quantity}</td>
                       <td className="px-2 py-1.5">{it.unit}</td>
-                      <td className="px-2 py-1.5 text-gray-600">{it.itemPurpose || '—'}</td>
+                      <td className="px-2 py-1.5 text-gray-600">{it.itemPurpose || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -373,14 +373,14 @@ function DispatchBox({ g, busy, setBusy, setError, onAssigned, onDispatched }) {
   return (
     <div className="p-3 bg-amber-50 border border-amber-200 rounded space-y-3">
       <p className="text-xs font-medium text-amber-800">
-        {assigned ? 'Vehicle assigned — confirm dispatch' : 'Assign a vehicle + driver from the register'}
+        {assigned ? 'Vehicle assigned - confirm dispatch' : 'Assign a vehicle + driver from the register'}
       </p>
 
       {!assigned && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Select label="Vehicle *" value={vehicleId} onChange={e => setVehicleId(e.target.value)}>
-              <option value="">— Select a vehicle —</option>
+              <option value="">- Select a vehicle -</option>
               {vehicles.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.regNumber} · {v.vehicleType || 'Vehicle'}
@@ -388,7 +388,7 @@ function DispatchBox({ g, busy, setBusy, setError, onAssigned, onDispatched }) {
               ))}
             </Select>
             <Select label="Driver" value={driverId} onChange={e => setDriverId(e.target.value)}>
-              <option value="">— Select a driver (optional) —</option>
+              <option value="">- Select a driver (optional) -</option>
               {drivers.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}{d.phone ? ` · ${d.phone}` : ''}
@@ -495,7 +495,7 @@ function MultiDispatchModal({ onClose, onDone }) {
   );
 
   return (
-    <Modal isOpen onClose={onClose} title="Multi-Dispatch — Batch Gate Passes" size="lg">
+    <Modal isOpen onClose={onClose} title="Multi-Dispatch - Batch Gate Passes" size="lg">
       <div className="space-y-4">
         <p className="text-xs text-gray-600">
           Select 2+ pending gate passes heading to the same destination. They'll share one vehicle trip.
@@ -504,13 +504,13 @@ function MultiDispatchModal({ onClose, onDone }) {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Select label="Vehicle *" value={vehicleId} onChange={e => setVehicleId(e.target.value)}>
-            <option value="">— Select —</option>
+            <option value="">- Select -</option>
             {vehicles.map(v => (
               <option key={v.id} value={v.id}>{v.regNumber} · {v.vehicleType || 'Vehicle'}</option>
             ))}
           </Select>
           <Select label="Driver" value={driverId} onChange={e => setDriverId(e.target.value)}>
-            <option value="">— Optional —</option>
+            <option value="">- Optional -</option>
             {drivers.map(d => (
               <option key={d.id} value={d.id}>{d.name}{d.phone ? ` · ${d.phone}` : ''}</option>
             ))}
@@ -521,7 +521,7 @@ function MultiDispatchModal({ onClose, onDone }) {
 
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">
-            Pending Gate Passes ({passes.length} available) — select to attach:
+            Pending Gate Passes ({passes.length} available) - select to attach:
           </label>
           {passes.length === 0 ? (
             <p className="text-xs text-gray-500">No pending gate passes available.</p>
@@ -531,8 +531,8 @@ function MultiDispatchModal({ onClose, onDone }) {
                 <label key={p.id} className={`flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 ${selected.includes(p.id) ? 'bg-blue-50' : ''}`}>
                   <input type="checkbox" checked={selected.includes(p.id)} onChange={() => toggle(p.id)} />
                   <span className="font-mono text-xs text-navy-700 min-w-[110px]">{p.passNumber}</span>
-                  <span className="text-gray-700 truncate">{p.partyName || '—'}</span>
-                  <Badge color={p.kind === 'OUTSIDE' ? 'blue' : 'purple'}>{p.kind || '—'}</Badge>
+                  <span className="text-gray-700 truncate">{p.partyName || '-'}</span>
+                  <Badge color={p.kind === 'OUTSIDE' ? 'blue' : 'purple'}>{p.kind || '-'}</Badge>
                 </label>
               ))}
             </div>
@@ -558,7 +558,7 @@ function Field({ label, value, icon: Icon }) {
       <p className="text-[11px] uppercase tracking-wider text-gray-500 font-medium mb-0.5">{label}</p>
       <p className="text-sm text-gray-900 flex items-center gap-1.5">
         {Icon && <Icon size={13} className="text-gray-400 flex-shrink-0" />}
-        <span className="truncate">{value || '—'}</span>
+        <span className="truncate">{value || '-'}</span>
       </p>
     </div>
   );

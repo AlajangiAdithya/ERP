@@ -67,7 +67,7 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/vehicles/:id — full vehicle with trip history (every GatePass assigned to it)
+// GET /api/vehicles/:id - full vehicle with trip history (every GatePass assigned to it)
 router.get('/:id', authenticate, async (req, res) => {
   try {
     const vehicle = await prisma.vehicle.findUnique({
@@ -108,7 +108,7 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/vehicles — create
+// POST /api/vehicles - create
 router.post('/', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
   try {
     const {
@@ -162,7 +162,7 @@ router.post('/', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res)
   }
 });
 
-// PUT /api/vehicles/:id — update
+// PUT /api/vehicles/:id - update
 router.put('/:id', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
   try {
     const existing = await prisma.vehicle.findUnique({ where: { id: req.params.id } });
@@ -222,7 +222,7 @@ router.put('/:id', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, re
   }
 });
 
-// DELETE /api/vehicles/:id — only if no trips
+// DELETE /api/vehicles/:id - only if no trips
 router.delete('/:id', authenticate, authorize('LOGISTICS', 'ADMIN'), async (req, res) => {
   try {
     const vehicle = await prisma.vehicle.findUnique({

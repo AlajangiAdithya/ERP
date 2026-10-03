@@ -28,11 +28,11 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
   const [complianceFY, setComplianceFY] = useState('');
   // Supplier compliance flags indexed by supplierId, loaded once when the modal
   // opens. Used to surface a soft "assessment expired" banner without blocking
-  // submission — the PO can still send the quote even if the FY assessment is
+  // submission - the PO can still send the quote even if the FY assessment is
   // overdue.
   const [supplierIndex, setSupplierIndex] = useState({});
   const [currentFY, setCurrentFY] = useState('');
-  // Approved Supplier List (minus rejected/terminated) — merged into each row's
+  // Approved Supplier List (minus rejected/terminated) - merged into each row's
   // "Existing" dropdown by matching scope of supply against the product name.
   const [aslSuppliers, setAslSuppliers] = useState([]);
   // history[productKey] = [{ supplierId, supplierName, supplierContact, supplierAddress, lastUnitPrice, lastDate, timesUsed, wasSelected }]
@@ -48,7 +48,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
       setNotes('');
       setCommon({ supplierId: null, supplierName: '', supplierContact: '', supplierAddress: '' });
       // Show items still open for quoting (AWAITING / SUBMITTED / HELD). Items
-      // already covered by a competing quote can still receive another one —
+      // already covered by a competing quote can still receive another one -
       // only APPROVED (already on a PO) and CANCELLED items are hidden.
       // Items already pooled belong to the pool's union quote, not the per-PR form.
       const prItems = purchaseRequest.items
@@ -65,7 +65,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
           supplierName: '',
           supplierContact: '',
           supplierAddress: '',
-          // PR specs flow through to PO — read-only for quotation/PO creators.
+          // PR specs flow through to PO - read-only for quotation/PO creators.
           materialType: i.materialType || '',
           materialSpecification: i.materialSpecification || '',
           drawingNo: i.drawingNo || '',
@@ -180,11 +180,11 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     setItems(prev => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   };
 
-  // Stable option key for a history entry — id when linked, name otherwise.
+  // Stable option key for a history entry - id when linked, name otherwise.
   const historyKey = (s) =>
     s.supplierId ? s.supplierId.toString().toLowerCase() : `name:${(s.supplierName || '').toLowerCase()}`;
 
-  // Select an existing supplier on a row — pre-fills name/contact/address + lastUnitPrice.
+  // Select an existing supplier on a row - pre-fills name/contact/address + lastUnitPrice.
   // Keys: "<supplierId>" / "name:<name>" come from purchase history; "asl:<id>"
   // comes from the Approved Supplier List (scope-of-supply match, no history).
   const applyExistingSupplier = (idx, supplierKey) => {
@@ -223,10 +223,10 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
     const updated = [...items];
     updated[idx] = { ...updated[idx], supplierMode: mode };
     if (mode === 'new') {
-      // Switching to new — keep typed name if any, but drop the supplierId link.
+      // Switching to new - keep typed name if any, but drop the supplierId link.
       updated[idx].supplierId = null;
     } else {
-      // Switching to existing — clear name so the dropdown forces a re-select.
+      // Switching to existing - clear name so the dropdown forces a re-select.
       updated[idx].supplierName = '';
       updated[idx].supplierContact = '';
       updated[idx].supplierAddress = '';
@@ -305,7 +305,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
-          For each product below, choose <strong>Existing supplier</strong> — the dropdown lists past suppliers for that product (with last price) plus <strong>Approved Supplier List</strong> suppliers whose scope of supply covers the material — or <strong>New supplier</strong>. In the supplier name box you can also type a material (e.g. TCE) or a name to search the ASL; picking one fills their details. Last unit price is pre-filled — edit before submitting.
+          For each product below, choose <strong>Existing supplier</strong> - the dropdown lists past suppliers for that product (with last price) plus <strong>Approved Supplier List</strong> suppliers whose scope of supply covers the material - or <strong>New supplier</strong>. In the supplier name box you can also type a material (e.g. TCE) or a name to search the ASL; picking one fills their details. Last unit price is pre-filled - edit before submitting.
         </div>
 
         {complianceIssues.length > 0 && (
@@ -314,7 +314,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
             <ul className="list-disc pl-5 space-y-0.5 text-xs">
               {complianceIssues.map((iss) => (
                 <li key={iss.supplierId}>
-                  <strong>{iss.supplierName}</strong> — {iss.reason || 'SA / VE document required'}
+                  <strong>{iss.supplierName}</strong> - {iss.reason || 'SA / VE document required'}
                 </li>
               ))}
             </ul>
@@ -335,11 +335,11 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
             <div className="flex items-start gap-2">
               <AlertCircle size={16} className="flex-shrink-0 mt-0.5 text-red-700" />
               <div className="flex-1">
-                <p className="font-semibold mb-1">Supplier documents missing or expired — submission will be blocked</p>
+                <p className="font-semibold mb-1">Supplier documents missing or expired - submission will be blocked</p>
                 <ul className="text-xs space-y-0.5 list-disc list-inside">
                   {nonCompliantSuppliers.map((s) => (
                     <li key={s.id} className="flex items-center gap-1.5">
-                      <strong>{s.name}</strong> — {s.status?.reason}
+                      <strong>{s.name}</strong> - {s.status?.reason}
                       <ExpiryDot status={s.status} showLabel={false} />
                     </li>
                   ))}
@@ -352,7 +352,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
           </div>
         )}
 
-        {/* Same-supplier quick fill — one click sets the supplier on every row */}
+        {/* Same-supplier quick fill - one click sets the supplier on every row */}
         <div className="border border-blue-200 bg-blue-50/40 rounded-md p-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-blue-800">Single supplier for the whole quote?</span>
@@ -408,7 +408,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
             {items.map((item, idx) => {
               const suggestions = history[rowKey(item)] || [];
               // ASL suppliers whose scope of supply (or name) covers this row's
-              // product, word-by-word — minus ones already in the history list.
+              // product, word-by-word - minus ones already in the history list.
               const aslMatches = matchSuppliers(aslSuppliers, item.productName, 20, false).filter(
                 s => !suggestions.some(h =>
                   (h.supplierId && h.supplierId === s.id) ||
@@ -498,7 +498,7 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
                             onChange={(e) => applyExistingSupplier(idx, e.target.value)}
                             className="w-full px-2 py-1.5 border rounded text-sm bg-white"
                           >
-                            <option value="">— Select supplier —</option>
+                            <option value="">- Select supplier -</option>
                             {suggestions.length > 0 && (
                               <optgroup label="Past suppliers for this product">
                                 {suggestions.map(s => {
@@ -512,10 +512,10 @@ function AddQuotationModal({ isOpen, onClose, purchaseRequest, onCreated }) {
                               </optgroup>
                             )}
                             {aslMatches.length > 0 && (
-                              <optgroup label={`Approved Supplier List — scope covers "${item.productName || 'this product'}"`}>
+                              <optgroup label={`Approved Supplier List - scope covers "${item.productName || 'this product'}"`}>
                                 {aslMatches.map(s => (
                                   <option key={`asl:${s.id}`} value={`asl:${s.id}`}>
-                                    {s.name}{s.vendorIdNo ? ` · ${s.vendorIdNo}` : ''}{s.approvalStatus === 'CONDITIONAL' ? ' · Conditional' : ''} · scope: {s.scopeOfSupply || '—'}
+                                    {s.name}{s.vendorIdNo ? ` · ${s.vendorIdNo}` : ''}{s.approvalStatus === 'CONDITIONAL' ? ' · Conditional' : ''} · scope: {s.scopeOfSupply || '-'}
                                   </option>
                                 ))}
                               </optgroup>
@@ -651,10 +651,10 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
           purchaseRequestItemId: item.id,
           purchaseRequestId: pr.id,
           requestNumber: pr.requestNumber,
-          unitCode: pr.unit?.code || pr.unit?.name || '—',
+          unitCode: pr.unit?.code || pr.unit?.name || '-',
           allocatedQty,
           checked: true,
-          // PR specs flow through to PO — read-only for quotation/PO creators.
+          // PR specs flow through to PO - read-only for quotation/PO creators.
           materialType: item.materialType || '',
           materialSpecification: item.materialSpecification || '',
           drawingNo: item.drawingNo || '',
@@ -792,7 +792,7 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
             <ul className="list-disc pl-5 space-y-0.5 text-xs">
               {complianceIssues.map((iss) => (
                 <li key={iss.supplierId}>
-                  <strong>{iss.supplierName}</strong> — {iss.reason || 'SA / VE document required'}
+                  <strong>{iss.supplierName}</strong> - {iss.reason || 'SA / VE document required'}
                 </li>
               ))}
             </ul>
@@ -820,7 +820,7 @@ function CreateUnionQuotationModal({ isOpen, onClose, purchaseRequests, onCreate
                     <span className="font-semibold text-gray-800">{line.productName}</span>
                     <span className="text-xs text-gray-500">({line.productUnit})</span>
                     {eligible
-                      ? <Badge color="green">Union — {checkedCount} PRs</Badge>
+                      ? <Badge color="green">Union - {checkedCount} PRs</Badge>
                       : <Badge color="gray">Skipped (needs ≥2 PRs)</Badge>}
                     <span className="ml-auto text-sm">
                       Total: <span className="font-semibold text-navy-700">{lineTotalQty(line)} {line.productUnit}</span>
@@ -983,7 +983,7 @@ function buildSupplierCompliance(quotation) {
   for (const it of quotation.items || []) {
     const s = it.supplier;
     if (!s?.id) {
-      // Item with no resolved supplier — flag separately so admin notices.
+      // Item with no resolved supplier - flag separately so admin notices.
       const key = `name:${(it.supplierName || '').toLowerCase().trim() || 'unknown'}`;
       if (!map.has(key)) {
         map.set(key, {
@@ -1012,7 +1012,7 @@ function SupplierComplianceStrip({ quotation }) {
       <div className="flex items-center gap-1 font-semibold mb-1">
         {allCompliant ? <CheckCircle size={12} className="text-green-700" /> : <AlertCircle size={12} className="text-red-700" />}
         <span className={allCompliant ? 'text-green-800' : 'text-red-900'}>
-          Supplier compliance {allCompliant ? '— all documents valid' : '— action required'}
+          Supplier compliance {allCompliant ? '- all documents valid' : '- action required'}
         </span>
       </div>
       <ul className="space-y-1.5">
@@ -1100,7 +1100,7 @@ function ResubmitQuotationModal({ quotation, onClose, onResubmitted }) {
           <div className="font-semibold mb-0.5 inline-flex items-center gap-1">
             <PauseCircle size={12} /> Admin's hold reason
           </div>
-          <div>{quotation.holdNote || '—'}</div>
+          <div>{quotation.holdNote || '-'}</div>
         </div>
 
         <div>
@@ -1355,7 +1355,7 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
 
   return (
     <>
-    <Modal isOpen={!!purchaseRequest} onClose={onClose} title={`Review Quotations — ${purchaseRequest.requestNumber}`} size="xl">
+    <Modal isOpen={!!purchaseRequest} onClose={onClose} title={`Review Quotations - ${purchaseRequest.requestNumber}`} size="xl">
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-md p-4">
           <div><span className="text-gray-500">Request #:</span> <span className="font-medium">{purchaseRequest.requestNumber}</span></div>
@@ -1502,8 +1502,8 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
                                 </td>
                                 <td className="px-2 py-1.5 whitespace-nowrap">{item.quantity} {item.productUnit}</td>
                                 <td className="px-2 py-1.5">{formatCurrency(item.unitPrice)}</td>
-                                <td className="px-2 py-1.5 font-medium text-gray-800">{item.supplierName || '—'}</td>
-                                <td className="px-2 py-1.5 text-gray-500">{item.supplierContact || '—'}</td>
+                                <td className="px-2 py-1.5 font-medium text-gray-800">{item.supplierName || '-'}</td>
+                                <td className="px-2 py-1.5 text-gray-500">{item.supplierContact || '-'}</td>
                                 <td className="px-2 py-1.5 font-medium">{formatCurrency(item.totalPrice)}</td>
                               </tr>
                               {q.isUnion && allocs.length > 0 && (
@@ -1546,7 +1546,7 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Selection Note <span className="text-red-500">*</span>
-                <span className="text-xs text-gray-500 font-normal ml-2">(why this supplier — visible to admin, manager and purchase officer)</span>
+                <span className="text-xs text-gray-500 font-normal ml-2">(why this supplier - visible to admin, manager and purchase officer)</span>
               </label>
               <textarea
                 value={selectionNote}
@@ -1569,7 +1569,7 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
               <div className="bg-amber-50 border border-amber-300 rounded-md p-3 text-xs text-amber-900 flex items-start gap-2">
                 <AlertCircle size={14} className="text-amber-700 mt-0.5 shrink-0" />
                 <div>
-                  <p className="font-semibold mb-0.5">Cannot approve — supplier compliance documents missing.</p>
+                  <p className="font-semibold mb-0.5">Cannot approve - supplier compliance documents missing.</p>
                   <p>Review the red items above. Put this quotation on hold so the Purchase Officer can upload the Vendor Evaluation / Supplier Assessment PDFs on the Suppliers page and resubmit.</p>
                   <button
                     type="button"
@@ -1593,7 +1593,7 @@ function ReviewQuotationsModal({ purchaseRequest, onClose, onUpdated, isApprover
         {quotations.length > 0 && isPO && (
           <div className="border-t pt-4 flex items-center justify-between gap-3">
             <p className="text-xs text-gray-500">
-              Click <strong>Send to Admin</strong> on each draft to send that product's quote on its own — ready products go now, the rest stay drafts until you send them.
+              Click <strong>Send to Admin</strong> on each draft to send that product's quote on its own - ready products go now, the rest stay drafts until you send them.
             </p>
             <Button variant="secondary" onClick={onClose}>Close</Button>
           </div>
@@ -1800,8 +1800,8 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover, isPO }) 
                                 <td className="px-2 py-1.5">{item.productName}</td>
                                 <td className="px-2 py-1.5 whitespace-nowrap">{item.quantity} {item.productUnit}</td>
                                 <td className="px-2 py-1.5">{formatCurrency(item.unitPrice)}</td>
-                                <td className="px-2 py-1.5 font-medium text-gray-800">{item.supplierName || '—'}</td>
-                                <td className="px-2 py-1.5 text-gray-500">{item.supplierContact || '—'}</td>
+                                <td className="px-2 py-1.5 font-medium text-gray-800">{item.supplierName || '-'}</td>
+                                <td className="px-2 py-1.5 text-gray-500">{item.supplierContact || '-'}</td>
                                 <td className="px-2 py-1.5 font-medium">{formatCurrency(item.totalPrice)}</td>
                               </tr>
                               {specSources.length > 0 && (
@@ -1859,7 +1859,7 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover, isPO }) 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Selection Note <span className="text-red-500">*</span>
-                <span className="text-xs text-gray-500 font-normal ml-2">(why this union — visible to admin, manager and purchase officer)</span>
+                <span className="text-xs text-gray-500 font-normal ml-2">(why this union - visible to admin, manager and purchase officer)</span>
               </label>
               <textarea
                 value={selectionNote}
@@ -1877,7 +1877,7 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover, isPO }) 
               <div className="bg-amber-50 border border-amber-300 rounded-md p-3 text-xs text-amber-900 flex items-start gap-2">
                 <AlertCircle size={14} className="text-amber-700 mt-0.5 shrink-0" />
                 <div>
-                  <p className="font-semibold mb-0.5">Cannot approve — supplier compliance documents missing.</p>
+                  <p className="font-semibold mb-0.5">Cannot approve - supplier compliance documents missing.</p>
                   <p>Review the red items above. Put this union quotation on hold so the Purchase Officer can upload the Vendor Evaluation / Supplier Assessment PDFs on the Suppliers page and resubmit.</p>
                   <button
                     type="button"
@@ -1915,7 +1915,7 @@ function UnionReviewModal({ unionGroup, onClose, onUpdated, isApprover, isPO }) 
 
 // ─── Open Pools section (lists MaterialPool records the PO can quote against) ───
 // Each pool was created from the PR detail page by bundling same-material lines
-// across PRs. Multiple competing quotes can be added to one pool — each one
+// across PRs. Multiple competing quotes can be added to one pool - each one
 // becomes a separate draft union quotation. The pool dissolves automatically
 // once admin approves one of the quotes (PR-items follow the union PO from
 // there via the existing FIFO allocation chain).
@@ -2041,7 +2041,7 @@ function OpenPoolsSection({ onUpdated, reloadKey }) {
         return (
           <Card key={pool.id}>
             <div className="space-y-4">
-              {/* Header bar — mirrors the "For PR: …" bar in the single-PR modal */}
+              {/* Header bar - mirrors the "For PR: …" bar in the single-PR modal */}
               <div className="bg-gray-50 p-3 rounded-md text-sm flex flex-wrap gap-x-6 gap-y-1 items-center">
                 <div className="flex items-center gap-2">
                   <GitMerge size={16} className="text-purple-600" />
@@ -2050,7 +2050,7 @@ function OpenPoolsSection({ onUpdated, reloadKey }) {
                   <Badge color={pool.status === 'OPEN' ? 'gray' : 'purple'}>{pool.status}</Badge>
                 </div>
                 <div className="text-xs text-gray-500">
-                  {pool.items.length} PR-items · total {totalQty} {pool.productUnit} · created by {pool.createdBy?.name || '—'}
+                  {pool.items.length} PR-items · total {totalQty} {pool.productUnit} · created by {pool.createdBy?.name || '-'}
                 </div>
                 {pool.status === 'OPEN' && (
                   <div className="ml-auto">
@@ -2080,7 +2080,7 @@ function OpenPoolsSection({ onUpdated, reloadKey }) {
                         return (
                           <tr key={pi.id} className={`border-t border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                             <td className="px-3 py-1.5 font-mono">{it.request?.requestNumber}</td>
-                            <td className="px-3 py-1.5">{it.request?.unit?.code || it.request?.unit?.name || '—'}</td>
+                            <td className="px-3 py-1.5">{it.request?.unit?.code || it.request?.unit?.name || '-'}</td>
                             <td className="px-3 py-1.5">{qty} {pool.productUnit}</td>
                           </tr>
                         );
@@ -2090,14 +2090,14 @@ function OpenPoolsSection({ onUpdated, reloadKey }) {
                 </div>
               </div>
 
-              {/* Compliance issue banner — same style as single-PR modal */}
+              {/* Compliance issue banner - same style as single-PR modal */}
               {s.complianceIssues.length > 0 && (
                 <div className="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-900">
                   <p className="font-semibold mb-1">Supplier compliance required before this quotation can be submitted</p>
                   <ul className="list-disc pl-5 space-y-0.5 text-xs">
                     {s.complianceIssues.map((iss) => (
                       <li key={iss.supplierId}>
-                        <strong>{iss.supplierName}</strong> — {iss.reason || 'SA / VE document required'}
+                        <strong>{iss.supplierName}</strong> - {iss.reason || 'SA / VE document required'}
                       </li>
                     ))}
                   </ul>
@@ -2159,7 +2159,7 @@ function OpenPoolsSection({ onUpdated, reloadKey }) {
 
               <Input label="Notes" value={s.notes} onChange={(e) => updateState(pool.id, { notes: e.target.value })} placeholder="Optional notes" />
 
-              {/* Quotation PDF block — identical styling to the single-PR modal */}
+              {/* Quotation PDF block - identical styling to the single-PR modal */}
               <div className="border rounded-md p-3 bg-blue-50/40">
                 <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
                   <Paperclip size={14} /> Quotation PDF <span className="text-xs text-gray-500 font-normal">(optional, one per supplier quote, PDF only ≤10 MB)</span>
@@ -2195,7 +2195,7 @@ function OpenPoolsSection({ onUpdated, reloadKey }) {
 // ─── Pool by Material (per-product card with manual line picking) ───
 // One card per product (grouped by name+unit). Inside each card the PO ticks
 // the lines from different PRs they want to pool, enters supplier + price,
-// and submits — each card produces its own union quotation covering only the
+// and submits - each card produces its own union quotation covering only the
 // ticked lines. Lines from products they don't touch stay in the normal
 // single-PR quotation flow.
 function PoolByMaterialSection({ onUpdated }) {
@@ -2333,7 +2333,7 @@ function PoolByMaterialSection({ onUpdated }) {
     );
   }
 
-  // Only show product groups that span ≥2 distinct PRs — pooling needs at
+  // Only show product groups that span ≥2 distinct PRs - pooling needs at
   // least 2 different PRs to make sense; single-PR lines belong in the normal
   // "Add Quote" flow.
   const poolable = groups.filter(g => g.prIds.size >= 2);
@@ -2379,7 +2379,7 @@ function PoolByMaterialSection({ onUpdated }) {
                 <p className="font-semibold mb-1">Supplier compliance required before this quotation can be submitted</p>
                 <ul className="list-disc pl-5 space-y-0.5">
                   {s.complianceIssues.map((iss) => (
-                    <li key={iss.supplierId}><strong>{iss.supplierName}</strong> — {iss.reason || 'SA / VE document required'}</li>
+                    <li key={iss.supplierId}><strong>{iss.supplierName}</strong> - {iss.reason || 'SA / VE document required'}</li>
                   ))}
                 </ul>
                 <a href="/suppliers" target="_blank" rel="noreferrer" className="inline-block mt-2 font-semibold underline">
@@ -2416,16 +2416,16 @@ function PoolByMaterialSection({ onUpdated }) {
                           />
                         </td>
                         <td className="px-2 py-1.5 font-medium text-navy-700">{r.request.requestNumber}</td>
-                        <td className="px-2 py-1.5"><Badge color="blue">{r.request.unit?.code || r.request.unit?.name || '—'}</Badge></td>
-                        <td className="px-2 py-1.5 text-gray-600">{r.request.manager?.name || '—'}</td>
+                        <td className="px-2 py-1.5"><Badge color="blue">{r.request.unit?.code || r.request.unit?.name || '-'}</Badge></td>
+                        <td className="px-2 py-1.5 text-gray-600">{r.request.manager?.name || '-'}</td>
                         <td className="px-2 py-1.5">{qty} {r.productUnit}</td>
                         <td className="px-2 py-1.5 text-gray-500">
-                          {r.requiredByDate ? new Date(r.requiredByDate).toLocaleDateString('en-IN') : '—'}
+                          {r.requiredByDate ? new Date(r.requiredByDate).toLocaleDateString('en-IN') : '-'}
                         </td>
                         <td className="px-2 py-1.5">
                           {existing > 0
                             ? <Badge color="purple">{existing} quote{existing > 1 ? 's' : ''}</Badge>
-                            : <span className="text-gray-400">—</span>}
+                            : <span className="text-gray-400">-</span>}
                         </td>
                       </tr>
                     );
@@ -2521,7 +2521,7 @@ export default function QuotationManagement() {
   const [showUnionModal, setShowUnionModal] = useState(false);
   const [submittingUnions, setSubmittingUnions] = useState(false);
   // Quotation loaded on demand when the PO clicks "Fix & Resubmit" from the
-  // top banner — ResubmitQuotationModal needs the full quotation (items),
+  // top banner - ResubmitQuotationModal needs the full quotation (items),
   // and the PR list endpoint only returns header fields.
   const [resubmitTarget, setResubmitTarget] = useState(null);
   // Which draft union is currently being sent to admin (per-union spinner).
@@ -2549,7 +2549,7 @@ export default function QuotationManagement() {
       // Get PRs in relevant statuses
       const { data } = await api.get('/purchase-requests', { params: { limit: 100 } });
       // A PR belongs in the PO's "Add Quotations" list as long as it has any
-      // item still open for quoting — AWAITING, SUBMITTED, or HELD. Items that
+      // item still open for quoting - AWAITING, SUBMITTED, or HELD. Items that
       // are already approved (on a PO) or cancelled are dead. This keeps the
       // PR visible for competing quotes even after the first batch has gone
       // to admin: admin can still ask for another supplier, or the PO can add
@@ -2565,7 +2565,7 @@ export default function QuotationManagement() {
       setApprovedPRs(approved);
       setSubmittedPRs(submitted);
 
-      // Get quotation counts for each PR — single quotes + union quotes that touch this PR
+      // Get quotation counts for each PR - single quotes + union quotes that touch this PR
       const counts = {};
       const unionCounts = {};
       const allPRs = [...approved, ...submitted];
@@ -2667,7 +2667,7 @@ export default function QuotationManagement() {
   // Draft union quotations grouped by the PR-set they cover. The "Send to
   // Admin" endpoint always batches every unsent union covering a PR set
   // together (competing quotes go to admin side-by-side), so the UI matches
-  // that semantics — one row per PR-set, with all the competing draft unions
+  // that semantics - one row per PR-set, with all the competing draft unions
   // listed inside.
   const draftUnionGroups = useMemo(() => {
     const groups = new Map();
@@ -2700,11 +2700,11 @@ export default function QuotationManagement() {
 
   // Submits every draft union covering the given PR set. The backend's
   // /quotations/union/submit endpoint batches by PR set, not by quotation id,
-  // so passing the PR ids is enough — all competing drafts get sent together.
+  // so passing the PR ids is enough - all competing drafts get sent together.
   const sendUnionGroup = async (group) => {
     const prIds = (group.prSet || []).map(p => p.id);
     if (prIds.length < 2) {
-      alert('This union does not have at least 2 source PRs — please re-create it.');
+      alert('This union does not have at least 2 source PRs - please re-create it.');
       return;
     }
     setSendingUnionId(group.sig);
@@ -2733,13 +2733,13 @@ export default function QuotationManagement() {
         }
       />
 
-      {/* PO: Action Required — held quotations (single + union) admin sent back. */}
+      {/* PO: Action Required - held quotations (single + union) admin sent back. */}
       {isPO && heldQuotations.length > 0 && (
         <div className="border-2 border-amber-400 bg-amber-50 rounded-lg p-4">
           <div className="flex items-center gap-2 mb-3">
             <PauseCircle size={20} className="text-amber-700" />
             <h2 className="text-lg font-semibold text-amber-900">
-              Action Required — {heldQuotations.length} quotation{heldQuotations.length > 1 ? 's' : ''} on hold
+              Action Required - {heldQuotations.length} quotation{heldQuotations.length > 1 ? 's' : ''} on hold
             </h2>
           </div>
           <p className="text-xs text-amber-800 mb-3">
@@ -2753,7 +2753,7 @@ export default function QuotationManagement() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-gray-900">{q.quotationNumber}</span>
                       {q.isUnion && <Badge color="purple"><Layers size={10} className="inline mr-0.5" /> UNION</Badge>}
-                      <span className="text-sm text-gray-600">{q.supplierName || '—'}</span>
+                      <span className="text-sm text-gray-600">{q.supplierName || '-'}</span>
                       <span className="text-sm font-semibold text-navy-700">{formatCurrency(q.totalAmount)}</span>
                     </div>
                     <div className="flex flex-wrap gap-1 mt-1">
@@ -2783,7 +2783,7 @@ export default function QuotationManagement() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h2 className="text-lg font-semibold text-gray-800">Approved PRs — Add Quotations</h2>
+              <h2 className="text-lg font-semibold text-gray-800">Approved PRs - Add Quotations</h2>
               <p className="text-xs text-gray-500 mt-0.5">
                 Add as many supplier quotes per PR as you need. Use <strong>Send per product</strong> to send each quote on its own (so ready products go to admin now and the rest wait), or <strong>Send all</strong> to send every draft at once. Admin only sees a PR's quotes after you send them.
               </p>
@@ -2855,12 +2855,12 @@ export default function QuotationManagement() {
                                     </Badge>
                                   )}
                                   {sentCount > 0 && (
-                                    <Badge color="green" title="Sent to admin — awaiting review">
+                                    <Badge color="green" title="Sent to admin - awaiting review">
                                       {sentCount} sent
                                     </Badge>
                                   )}
                                   {totalHeld > 0 && (
-                                    <Badge color="red" title="Admin sent these back — action required">
+                                    <Badge color="red" title="Admin sent these back - action required">
                                       <PauseCircle size={10} className="inline mr-0.5" /> {totalHeld} on hold
                                     </Badge>
                                   )}
@@ -2918,7 +2918,7 @@ export default function QuotationManagement() {
         </div>
       )}
 
-      {/* PO: Material Pools — PR-items the PO has bundled together from the PR
+      {/* PO: Material Pools - PR-items the PO has bundled together from the PR
           detail page. Each pool can collect multiple competing supplier
           quotations; once admin approves one, the pool's PR-items move into a
           single union PO with FIFO inward allocation. */}
@@ -2928,18 +2928,18 @@ export default function QuotationManagement() {
             <GitMerge size={18} className="text-purple-600" /> Material Pools
           </h2>
           <p className="text-xs text-gray-500 mb-3">
-            Pools are built from the <strong>PR detail page</strong> — open a PR, click <em>Pool</em> on any material to bundle it with the same material from another PR. Add competing quotes here; each becomes a separate draft union quotation you can send to admin.
+            Pools are built from the <strong>PR detail page</strong> - open a PR, click <em>Pool</em> on any material to bundle it with the same material from another PR. Add competing quotes here; each becomes a separate draft union quotation you can send to admin.
           </p>
           <OpenPoolsSection onUpdated={fetchData} reloadKey={reloadKey} />
         </div>
       )}
 
-      {/* PO: Legacy Pool-by-Material — keep around for ad-hoc pooling without
+      {/* PO: Legacy Pool-by-Material - keep around for ad-hoc pooling without
           touching PR detail. Lines that aren't already in a pool show up here. */}
       {isPO && (
         <details className="rounded border border-gray-200 bg-gray-50">
           <summary className="cursor-pointer text-sm text-gray-700 px-3 py-2 select-none">
-            Quick pool-by-material (legacy) — pool + quote in one step
+            Quick pool-by-material (legacy) - pool + quote in one step
           </summary>
           <div className="p-3">
             <PoolByMaterialSection onUpdated={fetchData} />
@@ -2947,7 +2947,7 @@ export default function QuotationManagement() {
         </details>
       )}
 
-      {/* PO: Draft Union Quotations — built but not yet sent to admin.
+      {/* PO: Draft Union Quotations - built but not yet sent to admin.
           Grouped by PR-set because the submit endpoint always batches every
           unsent union covering the same PR set together. */}
       {isPO && draftUnionGroups.length > 0 && (
@@ -2956,7 +2956,7 @@ export default function QuotationManagement() {
             <Layers size={18} className="text-purple-600" /> Draft Union Quotations ({draftUnionGroups.length})
           </h2>
           <p className="text-xs text-gray-500 mb-3">
-            Union quotations you've built but haven't sent yet. Each row groups every draft union covering the same PR set — clicking <strong>Send to Admin</strong> sends them all together so admin can pick between competing suppliers.
+            Union quotations you've built but haven't sent yet. Each row groups every draft union covering the same PR set - clicking <strong>Send to Admin</strong> sends them all together so admin can pick between competing suppliers.
           </p>
           <Card>
             <div className="overflow-x-auto">
@@ -3022,7 +3022,7 @@ export default function QuotationManagement() {
         </div>
       )}
 
-      {/* Approver only: Union quotations awaiting approval — grouped by PR-set */}
+      {/* Approver only: Union quotations awaiting approval - grouped by PR-set */}
       {isApprover && (
         <div>
           <h2 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
@@ -3068,10 +3068,10 @@ export default function QuotationManagement() {
                             <Badge color="purple">{g.unions.length}</Badge>
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-600">
-                            {suppliers.length > 0 ? suppliers.join(', ') : '—'}
+                            {suppliers.length > 0 ? suppliers.join(', ') : '-'}
                           </td>
                           <td className="px-3 py-2 text-gray-600 text-xs">
-                            {formatCurrency(minAmt)} — {formatCurrency(maxAmt)}
+                            {formatCurrency(minAmt)} - {formatCurrency(maxAmt)}
                           </td>
                           <td className="px-3 py-2">
                             <Button size="sm" onClick={() => setReviewUnionGroup(g)}>
@@ -3127,7 +3127,7 @@ export default function QuotationManagement() {
                           <td className="px-3 py-2"><Badge color="blue">{pr.unit?.code}</Badge></td>
                           <td className="px-3 py-2"><Badge color="navy">{pr.quotations?.length || 0}</Badge></td>
                           <td className="px-3 py-2 text-gray-600 text-xs">
-                            {formatCurrency(minAmt)} — {formatCurrency(maxAmt)}
+                            {formatCurrency(minAmt)} - {formatCurrency(maxAmt)}
                           </td>
                           <td className="px-3 py-2">
                             <Button size="sm" onClick={() => setReviewPR(pr)}>

@@ -1,5 +1,5 @@
 // Idempotent seed for the hidden, edit-only DATA_EDITOR account.
-// This login never appears in any UI list — it is reachable only by logging in
+// This login never appears in any UI list - it is reachable only by logging in
 // directly with these credentials. Run: node prisma/seed-data-editor.js
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');

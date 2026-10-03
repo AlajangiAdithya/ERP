@@ -8,7 +8,7 @@
 // Pass 2 assigns the final canonical value. This handles unique-constraint
 // collisions cleanly and finishes 2666 products in seconds rather than minutes.
 //
-// Safe to re-run — rows already matching their target are skipped before
+// Safe to re-run - rows already matching their target are skipped before
 // either pass.
 //
 // Run with:   node prisma/backfill-doc-numbers-and-skus.js
@@ -99,10 +99,10 @@ async function twoPassRename({ label, table, field, plan, currentByIdMap }) {
   if (!toMove.length) return;
 
   const t0 = Date.now();
-  // Pass 1 — park to temp (one batched UPDATE).
+  // Pass 1 - park to temp (one batched UPDATE).
   const tmpPairs = toMove.map(m => ({ id: m.id, value: `__bf_${m.id.slice(0, 8)}` }));
   await batchUpdate(table, field, tmpPairs);
-  // Pass 2 — assign final value (one batched UPDATE).
+  // Pass 2 - assign final value (one batched UPDATE).
   const finalPairs = toMove.map(m => ({ id: m.id, value: m.target }));
   await batchUpdate(table, field, finalPairs);
   console.log(`  ✓ ${toMove.length} rows in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
@@ -172,10 +172,10 @@ async function backfillProductSkus() {
   if (!skuChanges.length && !categoryChanges.length) return;
 
   const t0 = Date.now();
-  // Pass 1 — park changing SKUs at temp.
+  // Pass 1 - park changing SKUs at temp.
   const tmpPairs = skuChanges.map(m => ({ id: m.id, value: `__bf_${m.id.slice(0, 8)}` }));
   await batchUpdate('Product', 'sku', tmpPairs);
-  // Pass 2 — final SKU.
+  // Pass 2 - final SKU.
   const finalPairs = skuChanges.map(m => ({ id: m.id, value: m.targetSku }));
   await batchUpdate('Product', 'sku', finalPairs);
 

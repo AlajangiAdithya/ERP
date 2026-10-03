@@ -25,7 +25,7 @@ const STATUS_BADGE = {
   OPEN: 'yellow',
 };
 
-const STATUS_LABEL = (s) => (s || '—').replace(/_/g, ' ');
+const STATUS_LABEL = (s) => (s || '-').replace(/_/g, ' ');
 
 const TRIP_BADGE = { SCHEDULED: 'yellow', IN_TRANSIT: 'blue', RETURNED: 'green', CANCELLED: 'gray' };
 
@@ -172,15 +172,15 @@ export default function Drivers() {
                 {drivers.map((d) => (
                   <tr key={d.id} className="border-b hover:bg-blue-50/30 transition-colors">
                     <td className="px-3 py-2 font-semibold text-navy-700">{d.name}</td>
-                    <td className="px-3 py-2 text-gray-700">{d.phone || '—'}</td>
+                    <td className="px-3 py-2 text-gray-700">{d.phone || '-'}</td>
                     <td className="px-3 py-2 text-gray-700">
-                      <div className="font-mono text-xs">{d.licenseNo || '—'}</div>
+                      <div className="font-mono text-xs">{d.licenseNo || '-'}</div>
                       {d.licenseExpiry && (
                         <div className="text-[10px] text-gray-500">exp {formatDate(d.licenseExpiry)}</div>
                       )}
                     </td>
                     <td className="px-3 py-2 text-gray-700 font-mono text-xs">
-                      {d.defaultVehicle?.regNumber || '—'}
+                      {d.defaultVehicle?.regNumber || '-'}
                     </td>
                     <td className="px-3 py-2"><Badge color={statusBadge(d.status)}>{d.status}</Badge></td>
                     <td className="px-3 py-2 text-gray-700">{d._count?.trips ?? 0}</td>
@@ -217,7 +217,7 @@ export default function Drivers() {
               <Input label="License No" value={form.licenseNo} onChange={(e) => setForm({ ...form, licenseNo: e.target.value })} />
               <Input label="License Expiry" type="date" value={form.licenseExpiry} onChange={(e) => setForm({ ...form, licenseExpiry: e.target.value })} />
               <Select label="Default Vehicle" value={form.defaultVehicleId} onChange={(e) => setForm({ ...form, defaultVehicleId: e.target.value })}>
-                <option value="">— None —</option>
+                <option value="">- None -</option>
                 {vehicles.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.regNumber}{v.make ? ` · ${v.make}${v.model ? ' ' + v.model : ''}` : ''}
@@ -314,7 +314,7 @@ function DriverDetail({ driverId, onBack }) {
             <Row label="Reg No" value={d.defaultVehicle?.regNumber} mono />
             <Row label="Make / Model" value={[d.defaultVehicle?.make, d.defaultVehicle?.model].filter(Boolean).join(' ')} />
             <p className="text-[11px] text-gray-500 pt-2 leading-snug">
-              A driver's default vehicle is just a hint for dispatchers — any active driver can be paired with any active vehicle at trip time.
+              A driver's default vehicle is just a hint for dispatchers - any active driver can be paired with any active vehicle at trip time.
             </p>
           </div>
         </Card>
@@ -383,10 +383,10 @@ function DriverDetail({ driverId, onBack }) {
                     <tr key={t.id} className="hover:bg-gray-50">
                       <td className="px-3 py-2 font-mono text-navy-700">{t.tripNumber}</td>
                       <td className="px-3 py-2 font-mono text-gray-700">
-                        {t.vehicle?.regNumber || t.vehicleRegSnap || '—'}
+                        {t.vehicle?.regNumber || t.vehicleRegSnap || '-'}
                       </td>
                       <td className="px-3 py-2 text-gray-700">
-                        {[t.purpose, t.destination].filter(Boolean).join(' → ') || '—'}
+                        {[t.purpose, t.destination].filter(Boolean).join(' → ') || '-'}
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-700">
                         {t.gatePasses?.length
@@ -394,10 +394,10 @@ function DriverDetail({ driverId, onBack }) {
                           : <span className="italic text-gray-400">ad-hoc</span>}
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-600">
-                        {t.dispatchedAt ? formatDateTime(t.dispatchedAt) : '—'}
+                        {t.dispatchedAt ? formatDateTime(t.dispatchedAt) : '-'}
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-600">
-                        {t.returnedAt ? formatDateTime(t.returnedAt) : '—'}
+                        {t.returnedAt ? formatDateTime(t.returnedAt) : '-'}
                       </td>
                       <td className="px-3 py-2">
                         <Badge color={TRIP_BADGE[t.status] || 'gray'}>{t.status}</Badge>
@@ -433,15 +433,15 @@ function DriverDetail({ driverId, onBack }) {
                   {gatePasses.map((g) => (
                     <tr key={g.id} className="hover:bg-gray-50">
                       <td className="px-3 py-2 font-mono text-navy-700">{g.passNumber}</td>
-                      <td className="px-3 py-2 font-mono text-gray-700">{g.assignedVehicle?.regNumber || '—'}</td>
+                      <td className="px-3 py-2 font-mono text-gray-700">{g.assignedVehicle?.regNumber || '-'}</td>
                       <td className="px-3 py-2">
-                        {g.kind ? <Badge color={g.kind === 'OUTSIDE' ? 'blue' : 'purple'}>{g.kind}</Badge> : '—'}
+                        {g.kind ? <Badge color={g.kind === 'OUTSIDE' ? 'blue' : 'purple'}>{g.kind}</Badge> : '-'}
                       </td>
                       <td className="px-3 py-2 text-gray-700 max-w-[16rem] truncate">
-                        {g.partyName || g.jobWorkNo || '—'}
+                        {g.partyName || g.jobWorkNo || '-'}
                       </td>
                       <td className="px-3 py-2 text-xs text-gray-600">
-                        {g.dispatchedAt ? formatDateTime(g.dispatchedAt) : '—'}
+                        {g.dispatchedAt ? formatDateTime(g.dispatchedAt) : '-'}
                       </td>
                       <td className="px-3 py-2">
                         <Badge color={STATUS_BADGE[g.status] || 'gray'}>{STATUS_LABEL(g.status)}</Badge>
@@ -480,7 +480,7 @@ function Row({ label, value, mono }) {
   return (
     <div className="flex justify-between gap-3">
       <span className="text-gray-500">{label}</span>
-      <span className={`text-gray-800 ${mono ? 'font-mono' : ''}`}>{value || '—'}</span>
+      <span className={`text-gray-800 ${mono ? 'font-mono' : ''}`}>{value || '-'}</span>
     </div>
   );
 }

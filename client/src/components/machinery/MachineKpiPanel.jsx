@@ -133,13 +133,13 @@ function ReportModal({ month, machine, onClose }) {
       .finally(() => setLoading(false));
   }, [month, machine.machineryId]);
 
-  // Times are wall-clock values stored verbatim in UTC — render UTC parts.
+  // Times are wall-clock values stored verbatim in UTC - render UTC parts.
   const hhmm = (iso) => new Date(iso).toISOString().slice(11, 16);
   const dstr = (iso) => new Date(iso).toLocaleDateString('en-IN', { timeZone: 'UTC' });
   const kpi = data?.kpi?.[0];
 
   return (
-    <Modal isOpen onClose={onClose} title={`Monthly Report — ${machine.name} (${month})`} size="xl">
+    <Modal isOpen onClose={onClose} title={`Monthly Report - ${machine.name} (${month})`} size="xl">
       {loading ? (
         <div className="flex justify-center py-10"><div className="w-8 h-8 border-4 border-navy-700 border-t-transparent rounded-full animate-spin" /></div>
       ) : !data ? (
@@ -147,13 +147,13 @@ function ReportModal({ month, machine, onClose }) {
       ) : (
         <div className="space-y-5">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <ReportStat icon={Gauge} label="Utilisation" value={kpi ? `${kpi.utilizationPercent}%` : '—'} />
-            <ReportStat icon={Activity} label="Busy" value={kpi ? fmtHrs(kpi.busyMin) : '—'} />
-            <ReportStat icon={Clock} label="Idle" value={kpi ? fmtHrs(kpi.idleMin) : '—'} />
-            <ReportStat icon={Wrench} label="Maintenance" value={kpi ? fmtHrs(kpi.maintenanceMin) : '—'} />
+            <ReportStat icon={Gauge} label="Utilisation" value={kpi ? `${kpi.utilizationPercent}%` : '-'} />
+            <ReportStat icon={Activity} label="Busy" value={kpi ? fmtHrs(kpi.busyMin) : '-'} />
+            <ReportStat icon={Clock} label="Idle" value={kpi ? fmtHrs(kpi.idleMin) : '-'} />
+            <ReportStat icon={Wrench} label="Maintenance" value={kpi ? fmtHrs(kpi.maintenanceMin) : '-'} />
           </div>
           <p className="text-xs text-gray-500">
-            {machine.rapsId}{machine.place ? ` · ${machine.place}` : ''} — {data.workingDays} working days ×{' '}
+            {machine.rapsId}{machine.place ? ` · ${machine.place}` : ''} - {data.workingDays} working days ×{' '}
             {(data.workDayMinutes / 60).toFixed(0)}h window. Generated {new Date(data.generatedAt).toLocaleString('en-IN')}.
           </p>
 
@@ -181,8 +181,8 @@ function ReportModal({ month, machine, onClose }) {
                         <td className="px-2 py-1.5 whitespace-nowrap">{hhmm(a.startAt)}–{hhmm(a.endAt)}</td>
                         <td className="px-2 py-1.5">{a.sourceType === 'WORK_ORDER' ? (a.workOrder?.workOrderNumber || 'WO') : (a.ion?.ionNumber || 'ION')}</td>
                         <td className="px-2 py-1.5">{a.status}</td>
-                        <td className="px-2 py-1.5">{a.allocatedBy?.name || '—'}</td>
-                        <td className="px-2 py-1.5 text-gray-600">{a.workNote || '—'}</td>
+                        <td className="px-2 py-1.5">{a.allocatedBy?.name || '-'}</td>
+                        <td className="px-2 py-1.5 text-gray-600">{a.workNote || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -210,7 +210,7 @@ function ReportModal({ month, machine, onClose }) {
                         <td className="px-2 py-1.5 whitespace-nowrap">{dstr(d.scheduledDate)}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap">{hhmm(d.startAt)}–{hhmm(d.endAt)}</td>
                         <td className="px-2 py-1.5">{d.reason}</td>
-                        <td className="px-2 py-1.5 text-gray-600">{d.note || '—'}</td>
+                        <td className="px-2 py-1.5 text-gray-600">{d.note || '-'}</td>
                       </tr>
                     ))}
                   </tbody>

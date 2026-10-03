@@ -3,12 +3,12 @@
 //
 // One read endpoint feeds the auto-generated QMS KPIs shown on every
 // role's dashboard (view-only):
-//   • Marketing  — on-time deliveries + tender vs order (from Work Orders)
-//   • Purchase   — supplier performance rating per form 04-SUPPLIER
+//   • Marketing  - on-time deliveries + tender vs order (from Work Orders)
+//   • Purchase   - supplier performance rating per form 04-SUPPLIER
 //                  PERFORMANCE RATING: Quality (60) = accepted/received,
 //                  Delivery (40) = on-time/total, Total (100), min 85%
-//   • QC         — product rejections (inspections with rejected qty)
-//   • Certifications — uploaded documents list
+//   • QC         - product rejections (inspections with rejected qty)
+//   • Certifications - uploaded documents list
 //
 // Access model:
 //   • View: every authenticated user.
@@ -24,7 +24,7 @@ const { getFinancialYear, poNumberLabel } = require('../utils/helpers');
 const router = express.Router();
 
 // Unit 5 may appear as code '5', name 'Unit 5', or username 'unit 5' depending
-// on which path created the account — match any of them (mirrors the machinery
+// on which path created the account - match any of them (mirrors the machinery
 // register's Unit-5 detection).
 const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
 const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
@@ -76,7 +76,7 @@ const trimOrNull = (v) => {
   return s === '' ? null : s;
 };
 
-// "25-26" → [2025-04-01, 2026-04-01) — Indian FY, mirrors getFinancialYear.
+// "25-26" → [2025-04-01, 2026-04-01) - Indian FY, mirrors getFinancialYear.
 const fyRange = (fy) => {
   const startYY = parseInt(String(fy).split('-')[0], 10);
   if (isNaN(startYY)) return null;
@@ -132,7 +132,7 @@ const marketingKpis = async (from, to) => {
 
   // On-time deliveries: a WO only counts once its payment is fully received
   // (status CLOSED). completedAt holds the delivery date, so on-time still
-  // measures delivery vs PDC — delivered-but-unpaid WOs are not counted yet.
+  // measures delivery vs PDC - delivered-but-unpaid WOs are not counted yet.
   const completed = workOrders.filter((w) => w.status === 'CLOSED' && w.completedAt);
   const onTimeCount = completed.filter((w) => {
     const pdc = effectivePdc(w);
@@ -156,7 +156,7 @@ const marketingKpis = async (from, to) => {
   };
 };
 
-// ── Purchase KPI: supplier performance per form 04 — SUPPLIER PERFORMANCE RATING ──
+// ── Purchase KPI: supplier performance per form 04 - SUPPLIER PERFORMANCE RATING ──
 // Form columns: Item Description | Supplier Name | No. of Supplies received |
 // Qty. Accepted | Quality Rating (60) | Total deliveries received | On time |
 // Beyond time | Delivery Rating (40) | TOTAL RATING (100). Min criteria: 85%.
@@ -378,7 +378,7 @@ const qcRejectionKpis = async (from, to) => {
   };
 };
 
-// GET /api/kpi-qms?fy=25-26 — the whole panel in one shot. Everyone views.
+// GET /api/kpi-qms?fy=25-26 - the whole panel in one shot. Everyone views.
 router.get('/', authenticate, async (req, res) => {
   try {
     const currentFy = getFinancialYear();
@@ -441,7 +441,7 @@ async function syncRatingToReEvals(tx, fy, items) {
 
 const clamp = (v, max) => Math.min(max, Math.max(0, Number(v) || 0));
 
-// PUT /api/kpi-qms/supplier-performance — Unit-5 + Purchase only. Upserts the
+// PUT /api/kpi-qms/supplier-performance - Unit-5 + Purchase only. Upserts the
 // FY's rating (same tables as the Approved Supplier List's rating form).
 router.put('/supplier-performance', authenticate, requireSupplierPerfWrite, async (req, res) => {
   try {
@@ -533,7 +533,7 @@ router.put('/supplier-performance', authenticate, requireSupplierPerfWrite, asyn
   }
 });
 
-// DELETE /api/kpi-qms/supplier-performance/:fy — Unit-5 + Purchase only.
+// DELETE /api/kpi-qms/supplier-performance/:fy - Unit-5 + Purchase only.
 // Removes the manual rating so the panel falls back to auto-computed values.
 router.delete('/supplier-performance/:fy', authenticate, requireSupplierPerfWrite, async (req, res) => {
   try {
@@ -563,7 +563,7 @@ router.delete('/supplier-performance/:fy', authenticate, requireSupplierPerfWrit
 // ── QMS document library (SOPs + Work Instructions) ──
 const DOC_CATEGORIES = ['SOP', 'WORK_INSTRUCTION'];
 
-// GET /api/kpi-qms/documents?category=SOP — everyone views.
+// GET /api/kpi-qms/documents?category=SOP - everyone views.
 router.get('/documents', authenticate, async (req, res) => {
   try {
     const category = trimOrNull(req.query.category);
@@ -582,7 +582,7 @@ router.get('/documents', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/kpi-qms/documents — Unit-5 only. Multipart: file + fields.
+// POST /api/kpi-qms/documents - Unit-5 only. Multipart: file + fields.
 router.post('/documents', authenticate, requireCertWrite, qmsDocUpload.single('file'), async (req, res) => {
   try {
     const title = trimOrNull(req.body.title);
@@ -617,7 +617,7 @@ router.post('/documents', authenticate, requireCertWrite, qmsDocUpload.single('f
   }
 });
 
-// PUT /api/kpi-qms/documents/:id — Unit-5 only. Optionally replaces the file.
+// PUT /api/kpi-qms/documents/:id - Unit-5 only. Optionally replaces the file.
 router.put('/documents/:id', authenticate, requireCertWrite, qmsDocUpload.single('file'), async (req, res) => {
   try {
     const existing = await prisma.qmsDocument.findUnique({ where: { id: req.params.id } });
@@ -656,7 +656,7 @@ router.put('/documents/:id', authenticate, requireCertWrite, qmsDocUpload.single
   }
 });
 
-// DELETE /api/kpi-qms/documents/:id — Unit-5 only.
+// DELETE /api/kpi-qms/documents/:id - Unit-5 only.
 router.delete('/documents/:id', authenticate, requireCertWrite, async (req, res) => {
   try {
     const existing = await prisma.qmsDocument.findUnique({ where: { id: req.params.id } });
@@ -677,7 +677,7 @@ router.delete('/documents/:id', authenticate, requireCertWrite, async (req, res)
   }
 });
 
-// POST /api/kpi-qms/certifications — Unit-5 only. Multipart: file + fields.
+// POST /api/kpi-qms/certifications - Unit-5 only. Multipart: file + fields.
 router.post('/certifications', authenticate, requireCertWrite, qmsCertUpload.single('file'), async (req, res) => {
   try {
     const title = trimOrNull(req.body.title);
@@ -716,7 +716,7 @@ router.post('/certifications', authenticate, requireCertWrite, qmsCertUpload.sin
   }
 });
 
-// PUT /api/kpi-qms/certifications/:id — Unit-5 only. Optionally replaces the file.
+// PUT /api/kpi-qms/certifications/:id - Unit-5 only. Optionally replaces the file.
 router.put('/certifications/:id', authenticate, requireCertWrite, qmsCertUpload.single('file'), async (req, res) => {
   try {
     const existing = await prisma.qmsCertification.findUnique({ where: { id: req.params.id } });
@@ -762,7 +762,7 @@ router.put('/certifications/:id', authenticate, requireCertWrite, qmsCertUpload.
   }
 });
 
-// DELETE /api/kpi-qms/certifications/:id — Unit-5 only.
+// DELETE /api/kpi-qms/certifications/:id - Unit-5 only.
 router.delete('/certifications/:id', authenticate, requireCertWrite, async (req, res) => {
   try {
     const existing = await prisma.qmsCertification.findUnique({ where: { id: req.params.id } });
@@ -788,7 +788,7 @@ router.delete('/certifications/:id', authenticate, requireCertWrite, async (req,
   }
 });
 
-// ── GET /api/kpi-qms/sla-metrics — Approval & conversion SLA KPIs ──────────
+// ── GET /api/kpi-qms/sla-metrics - Approval & conversion SLA KPIs ──────────
 // Four turnaround factors, all computed from real timestamps on every record:
 //   1. WO Admin approval     (48h from WO createdAt to adminAcceptedAt)
 //   2. WO Unit approval      (48h from adminAcceptedAt to unitAcceptedAt)
@@ -857,7 +857,7 @@ const buildFactor = (label, slaMs, records) => {
     onTime,
     delayed: total - onTime,
     score: scoreOf(onTime, total),
-    delayedItems,   // legacy shape — kept for backward compatibility
+    delayedItems,   // legacy shape - kept for backward compatibility
     items,          // per-entity detail (all records, not just delayed)
     byMonth: byMonthMap,
     byUnit,
@@ -879,7 +879,7 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
     const score = (onTime, total) => total > 0 ? round1((onTime / total) * 100) : null;
     const unitLabelOf = (u, fallback) => u?.name || u?.code || fallback || 'Unassigned';
 
-    // 1. WO Admin approval — WO created → admin accepted.
+    // 1. WO Admin approval - WO created → admin accepted.
     const woAdminRows = await prisma.workOrder.findMany({
       where: { adminAcceptedAt: { not: null }, ...(dateFilter ? { createdAt: dateFilter } : {}) },
       select: {
@@ -893,11 +893,11 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
       bucketDate: w.createdAt,
       gapMs: new Date(w.adminAcceptedAt) - new Date(w.createdAt),
       unit: unitLabelOf(w.assignedUnit, w.assignedUnitName),
-      approver: w.adminAcceptedBy?.name || '—',
+      approver: w.adminAcceptedBy?.name || '-',
       remark: w.adminDelayRemark,
     })));
 
-    // 2. WO Unit approval — admin accepted → unit accepted.
+    // 2. WO Unit approval - admin accepted → unit accepted.
     const woUnitRows = await prisma.workOrder.findMany({
       where: { unitAcceptedAt: { not: null }, adminAcceptedAt: { not: null }, ...(dateFilter ? { createdAt: dateFilter } : {}) },
       select: {
@@ -911,11 +911,11 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
       bucketDate: w.createdAt,
       gapMs: new Date(w.unitAcceptedAt) - new Date(w.adminAcceptedAt),
       unit: unitLabelOf(w.assignedUnit, w.assignedUnitName),
-      approver: w.unitAcceptedBy?.name || '—',
+      approver: w.unitAcceptedBy?.name || '-',
       remark: w.unitDelayRemark,
     })));
 
-    // 3. PR Admin approval — PR created (or QC-approved) → admin approved.
+    // 3. PR Admin approval - PR created (or QC-approved) → admin approved.
     const prRows = await prisma.purchaseRequest.findMany({
       where: { adminApprovedAt: { not: null }, ...(dateFilter ? { createdAt: dateFilter } : {}) },
       select: {
@@ -931,12 +931,12 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
         bucketDate: p.createdAt,
         gapMs: new Date(p.adminApprovedAt) - start,
         unit: unitLabelOf(p.unit, p.manager?.role),
-        approver: p.adminApprovedBy?.name || '—',
+        approver: p.adminApprovedBy?.name || '-',
         remark: p.adminDelayRemark,
       };
     }));
 
-    // 4. PR → PO conversion — PR admin approved → PO created (union PO uses the
+    // 4. PR → PO conversion - PR admin approved → PO created (union PO uses the
     // earliest source-PR approval). isUnion:false on the direct query so a union
     // PO can never be counted twice.
     const posDirect = await prisma.purchaseOrder.findMany({
@@ -961,7 +961,7 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
         bucketDate: p.createdAt,
         gapMs: new Date(p.createdAt) - new Date(p.purchaseRequest.adminApprovedAt),
         unit: unitLabelOf(p.purchaseRequest.unit, null),
-        approver: '—',
+        approver: '-',
         remark: p.poCreationDelayRemark,
       })),
       ...posUnion.map((p) => {
@@ -973,7 +973,7 @@ router.get('/sla-metrics', authenticate, async (req, res) => {
           bucketDate: p.createdAt,
           gapMs: new Date(p.createdAt) - earliest,
           unit: unitLabelOf(prs[0].unit, 'Union'),
-          approver: '—',
+          approver: '-',
           remark: p.poCreationDelayRemark,
         };
       }).filter(Boolean),

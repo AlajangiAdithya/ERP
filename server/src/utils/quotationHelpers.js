@@ -32,7 +32,7 @@ async function resolveSupplierId(name, contact, address, hintId) {
 
 // Hard blocker: a supplier must have a Supplier Assessment (SA) on file AND its
 // active evaluation doc (latest Vendor Re-Evaluation, or the SA itself for new
-// suppliers) must not be expired. Both are required to proceed — there are no
+// suppliers) must not be expired. Both are required to proceed - there are no
 // soft warnings here anymore (`softWarnings` kept for caller compatibility).
 async function checkSuppliersCompliance(supplierIds) {
   const ids = [...new Set(supplierIds.filter(Boolean))];
@@ -61,7 +61,7 @@ async function checkSuppliersCompliance(supplierIds) {
 function complianceErrorPayload(issues) {
   const lines = issues.map(i => `${i.supplierName}: ${i.reason}`);
   return {
-    error: `Cannot submit quotation — the following supplier(s) are not compliant:\n${lines.join('\n')}`,
+    error: `Cannot submit quotation - the following supplier(s) are not compliant:\n${lines.join('\n')}`,
     complianceIssues: issues,
     currentFinancialYear: getFinancialYear(),
   };

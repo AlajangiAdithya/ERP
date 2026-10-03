@@ -8,32 +8,43 @@ const {
 } = require('../utils/helpers');
 const { qcDocsUpload, publicUrlFor } = require('../middleware/upload');
 const { validateReason } = require('../utils/reasonValidation');
+const { syncPRStatusAfterChange } = require('../utils/prClosure');
 
 const router = express.Router();
 
 // ── Role groups ──
 // Stores does the actual inward work (create rows, request QC, final inward).
 const WRITE_ROLES = ['ADMIN', 'STORE_MANAGER'];
-// QC reviews each lot inside the register. INWARD_QC is the inward-only QC
-// operator — it shares exactly this one capability (take/finish review) and
-// nothing else (no create, no request-QC, no inward-into-stock).
-const QC_ROLES = ['ADMIN', 'QC', 'INWARD_QC'];
+// QC reviews each lot inside the register. INWARD_QC and IN_PROCESS_QC are the
+// inspection-only QC operators - they share exactly this one capability
+// (take/finish review) and nothing else (no create, no request-QC, no
+// inward-into-stock).
+const QC_ROLES = ['ADMIN', 'QC', 'INWARD_QC', 'IN_PROCESS_QC'];
+// The inspection-only operators. They carry out the review like QC does, but the
+// outcome is not final on its own - it parks at QC_PENDING_APPROVAL until QC signs
+// it off (see /finish-review + /approve-review below).
+const QC_OPERATOR_ROLES = ['INWARD_QC', 'IN_PROCESS_QC'];
+// Who signs an operator's inspection off. QC proper owns the call; Admin keeps the
+// usual override. Deliberately not Stores - Stores receives the goods.
+const QC_APPROVE_ROLES = ['ADMIN', 'QC'];
 // Who may waive the inspection on a lot ("QC not required"). Deliberately does
 // NOT include Stores: Stores raises the receipt, so letting it also wave the
-// receipt past QC would remove the check entirely. Nor INWARD_QC — that login
-// performs inspections, it doesn't decide which materials need one. The call
-// belongs to QC proper, the unit manager the material is bound for, or Admin.
+// receipt past QC would remove the check entirely. Nor INWARD_QC /
+// IN_PROCESS_QC - those logins perform inspections, they don't decide which
+// materials need one. The call belongs to QC proper, the unit manager the
+// material is bound for, or Admin.
 const QC_WAIVE_ROLES = ['ADMIN', 'QC', 'MANAGER'];
-// Statuses a lot can be waived from — anything before a QC outcome has been filed.
+// Statuses a lot can be waived from - anything before a QC outcome has been filed.
 const QC_WAIVABLE_STATUSES = ['DRAFT', 'QC_REQUESTED', 'QC_IN_REVIEW'];
-// Everyone with oversight may read the register (INWARD_QC must read it to review).
+// Everyone with oversight may read the register (INWARD_QC / IN_PROCESS_QC must
+// read it to review).
 const VIEW_ROLES = [
-  'ADMIN', 'STORE_MANAGER', 'QC', 'INWARD_QC', 'PURCHASE_OFFICER', 'PLANNING',
+  'ADMIN', 'STORE_MANAGER', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'PURCHASE_OFFICER', 'PLANNING',
   'SAFETY', 'MANAGER', 'SUPPLY_CHAIN', 'ACCOUNTING', 'FINANCE',
 ];
 
 // Inward-write = Stores roles only. Unit managers (including Unit 5) get just the
-// generic own-unit read/edit grant below — no Stores-like inward-entry access
+// generic own-unit read/edit grant below - no Stores-like inward-entry access
 // (create rows, request/resend QC, inward into stock).
 const canInwardWrite = (user) => !!user && WRITE_ROLES.includes(user.role);
 const requireInwardWrite = (req, res, next) => {
@@ -43,7 +54,7 @@ const requireInwardWrite = (req, res, next) => {
 
 // Who may EDIT an existing register row's fields (a lighter grant than creating /
 // QC-ing / inwarding). Stores may edit any row; any unit manager (Units 1–5) may
-// edit any row regardless of which unit it is bound for — the register is shared
+// edit any row regardless of which unit it is bound for - the register is shared
 // across units so managers can set up / correct each other's receipts.
 const canEditInwardRow = (user, row) => {
   if (!user || !row) return false;
@@ -76,7 +87,7 @@ const INWARD_EDIT_FIELDS = {
 const INWARD_DATE_FIELDS = new Set(['documentDate', 'dateOfExpiry', 'manufacturingDate']);
 const INWARD_DOC_LABELS = { INVOICE: 'Invoice', CASH_PURCHASE: 'Cash Purchase', DELIVERY_CHALLAN: 'Delivery Challan', GATE_PASS: 'Gate Pass' };
 const inwardEditVal = (field, v) => {
-  if (v === undefined || v === null || v === '') return '—';
+  if (v === undefined || v === null || v === '') return '-';
   if (field === 'docType') return INWARD_DOC_LABELS[v] || v;
   if (INWARD_DATE_FIELDS.has(field)) { const d = new Date(v); return Number.isNaN(+d) ? String(v) : d.toLocaleDateString('en-GB'); }
   return String(v);
@@ -100,8 +111,8 @@ function diffInwardChanges(row, patch) {
 
 // ── MIR numbering with back-dating ────────────────────────────────────
 // A new inward dated on the newest day in the register gets the plain next
-// sequential MIR number. A *back-dated* entry — one whose date falls behind a
-// later entry — instead slots a letter onto the last MIR number on-or-before that
+// sequential MIR number. A *back-dated* entry - one whose date falls behind a
+// later entry - instead slots a letter onto the last MIR number on-or-before that
 // day (10 → 10A, then 10B …). This keeps the register reading chronologically
 // without ever renumbering existing rows or disturbing the forward chain:
 // parseInt('10A') === 10, so the main max+1 counter is unaffected.
@@ -125,7 +136,7 @@ async function generateMirForDate(prisma, inwardDate) {
   if (laterCount === 0) return generateSequentialNumber(prisma, 'MIR', date);
 
   // Back-dated: base = the highest numeric MIR on-or-before this day (the last
-  // MIR of that day, or — for an empty day — the last MIR of the day before).
+  // MIR of that day, or - for an empty day - the last MIR of the day before).
   const priorRows = await prisma.materialInwardRegister.findMany({
     where: { mirNo: { startsWith: prefix }, inwardDate: { lte: dayEnd } },
     select: { mirNo: true },
@@ -162,15 +173,15 @@ const USER_SELECT = { select: { id: true, name: true, role: true } };
 const isToolsAndFixtures = (product, row) =>
   normalizeMaterialType(product?.category || row?.materialType) === 'Tools & Fixtures';
 
-// Hand Tools need NO QC at all — they are inwarded straight into the store (or
+// Hand Tools need NO QC at all - they are inwarded straight into the store (or
 // assigned to units), bypassing both the QC requirement and the master-data
 // hold. Unlike Tools & Fixtures there is no deferred QC to perform later.
 // 'Hand Tools' is a retired category (the material-code register replaced it),
-// but products entered under it keep the label — and this exemption with it.
+// but products entered under it keep the label - and this exemption with it.
 const isHandTools = (product, row) =>
   normalizeMaterialType(product?.category || row?.materialType) === 'Hand Tools';
 
-// Machinery needs NO QC at all — like Hand Tools it is inwarded straight into the
+// Machinery needs NO QC at all - like Hand Tools it is inwarded straight into the
 // store (or assigned to units), bypassing both the QC requirement and the
 // master-data hold. There is no deferred QC to perform later. The category was
 // renamed 'Machinery' → 'Plant & Machinery' with the material-code register;
@@ -193,7 +204,7 @@ async function notifyMasterDataHold(row, sentById, { title, message }) {
   await prisma.notification.createMany({ data: notes });
 }
 
-// The "concerned manager(s)" for a register row — the people who decide whether
+// The "concerned manager(s)" for a register row - the people who decide whether
 // this material actually needs an inspection. That is the manager(s) of the unit
 // the lot is bound for, plus the indenter who raised the PR when they are someone
 // else (a department head, another unit's manager). De-duped user ids.
@@ -235,10 +246,10 @@ function prsOf(po) {
 }
 
 // Derive the "issued to" target from a PO's PR(s). A union PO may map to many
-// units — we keep the joined human label, and only bind a single owning unit
+// units - we keep the joined human label, and only bind a single owning unit
 // when the PO maps to exactly one unit (so unit-stock stays unambiguous).
 //
-// The indenter — whoever raised the PR — is also resolved. When a PR carries no
+// The indenter - whoever raised the PR - is also resolved. When a PR carries no
 // unit (raised by a department/global role: Designs, QC, Lab, Metrology, NDT,
 // Safety, Planning), the material is reserved to that indenter's department
 // (issuedToDept), mirroring the PO→inward attribution, instead of being left in
@@ -253,7 +264,7 @@ function issuedToFromPo(po) {
     if (p.unit && !seenU.has(p.unit.id)) { seenU.add(p.unit.id); units.push(p.unit); }
   });
 
-  // Indenter(s): the manager(s) who raised the PR(s) — who the material is for.
+  // Indenter(s): the manager(s) who raised the PR(s) - who the material is for.
   const indenters = [];
   const seenI = new Set();
   prs.forEach((p) => {
@@ -269,7 +280,7 @@ function issuedToFromPo(po) {
     issuedToUnitId = units[0].id;
     issuedToLabel = `${units[0].name} (${units[0].code})`;
   } else if (units.length > 1) {
-    // Union across several units — show them all; leave stock in general pool.
+    // Union across several units - show them all; leave stock in general pool.
     issuedToLabel = units.map((u) => `${u.name} (${u.code})`).join(' · ');
   } else {
     // No unit → raised by a department/global role. Reserve to that department
@@ -304,7 +315,7 @@ const PO_PICKER_INCLUDE = {
     },
   },
   supplier: { select: { id: true, name: true } },
-  // `items` is the non-union counterpart of the allocation select above —
+  // `items` is the non-union counterpart of the allocation select above -
   // PurchaseOrderItem.purchaseRequestItemId is a bare column (no relation), so
   // the PR's lines are pulled in and matched by id.
   purchaseRequest: {
@@ -325,7 +336,7 @@ const PO_PICKER_INCLUDE = {
 // Per-line unit allocation. A union PO line splits across every unit that raised
 // a PR for the material (weighted by the allocated qty); a non-union line falls
 // back to the PO's single PR unit (full line qty). Empty when the PR was raised
-// by a department/global role (no unit) — that material stays dept-reserved.
+// by a department/global role (no unit) - that material stays dept-reserved.
 function unitAllocsForPoItem(po, item) {
   const byUnit = new Map();
   (item?.allocations || []).forEach((a) => {
@@ -350,7 +361,7 @@ function unitAllocsForPoItem(po, item) {
 // The material type behind a PO line, taken from the requisition that asked for
 // it. A union line reads it off its first allocation; a plain line matches the
 // PR item by id. Snapshotted onto the register row because a line need not have
-// a catalogue product yet — a Tools & Fixtures requisition may be free-typed
+// a catalogue product yet - a Tools & Fixtures requisition may be free-typed
 // (see purchaseRequest.routes.js), and without this the row would be treated as
 // "Others": no T&F fast-path, and the product auto-created at inward would land
 // in the wrong category.
@@ -385,7 +396,7 @@ function issuedToForItem(po, item) {
 // Resolve the issued-to target for a direct / cash-purchase entry from what
 // Stores picked: a unit (issuedToUnitId) or an owner department (issuedToDept).
 // The human label is derived server-side so it always matches the chosen target
-// — no trust in client text. Mutates `target` (the create data or a PATCH patch)
+// - no trust in client text. Mutates `target` (the create data or a PATCH patch)
 // in place.
 //
 // An owner is REQUIRED. A PO row inherits its unit from the PR, so it always has
@@ -394,20 +405,20 @@ function issuedToForItem(po, item) {
 // never showed up against the unit that actually asked for and consumed it.
 // Returns { ok } / { ok: false, error }.
 const ASSIGN_REQUIRED_ERROR =
-  'Assign this entry to a unit or an owner department — hand-entered material cannot be left in the general pool.';
+  'Assign this entry to a unit or an owner department - hand-entered material cannot be left in the general pool.';
 
 // Same reasoning for the requisition behind a hand-entered receipt: a PO row
 // snapshots its PR number(s) off the order, a cash purchase or an old PO typed
 // in during rollout has nothing to read them from, so Stores must supply them.
 const PR_NUMBER_REQUIRED_ERROR =
-  'Enter the PR number(s) this material was bought against — required on cash purchases and existing POs entered by hand.';
+  'Enter the PR number(s) this material was bought against - required on cash purchases and existing POs entered by hand.';
 
 // Stores receives materials; it does not author the catalogue. Every hand-entered
-// register line names a material that is ALREADY in Master Data — new materials
+// register line names a material that is ALREADY in Master Data - new materials
 // are added by Admin / QC / the unit managers (PRODUCT_CREATE_ROLES in
 // middleware/rbac.js) and only then can they be received.
 const MASTER_DATA_REQUIRED_ERROR =
-  'Pick the material from Master Data. New materials can only be added by Admin, QC or a unit manager — ask them to add it, then receive it here.';
+  'Pick the material from Master Data. New materials can only be added by Admin, QC or a unit manager - ask them to add it, then receive it here.';
 
 async function resolveDirectIssuedTo(target, b) {
   target.issuedToUnitId = null;
@@ -459,8 +470,8 @@ function splitQtyAcrossUnits(row, qty) {
 }
 
 // Build the auto / locked Inward-Inspection-Request fields (rows 1–11) for a
-// register row. Everything here is snapshotted from earlier actions — the PR,
-// the PO, the approved quotation and the supplier — so Stores never types it.
+// register row. Everything here is snapshotted from earlier actions - the PR,
+// the PO, the approved quotation and the supplier - so Stores never types it.
 // Rows 12–16 (DC / gate pass / receipt date) and the stores remark stay editable.
 const fmtDMY = (d) => (d ? new Date(d).toLocaleDateString('en-GB') : ''); // DD/MM/YYYY
 async function buildIirAuto(row) {
@@ -478,14 +489,14 @@ async function buildIirAuto(row) {
     scopeOfWork: '',                         // 10
     invoiceNoDate: '',                       // 11
   };
-  // 11 — invoice / cash receipt doc lives on the row itself.
+  // 11 - invoice / cash receipt doc lives on the row itself.
   if (['INVOICE', 'CASH_PURCHASE'].includes(row.docType) && row.docNumber) {
     out.invoiceNoDate = `${row.docNumber} · ${fmtDMY(row.inwardDate)}`;
   }
   if (!row.purchaseOrderId) {
-    // Manual PO (not in the system) — surface the typed number as the PO ref.
+    // Manual PO (not in the system) - surface the typed number as the PO ref.
     if (row.manualPoNumber) out.poNoDate = row.manualPoNumber;
-    return out; // direct / cash / manual-PO entry — no PR/PO chain to pull.
+    return out; // direct / cash / manual-PO entry - no PR/PO chain to pull.
   }
 
   const po = await prisma.purchaseOrder.findUnique({
@@ -541,7 +552,7 @@ async function buildIirAuto(row) {
   return out;
 }
 
-// Register display order: by MIR number — newest financial year first, highest
+// Register display order: by MIR number - newest financial year first, highest
 // base number first, then suffix ascending so a back-dated 10A sits immediately
 // after 10 (…12, 11, 10, 10A, 10B, 9…). Cash sub-items (which share one MIR)
 // keep their lot order. Done in JS because a plain string sort would mis-order
@@ -565,18 +576,30 @@ const compareMirForList = (a, b) => {
 // inward entry to the originating PR.
 router.get('/cash-purchase-prs', authenticate, requireInwardWrite, async (req, res) => {
   try {
+    // Two kinds of PR belong here: one wholly converted to cash (status
+    // CASH_PURCHASE), and one where only SOME lines were - that PR keeps its
+    // normal status, so filtering on status alone used to hide it from Stores.
     const prs = await prisma.purchaseRequest.findMany({
-      where: { status: 'CASH_PURCHASE' },
+      where: {
+        OR: [
+          { status: 'CASH_PURCHASE' },
+          { items: { some: { itemQuotationStatus: 'CASH_PURCHASE' } } },
+        ],
+      },
       include: {
         manager: { select: { id: true, name: true } },
         unit: { select: { id: true, name: true, code: true } },
         items: {
           select: {
             id: true,
+            productId: true,
             productName: true,
             productUnit: true,
             requestedQty: true,
             adminApprovedQty: true,
+            purchasedQty: true,
+            itemQuotationStatus: true,
+            itemStatus: true,
             materialType: true,
             materialSpecification: true,
           },
@@ -585,7 +608,29 @@ router.get('/cash-purchase-prs', authenticate, requireInwardWrite, async (req, r
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
-    res.json({ prs });
+
+    // Tell the client, per line, whether it is a cash line and whether it has
+    // already been received, so the picker can tick the right boxes and grey out
+    // what is done instead of offering the whole PR every time.
+    const shaped = prs.map((pr) => {
+      const items = pr.items.map((it) => ({
+        ...it,
+        isCashLine: it.itemQuotationStatus === 'CASH_PURCHASE',
+        isReceived: it.itemStatus === 'RECEIVED',
+        isCancelled: it.itemQuotationStatus === 'CANCELLED',
+      }));
+      const cashLines = items.filter((i) => i.isCashLine);
+      return {
+        ...pr,
+        items,
+        cashLineCount: cashLines.length,
+        cashLinesPending: cashLines.filter((i) => !i.isReceived).length,
+        // A PR whose cash lines are all received has nothing left for Stores.
+        fullyCash: items.filter((i) => !i.isCancelled).every((i) => i.isCashLine),
+      };
+    }).filter((pr) => pr.cashLinesPending > 0 || pr.cashLineCount === 0);
+
+    res.json({ prs: shaped });
   } catch (err) {
     console.error('cash-purchase-prs error:', err);
     res.status(500).json({ error: 'Failed to load cash purchase PRs' });
@@ -670,7 +715,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
     const poItemIds = new Set();
     const linkIds = new Set(); // failed ↔ replacement MIR cross-links
     rows.forEach((r) => {
-      [r.createdById, r.qcRequestedById, r.qcReviewerId, r.qcWaivedById].forEach((id) => id && userIds.add(id));
+      [r.createdById, r.qcRequestedById, r.qcReviewerId, r.qcWaivedById, r.qcApprovedById].forEach((id) => id && userIds.add(id));
       if (r.issuedToUnitId) unitIds.add(r.issuedToUnitId);
       if (r.productId) productIds.add(r.productId);
       if (r.batchNo) batchNos.add(r.batchNo);
@@ -740,18 +785,18 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       prs.forEach((pr) => {
         if (!pr || seen.has(pr.id)) return;
         seen.add(pr.id);
-        if (pr.materialSpecsPdfUrl) docs.push({ label: `PR ${pr.requestNumber} — Material Specs`, url: pr.materialSpecsPdfUrl });
+        if (pr.materialSpecsPdfUrl) docs.push({ label: `PR ${pr.requestNumber} - Material Specs`, url: pr.materialSpecsPdfUrl });
         (pr.items || []).forEach((it) => {
           // Prefer the multi-file attachments list; fall back to the legacy single spec.
           const specs = (it.attachments && it.attachments.length)
             ? it.attachments
             : (it.specAttachmentUrl ? [{ url: it.specAttachmentUrl, name: it.specAttachmentName }] : []);
           specs.forEach((s) => {
-            docs.push({ label: `PR ${pr.requestNumber} — Spec: ${s.name || it.productName || 'attachment'}`, url: s.url });
+            docs.push({ label: `PR ${pr.requestNumber} - Spec: ${s.name || it.productName || 'attachment'}`, url: s.url });
           });
         });
         (pr.noteAttachments || []).forEach((n) => {
-          docs.push({ label: `PR ${pr.requestNumber} — Note: ${n.name || 'attachment'}`, url: n.url });
+          docs.push({ label: `PR ${pr.requestNumber} - Note: ${n.name || 'attachment'}`, url: n.url });
         });
       });
       refDocsMap[po.id] = docs;
@@ -774,6 +819,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       qcRequestedBy: r.qcRequestedById ? userMap[r.qcRequestedById] || null : null,
       qcReviewer: r.qcReviewerId ? userMap[r.qcReviewerId] || null : null,
       qcWaivedBy: r.qcWaivedById ? userMap[r.qcWaivedById] || null : null,
+      qcApprovedBy: r.qcApprovedById ? userMap[r.qcApprovedById] || null : null,
       issuedToUnit: r.issuedToUnitId ? unitMap[r.issuedToUnitId] || null : null,
       product: r.productId ? productMap[r.productId] || null : null,
       poNumber: r.purchaseOrderId ? (poMap[r.purchaseOrderId]?.orderNumber || null) : (r.manualPoNumber || null),
@@ -783,7 +829,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       // Replacement chain (NCR rejection → fresh inward).
       replacesInward: r.replacesInwardId ? (linkMap[r.replacesInwardId] || null) : null,
       replacedByInward: r.replacedByInwardId ? (linkMap[r.replacedByInwardId] || null) : null,
-      // On hold: a material whose master data hasn't been added yet — Stores can't
+      // On hold: a material whose master data hasn't been added yet - Stores can't
       // inward it until a unit head / QC completes it. Tools & Fixtures and Hand
       // Tools bypass the master-data gate entirely.
       masterDataPending: (() => {
@@ -792,7 +838,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
         if (isToolsAndFixtures(p, r) || isHandTools(p, r) || isMachinery(p, r)) return false;
         return p.masterDataComplete === false;
       })(),
-      // Tools & Fixtures inwarded to a unit before QC — QC still pending. Scoped to
+      // Tools & Fixtures inwarded to a unit before QC - QC still pending. Scoped to
       // T&F only: Hand Tools are inwarded with no qcResult but never need QC.
       qcPending: isToolsAndFixtures(r.productId ? productMap[r.productId] : null, r) && !!(r.inwardedAt && !r.qcResult),
       isToolsAndFixtures: isToolsAndFixtures(r.productId ? productMap[r.productId] : null, r),
@@ -867,7 +913,7 @@ router.post('/', authenticate, requireInwardWrite, async (req, res) => {
         data.productId = item.productId || null;
       }
     } else {
-      // Direct / cash purchase — Stores chooses where the material is bound
+      // Direct / cash purchase - Stores chooses where the material is bound
       // (a unit or an owner department; required). Resolved + labelled
       // server-side so the assignment is trusted, mirroring the PO flow.
       const assigned = await resolveDirectIssuedTo(data, b);
@@ -890,7 +936,7 @@ router.post('/', authenticate, requireInwardWrite, async (req, res) => {
 
     if (!data.itemDescription) return res.status(400).json({ error: 'Item description is required' });
 
-    // Lot number — sequential per PO (Lot 1, 2, 3 … N). Each partial receipt
+    // Lot number - sequential per PO (Lot 1, 2, 3 … N). Each partial receipt
     // against the same PO gets the next lot. Direct/cash entries have no lot.
     if (data.purchaseOrderId) {
       const lotCount = await prisma.materialInwardRegister.count({ where: { purchaseOrderId: data.purchaseOrderId } });
@@ -912,7 +958,7 @@ router.post('/', authenticate, requireInwardWrite, async (req, res) => {
 // ── POST /api/material-inward/bulk ────────────────────────────────────
 // One delivery against a PO usually carries several lines (and a line may arrive
 // in batches over time). Stores ticks the received lines + per-line qty/batch and
-// this creates one register row per line — each its own MIR, lot, and QC track.
+// this creates one register row per line - each its own MIR, lot, and QC track.
 router.post('/bulk', authenticate, requireInwardWrite, async (req, res) => {
   try {
     const b = req.body || {};
@@ -983,7 +1029,7 @@ router.post('/bulk', authenticate, requireInwardWrite, async (req, res) => {
 // A cash purchase often brings several items from the same supplier on one
 // invoice. Stores enters them together: one shared header (supplier / document /
 // assign-to) plus a list of items, each with its own qty / batch / dates. All
-// items become their own register row — each with its own QC track — but share a
+// items become their own register row - each with its own QC track - but share a
 // single MIR number (and a sub-lot index when there's more than one).
 //
 // Every item must be an EXISTING master-data material. Stores used to be able to
@@ -1008,7 +1054,7 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
     if (unlisted) {
       const label = (unlisted.itemDescription || '').trim();
       return res.status(400).json({
-        error: `${label ? `"${label}"` : 'One of the items'} is not in Master Data. Only materials that are already in Master Data can be received — ask Admin, QC or a unit manager to add it first.`,
+        error: `${label ? `"${label}"` : 'One of the items'} is not in Master Data. Only materials that are already in Master Data can be received - ask Admin, QC or a unit manager to add it first.`,
       });
     }
 
@@ -1031,7 +1077,7 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
     const docType = ['INVOICE', 'CASH_PURCHASE', 'DELIVERY_CHALLAN', 'GATE_PASS'].includes(b.docType) ? b.docType : 'CASH_PURCHASE';
 
     // Shared assign-to for the whole cash batch (a unit or an owner department;
-    // required) — resolved + labelled server-side, mirroring the PO flow.
+    // required) - resolved + labelled server-side, mirroring the PO flow.
     const issuedTo = {};
     const assigned = await resolveDirectIssuedTo(issuedTo, b);
     if (!assigned.ok) return res.status(400).json({ error: assigned.error });
@@ -1039,14 +1085,57 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
     // Validate the linked cash purchase PR if provided.
     const cashPrId = b.cashPurchaseRequestId?.trim() || null;
     let cashPr = null;
+    let cashPrItems = [];
     if (cashPrId) {
       cashPr = await prisma.purchaseRequest.findUnique({
         where: { id: cashPrId },
-        select: { id: true, status: true, requestNumber: true, managerId: true, unitId: true },
+        select: {
+          id: true, status: true, requestNumber: true, managerId: true, unitId: true,
+          items: { select: { id: true, productId: true, productName: true, itemQuotationStatus: true, itemStatus: true } },
+        },
       });
       if (!cashPr) return res.status(400).json({ error: 'Cash purchase PR not found' });
-      if (cashPr.status !== 'CASH_PURCHASE') {
-        return res.status(400).json({ error: 'Selected PR is not in CASH_PURCHASE status' });
+      cashPrItems = cashPr.items || [];
+      // The PR as a whole no longer has to be CASH_PURCHASE: only SOME of its
+      // lines may be cash while the rest run through quotation/PO as normal.
+      const hasCashLine = cashPrItems.some((i) => i.itemQuotationStatus === 'CASH_PURCHASE');
+      if (cashPr.status !== 'CASH_PURCHASE' && !hasCashLine) {
+        return res.status(400).json({
+          error: `PR ${cashPr.requestNumber} has no line marked for cash purchase. Purchase must mark the lines being bought over the counter first.`,
+        });
+      }
+
+      // Each received line must name the PR line it settles, so only those close.
+      // The link decides which line gets marked RECEIVED and credited, so it is
+      // checked hard: it must be ON this PR, be a cash line, still be open, and
+      // name the same material as the row. Without the last two checks, changing
+      // the row's material after ticking would settle the wrong line (and credit
+      // it with the wrong quantity), and a hand-made request could force a line
+      // that is mid-PO onto the cash track.
+      for (const it of items) {
+        const linkId = typeof it.purchaseRequestItemId === 'string'
+          ? it.purchaseRequestItemId.trim() || null
+          : (it.purchaseRequestItemId || null);
+        if (!linkId) continue;
+        const prItem = cashPrItems.find((p) => p.id === linkId);
+        if (!prItem) {
+          return res.status(400).json({ error: `A received line points at a material that is not on PR ${cashPr.requestNumber}.` });
+        }
+        if (prItem.itemQuotationStatus !== 'CASH_PURCHASE') {
+          return res.status(400).json({
+            error: `"${prItem.productName}" is not marked for cash purchase on PR ${cashPr.requestNumber}. Purchase must mark that line first.`,
+          });
+        }
+        if (prItem.itemStatus === 'RECEIVED') {
+          return res.status(400).json({ error: `"${prItem.productName}" has already been received against PR ${cashPr.requestNumber}.` });
+        }
+        // Only enforced when the PR line names a catalogue material - a free-text
+        // line (Tools & Fixtures) has no productId to compare against.
+        if (prItem.productId && it.productId && prItem.productId !== it.productId) {
+          return res.status(400).json({
+            error: `The material on this row does not match the PR line it is ticked against ("${prItem.productName}"). Untick that line and tick the right one.`,
+          });
+        }
       }
     }
 
@@ -1061,9 +1150,9 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
       docType,
       docNumber: b.docNumber?.trim() || null,
       documentDate: b.documentDate ? new Date(b.documentDate) : null,
-      // Existing PO not yet in the system — typed by hand, shared across items.
+      // Existing PO not yet in the system - typed by hand, shared across items.
       manualPoNumber: b.manualPoNumber?.trim() || null,
-      // The requisition behind the purchase — typed by hand, or taken from the
+      // The requisition behind the purchase - typed by hand, or taken from the
       // linked cash purchase PR. Required (see above).
       prNumbers,
       supplierName: b.supplierName?.trim() || null,
@@ -1075,7 +1164,7 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
     };
 
     // One MIR number shared across every item in this cash purchase. mirNo is not
-    // unique, so there's no constraint to race on — generate it once and reuse it.
+    // unique, so there's no constraint to race on - generate it once and reuse it.
     // Date-aware: a back-dated cash purchase gets a letter-suffixed MIR.
     const mirNo = await generateMirForDate(prisma, header.inwardDate);
     const multi = items.length > 1;
@@ -1088,10 +1177,20 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
       // from the catalogue, never from what the client sent, so the register can
       // never disagree with master data.
       const prod = productMap[it.productId];
+      // The PR line this row settles (when the receipt is against a PR). Matched
+      // on the explicit link the client sends, falling back to the PR's own cash
+      // line for the same product so an older client still links correctly.
+      const linkedPrItem = cashPr
+        ? (cashPrItems.find((p) => p.id === it.purchaseRequestItemId)
+          || cashPrItems.find((p) => p.productId && p.productId === it.productId
+            && p.itemQuotationStatus === 'CASH_PURCHASE' && p.itemStatus !== 'RECEIVED'))
+        : null;
+
       const row = await prisma.materialInwardRegister.create({
         data: {
           ...header,
           mirNo,
+          cashPurchaseRequestItemId: linkedPrItem?.id || null,
           // Sub-lot index so several items under one MIR stay distinguishable.
           lotNo: multi ? lot : null,
           itemDescription: prod.name,
@@ -1108,17 +1207,54 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
       created.push(row);
     }
 
-    // When linked to a CASH_PURCHASE PR, close the PR now that goods are received.
+    // Settle ONLY the PR lines this receipt actually covers. Closing the whole PR
+    // here is what made a 10-line PR vanish when 2 cash items arrived.
     if (cashPr) {
-      await prisma.purchaseRequest.update({
-        where: { id: cashPr.id },
-        data: { status: 'COMPLETED' },
+      // Which PR lines did the store tick? Each created row carries its own link.
+      const receivedItemIds = [...new Set(
+        created.map((row) => row.cashPurchaseRequestItemId).filter(Boolean),
+      )];
+
+      await prisma.$transaction(async (tx) => {
+        if (receivedItemIds.length > 0) {
+          // Received, and credited with what came in - these lines are done.
+          for (const row of created) {
+            if (!row.cashPurchaseRequestItemId) continue;
+            await tx.purchaseRequestItem.update({
+              where: { id: row.cashPurchaseRequestItemId },
+              data: {
+                itemStatus: 'RECEIVED',
+                itemQuotationStatus: 'CASH_PURCHASE',
+                purchasedQty: { increment: Number(row.qtyReceived) || 0 },
+              },
+            });
+          }
+        }
+        // Re-derive the PR from what is left. It closes only when nothing is
+        // outstanding; otherwise it stays open for the lines still to come.
+        await syncPRStatusAfterChange(tx, cashPr.id);
       });
+
+      const after = await prisma.purchaseRequest.findUnique({
+        where: { id: cashPr.id },
+        select: {
+          status: true,
+          items: { select: { itemStatus: true, itemQuotationStatus: true } },
+        },
+      });
+      const live = (after?.items || []).filter((i) => i.itemQuotationStatus !== 'CANCELLED');
+      const settled = live.filter((i) => i.itemStatus === 'RECEIVED').length;
+      const closed = after?.status === 'COMPLETED';
+
       await prisma.notification.create({
         data: {
           type: 'PURCHASE_REQUEST_APPROVED',
-          title: `Cash Purchase PR received — ${cashPr.requestNumber}`,
-          message: `Material for PR ${cashPr.requestNumber} has been received at stores (MIR: ${mirNo}). PR is now closed.`,
+          title: closed
+            ? `Cash Purchase PR received - ${cashPr.requestNumber}`
+            : `Cash Purchase part-received - ${cashPr.requestNumber}`,
+          message: closed
+            ? `Material for PR ${cashPr.requestNumber} has been received at stores (MIR: ${mirNo}). Every line is now settled and the PR is closed.`
+            : `${receivedItemIds.length || created.length} line(s) of PR ${cashPr.requestNumber} were received at stores as a cash purchase (MIR: ${mirNo}). ${settled} of ${live.length} line(s) are settled - the rest are still open.`,
           targetUserId: cashPr.managerId,
           sentById: req.user.id,
         },
@@ -1149,16 +1285,16 @@ router.patch('/:id', authenticate, async (req, res) => {
 
     const b = req.body || {};
     const patch = {};
-    // ── Metadata — editable for any not-yet-inwarded row ──
+    // ── Metadata - editable for any not-yet-inwarded row ──
     if (b.vehicleDetails !== undefined) patch.vehicleDetails = b.vehicleDetails?.trim() || null;
     if (b.docType && ['INVOICE', 'CASH_PURCHASE', 'DELIVERY_CHALLAN', 'GATE_PASS'].includes(b.docType)) patch.docType = b.docType;
     if (b.docNumber !== undefined) patch.docNumber = b.docNumber?.trim() || null;
     if (b.documentDate !== undefined) patch.documentDate = b.documentDate ? new Date(b.documentDate) : null;
     if (b.purpose !== undefined) patch.purpose = b.purpose?.trim() || null;
-    // Item identity / source / assignment — only on non-system-PO rows (real PO
+    // Item identity / source / assignment - only on non-system-PO rows (real PO
     // rows derive these from the PR and stay locked).
     if (!row.purchaseOrderId) {
-      // The material itself is a master-data pick, not free text — the same rule
+      // The material itself is a master-data pick, not free text - the same rule
       // the create routes enforce. Changing it means pointing the row at another
       // catalogue material, and the name / UOM / category then come from there.
       // Re-typing a description was the one remaining way to smuggle a new item
@@ -1187,7 +1323,7 @@ router.patch('/:id', authenticate, async (req, res) => {
       }
       if (b.supplierName !== undefined) patch.supplierName = b.supplierName?.trim() || null;
       if (b.manualPoNumber !== undefined) patch.manualPoNumber = b.manualPoNumber?.trim() || null;
-      // Mandatory on a hand-entered row — it can be corrected, never cleared.
+      // Mandatory on a hand-entered row - it can be corrected, never cleared.
       if (b.prNumbers !== undefined) {
         const pr = b.prNumbers?.trim() || null;
         if (!pr) return res.status(400).json({ error: PR_NUMBER_REQUIRED_ERROR });
@@ -1201,7 +1337,7 @@ router.patch('/:id', authenticate, async (req, res) => {
         if (!assigned.ok) return res.status(400).json({ error: assigned.error });
       }
     }
-    // ── Stock fields — draft-only ──
+    // ── Stock fields - draft-only ──
     if (isDraft) {
       if (b.qtyReceived !== undefined) patch.qtyReceived = b.qtyReceived === '' || b.qtyReceived == null ? null : Number(b.qtyReceived);
       if (b.batchNo !== undefined) patch.batchNo = b.batchNo?.trim() || null;
@@ -1226,7 +1362,7 @@ router.patch('/:id', authenticate, async (req, res) => {
 });
 
 // ── POST /api/material-inward/:id/documents ───────────────────────────
-// Stores uploads supporting documents (invoice / DC / test report / COA …) —
+// Stores uploads supporting documents (invoice / DC / test report / COA …) -
 // the same papers that used to be attached at "goods arrived". PDF or image.
 router.post('/:id/documents', authenticate, requireInwardWrite, qcDocsUpload.array('documents', 10), async (req, res) => {
   try {
@@ -1305,7 +1441,7 @@ router.post('/:id/request-qc', authenticate, requireInwardWrite, async (req, res
     const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
     // Tools & Fixtures may have been inwarded before QC (deferred). Such a lot is
-    // already in stock (inwardedAt set) but still needs its QC — allow requesting it.
+    // already in stock (inwardedAt set) but still needs its QC - allow requesting it.
     const deferredQcPending = !!(row.inwardedAt && !row.qcResult);
     // QC_NOT_REQUIRED is included so a waiver can be undone: Stores sends the lot
     // back into the normal inspection flow and the waiver fields are cleared below.
@@ -1315,7 +1451,7 @@ router.post('/:id/request-qc', authenticate, requireInwardWrite, async (req, res
 
     const rq = req.body?.qcRequest || {};
     const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
-    // Locked rows 1–11 are re-derived from the PR/PO chain — never trusted from
+    // Locked rows 1–11 are re-derived from the PR/PO chain - never trusted from
     // the client. The ION No. (row 0) is auto-generated below.
     const auto = await buildIirAuto(row);
     // Documents Stores selected for QC to verify (whitelist).
@@ -1380,7 +1516,7 @@ router.post('/:id/request-qc', authenticate, requireInwardWrite, async (req, res
       targetRole: 'QC',
       sentById: req.user.id,
     }];
-    const atQcMsg = `${item} (inward ${row.mirNo}${docSuffix}${row.qtyReceived != null ? `, qty ${row.qtyReceived}${row.uom ? ` ${row.uom}` : ''}` : ''}) is now at QC for inspection. If this material does not need any QC, open the Inward Material Register and click “QC Not Required” — it will move straight to the inward step.`;
+    const atQcMsg = `${item} (inward ${row.mirNo}${docSuffix}${row.qtyReceived != null ? `, qty ${row.qtyReceived}${row.uom ? ` ${row.uom}` : ''}` : ''}) is now at QC for inspection. If this material does not need any QC, open the Inward Material Register and click “QC Not Required” - it will move straight to the inward step.`;
     const managerIds = await concernedManagerIds(row);
     managerIds.forEach((id) => notes.push({
       type: 'INWARD_QC_REQUEST',
@@ -1423,11 +1559,11 @@ router.post('/:id/take-review', authenticate, authorize(...QC_ROLES), async (req
 });
 
 // ── POST /api/material-inward/:id/qc-not-required ─────────────────────
-// Waive the inspection. Not every receipt needs QC — standard consumables,
+// Waive the inspection. Not every receipt needs QC - standard consumables,
 // stationery, a re-order of a proven part. QC, the concerned unit manager, or an
 // Admin marks the lot "QC not required" and it skips straight to the inward step
 // (Stores can then inward it; the master-data gate still applies). A meaningful
-// reason is mandatory — this is a documented bypass of an inspection, so the
+// reason is mandatory - this is a documented bypass of an inspection, so the
 // register has to say why. The round is archived to qcHistory for the audit trail.
 router.post('/:id/qc-not-required', authenticate, authorize(...QC_WAIVE_ROLES), async (req, res) => {
   try {
@@ -1438,7 +1574,7 @@ router.post('/:id/qc-not-required', authenticate, authorize(...QC_WAIVE_ROLES), 
       return res.status(400).json({
         error: row.status === 'QC_NOT_REQUIRED'
           ? 'QC has already been marked not required for this entry'
-          : 'QC has already been completed for this entry — it can no longer be waived',
+          : 'QC has already been completed for this entry - it can no longer be waived',
       });
     }
 
@@ -1481,7 +1617,7 @@ router.post('/:id/qc-not-required', authenticate, authorize(...QC_WAIVE_ROLES), 
     // someone else waived (so it stops expecting the lot), and the concerned
     // manager(s) + Admin are kept in the loop on who cleared it and why.
     const item = row.itemDescription || row.mirNo;
-    const msg = `${req.user.name} marked QC NOT REQUIRED for inward ${row.mirNo}${row.docNumber ? ` (${row.docNumber})` : ''} — ${reason}. Stores can inward it directly.`;
+    const msg = `${req.user.name} marked QC NOT REQUIRED for inward ${row.mirNo}${row.docNumber ? ` (${row.docNumber})` : ''} - ${reason}. Stores can inward it directly.`;
     const notes = [{
       type: 'INWARD_QC_NOT_REQUIRED',
       title: `QC not required: ${item}`,
@@ -1512,6 +1648,78 @@ router.post('/:id/qc-not-required', authenticate, authorize(...QC_WAIVE_ROLES), 
   }
 });
 
+// Everyone who has to hear that an inspection is FINAL: Stores (the lot is now
+// theirs to inward, or not), plus the NCR escalation when it was rejected.
+//
+// Deliberately one function, called from two places - straight from
+// /finish-review when QC or Admin did the review themselves, and from
+// /approve-review once QC signs off a review carried out by an inspection-only
+// operator. Nobody downstream can tell the two apart, and an unapproved result
+// never reaches them.
+//
+// `inspector` is who actually inspected; `approver` is set only on the sign-off
+// path so the message can name both.
+async function notifyReviewOutcome(row, {
+  qcResult, remark, holdReason, onHold, deferred, inspector, approver = null, sentById,
+}) {
+  const item = row.itemDescription || row.mirNo;
+  const resultLabel = qcResult === 'ON_HOLD' ? 'on hold' : qcResult.toLowerCase();
+  const approvedSuffix = approver ? ` Approved by ${approver.name} (QC).` : '';
+
+  let message;
+  if (onHold) {
+    message = `${inspector.name} placed inward ${row.mirNo} on hold - ${holdReason}. Address it and resend to QC.`;
+  } else if (deferred) {
+    message = qcResult === 'FAILED'
+      ? `${inspector.name} finished deferred QC for ${row.mirNo} - FAILED.${approvedSuffix} This Tools & Fixtures lot is already with ${row.issuedToLabel || 'the unit'}; it is flagged QC-failed (stock not auto-removed). Decide on disposition.`
+      : `${inspector.name} finished deferred QC for ${row.mirNo} - ${qcResult}.${approvedSuffix} The lot is already in the unit's stock.`;
+  } else {
+    message = `${inspector.name} finished QC for inward ${row.mirNo} - ${qcResult}.${approvedSuffix} ${qcResult === 'FAILED' ? 'Material rejected.' : 'Ready to inward into stores.'}`;
+  }
+
+  const notes = [{
+    type: onHold ? 'INWARD_QC_HOLD' : (deferred && qcResult === 'FAILED' ? 'INWARD_TF_QC_FAILED' : (qcResult === 'FAILED' ? 'INWARD_QC_FAILED' : 'INWARD_QC_DONE')),
+    title: `QC ${resultLabel}: ${item}`,
+    message,
+    targetRole: 'STORE_MANAGER',
+    sentById,
+  }];
+
+  // A normal (non-deferred) QC rejection is an NCR event: alert the owning unit's
+  // manager(s), the admins, and the purchase team so a replacement is arranged.
+  if (qcResult === 'FAILED' && !deferred && !onHold) {
+    const ncrTitle = `QC FAILED / NCR: ${item}`;
+    const ncrMsg = `${inspector.name} rejected inward ${row.mirNo} at QC - ${remark}.${approvedSuffix}${row.ncrNo || row.ncrDocUrl ? ` NCR ${row.ncrNo || 'raised'}.` : ''} Stores must record the replacement material against this MIR.`;
+    ['ADMIN', 'PURCHASE_OFFICER'].forEach((roleT) => notes.push({
+      type: 'INWARD_QC_FAILED', title: ncrTitle, message: ncrMsg, targetRole: roleT, sentById,
+    }));
+    if (row.issuedToUnitId) {
+      const mgrs = await prisma.user.findMany({ where: { role: 'MANAGER', unitId: row.issuedToUnitId, isActive: true }, select: { id: true } });
+      mgrs.forEach((m) => notes.push({ type: 'INWARD_QC_FAILED', title: ncrTitle, message: ncrMsg, targetUserId: m.id, sentById }));
+    }
+  }
+  await prisma.notification.createMany({ data: notes });
+
+  // Deferred-QC failure also flags the owning unit's manager directly (no reversal).
+  if (deferred && qcResult === 'FAILED' && row.issuedToUnitId) {
+    const mgr = await prisma.user.findFirst({ where: { role: 'MANAGER', unitId: row.issuedToUnitId, isActive: true }, select: { id: true } });
+    if (mgr) {
+      await prisma.notification.create({
+        data: {
+          type: 'INWARD_TF_QC_FAILED',
+          title: `QC failed (post-inward): ${item}`,
+          message: `Deferred QC failed for ${row.mirNo} - ${remark}.${approvedSuffix} The stock is already in your unit and is flagged QC-failed. Decide on disposition.`,
+          targetUserId: mgr.id,
+          sentById,
+        },
+      }).catch(() => {});
+    }
+  }
+}
+
+// How an inspection-only operator is named in the approval notifications.
+const OPERATOR_LABEL = { INWARD_QC: 'Inward QC', IN_PROCESS_QC: 'In-Process QC' };
+
 // ── POST /api/material-inward/:id/finish-review ───────────────────────
 // QC files the inspection outcome + report remark.
 router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (req, res) => {
@@ -1528,7 +1736,7 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
     const onHold = qcResult === 'ON_HOLD';
     if (onHold && !b.holdReason?.trim()) return res.status(400).json({ error: 'A hold reason is required to place the lot on hold' });
 
-    // The Inward Inspection No. is owned by QC — required, but auto-issued if QC
+    // The Inward Inspection No. is owned by QC - required, but auto-issued if QC
     // leaves it blank so every inspected lot always carries one.
     const reportNo = b.qcReportNo?.trim() || await withDocRetry(() => generateSequentialNumber(prisma, 'IR'));
 
@@ -1554,11 +1762,22 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
       rejectionReason: rep.rejectionReason?.trim?.() || null,
     };
 
+    // An inspection carried out by an inspection-only operator is not final on its
+    // own - it parks at QC_PENDING_APPROVAL for QC to sign off, so Stores cannot
+    // inward the lot and the NCR chain stays quiet until then. A hold is exempt: it
+    // releases no material, it only sends the lot round for re-inspection.
+    const needsApproval = QC_OPERATOR_ROLES.includes(req.user.role) && !onHold;
+
     const updated = await prisma.materialInwardRegister.update({
       where: { id: row.id },
       data: {
-        // On hold → ON_HOLD (re-inspectable). Otherwise the review is done.
-        status: onHold ? 'ON_HOLD' : 'QC_DONE',
+        // On hold → ON_HOLD (re-inspectable). Otherwise the review is done, or
+        // waiting on QC's signature when an operator filed it.
+        status: onHold ? 'ON_HOLD' : (needsApproval ? 'QC_PENDING_APPROVAL' : 'QC_DONE'),
+        // A fresh outcome clears any earlier sign-off on this row.
+        qcApprovedById: null,
+        qcApprovedAt: null,
+        qcApprovalRemark: null,
         qcResult,
         qtyAccepted: onHold ? null : (b.qtyAccepted != null && b.qtyAccepted !== '' ? Number(b.qtyAccepted) : null),
         qtyRejected: b.qtyRejected != null && b.qtyRejected !== '' ? Number(b.qtyRejected) : null,
@@ -1572,60 +1791,178 @@ router.post('/:id/finish-review', authenticate, authorize(...QC_ROLES), async (r
       },
     });
     // Deferred QC: a Tools & Fixtures lot inwarded to the unit before QC. The stock
-    // is already in place, so the outcome is informational — a failure is flagged
+    // is already in place, so the outcome is informational - a failure is flagged
     // (no auto-reversal), not a rejection that blocks inward.
     const deferred = !!row.inwardedAt;
-    const resultLabel = qcResult === 'ON_HOLD' ? 'on hold' : qcResult.toLowerCase();
-    let message;
-    if (onHold) {
-      message = `${req.user.name} placed inward ${row.mirNo} on hold — ${b.holdReason.trim()}. Address it and resend to QC.`;
-    } else if (deferred) {
-      message = qcResult === 'FAILED'
-        ? `${req.user.name} finished deferred QC for ${row.mirNo} — FAILED. This Tools & Fixtures lot is already with ${row.issuedToLabel || 'the unit'}; it is flagged QC-failed (stock not auto-removed). Decide on disposition.`
-        : `${req.user.name} finished deferred QC for ${row.mirNo} — ${qcResult}. The lot is already in the unit's stock.`;
-    } else {
-      message = `${req.user.name} finished QC for inward ${row.mirNo} — ${qcResult}. ${qcResult === 'FAILED' ? 'Material rejected.' : 'Ready to inward into stores.'}`;
+
+    // Waiting on QC's signature: only QC is told. Stores and the NCR chain hear
+    // nothing yet, so nobody acts on a result that is not signed off.
+    if (needsApproval) {
+      await prisma.notification.create({
+        data: {
+          type: 'INWARD_QC_REQUEST',
+          title: `Approve inspection: ${row.itemDescription || row.mirNo}`,
+          message: `${req.user.name} (${OPERATOR_LABEL[req.user.role] || req.user.role}) finished the inspection of inward ${row.mirNo} - ${qcResult}. Open the Inward register to approve it or send it back for re-inspection. Stores cannot inward this lot until you approve it.`,
+          targetRole: 'QC',
+          sentById: req.user.id,
+        },
+      });
+      return res.json(updated);
     }
-    const notes = [{
-      type: onHold ? 'INWARD_QC_HOLD' : (deferred && qcResult === 'FAILED' ? 'INWARD_TF_QC_FAILED' : (qcResult === 'FAILED' ? 'INWARD_QC_FAILED' : 'INWARD_QC_DONE')),
-      title: `QC ${resultLabel}: ${row.itemDescription || row.mirNo}`,
-      message,
-      targetRole: 'STORE_MANAGER',
+
+    await notifyReviewOutcome(row, {
+      qcResult,
+      remark: b.qcReportRemark.trim(),
+      holdReason: onHold ? b.holdReason.trim() : null,
+      onHold,
+      deferred,
+      inspector: req.user,
       sentById: req.user.id,
-    }];
-    // A normal (non-deferred) QC rejection is an NCR event: alert the owning unit's
-    // manager(s), the admins, and the purchase team so a replacement is arranged.
-    if (qcResult === 'FAILED' && !deferred && !onHold) {
-      const ncrTitle = `QC FAILED / NCR: ${row.itemDescription || row.mirNo}`;
-      const ncrMsg = `${req.user.name} rejected inward ${row.mirNo} at QC — ${b.qcReportRemark.trim()}.${row.ncrNo || row.ncrDocUrl ? ` NCR ${row.ncrNo || 'raised'}.` : ''} Stores must record the replacement material against this MIR.`;
-      ['ADMIN', 'PURCHASE_OFFICER'].forEach((roleT) => notes.push({
-        type: 'INWARD_QC_FAILED', title: ncrTitle, message: ncrMsg, targetRole: roleT, sentById: req.user.id,
-      }));
-      if (row.issuedToUnitId) {
-        const mgrs = await prisma.user.findMany({ where: { role: 'MANAGER', unitId: row.issuedToUnitId, isActive: true }, select: { id: true } });
-        mgrs.forEach((m) => notes.push({ type: 'INWARD_QC_FAILED', title: ncrTitle, message: ncrMsg, targetUserId: m.id, sentById: req.user.id }));
-      }
-    }
-    await prisma.notification.createMany({ data: notes });
-    // Deferred-QC failure also flags the owning unit's manager directly (no reversal).
-    if (deferred && qcResult === 'FAILED' && row.issuedToUnitId) {
-      const mgr = await prisma.user.findFirst({ where: { role: 'MANAGER', unitId: row.issuedToUnitId, isActive: true }, select: { id: true } });
-      if (mgr) {
-        await prisma.notification.create({
-          data: {
-            type: 'INWARD_TF_QC_FAILED',
-            title: `QC failed (post-inward): ${row.itemDescription || row.mirNo}`,
-            message: `Deferred QC failed for ${row.mirNo} — ${b.qcReportRemark.trim()}. The stock is already in your unit and is flagged QC-failed. Decide on disposition.`,
-            targetUserId: mgr.id,
-            sentById: req.user.id,
-          },
-        }).catch(() => {});
-      }
-    }
+    });
     res.json(updated);
   } catch (err) {
     console.error('finish-review error:', err);
     res.status(500).json({ error: 'Failed to finish review' });
+  }
+});
+
+// ── POST /api/material-inward/:id/approve-review ──────────────────────
+// QC (or Admin) signs off an inspection carried out by an inspection-only
+// operator. This is the moment the result becomes final: the lot moves to QC_DONE
+// (so Stores can inward it, subject to the usual result / master-data gates) and
+// the Stores + NCR notifications fire for the first time.
+router.post('/:id/approve-review', authenticate, authorize(...QC_APPROVE_ROLES), async (req, res) => {
+  try {
+    const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
+    if (!row) return res.status(404).json({ error: 'Entry not found' });
+    if (row.status !== 'QC_PENDING_APPROVAL') {
+      return res.status(400).json({ error: 'This inspection is not waiting for approval' });
+    }
+
+    const remark = req.body?.remark?.trim() || null;
+    const updated = await prisma.materialInwardRegister.update({
+      where: { id: row.id },
+      data: {
+        status: 'QC_DONE',
+        qcApprovedById: req.user.id,
+        qcApprovedAt: new Date(),
+        qcApprovalRemark: remark,
+      },
+    });
+
+    // The inspector, so the notifications name whoever actually did the review.
+    const inspector = row.qcReviewerId
+      ? await prisma.user.findUnique({ where: { id: row.qcReviewerId }, select: { id: true, name: true, role: true } })
+      : null;
+
+    await notifyReviewOutcome(row, {
+      qcResult: row.qcResult,
+      remark: row.qcReportRemark || '',
+      holdReason: null,
+      onHold: false,
+      deferred: !!row.inwardedAt,
+      inspector: inspector || { name: 'QC' },
+      approver: req.user,
+      sentById: req.user.id,
+    });
+
+    // Tell the operator their inspection cleared.
+    if (inspector && inspector.id !== req.user.id) {
+      await prisma.notification.create({
+        data: {
+          type: 'INWARD_QC_DONE',
+          title: `Inspection approved: ${row.itemDescription || row.mirNo}`,
+          message: `${req.user.name} approved your ${row.qcResult} inspection of inward ${row.mirNo}${remark ? ` - ${remark}` : ''}. It is now with Stores.`,
+          targetUserId: inspector.id,
+          sentById: req.user.id,
+        },
+      }).catch(() => {});
+    }
+
+    res.json(updated);
+  } catch (err) {
+    console.error('approve-review error:', err);
+    res.status(500).json({ error: 'Failed to approve the inspection' });
+  }
+});
+
+// ── POST /api/material-inward/:id/reject-review ───────────────────────
+// QC disagrees with an operator's inspection and sends it back. The round is
+// archived into qcHistory exactly like a re-inspection, then the row resets to
+// QC_REQUESTED so the lot can be taken up and inspected afresh. A reason is
+// mandatory - the operator has to know what to redo.
+router.post('/:id/reject-review', authenticate, authorize(...QC_APPROVE_ROLES), async (req, res) => {
+  try {
+    const row = await prisma.materialInwardRegister.findUnique({ where: { id: req.params.id } });
+    if (!row) return res.status(404).json({ error: 'Entry not found' });
+    if (row.status !== 'QC_PENDING_APPROVAL') {
+      return res.status(400).json({ error: 'This inspection is not waiting for approval' });
+    }
+    const check = validateReason(req.body?.reason, { minLength: 12, minWords: 2, fieldLabel: 'reason' });
+    if (!check.ok) return res.status(400).json({ error: check.error });
+    const reason = check.cleaned;
+
+    // Archive the rejected round so nothing is lost across the re-inspection.
+    const history = Array.isArray(row.qcHistory) ? [...row.qcHistory] : [];
+    history.push({
+      round: row.qcRound || 1,
+      result: row.qcResult || null,
+      reportNo: row.qcReportNo || null,
+      remark: row.qcReportRemark || null,
+      reviewerId: row.qcReviewerId || null,
+      finishedAt: row.qcFinishedAt || null,
+      qtyAccepted: row.qtyAccepted ?? null,
+      qtyRejected: row.qtyRejected ?? null,
+      sentBackById: req.user.id,
+      sentBackAt: new Date(),
+      sentBackReason: reason,
+    });
+
+    const updated = await prisma.materialInwardRegister.update({
+      where: { id: row.id },
+      data: {
+        status: 'QC_REQUESTED',
+        qcHistory: history,
+        qcRound: (row.qcRound || 1) + 1,
+        // Clear the round that was rejected - the next inspection starts clean.
+        qcReviewerId: null,
+        qcReviewStartedAt: null,
+        qcResult: null,
+        qtyAccepted: null,
+        qtyRejected: null,
+        qtyHeld: null,
+        qcReportRemark: null,
+        qcReport: null,
+        qcFinishedAt: null,
+        qcApprovalRemark: reason,
+        qcApprovedById: null,
+        qcApprovedAt: null,
+      },
+    });
+
+    const notes = [];
+    if (row.qcReviewerId) {
+      notes.push({
+        type: 'INWARD_QC_REQUEST',
+        title: `Inspection sent back: ${row.itemDescription || row.mirNo}`,
+        message: `${req.user.name} sent your inspection of inward ${row.mirNo} back for re-inspection - ${reason}. Take the review again on the Inward register.`,
+        targetUserId: row.qcReviewerId,
+        sentById: req.user.id,
+      });
+    }
+    notes.push({
+      type: 'INWARD_QC_REQUEST',
+      title: `Re-inspection needed: ${row.itemDescription || row.mirNo}`,
+      message: `${req.user.name} rejected the filed inspection for inward ${row.mirNo} - ${reason}. The lot is back in the QC queue; it cannot be inwarded until a fresh review is approved.`,
+      targetRole: 'STORE_MANAGER',
+      sentById: req.user.id,
+    });
+    await prisma.notification.createMany({ data: notes });
+
+    res.json(updated);
+  } catch (err) {
+    console.error('reject-review error:', err);
+    res.status(500).json({ error: 'Failed to send the inspection back' });
   }
 });
 
@@ -1714,7 +2051,7 @@ router.post('/:id/resend-qc', authenticate, requireInwardWrite, async (req, res)
       data: {
         type: 'INWARD_QC_REQUEST',
         title: `Re-inspection: ${row.itemDescription || row.mirNo}`,
-        message: `${req.user.name} resent inward ${row.mirNo} to QC for re-inspection${note ? ` — ${note}` : ''}.`,
+        message: `${req.user.name} resent inward ${row.mirNo} to QC for re-inspection${note ? ` - ${note}` : ''}.`,
         targetRole: 'QC',
         sentById: req.user.id,
       },
@@ -1739,7 +2076,7 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
     let product = row.productId ? await prisma.product.findUnique({ where: { id: row.productId } }) : null;
 
     // Free-text inward with no linked product (a "New item" cash purchase, etc.):
-    // create — or reuse — a product master entry now so the received qty actually
+    // create - or reuse - a product master entry now so the received qty actually
     // lands in inventory instead of being recorded and then lost. Mirrors the
     // gate-pass new-product path. masterDataComplete=true so it clears the inward
     // gate (Stores already has the goods in hand); it can be enriched later.
@@ -1775,16 +2112,16 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
       // Normal flow: QC must be finished + passed, and the master data must have
       // been added, before any stock is created. A lot QC / the concerned manager
       // / an Admin marked "QC not required" clears the inspection gate the same
-      // way a finished review does — the master-data gate below still applies.
+      // way a finished review does - the master-data gate below still applies.
       const qcCleared = row.status === 'QC_DONE' || (row.qcWaived && row.status === 'QC_NOT_REQUIRED');
       if (!qcCleared) return res.status(400).json({ error: 'Finish QC before inwarding' });
-      if (row.qcResult === 'FAILED') return res.status(400).json({ error: 'QC failed — this material cannot be inwarded' });
+      if (row.qcResult === 'FAILED') return res.status(400).json({ error: 'QC failed - this material cannot be inwarded' });
       if (product && product.masterDataComplete === false) {
         await notifyMasterDataHold(row, req.user.id, {
           title: `Master data needed: ${row.itemDescription || row.mirNo}`,
           message: `${req.user.name} tried to inward ${row.mirNo} but "${product.name}" has no master data yet. Add its master data (specs / shelf life) on the Master Data screen so Stores can inward it.`,
         });
-        return res.status(400).json({ error: "On hold: master data not added yet — a unit head or QC must add this material's master data before it can be inwarded." });
+        return res.status(400).json({ error: "On hold: master data not added yet - a unit head or QC must add this material's master data before it can be inwarded." });
       }
     }
     // Tools & Fixtures: inward allowed from any pre-inward status; QC + master data
@@ -1794,7 +2131,7 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
     // Inward the QC-accepted qty when QC set one, else the received qty.
     const qty = row.qtyAccepted != null ? row.qtyAccepted : (row.qtyReceived || 0);
     if (!row.productId) {
-      // No product and no description to build one from — mark the register row
+      // No product and no description to build one from - mark the register row
       // inwarded without touching stock (rare: an empty free-text row).
       const marked = await prisma.materialInwardRegister.update({
         where: { id: row.id }, data: { status: 'INWARDED', inwardedAt: new Date() },
@@ -1837,7 +2174,7 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
           });
         }
       } else {
-        // No bound unit — single movement into the general / dept pool.
+        // No bound unit - single movement into the general / dept pool.
         movements.push(await tx.stockMovement.create({
           data: {
             productId: product.id,
@@ -1900,14 +2237,14 @@ router.post('/:id/inward', authenticate, requireInwardWrite, async (req, res) =>
       return { row: updatedRow, movements, batch };
     });
 
-    // Tools & Fixtures inwarded straight to the unit before QC — flag QC to do the
+    // Tools & Fixtures inwarded straight to the unit before QC - flag QC to do the
     // (deferred) inspection on the lot that's already in stock.
     if (isTF) {
       await prisma.notification.create({
         data: {
           type: 'INWARD_TF_QC_PENDING',
-          title: `T&F inwarded — QC pending: ${row.itemDescription || row.mirNo}`,
-          message: `${req.user.name} inwarded Tools & Fixtures ${row.mirNo}${row.issuedToLabel ? ` to ${row.issuedToLabel}` : ''} directly to the unit. QC is still pending — review the lot when ready.`,
+          title: `T&F inwarded - QC pending: ${row.itemDescription || row.mirNo}`,
+          message: `${req.user.name} inwarded Tools & Fixtures ${row.mirNo}${row.issuedToLabel ? ` to ${row.issuedToLabel}` : ''} directly to the unit. QC is still pending - review the lot when ready.`,
           targetRole: 'QC',
           sentById: req.user.id,
         },

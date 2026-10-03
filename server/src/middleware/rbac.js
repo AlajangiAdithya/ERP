@@ -12,13 +12,15 @@ const ROLE_HIERARCHY = {
   PLANNING: 2,
   QC: 2,
   MANAGER: 2,
-  // Inward-only QC operator — sits at the QC tier for the one action it performs
+  // Inward-only QC operator - sits at the QC tier for the one action it performs
   // (inward-material review). Its narrow scope is enforced by the route allow-lists,
   // not the hierarchy. See materialInward.routes.js.
   INWARD_QC: 2,
+  // In-process QC operator - same tier and same narrow scope as INWARD_QC.
+  IN_PROCESS_QC: 2,
   DESIGNS: 2,
   PURCHASE_OFFICER: 1,
-  // Edit-only data corrector. Sits at the bottom of the hierarchy — its access
+  // Edit-only data corrector. Sits at the bottom of the hierarchy - its access
   // is the /api/data-editor route allow-list, not any authorize() check.
   DATA_EDITOR: 1,
   LAB: 1,
@@ -33,7 +35,7 @@ const authorize = (...allowedRoles) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // SUPERADMIN bypasses every role check — they can hit any endpoint.
+    // SUPERADMIN bypasses every role check - they can hit any endpoint.
     if (req.user.role === 'SUPERADMIN') return next();
 
     if (!allowedRoles.includes(req.user.role)) {
@@ -66,7 +68,7 @@ const authorizeMinRole = (minRole) => {
 
 // Product master-data editors. Master data (product specs + shelf life) is owned
 // exclusively by the Unit 1–5 managers. A MANAGER of any other unit (e.g. Unit
-// 1A) is read-only, and QC/Stores/Purchase only consume product names — they
+// 1A) is read-only, and QC/Stores/Purchase only consume product names - they
 // don't edit master data. ADMIN/SUPERADMIN keep an override for support. Unit
 // codes are seeded as '1','1A','2','3','4','5' (prisma/seed.js); req.user.unit.code
 // is loaded by the auth middleware.
@@ -99,20 +101,20 @@ const authorizeProductMaster = (req, res, next) => {
 };
 
 // ──── Master data: who may ADD, who may EDIT ────
-// Master data is owned by Admin, Quality and the unit managers — nobody else may
+// Master data is owned by Admin, Quality and the unit managers - nobody else may
 // put a material into the catalogue. It was briefly open to every requester role
 // so a PR was never blocked waiting on someone else, but that let anyone mint
 // catalogue entries and the register filled up with duplicates and half-described
 // materials. A requester who needs a new material now asks Admin / QC / their
 // unit manager to add it first. (Tools & Fixtures requisition lines are the one
-// route that still bypasses the catalogue — see FREE_TEXT_MATERIAL_TYPE in
-// purchaseRequest.routes.js — and even those are catalogued by the SYSTEM at
+// route that still bypasses the catalogue - see FREE_TEXT_MATERIAL_TYPE in
+// purchaseRequest.routes.js - and even those are catalogued by the SYSTEM at
 // inward, not typed into master data by hand.)
 //
 // EDITING stays narrow: the Unit 1–5 managers own master data, plus the person
 // who entered that particular material (they are the one who knows what they
 // meant). Everyone else is read-only. Mirror of PRODUCT_CREATE_ROLES /
-// canEditProductMasterData in client/src/utils/roles.js — the server is the real
+// canEditProductMasterData in client/src/utils/roles.js - the server is the real
 // gate, the client mirror only decides what is drawn.
 const PRODUCT_CREATE_ROLES = ['ADMIN', 'MANAGER', 'QC'];
 
@@ -137,18 +139,18 @@ const canEditProductMasterData = (user, product) => {
 };
 
 // TEMPORARY (new-system rollout): the Stores team may edit a product's *details*
-// (material code, name, material type, specification, shelf life, storage temp — never
+// (material code, name, material type, specification, shelf life, storage temp - never
 // stock numbers) directly from the Stock Details list while they learn the system.
 // Auto-expires on this date so the access doesn't linger; after it, STORE_MANAGER
 // is read-only again and only the master owners can edit. The client mirror is
-// STORE_PRODUCT_EDIT_UNTIL in client/src/utils/roles.js — keep both in sync.
+// STORE_PRODUCT_EDIT_UNTIL in client/src/utils/roles.js - keep both in sync.
 const STORE_PRODUCT_EDIT_UNTIL = new Date('2026-09-20T23:59:59');
 const storeProductEditWindowOpen = () => Date.now() <= STORE_PRODUCT_EDIT_UNTIL.getTime();
 
 // Who may edit a product's details (PUT /products/:id, spec + MSDS files):
-//   • master owners (Unit 1–5 managers, Admin/Superadmin) — any product
-//   • whoever entered the product in master data          — their own entry
-//   • STORE_MANAGER                                       — rollout window only
+//   • master owners (Unit 1–5 managers, Admin/Superadmin) - any product
+//   • whoever entered the product in master data          - their own entry
+//   • STORE_MANAGER                                       - rollout window only
 // Needs the product loaded (for createdById), so routes call this after fetching
 // rather than mounting it as middleware.
 const canEditProductDetails = (user, product) => {
@@ -183,11 +185,11 @@ const authorizePoNumberAssign = (req, res, next) => {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// TEMPORARY FEATURE — PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
+// TEMPORARY FEATURE - PO RE-NUMBERING. REMOVE WHEN THE ROLLOUT IS OVER.
 // ════════════════════════════════════════════════════════════════════════════
 // The Purchase team is still reconciling the old manual PO register against the
 // system, so they may correct the running count on a PO number
-// (RAPS/PO/<FY>/<n> — only <n> changes; the prefix and financial year are fixed).
+// (RAPS/PO/<FY>/<n> - only <n> changes; the prefix and financial year are fixed).
 // Changing it rewrites every downstream copy of the number: derived batch
 // numbers, stock/batch notes, MIV lines, inward-register rows and notification
 // text. Audit logs are deliberately left untouched.
@@ -198,11 +200,11 @@ const authorizePoNumberAssign = (req, res, next) => {
 // in server/src/routes/purchaseOrder.routes.js, and the client mirror
 // (canEditPoNumber in client/src/utils/roles.js + the pencil button and
 // RenumberPoModal in client/src/pages/PurchaseOrders.jsx). The
-// PurchaseOrderNumberHistory table and its "Number history" panel stay — past
+// PurchaseOrderNumberHistory table and its "Number history" panel stay - past
 // renames must remain traceable after the button is gone.
 //
 // null = no expiry set yet (the date will be fixed later). The client mirror is
-// PO_NUMBER_EDIT_UNTIL in client/src/utils/roles.js — keep both in sync.
+// PO_NUMBER_EDIT_UNTIL in client/src/utils/roles.js - keep both in sync.
 const PO_NUMBER_EDIT_UNTIL = null;
 const PO_NUMBER_EDIT_ROLES = ['PURCHASE_OFFICER', 'ADMIN', 'SUPERADMIN'];
 
@@ -225,7 +227,7 @@ const authorizePoNumberEdit = (req, res, next) => {
   }
   return next();
 };
-// ════════════════ END TEMPORARY FEATURE — PO RE-NUMBERING ═══════════════════
+// ════════════════ END TEMPORARY FEATURE - PO RE-NUMBERING ═══════════════════
 
 module.exports = {
   authorize,

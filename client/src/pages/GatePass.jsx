@@ -25,7 +25,7 @@ import { SlaNotice, SlaDelayRemark } from '../components/shared/SlaGate';
 import { slaRemarkState } from '../utils/sla';
 
 // When a gate pass is awaiting a decision, this is the timestamp its 48-hour SLA
-// clock runs from — used by the ageing badge and the delay-remark gate.
+// clock runs from - used by the ageing badge and the delay-remark gate.
 //   • PENDING_STORE   → from when the pass was raised (createdAt)
 //   • PENDING_ACCOUNTS → from when Stores forwarded it (storeInchargeAt)
 const gpPendingSince = (g) =>
@@ -35,8 +35,8 @@ const gpPendingSince = (g) =>
 
 // The registers reachable from this page. The toggle at the top switches which
 // one is shown, and seeds the kind chosen when a new gate pass is created.
-//  • OUTSIDE   → Outward register (RAMS/GPR/01) — delivered to a site office.
-//  • LOCAL_JOB → Local Job Work register (RAPS/JL-JW) — returns to stores.
+//  • OUTSIDE   → Outward register (RAMS/GPR/01) - delivered to a site office.
+//  • LOCAL_JOB → Local Job Work register (RAPS/JL-JW) - returns to stores.
 // The FIM / Customer Property register used to live here as a third view. It now
 // sits on Material Inward (a FIM only exists because Stores inwarded customer
 // material), so its whole lifecycle reads on one page.
@@ -158,7 +158,7 @@ function ReturnDueBadge({ info, compact = false }) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Inline actions — which workflow steps a given role can take on a row, right
+// Inline actions - which workflow steps a given role can take on a row, right
 // now. Mirrors the server's stage/role gating so the buttons only ever appear
 // when the action will actually succeed.
 // ──────────────────────────────────────────────────────────────────────────────
@@ -193,9 +193,9 @@ function availableActions(g, role) {
 
 const ACTION_DEFS = {
   'store-approve':   { title: 'Stores Approval',     short: 'Approve',  tone: 'amber', Icon: ShieldCheck },
-  'accounts-invoice':{ title: 'Accounts — Invoice',  short: 'Invoice',  tone: 'amber', Icon: Calculator },
+  'accounts-invoice':{ title: 'Accounts - Invoice',  short: 'Invoice',  tone: 'amber', Icon: Calculator },
   'store-review':    { title: 'Stores Final Review', short: 'Review',   tone: 'amber', Icon: PackageCheck },
-  'logistics':       { title: 'Logistics — Dispatch',short: 'Vehicle',  tone: 'blue',  Icon: Truck },
+  'logistics':       { title: 'Logistics - Dispatch',short: 'Vehicle',  tone: 'blue',  Icon: Truck },
   'arrival-ack':     { title: 'Acknowledge Arrival', short: 'Arrival',  tone: 'blue',  Icon: Stamp },
   'stores-ack':      { title: 'Close Gate Pass',     short: 'Close',    tone: 'green', Icon: CheckCircle2 },
 };
@@ -203,10 +203,10 @@ const ACTION_DEFS = {
 export default function GatePass() {
   const { user } = useAuth();
   const role = user?.role;
-  // Stores raises its own outward passes too — those skip the stores-approval
+  // Stores raises its own outward passes too - those skip the stores-approval
   // stage entirely (the server releases them straight to Accounts / Logistics).
   const canCreate = ['MANAGER', 'ADMIN', 'PLANNING', 'QC', 'STORE_MANAGER'].includes(role);
-  // Editing a still-pending pass belongs to the requester roles only — Stores
+  // Editing a still-pending pass belongs to the requester roles only - Stores
   // never has a PENDING_STORE pass of its own to edit, and the server's /edit
   // endpoint does not authorise STORE_MANAGER.
   const canEdit = ['MANAGER', 'ADMIN', 'PLANNING', 'QC'].includes(role);
@@ -262,7 +262,7 @@ export default function GatePass() {
     <div className="space-y-6">
       <PageHero
         title="Gate Pass"
-        subtitle="OUTWARD movement in one register sheet — pick Outward (delivered to a site office) or Local Job (returns to stores). Every step is actioned right in the row."
+        subtitle="OUTWARD movement in one register sheet - pick Outward (delivered to a site office) or Local Job (returns to stores). Every step is actioned right in the row."
         eyebrow="Outward Movement"
         icon={DoorOpen}
         actions={
@@ -279,7 +279,7 @@ export default function GatePass() {
         }
       />
 
-      {/* Register toggle — swaps the sheet columns + workflow. */}
+      {/* Register toggle - swaps the sheet columns + workflow. */}
       <div className="flex flex-wrap gap-2 border-b border-gray-200">
         {KIND_VIEWS.map(({ key, label, Icon }) => (
           <button
@@ -380,7 +380,7 @@ export default function GatePass() {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// The Excel-style register sheet — one row per gate pass, columns adapt to the
+// The Excel-style register sheet - one row per gate pass, columns adapt to the
 // chosen format, every workflow step actioned inline from the row.
 // ────────────────────────────────────────────────────────────────────
 function GatePassSheet({ rows, view, role, canEdit, onView, onEdit, onAction }) {
@@ -576,7 +576,7 @@ function Td({ children, sticky = false, groupEnd = false, nowrap = true, classNa
     </td>
   );
 }
-const Dash = () => <span className="text-gray-300 select-none">—</span>;
+const Dash = () => <span className="text-gray-300 select-none">-</span>;
 
 const PILL_TONES = {
   gray:   'bg-gray-100 text-gray-600 ring-gray-200',
@@ -609,7 +609,7 @@ const IconBtn = ({ title, danger, onClick, children }) => (
 );
 
 // ────────────────────────────────────────────────────────────────────
-// Action popup — launched from a row button. Renders just the focused box for
+// Action popup - launched from a row button. Renders just the focused box for
 // the chosen workflow step; reuses the same step components as before.
 // ────────────────────────────────────────────────────────────────────
 function ActionModal({ gatePass, type, onClose, onDone }) {
@@ -633,7 +633,7 @@ function ActionModal({ gatePass, type, onClose, onDone }) {
   const title = type === 'reject' ? 'Reject Gate Pass' : (ACTION_DEFS[type]?.title || 'Action');
 
   return (
-    <Modal isOpen onClose={onClose} title={`${title} — ${g.passNumber}`} size="md">
+    <Modal isOpen onClose={onClose} title={`${title} - ${g.passNumber}`} size="md">
       <div className="space-y-3">
         {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
 
@@ -703,7 +703,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
   const [error, setError] = useState('');
 
   // Stores raising its own pass: the server signs the stores stage at creation and
-  // releases it to the next desk — Accounts for Outside (invoice/DC), Logistics for
+  // releases it to the next desk - Accounts for Outside (invoice/DC), Logistics for
   // a Local Job. Everyone else's pass still queues for Store Incharge approval.
   const isStores = user?.role === 'STORE_MANAGER';
   const directNextDesk = kind === 'OUTSIDE' ? 'Accounts for the invoice / DC' : 'Logistics for dispatch';
@@ -726,7 +726,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
 
   const submit = async () => {
     setError('');
-    // Number is auto-generated per unit on the server — no manual entry needed.
+    // Number is auto-generated per unit on the server - no manual entry needed.
     if (items.some(i => !i.description.trim())) return setError('Each item needs a name/description');
     if (items.some(i => !i.quantity || Number(i.quantity) <= 0)) return setError('Each item needs a positive quantity');
     if (items.some(i => i.itemPassType === 'RETURNABLE' && !i.probableReturnDate)) {
@@ -772,7 +772,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
       isOpen
       onClose={onClose}
       title={isEdit
-        ? `Edit Gate Pass — ${initialData?.passNumber}`
+        ? `Edit Gate Pass - ${initialData?.passNumber}`
         : isStores ? 'Raise Gate Pass (Stores)' : 'Gate Pass Request'}
       size="full"
     >
@@ -799,8 +799,8 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
           </div>
           <p className="text-xs text-gray-500 mt-2">
             {kind === 'LOCAL_JOB'
-              ? 'Local Job: material/work going to a vendor — returns to stores when work is done.'
-              : 'Outside: material being delivered to another RAPS office — Logistics confirms arrival.'}
+              ? 'Local Job: material/work going to a vendor - returns to stores when work is done.'
+              : 'Outside: material being delivered to another RAPS office - Logistics confirms arrival.'}
           </p>
         </div>
 
@@ -811,7 +811,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
             readOnly
             disabled
           />
-          <Input label="Requesting Unit" value={user?.unit?.name || '— (Global)'} readOnly disabled />
+          <Input label="Requesting Unit" value={user?.unit?.name || '- (Global)'} readOnly disabled />
           <Input label="Site / Unit" value={siteName} onChange={e => setSiteName(e.target.value)} placeholder="Site or unit" />
           {kind === 'LOCAL_JOB' && (
             <>
@@ -834,7 +834,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
         <p className="text-xs text-gray-500">
           Enter the Gate Pass No. above; the Date is set automatically. Pass details and Transport are filled by Logistics on dispatch / acknowledgement.{' '}
           {isStores
-            ? `You are raising this as Stores, so there is no separate Store Incharge approval — on save it is released straight to ${directNextDesk}.`
+            ? `You are raising this as Stores, so there is no separate Store Incharge approval - on save it is released straight to ${directNextDesk}.`
             : 'The Store Incharge will approve first, then Logistics assigns the vehicle.'}
         </p>
 
@@ -913,7 +913,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
                         <input type="date" className={cellInput}
                           value={it.probableReturnDate} onChange={e => updateItem(idx, 'probableReturnDate', e.target.value)} />
                       ) : (
-                        <span className="text-xs text-gray-400 italic">N/A — delivery item</span>
+                        <span className="text-xs text-gray-400 italic">N/A - delivery item</span>
                       )}
                     </td>
                     <td className="px-2 py-2">
@@ -921,7 +921,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
                         value={it.itemPassType} onChange={e => {
                           const v = e.target.value;
                           // Set the type and clear any return date for delivery/
-                          // non-returnable items — one atomic update (avoids stale state).
+                          // non-returnable items - one atomic update (avoids stale state).
                           setItems(prev => prev.map((row, i) => i === idx
                             ? { ...row, itemPassType: v, probableReturnDate: v === 'RETURNABLE' ? row.probableReturnDate : '' }
                             : row));
@@ -972,7 +972,7 @@ function CreateGatePassModal({ defaultKind = 'LOCAL_JOB', initialData = null, ed
   );
 }
 
-// Read-only detail view — full fields, approval trail, items and the PDF.
+// Read-only detail view - full fields, approval trail, items and the PDF.
 // Every workflow action now lives inline in the sheet; this modal only informs.
 function DetailModal({ gatePass: g, onClose }) {
   const isLocalJob = g.kind === 'LOCAL_JOB';
@@ -1007,7 +1007,7 @@ function DetailModal({ gatePass: g, onClose }) {
               label={g.privateVehicle ? 'Vehicle (Private / Hired)' : 'Vehicle'}
               value={g.assignedVehicle
                 ? `${g.assignedVehicle.regNumber}${g.assignedVehicle.driverName ? ` · ${g.assignedVehicle.driverName}` : ''}${g.assignedVehicle.driverPhone ? ` · ${g.assignedVehicle.driverPhone}` : ''}`
-                : `${g.vehicleNo || '—'}${g.driverName ? ` · ${g.driverName}` : ''}${g.driverPhone ? ` · ${g.driverPhone}` : ''}`}
+                : `${g.vehicleNo || '-'}${g.driverName ? ` · ${g.driverName}` : ''}${g.driverPhone ? ` · ${g.driverPhone}` : ''}`}
             />
           )}
           {g.invoiceNo && <Field label="Invoice No." value={g.invoiceNo} />}
@@ -1092,15 +1092,15 @@ function ItemsTable({ items }) {
                 <td className="px-2 py-1.5 text-gray-600">
                   {it.workOrder
                     ? `${it.workOrder.workOrderNumber}${it.workOrder.assignedUnit?.name || it.workOrder.assignedUnitName ? ` · ${it.workOrder.assignedUnit?.name || it.workOrder.assignedUnitName}` : ''}`
-                    : '—'}
+                    : '-'}
                 </td>
-                <td className="px-2 py-1.5 text-gray-600">{it.itemPassType ? PASS_TYPE_LABEL[it.itemPassType] : '—'}</td>
-                <td className="px-2 py-1.5 text-gray-600">{it.dispatchedTo || '—'}</td>
-                <td className="px-2 py-1.5 text-gray-600">{it.itemPurpose || '—'}</td>
-                <td className="px-2 py-1.5 text-gray-600">{it.probableReturnDate ? formatDate(it.probableReturnDate) : '—'}</td>
-                <td className="px-2 py-1.5 text-gray-600">{it.gatePassDetails || '—'}</td>
-                <td className="px-2 py-1.5 text-gray-600">{it.transportation || '—'}</td>
-                <td className="px-2 py-1.5 text-gray-600">{it.contactPersonDetails || it.remarks || '—'}</td>
+                <td className="px-2 py-1.5 text-gray-600">{it.itemPassType ? PASS_TYPE_LABEL[it.itemPassType] : '-'}</td>
+                <td className="px-2 py-1.5 text-gray-600">{it.dispatchedTo || '-'}</td>
+                <td className="px-2 py-1.5 text-gray-600">{it.itemPurpose || '-'}</td>
+                <td className="px-2 py-1.5 text-gray-600">{it.probableReturnDate ? formatDate(it.probableReturnDate) : '-'}</td>
+                <td className="px-2 py-1.5 text-gray-600">{it.gatePassDetails || '-'}</td>
+                <td className="px-2 py-1.5 text-gray-600">{it.transportation || '-'}</td>
+                <td className="px-2 py-1.5 text-gray-600">{it.contactPersonDetails || it.remarks || '-'}</td>
               </tr>
             ))}
           </tbody>
@@ -1120,10 +1120,10 @@ function StoreApproveBox({ g, busy, onSubmit }) {
   const [remarks,    setRemarks]    = useState('');
   const [storeDelayRemark, setStoreDelayRemark] = useState('');
 
-  // 48-hour Stores SLA — from when the pass was raised.
+  // 48-hour Stores SLA - from when the pass was raised.
   const sla = slaRemarkState(g.createdAt, storeDelayRemark);
 
-  // Per-item gate pass details + transportation — pre-populate from existing values
+  // Per-item gate pass details + transportation - pre-populate from existing values
   const [itemFields, setItemFields] = useState(
     (g.items || []).map(it => ({
       id:              it.id,
@@ -1158,9 +1158,9 @@ function StoreApproveBox({ g, busy, onSubmit }) {
     <div className="space-y-3">
       <div className="p-3 bg-amber-50 border border-amber-200 rounded text-xs font-medium text-amber-800">
         {isLegacy
-          ? 'Legacy FIM gate pass — capture driver/vehicle and forward to Accounts'
+          ? 'Legacy FIM gate pass - capture driver/vehicle and forward to Accounts'
           : g.kind === 'OUTSIDE'
-            ? 'Fill in transportation for each item, then approve and forward to Accounts — Accounts fills the gate pass details'
+            ? 'Fill in transportation for each item, then approve and forward to Accounts - Accounts fills the gate pass details'
             : 'Fill in gate pass details for each item, then approve and forward to Logistics'}
       </div>
 
@@ -1249,11 +1249,11 @@ function AccountsInvoiceBox({ g, busy, onSubmit }) {
   const [remarks, setRemarks] = useState('');
   const [accountsDelayRemark, setAccountsDelayRemark] = useState('');
 
-  // 48-hour Accounts SLA — from when Stores forwarded the pass to Accounts.
+  // 48-hour Accounts SLA - from when Stores forwarded the pass to Accounts.
   const sla = slaRemarkState(g?.storeInchargeAt || g?.createdAt, accountsDelayRemark);
 
   // Per-item Gate Pass Details are owned by Accounts on outward "Outside" passes.
-  // Transportation is shown for context only — Stores fills that at its own step.
+  // Transportation is shown for context only - Stores fills that at its own step.
   const [itemFields, setItemFields] = useState(
     (g?.items || []).map(it => ({
       id:              it.id,
@@ -1281,7 +1281,7 @@ function AccountsInvoiceBox({ g, busy, onSubmit }) {
         <Input label="Delivery Challan No." value={dcNo} onChange={e => setDcNo(e.target.value)} placeholder="e.g. DC/2026/001" />
       </div>
 
-      {/* Per-item gate pass details — Accounts owns this column on outward passes. */}
+      {/* Per-item gate pass details - Accounts owns this column on outward passes. */}
       {itemFields.length > 0 && (
         <div className="border border-gray-200 rounded overflow-hidden bg-white">
           <div className="bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600 border-b border-gray-200">
@@ -1309,8 +1309,8 @@ function AccountsInvoiceBox({ g, busy, onSubmit }) {
                       onChange={e => updateItem(idx, e.target.value)}
                     />
                   </td>
-                  {/* Filled by Stores at the previous step — read-only here. */}
-                  <td className="px-3 py-1.5 text-gray-500">{f.transportation || '—'}</td>
+                  {/* Filled by Stores at the previous step - read-only here. */}
+                  <td className="px-3 py-1.5 text-gray-500">{f.transportation || '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -1431,20 +1431,20 @@ function LogisticsBox({ g, busy, onAssigned, onDispatched, setError }) {
   return (
     <div className="p-3 bg-amber-50 border border-amber-200 rounded space-y-3">
       <p className="text-xs font-medium text-amber-800">
-        {assigned ? 'Vehicle assigned — confirm dispatch' : 'Assign a vehicle from the register, or use a private / hired one'}
+        {assigned ? 'Vehicle assigned - confirm dispatch' : 'Assign a vehicle from the register, or use a private / hired one'}
       </p>
 
       {!assigned && (
         <>
           <Select label="Vehicle *" value={vehicleId} onChange={e => setVehicleId(e.target.value)}>
-            <option value="">— Select a vehicle —</option>
+            <option value="">- Select a vehicle -</option>
             <option value={PRIVATE_VEHICLE}>🚗 Private / Hired vehicle (enter details)</option>
             {vehicles.map((v) => {
               const others = otherAssignments(v, g.id);
               return (
                 <option key={v.id} value={v.id}>
                   {v.regNumber} · {v.vehicleType || 'Vehicle'} · {v.driverName || 'No driver'}
-                  {others.length ? `  — already on ${others.map(a => a.passNumber).join(', ')}` : ''}
+                  {others.length ? `  - already on ${others.map(a => a.passNumber).join(', ')}` : ''}
                 </option>
               );
             })}
@@ -1549,7 +1549,7 @@ function LogisticsArrivalAckBox({ busy, isReturnable, onSubmit }) {
     <div className="p-3 bg-amber-50 border border-amber-200 rounded space-y-2">
       <p className="text-xs font-medium text-amber-800">
         Acknowledge arrival at the destination office
-        {isReturnable && ' — Stores will close the pass once the material is returned.'}
+        {isReturnable && ' - Stores will close the pass once the material is returned.'}
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         <Input
@@ -1593,7 +1593,7 @@ function ApprovalTrail({ g }) {
   const kind = g.kind;
   const stages = [];
 
-  // Raised by Stores itself — the stores stage was signed at creation rather than
+  // Raised by Stores itself - the stores stage was signed at creation rather than
   // as a separate review, so the trail says so instead of showing the same person
   // twice as if they had approved their own request.
   const storesRaised = g.createdBy?.role === 'STORE_MANAGER' && g.storeIncharge?.id === g.createdBy?.id;
@@ -1612,7 +1612,7 @@ function ApprovalTrail({ g }) {
   if (kind === 'OUTSIDE' || !kind) {
     stages.push({ label: kind === 'OUTSIDE' ? 'Accounts (Invoice)' : 'Accounts', user: g.accountsApprover, at: g.accountsAt, icon: Calculator, remark: g.accountsDelayRemark });
   }
-  // Stores Review — OUTSIDE only; LOCAL_JOB skips this stage and goes straight
+  // Stores Review - OUTSIDE only; LOCAL_JOB skips this stage and goes straight
   // from PENDING_STORE → PENDING_LOGISTICS after the first stores approval.
   if (kind === 'OUTSIDE') {
     const pastStoreReview = !['PENDING_STORE', 'PENDING_ACCOUNTS', 'PENDING_STORE_REVIEW'].includes(g.status);
@@ -1640,7 +1640,7 @@ function ApprovalTrail({ g }) {
           </div>
           {at ? (
             <>
-              <p className="text-gray-800 mt-0.5 truncate">{user?.name || '—'}</p>
+              <p className="text-gray-800 mt-0.5 truncate">{user?.name || '-'}</p>
               <p className="text-gray-500 truncate">{formatDateTime(at)}</p>
             </>
           ) : (
@@ -1663,13 +1663,13 @@ function Field({ label, value, icon: Icon }) {
       <p className="text-xs text-gray-500 flex items-center gap-1">
         {Icon && <Icon size={10} />} {label}
       </p>
-      <p className="text-gray-800">{value || '—'}</p>
+      <p className="text-gray-800">{value || '-'}</p>
     </div>
   );
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Workflow flowchart — visual reference of who acts at each stage, and how
+// Workflow flowchart - visual reference of who acts at each stage, and how
 // LOCAL_JOB differs from OUTSIDE (LOCAL_JOB skips Accounts + Store Review).
 // ──────────────────────────────────────────────────────────────────────────────
 function WorkflowModal({ onClose }) {
@@ -1724,12 +1724,12 @@ function WorkflowModal({ onClose }) {
           <p className="font-medium mb-1">Notes</p>
           <ul className="list-disc ml-4 space-y-0.5">
             <li>
-              When <span className="font-medium">Stores</span> raises the gate pass itself, the Stores approval step is skipped —
+              When <span className="font-medium">Stores</span> raises the gate pass itself, the Stores approval step is skipped -
               it is signed at creation and released straight to Accounts (Outside) or Logistics (Local Job).
             </li>
             <li>Logistics pre-registers all company vehicles in the <span className="font-medium">Vehicles</span> page; the dispatch picker pulls from that pool.</li>
             <li>For Outside dispatches, a driver-signed delivery PDF is mandatory before confirming dispatch.</li>
-            <li>Rejection is allowed at any pending stage — the gate pass moves to REJECTED with the reviewer's reason captured.</li>
+            <li>Rejection is allowed at any pending stage - the gate pass moves to REJECTED with the reviewer's reason captured.</li>
           </ul>
         </div>
       </div>

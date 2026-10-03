@@ -2,7 +2,7 @@ import { Document, Page, View, Text, Image } from '@react-pdf/renderer';
 import { styles, formatDate, formatDateTime, LOGO_URL } from './shared';
 
 // ── WORK ORDER (RAPS/WO/01) ─────────────────────────────────────────────
-// Printable/downloadable Work Order in the customer-facing "ION Format" — the
+// Printable/downloadable Work Order in the customer-facing "ION Format" - the
 // 20-row S.No / Description / Details table, filled from the live WO record.
 // Mirrors the physical form: Doc No. RAPS/WO/01, Rev 01, authorised + received
 // signatory blocks, and the company footer.
@@ -25,7 +25,7 @@ const orderQtyText = (wo) => {
   const items = wo.items || [];
   if (items.length) {
     return items
-      .map((it) => `${it.lineNo}. ${it.description} — ${it.quantity} ${it.uom || wo.orderUnit || 'Nos'}`)
+      .map((it) => `${it.lineNo}. ${it.description} - ${it.quantity} ${it.uom || wo.orderUnit || 'Nos'}`)
       .join('\n');
   }
   return wo.orderQuantity != null ? `${wo.orderQuantity} ${wo.orderUnit || 'Nos'}` : '';
@@ -101,12 +101,12 @@ export default function WorkOrderPdf({ data }) {
 
         {/* ION + date header */}
         <View style={local.metaRow}>
-          <Text style={local.metaText}>ION: {n.ionNumber || '—'}</Text>
+          <Text style={local.metaText}>ION: {n.ionNumber || '-'}</Text>
           <Text style={local.metaText}>Date: {formatDate(n.createdAt || n.supplyOrderDate)}</Text>
         </View>
         <View style={local.metaRow}>
-          <Text style={{ fontSize: 8 }}>Ref. SO: {n.supplyOrderNo || '—'}</Text>
-          <Text style={{ fontSize: 8 }}>WO No: {n.workOrderNumber || '—'}</Text>
+          <Text style={{ fontSize: 8 }}>Ref. SO: {n.supplyOrderNo || '-'}</Text>
+          <Text style={{ fontSize: 8 }}>WO No: {n.workOrderNumber || '-'}</Text>
         </View>
 
         {/* Main 20-row table */}

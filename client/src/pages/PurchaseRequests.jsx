@@ -28,7 +28,7 @@ import { PO_NUMBER_PENDING_LABEL, poNumberLabel, canCreateProduct } from '../uti
 import SearchBar from '../components/shared/SearchBar';
 import AddMasterMaterialModal from '../components/shared/AddMasterMaterialModal';
 
-// Allowed spec / note attachment formats — any common document or drawing type.
+// Allowed spec / note attachment formats - any common document or drawing type.
 // Validated by extension (DWG/office/zip mime types vary across browsers).
 const ATT_ACCEPT = '.pdf,.jpg,.jpeg,.png,.dwg,.doc,.docx,.xls,.xlsx,.zip';
 const ATT_EXT_RE = /\.(pdf|png|jpe?g|dwg|docx?|xlsx?|zip)$/i;
@@ -49,7 +49,7 @@ const itemAttachmentList = (i) => {
   return [];
 };
 
-// Read-only wrapped list of attachment links — used across every PR detail view.
+// Read-only wrapped list of attachment links - used across every PR detail view.
 function AttachmentLinks({ items, label }) {
   if (!items || items.length === 0) return null;
   return (
@@ -72,7 +72,7 @@ function AttachmentLinks({ items, label }) {
   );
 }
 
-// Inline remark editor — shared by the PR-level note and each material line's
+// Inline remark editor - shared by the PR-level note and each material line's
 // remark in the detail view. Remarks stay editable at every PR stage, and each
 // save notifies Purchase + Stores (they buy / issue against what it says), so
 // the reminder is spelled out next to the Save button.
@@ -101,7 +101,7 @@ function RemarkEditor({ value, onChange, onSave, onCancel, saving, rows = 2 }) {
 // Every time a line's required-by date is moved, the server records who did it,
 // when, and the old → new value (PurchaseRequestDateHistory, sent back on the PR
 // as `dateHistory`, newest first). The date is a commitment other departments
-// plan against, so a silent change is never acceptable — it is shown on the line
+// plan against, so a silent change is never acceptable - it is shown on the line
 // itself and listed in full below the materials table.
 const rbLabel = (d) => (d ? formatDate(d) : 'not set');
 
@@ -135,7 +135,7 @@ function RequiredByChangeNote({ entries }) {
   );
 }
 
-// Full trail for the PR — every line, every change, newest first.
+// Full trail for the PR - every line, every change, newest first.
 function RequiredByHistoryPanel({ entries }) {
   if (!entries || entries.length === 0) return null;
   return (
@@ -144,7 +144,7 @@ function RequiredByHistoryPanel({ entries }) {
         <History size={14} /> Required-By Date Changes ({entries.length})
       </div>
       <p className="text-[11px] text-amber-800 mb-2">
-        Every change to a required-by date on this PR — who made it, when, and the exact old → new value.
+        Every change to a required-by date on this PR - who made it, when, and the exact old → new value.
       </p>
       <ul className="space-y-1.5">
         {entries.map((h) => (
@@ -171,7 +171,7 @@ function RequiredByHistoryPanel({ entries }) {
 
 // The admin-hold conversation: every round of "Admin asked → raiser answered".
 // The last round is left open (no response yet) while the PR sits ON_HOLD.
-// Shown to both sides — Admin in the review modal, the raiser in the detail view.
+// Shown to both sides - Admin in the review modal, the raiser in the detail view.
 function HoldThread({ request }) {
   const rounds = Array.isArray(request?.holdHistory) ? request.holdHistory : [];
   if (rounds.length === 0) return null;
@@ -180,7 +180,7 @@ function HoldThread({ request }) {
     <div className={`border rounded-lg p-3 ${isHeld ? 'border-orange-300 bg-orange-50' : 'border-gray-200 bg-gray-50'}`}>
       <div className={`flex items-center gap-1.5 mb-2 text-sm font-semibold ${isHeld ? 'text-orange-900' : 'text-gray-700'}`}>
         <PauseCircle size={14} />
-        {isHeld ? 'On hold — clarification needed' : `Clarification history (${rounds.length})`}
+        {isHeld ? 'On hold - clarification needed' : `Clarification history (${rounds.length})`}
       </div>
       <ul className="space-y-2">
         {rounds.map((r, idx) => (
@@ -212,7 +212,7 @@ function HoldThread({ request }) {
   );
 }
 
-// When a PR is waiting for a decision, this is when the wait started — drives
+// When a PR is waiting for a decision, this is when the wait started - drives
 // the turnaround ageing badge (yellow ≥24h, red ≥48h) in the list.
 // Pending-since drives the TAT badge. A PR that Admin sent back for
 // clarification is waiting on the RAISER, not on an approver, so the approval
@@ -277,21 +277,41 @@ const quotationStatusColor = (s) => ({
   QUOTATION_SUBMITTED: 'yellow',
   QUOTATION_HELD: 'red',
   QUOTATION_APPROVED: 'green',
+  CASH_PURCHASE: 'orange',
   CANCELLED: 'red',
 }[s] || 'gray');
 
 const quotationStatusLabel = (s) => ({
   AWAITING_QUOTATION: 'Quotation not sent yet',
-  QUOTATION_SUBMITTED: 'Quotation submitted — pending admin',
+  QUOTATION_SUBMITTED: 'Quotation submitted - pending admin',
   QUOTATION_HELD: 'On hold by admin',
   QUOTATION_APPROVED: 'Approved',
+  // Off the quotation route: bought over the counter and received on a MIR.
+  CASH_PURCHASE: 'Cash purchase',
   CANCELLED: 'Cancelled',
 }[s] || s);
+
+// How much of a PR is settled, counting a received cash line as done. Drives the
+// "partly closed" line on the PR so a part-cash PR never looks either untouched
+// or fully finished.
+export const prSettlement = (request) => {
+  const live = (request?.items || []).filter((i) => i.itemQuotationStatus !== 'CANCELLED');
+  if (live.length === 0) return null;
+  const cash = live.filter((i) => i.itemQuotationStatus === 'CASH_PURCHASE');
+  const settled = live.filter((i) => i.itemStatus === 'RECEIVED');
+  return {
+    total: live.length,
+    cash: cash.length,
+    cashPending: cash.filter((i) => i.itemStatus !== 'RECEIVED').length,
+    settled: settled.length,
+    partlyClosed: settled.length > 0 && settled.length < live.length,
+  };
+};
 
 // ──── REQUIRED-BY DATE FLOOR ────
 // Procurement needs a workable lead time, so a PR line can never be needed sooner
 // than 15 days out. Server mirror: MIN_REQUIRED_BY_DAYS in
-// server/src/utils/helpers.js — keep both in sync. Every date input for this
+// server/src/utils/helpers.js - keep both in sync. Every date input for this
 // field takes `min={requiredByMin()}`, and submit re-checks it so a typed date
 // (which bypasses the picker's min) can't slip through either.
 const MIN_REQUIRED_BY_DAYS = 15;
@@ -305,13 +325,13 @@ const requiredByMin = () => {
   return toDateInput(new Date(now.getFullYear(), now.getMonth(), now.getDate() + MIN_REQUIRED_BY_DAYS));
 };
 
-// True when a 'YYYY-MM-DD' value is inside the blocked window. Empty passes —
+// True when a 'YYYY-MM-DD' value is inside the blocked window. Empty passes -
 // the field is optional.
 const requiredByTooSoon = (value) => !!value && value < requiredByMin();
 
 // The one material type a requisition line may name in free text instead of
 // picking from Master Data (kept in step with FREE_TEXT_MATERIAL_TYPE on the
-// server — purchaseRequest.routes.js).
+// server - purchaseRequest.routes.js).
 const FREE_TEXT_MATERIAL_TYPE = 'Tools & Fixtures';
 // Material types offered on a requisition line. Same vocabulary as Master Data /
 // inward (see utils/materialTypes.js) minus Stationery, which is not purchased
@@ -330,7 +350,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const isEdit = !!requestToEdit;
   const emptyItem = {
     productId: null,
-    // Material code of the linked Master Data material — display only, so the
+    // Material code of the linked Master Data material - display only, so the
     // requester can see which code block the line is drawing from. It is not part
     // of the payload: the PR line stores the link (productId), not the code.
     productCode: '',
@@ -338,7 +358,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     materialType: '', materialSpecification: '', qapNo: '', drawingNo: '',
     purpose: '', sourceOfSupply: '', scopeOfWork: '',
     inspectionType: '', requiredByDate: '', itemRemarks: '',
-    // Per-line spec files (multi-file, any format) — uploaded ahead of submit.
+    // Per-line spec files (multi-file, any format) - uploaded ahead of submit.
     attachments: [],
   };
   const itemFromExisting = (i) => ({
@@ -365,7 +385,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const [noteAttachments, setNoteAttachments] = useState([]);
   const [noteUpload, setNoteUpload] = useState({ uploading: false, error: '' });
   const [saving, setSaving] = useState(false);
-  // Work orders assigned to this requester's unit — header-level dropdown so the
+  // Work orders assigned to this requester's unit - header-level dropdown so the
   // PR can be tied to the WO it's raised for ("" = No work order).
   const [workOrders, setWorkOrders] = useState([]);
   const [workOrderId, setWorkOrderId] = useState('');
@@ -373,7 +393,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   // productId, so the Spec Attachments row can offer them for ticking.
   const [productSpecs, setProductSpecs] = useState({});
   const specsFetched = useRef(new Set());
-  // Per-item upload state — keyed by row index; tracks {uploading, error} so the
+  // Per-item upload state - keyed by row index; tracks {uploading, error} so the
   // UI can show a spinner / error inline without blocking other rows.
   const [specUpload, setSpecUpload] = useState({});
   // Global-role requesters (STORE_MANAGER, DESIGNS, PLANNING, QC, SAFETY) raise PRs in
@@ -420,7 +440,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     }
   };
 
-  // Rows can arrive already linked (edit mode / prefill) — pull their spec
+  // Rows can arrive already linked (edit mode / prefill) - pull their spec
   // libraries too, so those files are tickable without re-picking the material.
   useEffect(() => {
     if (!isOpen) return;
@@ -494,7 +514,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
     });
   };
 
-  // Header-level note files — same rules, stored on the PR itself.
+  // Header-level note files - same rules, stored on the PR itself.
   const uploadNoteFiles = async (fileList) => {
     const v = validateFiles(fileList);
     if (!v.ok) { if (v.error) setNoteUpload({ uploading: false, error: v.error }); return; }
@@ -567,7 +587,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
   const submit = async () => {
     const validItems = items.filter(i => i.productName.trim());
     if (validItems.length === 0) return alert('Pick at least one material from Master Data');
-    // Every line must be linked to a Master Data material — the server refuses
+    // Every line must be linked to a Master Data material - the server refuses
     // an unlinked one, so catch it here where we can name the offending row.
     // Tools & Fixtures lines are the exception and may stay free text.
     const unlinked = validItems.find(i => !i.productId && !isFreeTextLine(i));
@@ -578,15 +598,15 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
         (canAddMaterial
           ? 'Pick it from the suggestions, or use "Add to Master Data" on that line.'
           : 'Pick it from the suggestions, or ask a unit manager to add it to Master Data first.') +
-        `\n\nOnly "${FREE_TEXT_MATERIAL_TYPE}" lines may be typed in directly — set the Material Type row to that if this is a fixture.`
+        `\n\nOnly "${FREE_TEXT_MATERIAL_TYPE}" lines may be typed in directly - set the Material Type row to that if this is a fixture.`
       );
     }
-    // The picker's `min` only guards clicks — a typed date still needs checking.
+    // The picker's `min` only guards clicks - a typed date still needs checking.
     const tooSoon = validItems.find(i => requiredByTooSoon(i.requiredByDate));
     if (tooSoon) {
       return alert(
         `"${tooSoon.productName.trim()}" is needed too soon. The required-by date must be at least ` +
-        `${MIN_REQUIRED_BY_DAYS} days from today — pick ${requiredByMin()} or later.`
+        `${MIN_REQUIRED_BY_DAYS} days from today - pick ${requiredByMin()} or later.`
       );
     }
     setSaving(true);
@@ -595,7 +615,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
         notes: notes || undefined,
         noteAttachments: noteAttachments.map(a => ({ url: a.url, name: a.name, mimeType: a.mimeType })),
         unitId: undefined,
-        // "RND" is the sentinel for the R&D dropdown choice — it clears the WO link.
+        // "RND" is the sentinel for the R&D dropdown choice - it clears the WO link.
         workOrderId: workOrderId === 'RND' ? null : (workOrderId || null),
         isRnd: workOrderId === 'RND',
         items: validItems.map(i => ({
@@ -653,7 +673,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
 
   return (
     <>
-    <Modal isOpen={isOpen} onClose={onClose} title={isEdit ? `Edit Purchase Requisition — ${requestToEdit.requestNumber}` : 'New Purchase Requisition Form'} size="full">
+    <Modal isOpen={isOpen} onClose={onClose} title={isEdit ? `Edit Purchase Requisition - ${requestToEdit.requestNumber}` : 'New Purchase Requisition Form'} size="full">
       <div className="space-y-3">
         {/* Paper form header */}
         <div className="border border-gray-400 bg-gray-50 p-3 text-center">
@@ -693,21 +713,21 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                 {isEdit ? (
                   <span className="px-2 py-1 text-xs text-gray-700">
                     {requestToEdit.unit?.name || requestToEdit.unit?.code || (
-                      <span className="italic text-gray-500">Unassigned — {requestToEdit.manager?.username || requestToEdit.manager?.name || '—'}</span>
+                      <span className="italic text-gray-500">Unassigned - {requestToEdit.manager?.username || requestToEdit.manager?.name || '-'}</span>
                     )}
                   </span>
                 ) : isGlobalRole ? (
                   <span className="px-2 py-1 text-xs italic text-gray-600">
-                    Unassigned — raised in <strong>{user?.username || user?.name || 'your'}</strong> name
+                    Unassigned - raised in <strong>{user?.username || user?.name || 'your'}</strong> name
                   </span>
                 ) : (
-                  <span className="px-2 py-1 text-xs text-gray-700">{user?.unit?.name || user?.unit?.code || '—'}</span>
+                  <span className="px-2 py-1 text-xs text-gray-700">{user?.unit?.name || user?.unit?.code || '-'}</span>
                 )}
               </td>
               <td className={labelCell}>Indenter</td>
               <td className={dataCell}>
                 <span className="px-2 py-1 text-xs text-gray-700">
-                  {isEdit ? (requestToEdit.manager?.name || '—') : (user?.name || '—')}
+                  {isEdit ? (requestToEdit.manager?.name || '-') : (user?.name || '-')}
                 </span>
               </td>
             </tr>
@@ -719,14 +739,14 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                   value={workOrderId}
                   onChange={setWorkOrderId}
                   className={`${cellSelect} flex items-center gap-2 text-left`}
-                  specialOptions={[{ value: 'RND', label: 'R & D', hint: '— Product research (not a work order)' }]}
+                  specialOptions={[{ value: 'RND', label: 'R & D', hint: '- Product research (not a work order)' }]}
                 />
               </td>
             </tr>
           </tbody>
         </table>
 
-        {/* Materials table — rows=fields, cols=materials */}
+        {/* Materials table - rows=fields, cols=materials */}
         <div className="flex items-center justify-between mt-2">
           <h4 className="text-sm font-semibold text-gray-700">Material Details</h4>
           <Button size="sm" variant="secondary" onClick={addItem}>
@@ -739,12 +759,12 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
           <Package size={12} className="mt-0.5 flex-shrink-0" />
           <div>
             <strong>Materials come from Master Data.</strong> Type in <em>Material Description</em> to
-            search and pick the material — free text is not accepted.
+            search and pick the material - free text is not accepted.
             {canAddMaterial
               ? ' If it isn’t there yet, use "Add to Master Data" in the suggestion list; it is saved under your name and you can complete its details later.'
               : ' If it isn’t there yet, ask a unit manager to add it to Master Data first.'}
             <div className="mt-1">
-              <strong>Exception — {FREE_TEXT_MATERIAL_TYPE}:</strong> set the <em>Material Type</em> row
+              <strong>Exception - {FREE_TEXT_MATERIAL_TYPE}:</strong> set the <em>Material Type</em> row
               to “{FREE_TEXT_MATERIAL_TYPE}” and you can simply type the fixture’s name. It is
               catalogued automatically when the material is inwarded; the rest of the line works the
               same as any other material.
@@ -752,7 +772,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
           </div>
         </div>
 
-        {/* The material-code register — which material type covers what, and the
+        {/* The material-code register - which material type covers what, and the
             codes reserved for it. Collapsed; it is a lookup while filling the
             Material Type row below. */}
         <MaterialCategoryReference />
@@ -763,7 +783,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
           <div>
             <strong>Confidential:</strong> The <em>Spec Attachment</em> row is optional per material.
             Uploaded specifications are stored privately on the system and shared only through
-            mail / direct download links — they are not surfaced in the public PR table inside the
+            mail / direct download links - they are not surfaced in the public PR table inside the
             downloaded PR PDF.
           </div>
         </div>
@@ -793,7 +813,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                 {items.map((item, idx) => (
                   <td key={idx} className={dataCell}>
                     {/* Type to search Master Data and pick a material. Anything
-                        not picked from the list is refused at submit — unless the
+                        not picked from the list is refused at submit - unless the
                         line's Material Type is Tools & Fixtures, which may be
                         free-typed. */}
                     <MaterialNameInput
@@ -823,10 +843,10 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                       <span
                         className="px-2 py-1 text-xs text-gray-400"
                         title={item.materialType === FREE_TEXT_MATERIAL_TYPE
-                          ? 'Free-typed fixture — it gets its material code when it is catalogued at inward'
+                          ? 'Free-typed fixture - it gets its material code when it is catalogued at inward'
                           : 'Pick the material from Master Data to see its code'}
                       >
-                        —
+                        -
                       </span>
                     )}
                   </td>
@@ -839,7 +859,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                     <select value={item.materialType}
                       onChange={(e) => updateItem(idx, 'materialType', e.target.value)}
                       className={cellSelect}>
-                      <option value="">—</option>
+                      <option value="">-</option>
                       {/* withStoredType keeps a retired label (e.g. the old
                           un-split 'Raw Material' still on older master data)
                           selectable instead of blanking the line. */}
@@ -871,7 +891,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                 {items.map((item, idx) => {
                   const st = specUpload[idx] || {};
                   const files = item.attachments || [];
-                  // Specs already stored against the linked catalogue material —
+                  // Specs already stored against the linked catalogue material -
                   // tick to reuse instead of re-uploading the same drawing.
                   const saved = (item.productId && productSpecs[item.productId]) || [];
                   return (
@@ -1024,7 +1044,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
                     <select value={item.inspectionType}
                       onChange={(e) => updateItem(idx, 'inspectionType', e.target.value)}
                       className={cellSelect}>
-                      <option value="">—</option>
+                      <option value="">-</option>
                       <option value="Inhouse">Inhouse</option>
                       <option value="External - RAPS QC">External - RAPS QC</option>
                       <option value="External - Customer QC">External - Customer QC</option>
@@ -1072,7 +1092,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
             className="w-full px-2 py-1.5 border border-gray-400 text-xs focus:outline-none focus:bg-yellow-50"
             rows={2} placeholder="Reason for purchase request..."
           />
-          {/* Header-level note attachments — multiple files, any format. */}
+          {/* Header-level note attachments - multiple files, any format. */}
           <div className="mt-1.5 border border-gray-300 rounded p-2 space-y-1 bg-gray-50">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold text-gray-600">Note attachments</span>
@@ -1106,7 +1126,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
           </div>
         </div>
 
-        {/* Unlinked lines can't be submitted — say so before the button is hit. */}
+        {/* Unlinked lines can't be submitted - say so before the button is hit. */}
         {unlinkedNames.length > 0 && (
           <div className="flex items-start gap-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-[11px] text-red-900">
             <Lock size={13} className="mt-0.5 shrink-0" />
@@ -1114,7 +1134,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
               <span className="font-semibold">
                 Not in Master Data: {unlinkedNames.map((n) => `"${n}"`).join(', ')}.
               </span>{' '}
-              A requisition can only ask for a material that is already in Master Data — pick it
+              A requisition can only ask for a material that is already in Master Data - pick it
               from the suggestions{canAddMaterial ? ', or use “Add to Master Data” on that line' : ''}.
             </div>
           </div>
@@ -1133,7 +1153,7 @@ function RequestFormModal({ isOpen, onClose, onSaved, prefillItems = null, prefi
       </div>
     </Modal>
 
-    {/* Sibling, not a child, of the requisition modal — a `position: fixed`
+    {/* Sibling, not a child, of the requisition modal - a `position: fixed`
         panel nested inside another modal's scroll container is fragile. */}
     {isOpen && addMaterialFor && (
       <AddMasterMaterialModal
@@ -1152,7 +1172,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
   const [adminDelayRemark, setAdminDelayRemark] = useState('');
   const [adjustedItems, setAdjustedItems] = useState([]);
   const [processing, setProcessing] = useState(false);
-  // Hold ("send back for clarification") — the remark is the question the raiser
+  // Hold ("send back for clarification") - the remark is the question the raiser
   // has to answer, so it's kept separate from the internal Admin Notes field.
   const [showHold, setShowHold] = useState(false);
   const [holdRemark, setHoldRemark] = useState('');
@@ -1313,7 +1333,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
                 return (
                   <tr key={item.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
-                    <td className="px-3 py-2 text-gray-500">{item.product?.category || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500">{item.product?.category || '-'}</td>
                     <td className="px-3 py-2 text-gray-700">{item.requestedQty} {item.productUnit}</td>
                     {isPending ? (
                       <td className="px-3 py-2">
@@ -1358,7 +1378,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
             Admin reads the reply here before approving. */}
         <HoldThread request={request} />
 
-        {/* Any required-by date that was moved after the PR was raised — Admin
+        {/* Any required-by date that was moved after the PR was raised - Admin
             approves against the deadline, so the change must be visible here. */}
         <RequiredByHistoryPanel entries={request.dateHistory} />
 
@@ -1381,10 +1401,10 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
           )}
         </div>
 
-        {/* Saved SLA delay remark — shown once approved so everyone sees why it was late */}
+        {/* Saved SLA delay remark - shown once approved so everyone sees why it was late */}
         {!isPending && request.adminDelayRemark && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
-            <p className="text-xs font-semibold text-amber-800 mb-0.5">⚠ Approval delayed beyond 48h — remark</p>
+            <p className="text-xs font-semibold text-amber-800 mb-0.5">⚠ Approval delayed beyond 48h - remark</p>
             <p className="text-sm text-gray-700">{request.adminDelayRemark}</p>
           </div>
         )}
@@ -1392,24 +1412,24 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
         {/* 48-hour rule stated up-front for the approver */}
         {isPending && <SlaNotice action="Admin approval" />}
 
-        {/* SLA delay remark — shown when PR has been pending more than 48h */}
+        {/* SLA delay remark - shown when PR has been pending more than 48h */}
         {isPending && isDelayed && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
             <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
-              ⚠ SLA overdue — This PR has been awaiting admin approval for more than 48 hours.
+              ⚠ SLA overdue - This PR has been awaiting admin approval for more than 48 hours.
             </p>
             <textarea
               value={adminDelayRemark}
               onChange={(e) => setAdminDelayRemark(e.target.value)}
               className={`w-full px-3 py-2 border rounded-md text-sm focus:ring-2 bg-white ${delayErr ? 'border-red-400 focus:ring-red-400' : 'border-amber-300 focus:ring-amber-500'}`}
               rows={2}
-              placeholder="Delay remark (required) — explain why approval exceeded 48 hours…"
+              placeholder="Delay remark (required) - explain why approval exceeded 48 hours…"
             />
             {delayErr && <p className="text-xs font-medium text-brand-red">{delayErr}</p>}
           </div>
         )}
 
-        {/* Hold form — opens under the buttons so the question is written in
+        {/* Hold form - opens under the buttons so the question is written in
             full before the PR leaves the queue. Deliberately not the Admin
             Notes box: this text is sent TO the raiser, not kept internally. */}
         {isPending && showHold && (
@@ -1419,7 +1439,7 @@ function AdminReviewModal({ request, onClose, onUpdated }) {
             </p>
             <p className="text-[11px] text-orange-800">
               {request.manager?.name || 'The requester'} gets this question, can edit the request,
-              and resends it for approval. The PR is not rejected — it moves to the On Hold tab.
+              and resends it for approval. The PR is not rejected - it moves to the On Hold tab.
             </p>
             <textarea
               value={holdRemark}
@@ -1500,13 +1520,13 @@ function HoldResponseModal({ request, onClose, onUpdated }) {
   if (!request) return null;
 
   return (
-    <Modal isOpen={!!request} onClose={onClose} title={`Respond to hold — ${request.requestNumber}`} size="lg">
+    <Modal isOpen={!!request} onClose={onClose} title={`Respond to hold - ${request.requestNumber}`} size="lg">
       <div className="space-y-4">
         <HoldThread request={request} />
 
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
           If the answer means changing the request itself (quantity, specification, dates),
-          close this and use <span className="font-semibold">Edit</span> first — a held PR is
+          close this and use <span className="font-semibold">Edit</span> first - a held PR is
           still editable. Then come back and reply.
         </div>
 
@@ -1536,7 +1556,7 @@ function HoldResponseModal({ request, onClose, onUpdated }) {
   );
 }
 
-// ─── QC: Review Modal — first-level approval for LAB/METROLOGY/NDT PRs ───
+// ─── QC: Review Modal - first-level approval for LAB/METROLOGY/NDT PRs ───
 // QC only approves/rejects with notes here; quantity adjustment stays with ADMIN.
 function QcReviewModal({ request, onClose, onUpdated }) {
   const [qcNotes, setQcNotes] = useState('');
@@ -1551,7 +1571,7 @@ function QcReviewModal({ request, onClose, onUpdated }) {
 
   const isPending = request.status === 'PENDING_QC';
 
-  // 48-hour QC SLA — measured from when the PR was raised.
+  // 48-hour QC SLA - measured from when the PR was raised.
   const sla = slaRemarkState(request.createdAt, qcDelayRemark);
 
   const approve = async () => {
@@ -1624,9 +1644,9 @@ function QcReviewModal({ request, onClose, onUpdated }) {
               {request.items?.map((item, idx) => (
                 <tr key={item.id} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'}`}>
                   <td className="px-3 py-2 font-medium text-gray-700">{item.productName}</td>
-                  <td className="px-3 py-2 text-gray-500">{item.product?.category || item.materialType || '—'}</td>
+                  <td className="px-3 py-2 text-gray-500">{item.product?.category || item.materialType || '-'}</td>
                   <td className="px-3 py-2 text-gray-700">{item.requestedQty} {item.productUnit}</td>
-                  <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || '—'}</td>
+                  <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -1641,7 +1661,7 @@ function QcReviewModal({ request, onClose, onUpdated }) {
           <textarea
             value={qcNotes} onChange={(e) => setQcNotes(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-navy-500 focus:border-navy-500"
-            rows={3} placeholder="QC review notes — required when rejecting..."
+            rows={3} placeholder="QC review notes - required when rejecting..."
             disabled={!isPending}
           />
           {isPending && qcNotes.trim() && qcRejectErr && (
@@ -1649,10 +1669,10 @@ function QcReviewModal({ request, onClose, onUpdated }) {
           )}
         </div>
 
-        {/* Saved QC delay remark — shown after approval so everyone sees why it was late */}
+        {/* Saved QC delay remark - shown after approval so everyone sees why it was late */}
         {!isPending && request.qcDelayRemark && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
-            <p className="text-xs font-semibold text-amber-800 mb-0.5">⚠ QC approval delayed beyond 48h — remark</p>
+            <p className="text-xs font-semibold text-amber-800 mb-0.5">⚠ QC approval delayed beyond 48h - remark</p>
             <p className="text-sm text-gray-700">{request.qcDelayRemark}</p>
           </div>
         )}
@@ -1731,7 +1751,7 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
   if (!request) return null;
 
   return (
-    <Modal isOpen={!!request} onClose={onClose} title={`Record Purchase — ${request.requestNumber}`} size="lg">
+    <Modal isOpen={!!request} onClose={onClose} title={`Record Purchase - ${request.requestNumber}`} size="lg">
       <div className="space-y-4">
         <div className="bg-blue-50 rounded-md p-3 text-sm">
           <span className="text-blue-700 font-medium">Manager:</span> {request.manager?.name} •
@@ -1795,7 +1815,7 @@ function RecordPurchaseModal({ request, onClose, onUpdated }) {
           </tbody>
         </table>
 
-        {/* Purchase buys against the required-by date — every change to it, and
+        {/* Purchase buys against the required-by date - every change to it, and
             who made it, is shown here so nobody orders to a stale deadline. */}
         <RequiredByHistoryPanel entries={request.dateHistory} />
 
@@ -1823,10 +1843,11 @@ function ProcurementJourney({ request }) {
       : `PO: ${activePO.customName}`)
     : null;
 
-  // PRs raised by LAB / METROLOGY / NDT carry an extra QC-approval gate before
-  // they reach ADMIN. Show that stage in the tracker only for those PRs so the
-  // existing flow remains unchanged for everyone else.
-  const isQcGated = ['LAB', 'METROLOGY', 'NDT', 'INWARD_QC'].includes(request?.manager?.role);
+  // PRs raised by the QC-department sub-roles (LAB / METROLOGY / NDT) carry an
+  // extra QC-approval gate before they reach ADMIN. Show that stage in the tracker
+  // only for those PRs so the existing flow remains unchanged for everyone else.
+  // INWARD_QC / IN_PROCESS_QC are not gated - their PRs go straight to ADMIN.
+  const isQcGated = ['LAB', 'METROLOGY', 'NDT'].includes(request?.manager?.role);
   const statusOrder = [
     isQcGated
       ? { key: 'PENDING_QC', label: 'Submitted (QC Review)', detail: request?.createdAt ? formatDateTime(request.createdAt) : null }
@@ -1844,7 +1865,7 @@ function ProcurementJourney({ request }) {
   ];
 
   let currentIndex = statusOrder.findIndex((s) => s.key === request.status);
-  // PRs don't have a QC_PENDING status — the linked PO does. Reflect it here so the stage lights up.
+  // PRs don't have a QC_PENDING status - the linked PO does. Reflect it here so the stage lights up.
   if (request.status === 'GOODS_ARRIVED' && activePO?.status === 'QC_PENDING') {
     currentIndex = statusOrder.findIndex((s) => s.key === 'QC_PENDING');
   }
@@ -1857,7 +1878,7 @@ function ProcurementJourney({ request }) {
           <TrendingUp size={14} /> Procurement Journey
         </h4>
         <div className="bg-orange-50 border border-orange-200 rounded-md p-3 text-sm text-orange-900">
-          <span className="font-semibold">Cash Purchase</span> — This PR was converted to a cash purchase by the Purchase Officer.
+          <span className="font-semibold">Cash Purchase</span> - This PR was converted to a cash purchase by the Purchase Officer.
           The normal quotation and PO process has been bypassed. Stores will receive the material directly.
         </div>
       </div>
@@ -1911,6 +1932,9 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
   const [closeReason, setCloseReason] = useState('');
   const [closing, setClosing] = useState(false);
   const [cashConvertOpen, setCashConvertOpen] = useState(false);
+  // Which PR lines are being bought over the counter. Empty = nothing converted,
+  // so a mis-click can no longer sweep the whole PR into cash purchase.
+  const [cashItemIds, setCashItemIds] = useState([]);
   const [converting, setConverting] = useState(false);
   // Inline required-by editing, allowed at ANY stage. `editingRbId` is the item
   // row being retimed; the saved date goes straight to the item column, so every
@@ -1919,13 +1943,13 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
   const [rbDraft, setRbDraft] = useState('');
   const [rbSaving, setRbSaving] = useState(false);
   // The PR returned by the last date save. The parent refetches the list, but the
-  // `request` prop it handed this modal stays as it was — so the new date and the
+  // `request` prop it handed this modal stays as it was - so the new date and the
   // freshly recorded change entry are read from here while the modal is open.
   const [rbSaved, setRbSaved] = useState(null);
-  // Remark editing, allowed at ANY stage — the PR-level note and each line's
+  // Remark editing, allowed at ANY stage - the PR-level note and each line's
   // remark. `remarkTarget` is what is open: { scope: 'PR' } or
   // { scope: 'ITEM', id }. Saved text is kept in `remarkEdits` (keyed 'PR' or
-  // item id) so the open modal shows the new value immediately — the parent
+  // item id) so the open modal shows the new value immediately - the parent
   // refetches the list but the `request` prop it handed us stays as it was.
   const [remarkTarget, setRemarkTarget] = useState(null);
   const [remarkDraft, setRemarkDraft] = useState('');
@@ -1934,7 +1958,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
 
   // This modal stays mounted between opens (it only renders null while `request`
   // is null), so switching to another PR has to clear the previous PR's edit
-  // state — otherwise its saved remark would bleed into the new one.
+  // state - otherwise its saved remark would bleed into the new one.
   useEffect(() => {
     setRemarkTarget(null);
     setRemarkDraft('');
@@ -1955,7 +1979,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
   //
   // Both ids must actually exist before the saved PR is treated as this PR: the
   // modal stays mounted with request === null between opens, and a bare
-  // `rbSaved?.id === request?.id` is `undefined === undefined` there — i.e. true —
+  // `rbSaved?.id === request?.id` is `undefined === undefined` there - i.e. true -
   // which then reads straight off the null `rbSaved`. This runs before the
   // `if (!request) return null` guard below, so it has to stand on its own.
   const rbFresh = rbSaved && request && rbSaved.id === request.id ? rbSaved : null;
@@ -1974,7 +1998,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
 
   const saveRequiredBy = async (itemId) => {
     if (requiredByTooSoon(rbDraft)) {
-      alert(`The required-by date must be at least ${MIN_REQUIRED_BY_DAYS} days from today — pick ${requiredByMin()} or later.`);
+      alert(`The required-by date must be at least ${MIN_REQUIRED_BY_DAYS} days from today - pick ${requiredByMin()} or later.`);
       return;
     }
     setRbSaving(true);
@@ -2035,8 +2059,11 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
   const submitCashConvert = async () => {
     setConverting(true);
     try {
-      await api.put(`/purchase-requests/${request.id}/convert-to-cash-purchase`);
+      // Only the ticked lines go cash. Sending the list is what stops the server
+      // treating this as a whole-PR conversion.
+      await api.put(`/purchase-requests/${request.id}/convert-to-cash-purchase`, { itemIds: cashItemIds });
       setCashConvertOpen(false);
+      setCashItemIds([]);
       onReload?.();
       onClose?.();
     } catch (err) {
@@ -2049,7 +2076,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
     request &&
     !['COMPLETED', 'REJECTED'].includes(request.status) &&
     (user?.role === 'ADMIN' ||
-      (['MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'STORE_MANAGER', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'].includes(user?.role) &&
+      (['MANAGER', 'DESIGNS', 'RND', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'STORE_MANAGER', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING', 'ACCOUNTING'].includes(user?.role) &&
         request.managerId === user.id));
 
   const submitClose = async () => {
@@ -2091,7 +2118,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
   // Map: prItemId → first union PO that has an allocation for it.
   // We also walk the PO's full allocation list to compute the FIFO queue position
   // (source-PRs in creation order) so each PR sees "you are 1st in queue" /
-  // "2nd in queue (waiting on earlier PR)" — matters because partial inwards
+  // "2nd in queue (waiting on earlier PR)" - matters because partial inwards
   // now allocate FIFO by PR createdAt instead of pro-rata.
   const unionPOByItem = new Map();
   for (const po of unionPOs) {
@@ -2127,6 +2154,23 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
   return (
     <Modal isOpen={!!request} onClose={onClose} title={`Purchase Request ${request.requestNumber}`} size="xl">
       <div className="space-y-4">
+        {/* A PR can be settled line by line - some lines bought over the counter
+            and already received, the rest still working through quotation / PO.
+            Say so, otherwise a part-done PR reads as untouched or as finished. */}
+        {(() => {
+          const s = prSettlement(request);
+          if (!s || (!s.partlyClosed && s.cash === 0)) return null;
+          return (
+            <div className="rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-[12px] text-orange-900">
+              <strong>{s.settled} of {s.total} line{s.total === 1 ? '' : 's'} settled</strong>
+              {s.cash > 0 && (
+                <> - {s.cash} on cash purchase{s.cashPending > 0 ? ` (${s.cashPending} still to be received by Stores)` : ' (all received)'}</>
+              )}
+              {s.partlyClosed && <> . The remaining line{s.total - s.settled === 1 ? '' : 's'} stay open on the normal quotation / PO route.</>}
+            </div>
+          );
+        })()}
+
         <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-md p-4">
           <div><span className="text-gray-500">Request #:</span> <span className="font-medium">{request.requestNumber}</span></div>
           <div><span className="text-gray-500">Status:</span> <Badge color={statusColor(request.status)}>{statusLabel(request.status)}</Badge></div>
@@ -2173,7 +2217,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           )}
         </div>
 
-        {/* PR-level remark — editable at any stage by the raiser or Admin. Shown
+        {/* PR-level remark - editable at any stage by the raiser or Admin. Shown
             even when empty for those two so a remark can be added later. */}
         {(headerRemark || (request.noteAttachments || []).length > 0 || canEditRemarks) && (
           <div className="bg-yellow-50 rounded-md p-3 text-sm space-y-1">
@@ -2192,14 +2236,14 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                 ) : headerRemark ? (
                   <span className="whitespace-pre-wrap">{headerRemark}</span>
                 ) : (
-                  <span className="text-gray-400">— no remark yet —</span>
+                  <span className="text-gray-400">- no remark yet -</span>
                 )}
               </div>
               {canEditRemarks && remarkTarget?.scope !== 'PR' && (
                 <button
                   type="button"
                   onClick={() => openRemarkEdit({ scope: 'PR' }, headerRemark)}
-                  title="Edit this remark — Purchase and Stores are notified"
+                  title="Edit this remark - Purchase and Stores are notified"
                   className="shrink-0 text-navy-700 hover:text-navy-900"
                 >
                   <Pencil size={12} />
@@ -2221,10 +2265,17 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
             <h4 className="text-sm font-semibold text-gray-700">Items & Procurement Status</h4>
             {request.coverageSummary && request.coverageSummary.total > 0 && (() => {
               const c = request.coverageSummary;
-              const covered = c.approved;
+              // A cash line is covered the moment it is marked: nobody is going to
+              // quote it, so counting it as "covered" keeps the ratio honest.
+              const covered = c.approved + (c.cash || 0);
               return (
                 <div className="text-xs text-gray-600">
                   <span className="font-semibold text-gray-800">{covered} of {c.total}</span> materials covered
+                  {c.cash > 0 && (
+                    <span className="text-orange-700">
+                      {' '}· {c.cash} cash purchase{c.cashReceived > 0 ? ` (${c.cashReceived} received)` : ''}
+                    </span>
+                  )}
                   {c.awaiting > 0 && <span className="text-gray-500"> · {c.awaiting} awaiting quotation</span>}
                   {c.submitted > 0 && <span className="text-yellow-700"> · {c.submitted} pending admin</span>}
                   {c.held > 0 && <span className="text-red-700"> · {c.held} on hold</span>}
@@ -2337,7 +2388,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                       {(item.materialType || item.materialSpecification || item.drawingNo || item.qapNo
                         || itemAttachmentList(item).length > 0 || itemRemarkOf(item) || canEditRemarks) && (
                         <div className="mt-1 text-xs text-gray-500 space-y-0.5">
-                          {/* Material code of the linked catalogue material — blank
+                          {/* Material code of the linked catalogue material - blank
                               on a free-typed Tools & Fixtures line. */}
                           {(item.product?.materialCode || item.product?.sku) && (
                             <div>
@@ -2357,7 +2408,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                           {item.qapNo && (
                             <div><span className="font-medium text-gray-600">QAP #:</span> {item.qapNo}</div>
                           )}
-                          {/* Per-material remark — editable at any stage, same rules as the
+                          {/* Per-material remark - editable at any stage, same rules as the
                               PR-level one. Hidden entirely for read-only viewers with no remark. */}
                           {(() => {
                             const editing = remarkTarget?.scope === 'ITEM' && remarkTarget.id === item.id;
@@ -2376,12 +2427,12 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                                   />
                                 ) : (
                                   <>
-                                    <span className="whitespace-pre-wrap">{text || <span className="text-gray-400">—</span>}</span>
+                                    <span className="whitespace-pre-wrap">{text || <span className="text-gray-400">-</span>}</span>
                                     {canEditRemarks && (
                                       <button
                                         type="button"
                                         onClick={() => openRemarkEdit({ scope: 'ITEM', id: item.id }, text)}
-                                        title="Edit this material's remark — Purchase and Stores are notified"
+                                        title="Edit this material's remark - Purchase and Stores are notified"
                                         className="ml-1 align-middle text-navy-700 hover:text-navy-900"
                                       >
                                         <Pencil size={11} />
@@ -2398,7 +2449,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                     </td>
                     <td className="px-3 py-2 text-gray-600">{item.requestedQty} {item.productUnit}</td>
                     <td className="px-3 py-2 text-gray-600">
-                      {item.adminApprovedQty != null ? `${item.adminApprovedQty} ${item.productUnit}` : '—'}
+                      {item.adminApprovedQty != null ? `${item.adminApprovedQty} ${item.productUnit}` : '-'}
                     </td>
                     <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
                       {editingRbId === item.id ? (
@@ -2423,7 +2474,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                       ) : (
                         <div>
                           <div className="flex items-center gap-1">
-                            <span>{requiredByOf(item) ? formatDate(requiredByOf(item)) : '—'}</span>
+                            <span>{requiredByOf(item) ? formatDate(requiredByOf(item)) : '-'}</span>
                             {canEditRequiredBy && (
                               <button
                                 type="button"
@@ -2435,7 +2486,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                               </button>
                             )}
                           </div>
-                          {/* Who last moved this date, when, and from what — a
+                          {/* Who last moved this date, when, and from what - a
                               changed deadline must never look like the original. */}
                           <RequiredByChangeNote entries={rbHistoryFor(dateHistory, item.id)} />
                         </div>
@@ -2445,14 +2496,14 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
                       {item.itemQuotationStatus ? (
                         <Badge color={quotationStatusColor(item.itemQuotationStatus)}>{quotationStatusLabel(item.itemQuotationStatus)}</Badge>
                       ) : (
-                        <span className="text-gray-400 text-xs">—</span>
+                        <span className="text-gray-400 text-xs">-</span>
                       )}
                     </td>
                     <td className="px-3 py-2">
                       {item.itemStatus ? (
                         <Badge color={itemStatusColor(item.itemStatus)}>{itemStatusLabel(item.itemStatus)}</Badge>
                       ) : (
-                        <span className="text-gray-400 text-xs">—</span>
+                        <span className="text-gray-400 text-xs">-</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-gray-600">{item.purchasedQty || 0} {item.productUnit}</td>
@@ -2463,7 +2514,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
           </table>
         </div>
 
-        {/* Admin's clarification thread — visible to everyone on the chain so
+        {/* Admin's clarification thread - visible to everyone on the chain so
             the reason a PR paused is never a private exchange. */}
         <HoldThread request={request} />
 
@@ -2501,7 +2552,7 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
               request will move to <span className="font-semibold">Completed</span>.
               {request.status === 'ORDER_PLACED' && (
                 <div className="mt-1 text-xs">
-                  An order has already been placed against this PR — closing it here will
+                  An order has already been placed against this PR - closing it here will
                   not cancel the active PO; it only stops the PR from tracking further work.
                 </div>
               )}
@@ -2542,16 +2593,61 @@ function DetailModal({ request, onClose, isPO = false, onReload }) {
         >
           <div className="space-y-4">
             <div className="bg-orange-50 border-l-4 border-orange-400 rounded-md p-3 text-sm text-orange-900">
-              Converting this PR to a cash purchase will bypass the normal quotation and PO process.
-              Stores will receive the material directly and link it to this PR.
-              Any pending quotation items will be cancelled.
+              Cash purchase is decided <strong>line by line</strong>. Tick only the materials being bought
+              over the counter - those skip quotation and PO, and Stores receives them straight onto a MIR.
+              Every line you leave unticked carries on through the normal quotation / PO route, untouched.
             </div>
+
+            {(() => {
+              const live = (request.items || []).filter((i) => i.itemQuotationStatus !== 'CANCELLED');
+              const already = live.filter((i) => i.itemQuotationStatus === 'CASH_PURCHASE');
+              const selectable = live.filter((i) => i.itemQuotationStatus !== 'CASH_PURCHASE');
+              return (
+                <div className="border border-gray-200 rounded-md divide-y max-h-72 overflow-y-auto">
+                  {already.map((it) => (
+                    <label key={it.id} className="flex items-center gap-2 px-3 py-2 text-sm bg-orange-50/60">
+                      <input type="checkbox" checked disabled />
+                      <span className="flex-1 text-gray-700">{it.productName}</span>
+                      <span className="text-[11px] font-semibold text-orange-700">already cash purchase</span>
+                    </label>
+                  ))}
+                  {selectable.map((it) => (
+                    <label key={it.id} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={cashItemIds.includes(it.id)}
+                        onChange={() => setCashItemIds((ids) => (
+                          ids.includes(it.id) ? ids.filter((x) => x !== it.id) : [...ids, it.id]
+                        ))}
+                      />
+                      <span className="flex-1 text-gray-800">{it.productName}</span>
+                      <span className="text-[11px] text-gray-500">
+                        {it.adminApprovedQty ?? it.requestedQty} {it.productUnit}
+                      </span>
+                      <Badge color={quotationStatusColor(it.itemQuotationStatus)}>
+                        {quotationStatusLabel(it.itemQuotationStatus)}
+                      </Badge>
+                    </label>
+                  ))}
+                  {selectable.length === 0 && (
+                    <p className="px-3 py-2 text-sm text-gray-500">Every live line on this PR is already a cash purchase.</p>
+                  )}
+                </div>
+              );
+            })()}
+
+            <p className="text-[12px] text-gray-600">
+              {cashItemIds.length === 0
+                ? 'Nothing selected yet.'
+                : `${cashItemIds.length} line${cashItemIds.length === 1 ? '' : 's'} will move to cash purchase. The rest stay on the quotation / PO route.`}
+            </p>
+
             <div className="flex gap-2 justify-end">
               <Button variant="secondary" onClick={() => setCashConvertOpen(false)} disabled={converting}>
                 Cancel
               </Button>
-              <Button onClick={submitCashConvert} disabled={converting}>
-                {converting ? 'Converting…' : 'Convert to Cash Purchase'}
+              <Button onClick={submitCashConvert} disabled={converting || cashItemIds.length === 0}>
+                {converting ? 'Converting…' : `Move ${cashItemIds.length || ''} line${cashItemIds.length === 1 ? '' : 's'} to Cash Purchase`}
               </Button>
             </div>
           </div>
@@ -2646,9 +2742,9 @@ function PoolPickerModal({ anchorItem, onClose, onPooled }) {
                         <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} />
                       </td>
                       <td className="px-3 py-2 font-mono text-xs">{c.request.requestNumber}</td>
-                      <td className="px-3 py-2">{c.request.unit?.code || c.request.unit?.name || '—'}</td>
+                      <td className="px-3 py-2">{c.request.unit?.code || c.request.unit?.name || '-'}</td>
                       <td className="px-3 py-2">{qty} {c.productUnit}</td>
-                      <td className="px-3 py-2 text-gray-600">{c.request.manager?.name || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">{c.request.manager?.name || '-'}</td>
                     </tr>
                   );
                 })}
@@ -2691,24 +2787,28 @@ export default function PurchaseRequests() {
   const [units, setUnits] = useState([]);
   const [unitFilter, setUnitFilter] = useState('');
   const [search, setSearch] = useState('');
-  // What is actually sent to the server — the box is debounced so typing a
+  // What is actually sent to the server - the box is debounced so typing a
   // request number doesn't fire a query per keystroke.
   const [searchQuery, setSearchQuery] = useState('');
-  // Server-side paging — the list holds one page at a time. Status tab, unit,
+  // Server-side paging - the list holds one page at a time. Status tab, unit,
   // search and date range are applied on the server too, so `total` counts the
   // whole filtered set, not just what is on screen.
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const isManager = ['MANAGER', 'STORE_MANAGER', 'QC', 'INWARD_QC', 'RND', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING'].includes(user?.role);
+  // "Raiser" roles - they may create a PR and edit/cancel their own while it is
+  // still pending. ACCOUNTING is one of them: accounts raise their own PRs for
+  // office/department material on top of the chain visibility they already have.
+  // Mirrors REQUESTER_ROLES in server/src/routes/purchaseRequest.routes.js.
+  const isManager = ['MANAGER', 'STORE_MANAGER', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'RND', 'DESIGNS', 'LAB', 'METROLOGY', 'NDT', 'SAFETY', 'PLANNING', 'ACCOUNTING'].includes(user?.role);
   const isStoreManager = user?.role === 'STORE_MANAGER';
   const isAdmin = user?.role === 'ADMIN';
   const isPO = user?.role === 'PURCHASE_OFFICER';
   const isAccounting = ['ACCOUNTING', 'FINANCE'].includes(user?.role);
   const isQC = user?.role === 'QC';
   // Sub-roles whose PRs must clear QC first before reaching ADMIN.
-  const isQcManaged = ['LAB', 'METROLOGY', 'NDT', 'INWARD_QC'].includes(user?.role);
+  const isQcManaged = ['LAB', 'METROLOGY', 'NDT'].includes(user?.role);
 
   const fetchRequests = () => {
     setLoading(true);
@@ -2728,7 +2828,7 @@ export default function PurchaseRequests() {
         const pages = Math.max(1, data.totalPages || 1);
         setTotalPages(pages);
         // Cancelling / closing the last PR on the last page can leave the current
-        // page past the end — fall back to the new last page (this refetches).
+        // page past the end - fall back to the new last page (this refetches).
         if (page > pages) setPage(pages);
       })
       .catch(console.error)
@@ -2753,7 +2853,7 @@ export default function PurchaseRequests() {
     return () => clearTimeout(t);
   }, [search, searchQuery]);
 
-  // Changing a filter always restarts at page 1 — staying on page 4 of a list
+  // Changing a filter always restarts at page 1 - staying on page 4 of a list
   // that just shrank to one page shows nothing.
   const changeTab = (t) => { setTab(t); setPage(1); };
   const changeFromDate = (v) => { setFromDate(v); setPage(1); };
@@ -2771,7 +2871,7 @@ export default function PurchaseRequests() {
     setPage(1);
   };
 
-  // Low-stock products — only fetched for STORE_MANAGER to surface the "Raise PR for low stock" quick action.
+  // Low-stock products - only fetched for STORE_MANAGER to surface the "Raise PR for low stock" quick action.
   const fetchLowStock = () => {
     if (!isStoreManager) return;
     api.get('/alerts/low-stock')
@@ -2802,7 +2902,7 @@ export default function PurchaseRequests() {
         productUnit: p.unit || 'pcs',
         requestedQty: String(deficit),
         materialType: p.category || '',
-        purpose: 'Stock replenishment — below minimum level',
+        purpose: 'Stock replenishment - below minimum level',
         itemRemarks: `Current ${p.currentStock} ${p.unit || ''} / min ${p.minStockLevel} ${p.unit || ''}`,
       };
     });
@@ -2833,12 +2933,19 @@ export default function PurchaseRequests() {
   };
 
   // ON_HOLD sits right after PENDING_ADMIN everywhere the approval stages are
-  // shown — it is a branch off admin approval, not a stage of its own. Purchase
-  // and Accounting never see it: a held PR hasn't reached them yet.
+  // shown - it is a branch off admin approval, not a stage of its own. Purchase
+  // never sees it: a held PR hasn't reached them yet. Accounts do see it now,
+  // but only because they raise PRs themselves (Finance still doesn't).
   const tabs = isPO
     ? ['ALL', 'APPROVED', 'CASH_PURCHASE', 'QUOTATION_SUBMITTED', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'GOODS_ARRIVED', 'QC_PASSED', 'INWARD_DONE', 'COMPLETED']
     : isAccounting
-    ? ['ALL', 'QUOTATION_APPROVED', 'ORDER_PLACED', 'COMPLETED']
+    ? [
+        'ALL',
+        // Accounts raise their own PRs, so they need the pre-approval stages as
+        // well - otherwise a PR they just filed is only findable under "All".
+        ...(isManager ? ['PENDING_ADMIN', 'ON_HOLD', 'APPROVED'] : []),
+        'QUOTATION_APPROVED', 'ORDER_PLACED', 'COMPLETED',
+      ]
     : isQC
     ? ['ALL', 'PENDING_QC', 'PENDING_ADMIN', 'ON_HOLD', 'APPROVED', 'GOODS_ARRIVED', 'QC_PASSED']
     : isQcManaged
@@ -2849,7 +2956,7 @@ export default function PurchaseRequests() {
   // the moment between switching tabs and the new page arriving.
   const filteredRequests = tab === 'ALL' ? requests : requests.filter(r => r.status === tab);
 
-  // Filters handed to the Excel export — everything the list is narrowed by
+  // Filters handed to the Excel export - everything the list is narrowed by
   // except paging, so the workbook covers the whole filtered set.
   const exportParams = {
     status: tab !== 'ALL' ? tab : undefined,
@@ -2859,7 +2966,7 @@ export default function PurchaseRequests() {
     search: searchQuery || undefined,
   };
 
-  // "Showing 51–100 of 237" — position within the whole filtered set, not the page.
+  // "Showing 51–100 of 237" - position within the whole filtered set, not the page.
   const rangeStart = total === 0 ? 0 : (page - 1) * PR_PAGE_SIZE + 1;
   const rangeEnd = Math.min(page * PR_PAGE_SIZE, total);
 
@@ -2868,7 +2975,7 @@ export default function PurchaseRequests() {
       <PageHero
         title={isPO ? 'Purchase Assignments' : 'Purchase Requests'}
         subtitle={isPO
-          ? 'Assignments forwarded to you — collect quotations and progress them through to PO placement.'
+          ? 'Assignments forwarded to you - collect quotations and progress them through to PO placement.'
           : 'Raise and track material purchase requests across departments.'}
         eyebrow="Procurement"
         icon={ShoppingCart}
@@ -2877,7 +2984,7 @@ export default function PurchaseRequests() {
             <Button variant="secondary" onClick={fetchRequests} disabled={loading}>
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
             </Button>
-            {/* Exports every PR matching the current status tab and date range —
+            {/* Exports every PR matching the current status tab and date range -
                 not just the page on screen. */}
             <ExportExcelButton
               endpoint="/purchase-requests/export"
@@ -2900,7 +3007,7 @@ export default function PurchaseRequests() {
             <div>
               <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
                 <Layers size={14} className="text-red-600" />
-                Low Stock — Replenishment Needed
+                Low Stock - Replenishment Needed
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
                 {lowStock.length} product{lowStock.length !== 1 ? 's' : ''} at or below minimum level. Raise a PR to replenish.
@@ -3076,7 +3183,7 @@ export default function PurchaseRequests() {
                             {new Date(earliestRequired).toLocaleDateString()}
                           </span>
                         ) : (
-                          <span className="text-gray-400">—</span>
+                          <span className="text-gray-400">-</span>
                         )}
                       </td>
                       <td className="px-3 py-2">

@@ -1,4 +1,4 @@
-// Table workbench — pick a table, find the row, change its values.
+// Table workbench - pick a table, find the row, change its values.
 //
 // Shared by the DATA_EDITOR "Edit Data" page and the ADMIN "FIM Data" page.
 // Both talk to the same shaped API (`GET :base/tables`, `GET :base/table/:name`,
@@ -118,7 +118,7 @@ export default function TableWorkbench({
 
   const activeTable = useMemo(() => tables.find((t) => t.name === active), [tables, active]);
 
-  // Every column present on the loaded rows — drives the insert form, so a
+  // Every column present on the loaded rows - drives the insert form, so a
   // curated view's shorter listing never stops you setting a hidden field.
   const allColumns = useMemo(() => {
     if (rows.length === 0) return [];
@@ -127,7 +127,7 @@ export default function TableWorkbench({
     return ['id', ...Array.from(keys).filter((k) => k !== 'id')];
   }, [rows]);
 
-  // What the rows table renders. The raw id stays out — the friendly row label
+  // What the rows table renders. The raw id stays out - the friendly row label
   // stands in for it.
   const columns = useMemo(() => {
     const source = serverColumns?.length ? serverColumns : allColumns;
@@ -244,7 +244,7 @@ export default function TableWorkbench({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-4">
-        {/* Tables sidebar — desktop only */}
+        {/* Tables sidebar - desktop only */}
         <div className="hidden md:block bg-white rounded-lg border border-gray-200 overflow-hidden self-start">
           <div className="px-3 py-2 border-b bg-gray-50 flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Tables</span>
@@ -340,7 +340,7 @@ export default function TableWorkbench({
                     {rows.map((row) => (
                       <div key={row.id} className="p-3">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-sm text-gray-900 min-w-0 truncate">{row._rowLabel || '—'}</span>
+                          <span className="font-semibold text-sm text-gray-900 min-w-0 truncate">{row._rowLabel || '-'}</span>
                           {rowActions(row, true)}
                         </div>
                         <dl className="mt-2 space-y-1">
@@ -371,7 +371,7 @@ export default function TableWorkbench({
                         {rows.map((row) => (
                           <tr key={row.id} className="border-t hover:bg-gray-50">
                             <td className="px-2 py-1">{rowActions(row, false)}</td>
-                            <td className="px-2 py-1 font-medium text-gray-900 whitespace-nowrap max-w-xs truncate">{row._rowLabel || '—'}</td>
+                            <td className="px-2 py-1 font-medium text-gray-900 whitespace-nowrap max-w-xs truncate">{row._rowLabel || '-'}</td>
                             {columns.map((c) => (
                               <td key={c} className="px-2 py-1 whitespace-nowrap max-w-xs truncate">{renderCell(cellValue(row, c))}</td>
                             ))}

@@ -33,7 +33,7 @@ html.dark ::selection {
   color: #0B111D;
 }
 
-/* Keyboard focus — visible, consistent, never on mouse click */
+/* Keyboard focus - visible, consistent, never on mouse click */
 :focus-visible {
   outline: 2px solid #3A6BE0;
   outline-offset: 2px;
@@ -49,7 +49,7 @@ html.dark :focus-visible {
    which paints its axes/tooltips with inline SVG attributes. */
 
 /* Native date/time pickers, spinners, dropdown lists and autofill all follow
-   `color-scheme: dark` (set on html.dark in theme.css) — no manual restyling
+   `color-scheme: dark` (set on html.dark in theme.css) - no manual restyling
    needed, and inverting the picker glyphs here would in fact undo it. */
 
 html.dark .recharts-cartesian-grid line,

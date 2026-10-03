@@ -9,7 +9,7 @@ import Input, { Select } from '../ui/Input';
 import StatsCard from './StatsCard';
 import { formatDate } from '../../utils/formatters';
 
-// KPI-QMS panel — rendered on every role's dashboard. All figures are
+// KPI-QMS panel - rendered on every role's dashboard. All figures are
 // auto-computed server-side; the only writable piece is the certifications
 // list, gated to Unit-5 (server returns canManageCertifications).
 
@@ -18,7 +18,7 @@ const THR = 'px-3 py-2 text-right text-xs font-medium text-gray-500';
 const rowCls = (i) => `border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`;
 
 const fmtNum = (v) => {
-  if (v === null || v === undefined) return '—';
+  if (v === null || v === undefined) return '-';
   const n = Number(v);
   return Number.isInteger(n) ? n.toString() : n.toFixed(2);
 };
@@ -34,7 +34,7 @@ function SlaCard({ label, sla, d }) {
     <div className={`rounded-xl border p-3 ${bgColor}`}>
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
       <p className="text-xs text-gray-400 mb-2">SLA: {sla}</p>
-      <p className={`text-2xl font-bold ${color}`}>{score != null ? `${score}%` : '—'}</p>
+      <p className={`text-2xl font-bold ${color}`}>{score != null ? `${score}%` : '-'}</p>
       <dl className="mt-2 space-y-0.5 text-xs text-gray-600">
         <div className="flex justify-between"><dt>Total</dt><dd className="font-semibold">{d.total}</dd></div>
         <div className="flex justify-between"><dt>On time</dt><dd className="font-semibold text-green-700">{d.onTime}</dd></div>
@@ -132,11 +132,11 @@ function SlaBreakdown({ sla }) {
                       const s = pctOf(b);
                       return (
                         <td key={f.key} className={`px-2 py-1.5 text-center font-semibold ${scoreText(s)}`}>
-                          {s == null ? '—' : `${s}%`}{b?.total ? <span className="text-gray-400 font-normal"> ({b.total})</span> : null}
+                          {s == null ? '-' : `${s}%`}{b?.total ? <span className="text-gray-400 font-normal"> ({b.total})</span> : null}
                         </td>
                       );
                     })}
-                    <td className={`px-2 py-1.5 text-center font-bold ${scoreText(ov?.score ?? null)}`}>{ov?.score == null ? '—' : `${ov.score}%`}</td>
+                    <td className={`px-2 py-1.5 text-center font-bold ${scoreText(ov?.score ?? null)}`}>{ov?.score == null ? '-' : `${ov.score}%`}</td>
                   </tr>
                 );
               })}
@@ -168,7 +168,7 @@ function SlaBreakdown({ sla }) {
                     <td className="px-2 py-1.5 text-center text-gray-600">{u.total}</td>
                     <td className="px-2 py-1.5 text-center text-green-700">{u.onTime}</td>
                     <td className={`px-2 py-1.5 text-center ${u.delayed > 0 ? 'text-red-600' : 'text-gray-400'}`}>{u.delayed}</td>
-                    <td className={`px-2 py-1.5 text-center font-semibold ${scoreText(u.score)}`}>{u.score == null ? '—' : `${u.score}%`}</td>
+                    <td className={`px-2 py-1.5 text-center font-semibold ${scoreText(u.score)}`}>{u.score == null ? '-' : `${u.score}%`}</td>
                   </tr>
                 ))}
                 {!(metric.byUnit || []).length && <tr><td colSpan={5} className="px-2 py-3 text-center text-gray-400">No data for this factor.</td></tr>}
@@ -276,7 +276,7 @@ function CertificationModal({ open, cert, onClose, onSaved }) {
         <Input label="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
         <div>
           <label className="block text-[13px] font-semibold text-navy-700 mb-1.5">
-            Certificate File (PDF / image){cert?.fileUrl ? ' — replaces the current file' : ''}
+            Certificate File (PDF / image){cert?.fileUrl ? ' - replaces the current file' : ''}
           </label>
           <input
             type="file"
@@ -295,7 +295,7 @@ function CertificationModal({ open, cert, onClose, onSaved }) {
   );
 }
 
-// Default remark printed on the paper form (04 — Supplier Performance Rating).
+// Default remark printed on the paper form (04 - Supplier Performance Rating).
 const DEFAULT_PERF_REMARKS = 'All suppliers performance is above 85% and hence shall continue as approved suppliers';
 
 const EMPTY_PERF_ROW = {
@@ -335,7 +335,7 @@ function SupplierPerfModal({ open, fy, perf, onClose, onSaved }) {
     setPeriodFrom(dateInputValue(perf.periodFrom));
     setPeriodTo(dateInputValue(perf.periodTo));
     setRemarks(perf.source === 'manual' ? (perf.remarks || '') : DEFAULT_PERF_REMARKS);
-    // Prefill from whatever is currently shown — saved rows or auto-computed.
+    // Prefill from whatever is currently shown - saved rows or auto-computed.
     setRows((perf.suppliers || []).map((s) => ({
       supplierId: s.supplierId || null,
       supplierName: s.supplierName || '',
@@ -368,7 +368,7 @@ function SupplierPerfModal({ open, fy, perf, onClose, onSaved }) {
   };
 
   return (
-    <Modal isOpen={open} onClose={onClose} title={`Supplier Performance Rating — FY ${fy}`} size="full">
+    <Modal isOpen={open} onClose={onClose} title={`Supplier Performance Rating - FY ${fy}`} size="full">
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input label="Period From" type="date" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)} />
@@ -394,7 +394,7 @@ function SupplierPerfModal({ open, fy, perf, onClose, onSaved }) {
             </thead>
             <tbody>
               {rows.length === 0 && (
-                <tr><td colSpan={11} className="text-center text-gray-400 py-6">No rows yet — add one below.</td></tr>
+                <tr><td colSpan={11} className="text-center text-gray-400 py-6">No rows yet - add one below.</td></tr>
               )}
               {rows.map((r, i) => {
                 const d = derivePerfRow(r);
@@ -428,7 +428,7 @@ function SupplierPerfModal({ open, fy, perf, onClose, onSaved }) {
 
         <Input label="Remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
         <p className="text-[11px] text-gray-400">
-          Quality (60) = Qty accepted ÷ Supplies received × 60 · Delivery (40) = On-time ÷ Total deliveries × 40 — computed automatically. Minimum criteria: 85%.
+          Quality (60) = Qty accepted ÷ Supplies received × 60 · Delivery (40) = On-time ÷ Total deliveries × 40 - computed automatically. Minimum criteria: 85%.
         </p>
 
         {error && <p className="text-sm font-medium text-brand-red">{error}</p>}
@@ -515,7 +515,7 @@ export default function KpiQmsSection() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard
           title="On-Time Deliveries"
-          value={onTime.onTimePercent != null ? `${onTime.onTimePercent}%` : '—'}
+          value={onTime.onTimePercent != null ? `${onTime.onTimePercent}%` : '-'}
           subtitle={onTime.completedCount > 0 ? `${onTime.onTimeCount} of ${onTime.completedCount} completed WOs on time` : 'No completed work orders this FY'}
           icon={Truck}
           color={onTime.onTimePercent == null ? 'navy' : onTime.onTimePercent >= 85 ? 'green' : 'red'}
@@ -536,7 +536,7 @@ export default function KpiQmsSection() {
         />
         <StatsCard
           title="QC Rejection Rate"
-          value={qcRejections.rejectionRatePercent != null ? `${qcRejections.rejectionRatePercent}%` : '—'}
+          value={qcRejections.rejectionRatePercent != null ? `${qcRejections.rejectionRatePercent}%` : '-'}
           subtitle={`${qcRejections.rejectionCount} rejection${qcRejections.rejectionCount === 1 ? '' : 's'} across ${qcRejections.gradedInspections} graded inspections`}
           icon={ClipboardCheck}
           color={qcRejections.rejectionCount > 0 ? 'red' : 'green'}
@@ -547,7 +547,7 @@ export default function KpiQmsSection() {
         {/* Marketing */}
         <Card>
           <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-            <Target size={15} className="text-navy-600" /> Marketing — Tender vs Order &amp; Delivery
+            <Target size={15} className="text-navy-600" /> Marketing - Tender vs Order &amp; Delivery
           </h3>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-xl border border-navy-100 p-3">
@@ -565,7 +565,7 @@ export default function KpiQmsSection() {
                 <div className="flex justify-between"><dt className="text-gray-600">Completed WOs</dt><dd className="font-semibold text-navy-800">{onTime.completedCount}</dd></div>
                 <div className="flex justify-between"><dt className="text-gray-600">Delivered on time</dt><dd className="font-semibold text-green-700">{onTime.onTimeCount}</dd></div>
                 <div className="flex justify-between"><dt className="text-gray-600">Delivered late</dt><dd className="font-semibold text-red-600">{onTime.lateCount}</dd></div>
-                <div className="flex justify-between"><dt className="text-gray-600">On-time %</dt><dd className="font-semibold text-navy-800">{onTime.onTimePercent != null ? `${onTime.onTimePercent}%` : '—'}</dd></div>
+                <div className="flex justify-between"><dt className="text-gray-600">On-time %</dt><dd className="font-semibold text-navy-800">{onTime.onTimePercent != null ? `${onTime.onTimePercent}%` : '-'}</dd></div>
               </dl>
             </div>
           </div>
@@ -601,7 +601,7 @@ export default function KpiQmsSection() {
                         {expired ? <Badge color="red">Expired</Badge> : c.validTill ? <Badge color="green">Valid</Badge> : null}
                       </p>
                       <p className="text-xs text-gray-500 mt-0.5">
-                        {[c.certificateNo, c.issuedBy].filter(Boolean).join(' · ') || '—'}
+                        {[c.certificateNo, c.issuedBy].filter(Boolean).join(' · ') || '-'}
                         {(c.validFrom || c.validTill) && (
                           <> · {c.validFrom ? formatDate(c.validFrom) : '…'} → {c.validTill ? formatDate(c.validTill) : '…'}</>
                         )}
@@ -632,11 +632,11 @@ export default function KpiQmsSection() {
         </Card>
       </div>
 
-      {/* Supplier performance — per form 04. Unit-5 + Purchase edit; everyone views. */}
+      {/* Supplier performance - per form 04. Unit-5 + Purchase edit; everyone views. */}
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-            <Award size={15} className="text-navy-600" /> Purchase — Supplier Performance Rating ({data.fy})
+            <Award size={15} className="text-navy-600" /> Purchase - Supplier Performance Rating ({data.fy})
             <Badge color={supplierPerformance.source === 'manual' ? 'blue' : 'gray'}>
               {supplierPerformance.source === 'manual' ? 'Manual entry' : 'Auto-generated'}
             </Badge>
@@ -682,7 +682,7 @@ export default function KpiQmsSection() {
                   const below = s.totalRating != null && s.totalRating < supplierPerformance.minimumCriteria;
                   return (
                     <tr key={`${s.supplierId || s.supplierName}-${i}`} className={rowCls(i)}>
-                      <td className="px-3 py-2 text-gray-600 max-w-[180px] truncate" title={s.itemDescription || ''}>{s.itemDescription || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600 max-w-[180px] truncate" title={s.itemDescription || ''}>{s.itemDescription || '-'}</td>
                       <td className="px-3 py-2 font-medium text-navy-700">
                         <span className="inline-flex items-center gap-1.5">
                           {below && <AlertTriangle size={13} className="text-brand-red" />}
@@ -707,7 +707,7 @@ export default function KpiQmsSection() {
         {supplierPerformance.source === 'manual' && (
           <p className="text-xs text-gray-600 mt-3">
             {supplierPerformance.remarks && <><span className="font-semibold">Remarks:</span> {supplierPerformance.remarks} · </>}
-            <span className="font-semibold">Prepared by:</span> {supplierPerformance.preparedByName || '—'}
+            <span className="font-semibold">Prepared by:</span> {supplierPerformance.preparedByName || '-'}
             {supplierPerformance.preparedDate && <> · {formatDate(supplierPerformance.preparedDate)}</>}
             {(supplierPerformance.periodFrom || supplierPerformance.periodTo) && (
               <> · Period: {supplierPerformance.periodFrom ? formatDate(supplierPerformance.periodFrom) : '…'} → {supplierPerformance.periodTo ? formatDate(supplierPerformance.periodTo) : '…'}</>
@@ -715,7 +715,7 @@ export default function KpiQmsSection() {
           </p>
         )}
         <p className="text-[11px] text-gray-400 mt-3">
-          Per form 04 — Supplier Performance Rating: Quality (60) = qty accepted ÷ supplies received × 60 · Delivery (40) = on-time deliveries ÷ total deliveries × 40.
+          Per form 04 - Supplier Performance Rating: Quality (60) = qty accepted ÷ supplies received × 60 · Delivery (40) = on-time deliveries ÷ total deliveries × 40.
           {supplierPerformance.source === 'manual' ? ' Entered by Unit-5/Purchase.' : ' Auto-computed from QC inward inspections; Unit-5/Purchase can edit.'}
         </p>
       </Card>
@@ -750,11 +750,11 @@ export default function KpiQmsSection() {
                   <tr key={r.id} className={rowCls(i)}>
                     <td className="px-3 py-2 font-medium text-navy-700 whitespace-nowrap">{r.inspectionNumber}</td>
                     <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{formatDate(r.date)}</td>
-                    <td className="px-3 py-2 text-gray-600 max-w-[220px] truncate" title={r.materialDescription || ''}>{r.materialDescription || '—'}</td>
-                    <td className="px-3 py-2 text-gray-600">{r.supplierName || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600 max-w-[220px] truncate" title={r.materialDescription || ''}>{r.materialDescription || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{r.supplierName || '-'}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{fmtNum(r.qtyReceived)}</td>
                     <td className="px-3 py-2 text-right font-semibold text-brand-red">{fmtNum(r.qtyRejected)}</td>
-                    <td className="px-3 py-2 text-gray-600 max-w-[240px] truncate" title={r.rejectionReason || ''}>{r.rejectionReason || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600 max-w-[240px] truncate" title={r.rejectionReason || ''}>{r.rejectionReason || '-'}</td>
                     <td className="px-3 py-2">
                       <Badge color={r.result === 'FAILED' ? 'red' : r.result === 'PARTIAL' ? 'yellow' : 'gray'}>{r.result}</Badge>
                     </td>

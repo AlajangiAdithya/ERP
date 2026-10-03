@@ -13,7 +13,7 @@ import { useAuth } from '../../context/AuthContext';
 
 const ROLES = [
   'ADMIN', 'SUPERADMIN', 'MANAGER', 'STORE_MANAGER', 'PURCHASE_OFFICER',
-  'ACCOUNTING', 'FINANCE', 'QC', 'INWARD_QC', 'LAB', 'METROLOGY', 'NDT', 'RND',
+  'ACCOUNTING', 'FINANCE', 'QC', 'INWARD_QC', 'IN_PROCESS_QC', 'LAB', 'METROLOGY', 'NDT', 'RND',
   'SAFETY', 'SUPPLY_CHAIN', 'DESIGNS', 'PLANNING', 'LOGISTICS', 'HR', 'SITE_OFFICE',
 ];
 
@@ -190,7 +190,7 @@ export default function SuperAdminUsers() {
                     <div className="mt-3 rounded-lg bg-gray-50 border border-gray-200 px-2.5 py-2 flex items-center gap-2">
                       <KeyRound size={13} className="text-gray-500 flex-shrink-0" />
                       <span className="font-mono text-[12px] text-gray-700 flex-1 truncate select-all">
-                        {pwOpen ? (u.plainPassword || <em className="text-gray-400">— not stored —</em>) : '••••••••'}
+                        {pwOpen ? (u.plainPassword || <em className="text-gray-400">- not stored -</em>) : '••••••••'}
                       </span>
                       {u.plainPassword && (
                         <>

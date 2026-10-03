@@ -1,13 +1,13 @@
 /* eslint-disable no-console */
 // ─────────────────────────────────────────────────────────────────────────────
-// clearOperationalData.js — wipe all OPERATIONAL / TRANSACTIONAL data, keeping
+// clearOperationalData.js - wipe all OPERATIONAL / TRANSACTIONAL data, keeping
 // logins + master/reference data so the system is a clean slate but still usable.
 //
 //   KEPT  : Users, Sessions, PushSubscriptions, Units, the full Supplier master
 //           (incl. SA/VE compliance + performance ratings), Employees, SkillMatrix,
 //           Vehicles, Drivers, Machinery, Fire Extinguishers, Calibration items,
 //           QMS certifications & documents.
-//   WIPED : everything else — products + stock + batches, MIR (Material Inward),
+//   WIPED : everything else - products + stock + batches, MIR (Material Inward),
 //           MIV (ProductRequest), GatePass/FIM, PR, PO, quotations, QC inspections,
 //           Work Orders (+ all sub-records), payments, ION, transfers, notifications,
 //           messages, audit logs, calendar, attendance, training, calibration records.
@@ -20,7 +20,7 @@
 //     if anything would cascade into kept data it ROLLS BACK and aborts.
 //
 // USAGE (run on the server, from the `server/` directory)
-//   node prisma/clearOperationalData.js            # dry run — shows the plan
+//   node prisma/clearOperationalData.js            # dry run - shows the plan
 //   CONFIRM=WIPE node prisma/clearOperationalData.js
 //   CONFIRM=WIPE SKIP_BACKUP=1 node prisma/clearOperationalData.js
 // On Windows PowerShell:
@@ -93,7 +93,7 @@ function backupDatabase() {
 async function main() {
   const confirm = process.env.CONFIRM === 'WIPE';
 
-  console.log('\n=== RAPS ERP — Clear operational data ===\n');
+  console.log('\n=== RAPS ERP - Clear operational data ===\n');
   console.log(`Database : ${(process.env.DATABASE_URL || '').replace(/:\/\/([^:]+):[^@]*@/, '://$1:****@')}`);
   console.log(`Mode     : ${confirm ? 'WIPE (live)' : 'DRY RUN (no changes)'}\n`);
 
@@ -115,14 +115,14 @@ async function main() {
 
   // ── Backup ──
   if (process.env.SKIP_BACKUP === '1') {
-    console.log('⚠ SKIP_BACKUP=1 — skipping pg_dump.\n');
+    console.log('⚠ SKIP_BACKUP=1 - skipping pg_dump.\n');
   } else {
     try {
       backupDatabase();
     } catch (e) {
       console.error(`✖ Backup failed: ${e.message}`);
       if (process.env.FORCE_NO_BACKUP === '1') {
-        console.warn('⚠ FORCE_NO_BACKUP=1 — proceeding WITHOUT a backup.\n');
+        console.warn('⚠ FORCE_NO_BACKUP=1 - proceeding WITHOUT a backup.\n');
       } else {
         console.error('Aborting. Pass SKIP_BACKUP=1 (you have a backup) or FORCE_NO_BACKUP=1 to override.');
         process.exit(1);
@@ -141,7 +141,7 @@ async function main() {
     for (const m of keepModels) {
       const after = await tx[modelKey(m)].count();
       if (after !== keepBefore[m]) {
-        throw new Error(`Safety abort: kept table "${m}" lost rows (${keepBefore[m]} → ${after}). Rolling back — nothing was deleted.`);
+        throw new Error(`Safety abort: kept table "${m}" lost rows (${keepBefore[m]} → ${after}). Rolling back - nothing was deleted.`);
       }
     }
   }, { timeout: 120000 });

@@ -1,5 +1,5 @@
 // ──────────────────────────────────────────────────────────────
-// Metrology — Calibration Item registry
+// Metrology - Calibration Item registry
 //
 // Access model (per access-chart RAPS/QSP):
 //   • Full edit: METROLOGY, QC, and any MANAGER assigned to UNIT-V.
@@ -18,7 +18,7 @@ const { calibrationCertUpload, publicUrlFor } = require('../middleware/upload');
 const router = express.Router();
 
 // Unit 5 may appear as code '5', name 'Unit 5', or username 'unit 5'
-// depending on which path created the account — match any of them.
+// depending on which path created the account - match any of them.
 const EDIT_UNIT_CODES = ['5', 'UNIT-V', 'UNIT-5'];
 const EDIT_UNIT_NAMES = ['unit 5', 'unit-5', 'unit5', 'unit v'];
 const BASE_EDIT_ROLES = ['METROLOGY', 'QC'];
@@ -59,7 +59,7 @@ const requireRead = (req, res, next) => {
   next();
 };
 
-// ACCOUNTING + FINANCE are pure read-only observers — they may view and download
+// ACCOUNTING + FINANCE are pure read-only observers - they may view and download
 // certs but must not write remarks. Everyone else who can read may remark.
 const REMARK_DENY_ROLES = ['ACCOUNTING', 'FINANCE'];
 const requireRemark = (req, res, next) => {
@@ -193,7 +193,7 @@ const sanitizeRecord = (body, { partial = false } = {}) => {
 };
 
 // ─────────────────────────────────────────────
-// GET /api/calibration — list, optional ?category=&mmrSubCategory=&search=&unit=
+// GET /api/calibration - list, optional ?category=&mmrSubCategory=&search=&unit=
 // ─────────────────────────────────────────────
 router.get('/', authenticate, requireRead, async (req, res) => {
   try {
@@ -244,7 +244,7 @@ router.get('/:id', authenticate, requireRead, async (req, res) => {
   }
 });
 
-// POST /api/calibration — write-gated by role+unit
+// POST /api/calibration - write-gated by role+unit
 router.post('/', authenticate, requireRead, requireWrite, async (req, res) => {
   try {
     const data = sanitizeItem(req.body, { partial: false });
@@ -273,7 +273,7 @@ router.post('/', authenticate, requireRead, requireWrite, async (req, res) => {
   }
 });
 
-// PUT /api/calibration/:id — write-gated
+// PUT /api/calibration/:id - write-gated
 router.put('/:id', authenticate, requireRead, requireWrite, async (req, res) => {
   try {
     const existing = await prisma.calibrationItem.findUnique({ where: { id: req.params.id } });
@@ -306,7 +306,7 @@ router.put('/:id', authenticate, requireRead, requireWrite, async (req, res) => 
   }
 });
 
-// PATCH /api/calibration/:id/remarks — any viewer can edit the remarks cell
+// PATCH /api/calibration/:id/remarks - any viewer can edit the remarks cell
 // (except ACCOUNTING/FINANCE, who are pure read-only observers).
 router.patch('/:id/remarks', authenticate, requireRemark, async (req, res) => {
   try {
@@ -326,7 +326,7 @@ router.patch('/:id/remarks', authenticate, requireRemark, async (req, res) => {
   }
 });
 
-// DELETE /api/calibration/:id — write-gated
+// DELETE /api/calibration/:id - write-gated
 router.delete('/:id', authenticate, requireRead, requireWrite, async (req, res) => {
   try {
     await prisma.calibrationItem.delete({ where: { id: req.params.id } });
@@ -342,7 +342,7 @@ router.delete('/:id', authenticate, requireRead, requireWrite, async (req, res) 
 // Per-FY records (upsert/delete/cert upload)
 // ─────────────────────────────────────────────
 
-// PUT /api/calibration/:id/records/:fiscalYear — upsert FY record
+// PUT /api/calibration/:id/records/:fiscalYear - upsert FY record
 router.put('/:id/records/:fiscalYear', authenticate, requireRead, requireWrite, async (req, res) => {
   try {
     const fyParam = decodeURIComponent(req.params.fiscalYear).trim();
@@ -375,7 +375,7 @@ router.delete('/:id/records/:fiscalYear', authenticate, requireRead, requireWrit
   }
 });
 
-// POST /api/calibration/:id/records/:fiscalYear/certificate — upload PDF
+// POST /api/calibration/:id/records/:fiscalYear/certificate - upload PDF
 router.post(
   '/:id/records/:fiscalYear/certificate',
   authenticate,

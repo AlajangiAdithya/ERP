@@ -8,11 +8,11 @@ import { formatMaterialCode, codeMatchesCategory, categoryFor } from '../../util
 // Every material type owns a block of codes in the register (see
 // utils/materialTypes.js). This field asks the server for the next free code
 // inside the selected category's block and fills it in, so nobody has to look up
-// where the count is up to. It stays editable — the count is a suggestion, and
+// where the count is up to. It stays editable - the count is a suggestion, and
 // the categories with no block ('Others', retired labels) are typed by hand.
 //
 // `taken` lists codes already used by sibling rows of the same form (the bulk
-// "add several products" list), which the server can't know about yet — the
+// "add several products" list), which the server can't know about yet - the
 // suggestion steps past them.
 export default function MaterialCodeField({
   category,
@@ -26,7 +26,7 @@ export default function MaterialCodeField({
 }) {
   const [info, setInfo] = useState(null);      // { code, from, to, used, capacity, full }
   const [loading, setLoading] = useState(false);
-  // Once the code is typed over by hand we stop overwriting it — but "Use ####"
+  // Once the code is typed over by hand we stop overwriting it - but "Use ####"
   // still puts the suggestion back.
   const edited = useRef(false);
   const lastApplied = useRef('');
@@ -117,12 +117,12 @@ export default function MaterialCodeField({
           </span>
         ) : (
           <span className="text-gray-500">
-            No code block is reserved for {category || 'this material type'} — enter the code manually.
+            No code block is reserved for {category || 'this material type'} - enter the code manually.
           </span>
         )}
         {outOfBlock && (
           <div className="mt-0.5 font-medium text-amber-700">
-            {value} is outside {category}&rsquo;s block ({formatMaterialCode(from)}–{formatMaterialCode(to)}) — it will still save.
+            {value} is outside {category}&rsquo;s block ({formatMaterialCode(from)}–{formatMaterialCode(to)}) - it will still save.
           </div>
         )}
       </div>

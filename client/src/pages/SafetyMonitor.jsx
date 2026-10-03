@@ -69,7 +69,7 @@ export default function SafetyMonitor() {
                 </div>
                 <p className="text-sm font-medium text-navy-900 mt-3">{tile.label}</p>
                 <p className="text-2xl font-bold text-navy-800 mt-1">
-                  {loading ? '…' : (total ?? '—')}
+                  {loading ? '…' : (total ?? '-')}
                 </p>
               </Card>
             </Link>

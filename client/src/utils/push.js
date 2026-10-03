@@ -1,5 +1,5 @@
 // Registers this browser/device for server-sent web push notifications.
-// Safe to call repeatedly — resubscribing with the same key is a no-op and
+// Safe to call repeatedly - resubscribing with the same key is a no-op and
 // the server upserts on endpoint.
 import api from '../api/axios';
 
@@ -14,7 +14,7 @@ function urlBase64ToUint8Array(base64String) {
 
 // True if an existing subscription was created with a *different* VAPID public
 // key than the server now uses. After a key rotation the browser silently
-// keeps the old subscription and the server can never deliver to it — so we
+// keeps the old subscription and the server can never deliver to it - so we
 // detect the mismatch and force a fresh subscribe.
 function keyMatches(subscription, serverKeyBytes) {
   const current = subscription.options?.applicationServerKey;

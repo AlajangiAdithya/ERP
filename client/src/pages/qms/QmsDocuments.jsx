@@ -15,14 +15,14 @@ const META = {
   SOP: {
     icon: BookOpen,
     title: 'Standard Operating Procedures',
-    eyebrow: 'QMS — SOP',
+    eyebrow: 'QMS - SOP',
     subtitle: 'Controlled SOP copies. Uploaded and maintained by Unit-5; view-only for everyone else.',
     noun: 'SOP',
   },
   WORK_INSTRUCTION: {
     icon: ListChecks,
     title: 'Work Instructions',
-    eyebrow: 'QMS — Work Instructions',
+    eyebrow: 'QMS - Work Instructions',
     subtitle: 'Station and process-level work instructions. Uploaded and maintained by Unit-5; view-only for everyone else.',
     noun: 'Work Instruction',
   },
@@ -80,7 +80,7 @@ function DocModal({ open, category, doc, onClose, onSaved }) {
         <Input label="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
         <div>
           <label className="block text-[13px] font-semibold text-navy-700 mb-1.5">
-            Document File (PDF / image){doc?.fileUrl ? ' — replaces the current file' : ''}
+            Document File (PDF / image){doc?.fileUrl ? ' - replaces the current file' : ''}
           </label>
           <input
             type="file"
@@ -174,14 +174,14 @@ export default function QmsDocuments({ category }) {
                     <td className="px-3 py-2 font-medium text-navy-700">
                       <span className="inline-flex items-center gap-1.5"><FileText size={14} className="text-navy-400" /> {d.title}</span>
                     </td>
-                    <td className="px-3 py-2 text-gray-600">{d.docNo || '—'}</td>
-                    <td className="px-3 py-2 text-gray-600">{d.revision || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{d.docNo || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{d.revision || '-'}</td>
                     <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{formatDate(d.createdAt)}{d.uploadedBy?.name ? ` · ${d.uploadedBy.name}` : ''}</td>
-                    <td className="px-3 py-2 text-gray-600 max-w-[220px] truncate" title={d.notes || ''}>{d.notes || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600 max-w-[220px] truncate" title={d.notes || ''}>{d.notes || '-'}</td>
                     <td className="px-3 py-2">
                       {d.fileUrl
                         ? <a href={d.fileUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-navy-700 hover:underline">View</a>
-                        : <span className="text-gray-400 text-xs">—</span>}
+                        : <span className="text-gray-400 text-xs">-</span>}
                     </td>
                     {canManage && (
                       <td className="px-3 py-2">

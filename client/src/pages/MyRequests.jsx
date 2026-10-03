@@ -12,7 +12,7 @@ import SearchBar from '../components/shared/SearchBar';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import DownloadPdfButton from '../components/pdf/DownloadPdfButton';
 import MaterialIssuePdf from '../components/pdf/MaterialIssuePdf';
-import OffsiteMivGuide from '../components/shared/OffsiteMivGuide';
+import MivWorkflowGuide, { mivAudienceFor } from '../components/shared/MivWorkflowGuide';
 import WorkOrderPicker from '../components/shared/WorkOrderPicker';
 import { formatDateTime } from '../utils/formatters';
 import { useAuth } from '../context/AuthContext';
@@ -32,7 +32,7 @@ export default function MyRequests() {
   const [notes, setNotes] = useState('');
   const [remarks, setRemarks] = useState('');
   const [saving, setSaving] = useState(false);
-  // Work orders assigned to this user's unit — offered as a dropdown so an MIV
+  // Work orders assigned to this user's unit - offered as a dropdown so an MIV
   // can be tied to the WO it's issued against ("" = No work order).
   const [workOrders, setWorkOrders] = useState([]);
   const [workOrderId, setWorkOrderId] = useState('');
@@ -132,7 +132,7 @@ export default function MyRequests() {
       const payload = {
         notes: notes || undefined,
         remarks: remarks || undefined,
-        // "RND" is the sentinel for the R&D dropdown choice — it clears the WO link.
+        // "RND" is the sentinel for the R&D dropdown choice - it clears the WO link.
         workOrderId: workOrderId === 'RND' ? null : (workOrderId || null),
         isRnd: workOrderId === 'RND',
         items: cartItems.map(i => ({
@@ -185,16 +185,22 @@ export default function MyRequests() {
       <PageHero
         title={seesAllMivs ? 'MIV Requests' : 'My Requests'}
         subtitle={seesAllMivs
-          ? 'Every Material Issue Voucher across the org. Raise your own with New Request — you can only edit or collect the ones you raised.'
+          ? 'Every Material Issue Voucher across the org. Raise your own with New Request - you can only edit or collect the ones you raised.'
           : 'Material Issue Voucher requests for your store withdrawals.'}
         eyebrow="MIV"
         icon={ClipboardList}
         actions={<Button onClick={openCreate}><Plus size={16} /> New Request</Button>}
       />
 
-      {/* Offsite units (ANSP/Adibatla, ASL, CPDC, IBRPTM, …) run a different MIV
-          path — show them a step-by-step guide so they understand the flow. */}
-      {user?.unit?.isOffsite && <OffsiteMivGuide />}
+      {/* The flow differs by who is looking: an offsite unit's material travels on
+          a gate pass, Logistics also carries other people's, and Accounts/Finance
+          draw from a department bucket rather than a unit's. Each gets its own
+          version. Offsite units keep it open; everyone else's is a quieter
+          reference they can fold away. */}
+      <MivWorkflowGuide
+        audience={mivAudienceFor(user)}
+        defaultOpen={!!user?.unit?.isOffsite}
+      />
 
       <DateRangeFilter fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate} />
 
@@ -227,13 +233,13 @@ export default function MyRequests() {
                     <td className="px-3 py-2 font-medium text-navy-700 cursor-pointer" onClick={() => setShowDetail(r)}>{r.requestNumber}</td>
                     {seesAllMivs && (
                       <td className="px-3 py-2 text-gray-600">
-                        {r.managerId === user?.id ? 'You' : (r.manager?.name || '—')}
+                        {r.managerId === user?.id ? 'You' : (r.manager?.name || '-')}
                         {r.unit?.code ? <span className="text-xs text-gray-400"> · {r.unit.code}</span> : null}
                       </td>
                     )}
                     <td className="px-3 py-2 text-gray-600">{r.items?.length} item(s)</td>
                     <td className="px-3 py-2"><Badge color={statusColor(r.status)}>{r.status}</Badge></td>
-                    <td className="px-3 py-2 text-gray-600 max-w-48 truncate">{r.notes || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600 max-w-48 truncate">{r.notes || '-'}</td>
                     <td className="px-3 py-2 text-gray-500 text-xs">{formatDateTime(r.createdAt)}</td>
                     <td className="px-3 py-2">
                       <div className="flex gap-2">
@@ -259,12 +265,12 @@ export default function MyRequests() {
         )}
       </Card>
 
-      {/* Offsite: gate passes dispatched to this unit — acknowledge receipt */}
+      {/* Offsite: gate passes dispatched to this unit - acknowledge receipt */}
       {offsiteGps.length > 0 && (
         <Card>
           <div className="flex items-center gap-2 mb-3">
             <Truck size={18} className="text-navy-700" />
-            <h3 className="font-semibold text-navy-800">Incoming Material — Gate Passes</h3>
+            <h3 className="font-semibold text-navy-800">Incoming Material - Gate Passes</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -283,12 +289,12 @@ export default function MyRequests() {
                 {offsiteGps.map((gp, i) => (
                   <tr key={gp.id} className={`border-b border-gray-100 ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                     <td className="px-3 py-2 font-medium text-navy-700">{gp.passNumber}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600">{gpMivNumbers(gp).join(', ') || '—'}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600">{gpMivNumbers(gp).join(', ') || '-'}</td>
                     <td className="px-3 py-2 text-gray-600">
                       {(gp.items || []).map(it => `${it.description} ×${it.quantity}`).join('; ')}
                     </td>
-                    <td className="px-3 py-2 text-gray-600">{gp.vehicleNo || '—'}</td>
-                    <td className="px-3 py-2 text-gray-500 text-xs">{gp.dispatchedAt ? formatDateTime(gp.dispatchedAt) : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{gp.vehicleNo || '-'}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{gp.dispatchedAt ? formatDateTime(gp.dispatchedAt) : '-'}</td>
                     <td className="px-3 py-2">
                       <Badge color={gp.status === 'CLOSED' ? 'blue' : gp.status === 'IN_TRANSIT' ? 'orange' : 'gray'}>
                         {gp.status === 'CLOSED' ? 'RECEIVED' : gp.status === 'IN_TRANSIT' ? 'IN TRANSIT' : gp.status === 'PENDING_LOGISTICS' ? 'PREPARING' : gp.status}
@@ -302,7 +308,7 @@ export default function MyRequests() {
                       ) : gp.status === 'CLOSED' ? (
                         <span className="text-xs text-gray-500">{gp.reachedDate ? formatDateTime(gp.reachedDate) : 'Received'}</span>
                       ) : (
-                        <span className="text-xs text-gray-400">—</span>
+                        <span className="text-xs text-gray-400">-</span>
                       )}
                     </td>
                   </tr>
@@ -322,7 +328,7 @@ export default function MyRequests() {
               workOrders={workOrders}
               value={workOrderId}
               onChange={setWorkOrderId}
-              specialOptions={[{ value: 'RND', label: 'R & D', hint: '— Product research (not a work order)' }]}
+              specialOptions={[{ value: 'RND', label: 'R & D', hint: '- Product research (not a work order)' }]}
             />
           </div>
 
@@ -390,7 +396,7 @@ export default function MyRequests() {
               placeholder="Any remarks..."
             />
             <p className="text-[11px] text-gray-500 mt-1">
-              MIV reference number is auto-generated on submit — no manual entry needed.
+              MIV reference number is auto-generated on submit - no manual entry needed.
             </p>
           </div>
 
@@ -474,12 +480,12 @@ export default function MyRequests() {
                   {showDetail.items?.map((item, i) => (
                     <tr key={item.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
                       <td className="px-3 py-2 text-gray-700">{item.product?.name}</td>
-                      <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || '—'}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{item.purpose || '-'}</td>
                       <td className="px-3 py-2 text-gray-600">{item.quantity} {item.product?.unit}</td>
                       <td className="px-3 py-2 text-gray-600">
-                        {item.qtyIssued != null ? `${item.qtyIssued} ${item.product?.unit}` : '—'}
+                        {item.qtyIssued != null ? `${item.qtyIssued} ${item.product?.unit}` : '-'}
                       </td>
-                      <td className="px-3 py-2 text-xs font-mono text-amber-800">{item.materialBatchNo || '—'}</td>
+                      <td className="px-3 py-2 text-xs font-mono text-amber-800">{item.materialBatchNo || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -507,7 +513,7 @@ export default function MyRequests() {
                           <td className="px-3 py-2 text-gray-600">{approved} {item.product?.unit}</td>
                           <td className="px-3 py-2 text-gray-600">{item.dispatchedQty || 0} {item.product?.unit}</td>
                           <td className="px-3 py-2 text-xs">
-                            {(item.gatePassLinks || []).length === 0 ? <span className="text-gray-400">—</span> : (
+                            {(item.gatePassLinks || []).length === 0 ? <span className="text-gray-400">-</span> : (
                               <div className="space-y-0.5">
                                 {item.gatePassLinks.map(l => (
                                   <div key={l.id} className="text-gray-600">
