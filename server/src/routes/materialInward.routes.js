@@ -688,7 +688,7 @@ router.get('/active-pos', authenticate, requireInwardWrite, async (req, res) => 
 
 // ── GET /api/material-inward ──────────────────────────────────────────
 // The register. Rows are enriched with resolved user / unit / product names
-// and the MIV number(s) that later drew this batch (matched by batchNo).
+// and the MIV number(s) that later drew this lot (matched on product + batch).
 router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
   try {
     const { status, fromDate, toDate, page, limit } = req.query;
@@ -729,8 +729,13 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       userIds.size ? prisma.user.findMany({ where: { id: { in: [...userIds] } }, select: { id: true, name: true, role: true } }) : [],
       unitIds.size ? prisma.unit.findMany({ where: { id: { in: [...unitIds] } }, select: { id: true, name: true, code: true } }) : [],
       productIds.size ? prisma.product.findMany({ where: { id: { in: [...productIds] } }, select: { id: true, name: true, sku: true, materialCode: true, unit: true, category: true, shelfLife: true, storageTemp: true, msdsUrl: true, masterDataComplete: true } }) : [],
-      batchNos.size ? prisma.requestItem.findMany({
-        where: { materialBatchNo: { in: [...batchNos] } },
+      // Scoped by product, NOT by batch number alone. Batch numbers are typed in
+      // by Stores, so the same string (a supplier lot, or plain "1") routinely
+      // sits on receipts of completely unrelated materials. Keying on batchNo by
+      // itself handed every one of those rows the union of all their MIVs, which
+      // is why one MIR showed dozens and the same list repeated down the register.
+      (batchNos.size && productIds.size) ? prisma.requestItem.findMany({
+        where: { productId: { in: [...productIds] }, materialBatchNo: { not: null } },
         select: {
           materialBatchNo: true, qtyIssued: true, productId: true,
           request: { select: { requestNumber: true, unit: { select: { name: true, code: true } } } },
@@ -801,15 +806,42 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       });
       refDocsMap[po.id] = docs;
     });
-    // batchNo -> [{ mivNo, qty, unit }]
+    // "<productId>|<batchNo>" -> [{ mivNo, qty, unit }]
+    //
+    // RequestItem.materialBatchNo holds the FIFO-picked lots as a comma-joined
+    // list ("B-1, B-2"), so split it and index each lot on its own - an exact
+    // string compare also missed every issue that spanned more than one lot.
     const mivMap = {};
+    const mivSeen = {}; // key -> mivNo -> entry; one chip per MIV, not per line
     mivItems.forEach((mi) => {
-      const key = mi.materialBatchNo;
-      if (!key) return;
-      (mivMap[key] = mivMap[key] || []).push({
-        mivNo: mi.request?.requestNumber || null,
-        qty: mi.qtyIssued || null,
-        unit: mi.request?.unit ? `${mi.request.unit.name} (${mi.request.unit.code})` : null,
+      if (!mi.productId) return;
+      const mivNo = mi.request?.requestNumber || null;
+      if (!mivNo) return;
+      const batches = [...new Set(
+        (mi.materialBatchNo || '').split(',').map((b) => b.trim()).filter(Boolean),
+      )];
+      if (!batches.length) return;
+      // Per-lot quantity is only known when the line drew from a single lot.
+      // Across several, the split lives nowhere structured (StockMovement stores
+      // the same joined string), so report no quantity rather than charge the
+      // whole issue to each lot and inflate the register's "issued" total.
+      const qty = batches.length === 1 && mi.qtyIssued != null ? mi.qtyIssued : null;
+      batches.forEach((batch) => {
+        const key = `${mi.productId}|${batch}`;
+        const seen = (mivSeen[key] = mivSeen[key] || {});
+        // One MIV can carry several lines drawing the same lot. Show it once and
+        // add the quantities up instead of repeating the number down the cell.
+        if (seen[mivNo]) {
+          if (qty != null) seen[mivNo].qty = (seen[mivNo].qty || 0) + qty;
+          return;
+        }
+        const entry = {
+          mivNo,
+          qty,
+          unit: mi.request?.unit ? `${mi.request.unit.name} (${mi.request.unit.code})` : null,
+        };
+        seen[mivNo] = entry;
+        (mivMap[key] = mivMap[key] || []).push(entry);
       });
     });
 
@@ -824,7 +856,7 @@ router.get('/', authenticate, authorize(...VIEW_ROLES), async (req, res) => {
       product: r.productId ? productMap[r.productId] || null : null,
       poNumber: r.purchaseOrderId ? (poMap[r.purchaseOrderId]?.orderNumber || null) : (r.manualPoNumber || null),
       orderedQty: r.purchaseOrderItemId ? (poItemMap[r.purchaseOrderItemId]?.quantity ?? null) : null,
-      mivs: r.batchNo ? (mivMap[r.batchNo] || []) : [],
+      mivs: (r.batchNo && r.productId) ? (mivMap[`${r.productId}|${r.batchNo.trim()}`] || []) : [],
       refDocs: r.purchaseOrderId ? (refDocsMap[r.purchaseOrderId] || []) : [],
       // Replacement chain (NCR rejection → fresh inward).
       replacesInward: r.replacesInwardId ? (linkMap[r.replacesInwardId] || null) : null,
