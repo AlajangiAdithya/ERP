@@ -47,7 +47,10 @@ export default function RequestClearance() {
   const [sendLines, setSendLines] = useState({});   // requestItemId -> qty (string)
   const [sending, setSending] = useState(false);
   const [showCombine, setShowCombine] = useState(false);
-  const STATUS_TABS = ['PENDING', 'PARTIAL', 'COLLECTED', 'REJECTED', 'ALL'];
+  // APPROVED is where an offsite MIV waits after Admin signs it off and before
+  // anything has gone out. Without a tab of its own it was only reachable from
+  // ALL or the Offsite Dispatch tab; onsite MIVs never enter this state.
+  const STATUS_TABS = ['PENDING', 'APPROVED', 'PARTIAL', 'COLLECTED', 'REJECTED', 'ALL'];
   const refreshKey = useAutoRefresh();
 
   const fetchRequests = () => {
@@ -85,6 +88,15 @@ export default function RequestClearance() {
   // What can actually go out today: never more than what is on the shelf.
   const readyQty = (it) => Math.max(0, Math.min(lineRemaining(it), it.product?.currentStock ?? 0));
 
+  // Offsite material leaves on a gate pass, never over the counter. APPROVED and
+  // PARTIAL are the two states the server will build a pass from, and PARTIAL is
+  // the normal one: send what is on the shelf now, the rest rides a later pass.
+  const canGatePass = (r) => !!r?.unit?.isOffsite && ['APPROVED', 'PARTIAL'].includes(r.status);
+  const gatePassLines = (r) => {
+    const lines = (r?.items || []).filter((it) => lineRemaining(it) > 0.001);
+    return { lines, ready: lines.filter((it) => readyQty(it) > 0) };
+  };
+
   // ── Live state of the offsite pipeline, for the guide panel ──
   const gpAwaitingVehicle = offsiteGps.filter((g) => g.status === 'PENDING_LOGISTICS');
   const gpInTransit = offsiteGps.filter((g) => g.status === 'IN_TRANSIT');
@@ -120,9 +132,16 @@ export default function RequestClearance() {
       }
       setSendFor(null);
       setSendLines({});
-      fetchQueue();
-      fetchOffsiteGps();
-      if (!dispatchNow) setTab('LOTS');
+      // Launched from the Review modal on a status tab: refresh the list behind
+      // it and stay put. Bouncing to Dispatched Lots loses the place Stores was
+      // working through, and a PARTIAL MIV is usually revisited to send more.
+      if (!['OFFSITE', 'LOTS'].includes(tab)) {
+        fetchRequests();
+      } else {
+        fetchQueue();
+        fetchOffsiteGps();
+        if (!dispatchNow) setTab('LOTS');
+      }
     } catch (err) {
       alert(err.response?.data?.error || 'Could not send this MIV out');
     }
@@ -324,7 +343,7 @@ export default function RequestClearance() {
                     <td className="px-3 py-2">
                       <div className="flex gap-2">
                         <Button size="sm" variant="secondary" onClick={() => openRequest(r)}>
-                          {r.status === 'PENDING' ? 'Review' : 'View'}
+                          {r.status === 'PENDING' || canGatePass(r) ? 'Review' : 'View'}
                         </Button>
                         <DownloadPdfButton
                           document={<MaterialIssuePdf data={r} />}
@@ -711,11 +730,60 @@ export default function RequestClearance() {
               </div>
             )}
 
-            {selectedRequest.unit?.isOffsite && (
-              <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
-                Offsite MIV - approved by Admin and dispatched on a gate pass, not issued from store stock. Build the gate pass from the <strong>Offsite Dispatch</strong> tab and track it under <strong>Dispatched Lots</strong>.
-              </div>
-            )}
+            {/* Offsite MIV. The gate pass is raised right here rather than from
+                the Offsite Dispatch tab - the same one-shot flow, reached from
+                wherever Stores happens to be looking at the MIV. */}
+            {selectedRequest.unit?.isOffsite && (() => {
+              const { lines, ready } = gatePassLines(selectedRequest);
+              const waiting = lines.length - ready.length;
+
+              if (!canGatePass(selectedRequest)) {
+                return (
+                  <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
+                    Offsite MIV - it travels on a gate pass, not over the store counter.
+                    {selectedRequest.status === 'PENDING'
+                      ? ' Admin has to approve it before anything can be sent out.'
+                      : ' Nothing further to dispatch on this one.'}
+                  </div>
+                );
+              }
+
+              if (lines.length === 0) {
+                return (
+                  <div className="bg-green-50 border border-green-200 rounded p-3 text-xs text-green-900">
+                    Every line on this MIV has been dispatched. It closes once all of its gate passes are marked closed - track them under <strong>Dispatched Lots</strong>.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="rounded-md border border-navy-200 bg-navy-50/60 p-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-[220px] flex-1">
+                      <div className="text-xs font-semibold text-navy-900">
+                        Offsite MIV - send it out on a gate pass
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-navy-800">
+                        <span className="font-semibold text-emerald-700">{ready.length} line{ready.length === 1 ? '' : 's'} ready</span>
+                        {waiting > 0 && <span className="text-amber-700"> · {waiting} waiting on stock</span>}
+                        {' · to '}{selectedRequest.unit?.name}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => { openSend(selectedRequest); setSelectedRequest(null); }}
+                      disabled={ready.length === 0}
+                    >
+                      <Truck size={14} className="mr-1" />
+                      {ready.length === 0 ? 'No stock yet' : 'Convert to gate pass'}
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-[11px] text-navy-700">
+                    Send whatever is on the shelf now - lines with no stock are skipped and stay on the MIV. It keeps its <strong>Partial</strong> status and you come back here to send the rest on another pass. It closes on its own once every line has gone out and all its gate passes are closed.
+                  </p>
+                </div>
+              );
+            })()}
 
             {selectedRequest.status === 'PENDING' && !selectedRequest.unit?.isOffsite && (
               <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-900">
@@ -884,7 +952,7 @@ function StoresOnsiteGuide({ pendingCount }) {
       icon: Truck,
       tone: 'bg-blue-50 text-blue-700 ring-blue-100',
       title: 'Offsite units are different',
-      body: 'A MIV from ANSP, Adibatla, CPDC, RCI or another offsite site never gets an Accept button here - Admin approves it and you send the material out on a gate pass. Use the Offsite Dispatch tab for those.',
+      body: 'A MIV from ANSP, Adibatla, CPDC, RCI or another offsite site never gets an Accept button here - Admin approves it and you send the material out on a gate pass. Open it with Review and raise the pass there, or work through them together on the Offsite Dispatch tab.',
     },
   ];
 
@@ -956,7 +1024,7 @@ function StoresOffsiteGuide({ awaitingDispatch, awaitingVehicle, inTransit, onGo
       icon: Truck,
       tone: 'bg-amber-50 text-amber-700 ring-amber-100',
       title: '3. You convert it to a gate pass',
-      body: 'On the Offsite Dispatch tab, hit "Convert to gate pass" on the MIV. Quantities are pre-filled with what is in stock - a line with no stock is skipped and waits for the next pass. Enter the vehicle and driver in the same window and send it out.',
+      body: 'Hit "Convert to gate pass" - either on the Offsite Dispatch tab, or straight from Review on the MIV itself. Quantities are pre-filled with what is in stock - a line with no stock is skipped and waits for the next pass. Enter the vehicle and driver in the same window and send it out.',
       count: awaitingDispatch,
       countLabel: 'MIV(s) approved and waiting for you',
       action: onGoDispatch,
