@@ -104,9 +104,20 @@ export default function RequestClearance() {
   // ── One-shot: a single MIV → gate pass → on a vehicle ──
   const openSend = (r) => {
     const seed = {};
+    // One MIV can carry several lines for the same product. Seed against a
+    // running budget so the pre-filled numbers never add up to more than is on
+    // the shelf - the server checks stock per product across the whole pass and
+    // would reject the lot over quantities nobody typed.
+    const budget = {};
     (r.items || []).forEach((it) => {
-      const q = readyQty(it);
-      if (q > 0) seed[it.id] = String(q);
+      const pid = it.product?.id;
+      if (pid && !(pid in budget)) budget[pid] = it.product?.currentStock ?? 0;
+      const cap = pid ? budget[pid] : (it.product?.currentStock ?? 0);
+      const q = Math.max(0, Math.min(lineRemaining(it), cap));
+      if (q > 0) {
+        seed[it.id] = String(q);
+        if (pid) budget[pid] -= q;
+      }
     });
     setSendLines(seed);
     setSendFor(r);
@@ -300,6 +311,19 @@ export default function RequestClearance() {
           >{tabLabel(t)}</button>
         ))}
       </div>
+
+      {/* Offsite MIVs now sit alongside onsite ones on the status tabs and are
+          actioned from Review, so say so here rather than letting someone hunt
+          for an Accept button that offsite MIVs never get. */}
+      {!['OFFSITE', 'LOTS'].includes(tab) && requests.some((r) => r.unit?.isOffsite) && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+          <Truck size={15} className="flex-shrink-0" />
+          <span className="flex-1 min-w-[240px]">
+            Some MIVs on this tab are for <strong>offsite sites</strong>. They are never issued over the counter - open one with <strong>Review</strong> and raise its gate pass from there. To clear several at once, or put more than one MIV on a single pass, use the Offsite Dispatch tab.
+          </span>
+          <Button size="sm" variant="secondary" onClick={() => setTab('OFFSITE')}>Offsite Dispatch</Button>
+        </div>
+      )}
 
       {!['OFFSITE', 'LOTS'].includes(tab) && (
       <Card>
@@ -803,6 +827,10 @@ export default function RequestClearance() {
               </div>
             )}
 
+            {/* Offsite lines move on dispatchedQty; onsite lines on qtyIssued.
+                Reading the onsite fields for an offsite MIV showed a half-sent
+                consignment as though nothing had left the store, so the two
+                flows get their own columns. */}
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-2">Requested Items</h4>
               <div className="overflow-x-auto">
@@ -813,7 +841,13 @@ export default function RequestClearance() {
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purpose</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Available</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested</th>
-                      {selectedRequest.status !== 'PENDING' && (
+                      {selectedRequest.unit?.isOffsite ? (
+                        <>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Approved</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Dispatched</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Still owed</th>
+                        </>
+                      ) : selectedRequest.status !== 'PENDING' && (
                         <>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty Issued</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Pending</th>
@@ -826,6 +860,7 @@ export default function RequestClearance() {
                     {selectedRequest.items?.map((item) => {
                       const approved = item.approvedQty ?? item.quantity;
                       const pending = Math.max(0, approved - (item.qtyIssued || 0));
+                      const owed = Math.max(0, lineRemaining(item));
                       return (
                         <tr key={item.id} className="border-b border-gray-50">
                           <td className="px-3 py-2 font-medium text-gray-700">{item.product?.name}</td>
@@ -836,7 +871,19 @@ export default function RequestClearance() {
                             </span>
                           </td>
                           <td className="px-3 py-2 text-gray-700">{item.quantity} {item.product?.unit}</td>
-                          {selectedRequest.status !== 'PENDING' && (
+                          {selectedRequest.unit?.isOffsite ? (
+                            <>
+                              <td className="px-3 py-2 text-gray-600">
+                                {item.approvedQty != null ? `${item.approvedQty} ${item.product?.unit}` : <span className="text-gray-400">awaiting Admin</span>}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">{item.dispatchedQty || 0} {item.product?.unit}</td>
+                              <td className="px-3 py-2">
+                                {owed > 0
+                                  ? <span className="text-orange-600 font-medium">{owed} {item.product?.unit}</span>
+                                  : <span className="text-green-600">0</span>}
+                              </td>
+                            </>
+                          ) : selectedRequest.status !== 'PENDING' && (
                             <>
                               <td className="px-3 py-2 text-gray-600">{item.qtyIssued != null ? `${item.qtyIssued} ${item.product?.unit}` : '-'}</td>
                               <td className="px-3 py-2">
