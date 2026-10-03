@@ -11,12 +11,12 @@ All backups live in S3 under your account:
 ```
 s3://raps-backups-<your-account>/
   FY2025-26/
-    weekly/        — 1 file, overwrites each Sunday
-    monthly/       — last Sunday of each month becomes a "month" file
-    quarterly/     — last Sunday of Jun/Sep/Dec/Mar (FY quarters)
-    half-yearly/   — last Sunday of Sep and Mar
-    yearly/        — last Sunday of March (FY end)
-    master/        — small JSON snapshot of suppliers + products + users
+    weekly/        - 1 file, overwrites each Sunday
+    monthly/       - last Sunday of each month becomes a "month" file
+    quarterly/     - last Sunday of Jun/Sep/Dec/Mar (FY quarters)
+    half-yearly/   - last Sunday of Sep and Mar
+    yearly/        - last Sunday of March (FY end)
+    master/        - small JSON snapshot of suppliers + products + users
   FY2026-27/
     ...
 ```
@@ -33,9 +33,9 @@ Yearly backups are kept forever. Master snapshots are kept forever.
 3. The right pane shows the date, table names, row counts, and uploaded file list.
 4. Click **Download** if you want the actual file on your laptop.
 5. On your laptop, right-click the `.tar.gz` → **Extract Here**. You get:
-   - `db.sql.gz` — the database (un-gzip it and open in any text editor)
-   - `files.tar.gz` — all the PDFs and photos (un-tar to see them)
-   - `metadata.json` — the same summary you saw in the preview
+   - `db.sql.gz` - the database (un-gzip it and open in any text editor)
+   - `files.tar.gz` - all the PDFs and photos (un-tar to see them)
+   - `metadata.json` - the same summary you saw in the preview
 
 That's it. No production data is touched.
 
@@ -69,7 +69,7 @@ That's it. No production data is touched.
 
 | Inside the `.tar.gz` | What it is |
 |---|---|
-| `db.sql.gz` | Compressed PostgreSQL dump — every table, every row from that date |
+| `db.sql.gz` | Compressed PostgreSQL dump - every table, every row from that date |
 | `files.tar.gz` | Everything in `/server/uploads/` at that moment (quotation PDFs, GRN photos, supplier assessment forms, IIR PDFs, etc.) |
 | `metadata.json` | Small summary: date, FY, tier, table list with row counts, file count |
 
@@ -80,11 +80,11 @@ That's it. No production data is touched.
 **Q: Can I restore only ONE table (e.g., just suppliers)?**
 A: Yes, but you'll need to do it by hand. Download the backup, un-gzip `db.sql.gz`, open it in a text editor, find the `INSERT` lines for the table you want, and run them via `psql`. Or ask a developer for help.
 
-**Q: A purchase officer says "I bought product X on 2024-08-12 from supplier Y for ₹50,000 — can you find this?"**
+**Q: A purchase officer says "I bought product X on 2024-08-12 from supplier Y for ₹50,000 - can you find this?"**
 A: Open the superadmin **Backups** page → find a backup from around that date (e.g. `FY2024-25/monthly/2024-august.tar.gz`) → click it → download → un-gzip the SQL → search for the supplier name. Or restore it into a *local* Postgres on your laptop and use a tool like pgAdmin to browse.
 
 **Q: I clicked Audit and now the system looks weird.**
-A: Nothing real changed. Triple-click the RAPS logo to reset, or just close that browser tab. Audit mode only affects what you see — never the real database.
+A: Nothing real changed. Triple-click the RAPS logo to reset, or just close that browser tab. Audit mode only affects what you see - never the real database.
 
 **Q: I think someone got the superadmin password.**
 A: Change it: log in as superadmin → Real-time Corrections → User table → find row with username `superadmin` → edit `password` field (must be bcrypt-hashed; use any online bcrypt generator and paste the hash). Done.

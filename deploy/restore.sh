@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RAPS-ERP — Restore a backup from S3 to the running system.
+# RAPS-ERP - Restore a backup from S3 to the running system.
 #
 # Usage (on EC2):
 #   sudo bash /var/www/raps/deploy/restore.sh FY2025-26/monthly/2026-april.tar.gz
@@ -98,7 +98,7 @@ if [ -s "${WORK}/files.tar.gz" ]; then
   tar -xzf "${WORK}/files.tar.gz" -C "$(dirname "$UPLOAD_DIR")"
   echo "  Files restored to ${UPLOAD_DIR}"
 else
-  echo "  (no files in this backup — uploads untouched)"
+  echo "  (no files in this backup - uploads untouched)"
 fi
 
 # 7. Start API

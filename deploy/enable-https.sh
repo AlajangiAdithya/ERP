@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RAPS-ERP — One-shot HTTPS setup. Run ON the EC2 box.
+# RAPS-ERP - One-shot HTTPS setup. Run ON the EC2 box.
 # Usage:  sudo ./deploy/enable-https.sh your-domain.com you@example.com
 
 set -euo pipefail

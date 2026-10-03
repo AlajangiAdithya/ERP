@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RAPS-ERP — EC2 Bootstrap (single-instance: app + Postgres on same box)
+# RAPS-ERP - EC2 Bootstrap (single-instance: app + Postgres on same box)
 # Run this ON the EC2 instance after setup-infra.sh has provisioned it.
 #
 # Usage:
@@ -112,7 +112,7 @@ AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/de
 S3_BACKUP_BUCKET="raps-backups-${AWS_ACCOUNT_ID}"
 AWS_REGION_FOR_S3="${AWS_REGION:-ap-south-1}"
 
-# Web Push (VAPID) keys — generated once per install; regenerating later
+# Web Push (VAPID) keys - generated once per install; regenerating later
 # invalidates every browser push subscription, so they live in .env forever.
 VAPID_JSON=$(npx --yes web-push generate-vapid-keys --json)
 VAPID_PUBLIC_KEY=$(echo "$VAPID_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['publicKey'])")
@@ -180,7 +180,7 @@ sudo cp "$APP_DIR/deploy/backup.cron" /etc/cron.d/raps-backup
 sudo chmod 644 /etc/cron.d/raps-backup
 sudo touch /var/log/raps-backup.log
 # Restore script is invoked manually only (sudo bash /var/www/raps/deploy/restore.sh ...)
-# — no symlink, no cron. Lives in the repo so it can be edited and version-controlled.
+# - no symlink, no cron. Lives in the repo so it can be edited and version-controlled.
 
 # ── Done ────────────────────────────────────────────
 echo ""

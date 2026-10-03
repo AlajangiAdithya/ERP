@@ -1,12 +1,12 @@
 // One-off: rewrite every Product's identification number into a single running
-// serial — 001, 002, 003 … assigned oldest-product-first. The number is written
+// serial - 001, 002, 003 … assigned oldest-product-first. The number is written
 // to `sku` (the system identification field) and `materialCode` is cleared to
 // null, so the displayed "ID No." (materialCode || sku) shows the running series
 // uniformly for these and for future auto-created products. The old category
-// prefixes (CONS-/RAW-/TOOL-…) and any legacy customer codes are discarded —
+// prefixes (CONS-/RAW-/TOOL-…) and any legacy customer codes are discarded -
 // this was explicitly requested.
 //
-//   node scripts/renumber-product-ids.js            # DRY RUN — prints the mapping, writes nothing
+//   node scripts/renumber-product-ids.js            # DRY RUN - prints the mapping, writes nothing
 //   node scripts/renumber-product-ids.js --apply    # writes the changes
 //
 // Safe to re-run: with no new products it reproduces the same numbering.
@@ -25,7 +25,7 @@ async function main() {
   });
 
   if (!products.length) {
-    console.log('No products found — nothing to renumber.');
+    console.log('No products found - nothing to renumber.');
     return;
   }
 
@@ -35,18 +35,18 @@ async function main() {
   console.log(`  ${'old sku'.padEnd(14)}${'old code'.padEnd(14)}new   name`);
   console.log(`  ${'-'.repeat(14)}${'-'.repeat(14)}----  ----`);
   for (const p of plan) {
-    console.log(`  ${(p.sku || '—').padEnd(14)}${(p.materialCode || '—').padEnd(14)}${p.newId}   ${p.name}`);
+    console.log(`  ${(p.sku || '-').padEnd(14)}${(p.materialCode || '-').padEnd(14)}${p.newId}   ${p.name}`);
   }
 
   if (!apply) {
-    console.log('\nDRY RUN — nothing written. Re-run with --apply to commit these changes.\n');
+    console.log('\nDRY RUN - nothing written. Re-run with --apply to commit these changes.\n');
     return;
   }
 
   await prisma.$transaction(async (tx) => {
     // Pass 1: park every code on a guaranteed-unique temporary sku (and clear
     // materialCode) so the final values can't transiently collide with a row
-    // that hasn't been processed yet — both sku and materialCode are @unique.
+    // that hasn't been processed yet - both sku and materialCode are @unique.
     for (const p of plan) {
       await tx.product.update({ where: { id: p.id }, data: { sku: `TMP-${p.id}`, materialCode: null } });
     }

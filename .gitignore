@@ -7,7 +7,7 @@ node_modules/
 **/.env
 !**/.env.example
 
-# Secrets / private keys — NEVER commit
+# Secrets / private keys - NEVER commit
 *.pem
 *.key
 *.p12

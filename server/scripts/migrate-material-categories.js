@@ -7,7 +7,7 @@
 //   Stationary           → Stationery      (spelling)
 //   …and every other alias normalizeMaterialType() knows about.
 //
-// Genuinely retired labels are LEFT ALONE on purpose — 'Raw Material',
+// Genuinely retired labels are LEFT ALONE on purpose - 'Raw Material',
 // 'Raw Materials - Composites', 'Hand Tools' and 'Hand Tools & Fastners' each
 // span more than one of the new blocks (or no longer have one), so re-bucketing
 // them would be a guess. Those are re-picked by hand on the Master Data screen;
@@ -17,7 +17,7 @@
 // when its category's block says otherwise. Only new materials draw from the
 // register (see nextMaterialCode / the Add Product form).
 //
-//   node scripts/migrate-material-categories.js          # DRY RUN — prints the plan, writes nothing
+//   node scripts/migrate-material-categories.js          # DRY RUN - prints the plan, writes nothing
 //   node scripts/migrate-material-categories.js --apply  # writes the changes
 //
 // Safe to re-run: a second pass finds nothing left to change.
@@ -36,7 +36,7 @@ async function main() {
   });
 
   if (!products.length) {
-    console.log('No products found — nothing to migrate.');
+    console.log('No products found - nothing to migrate.');
     return;
   }
 
@@ -69,17 +69,17 @@ async function main() {
     console.log(`  ${'from'.padEnd(26)}${'to'.padEnd(30)}name`);
     console.log(`  ${'-'.repeat(26)}${'-'.repeat(30)}----`);
     for (const c of changes) {
-      console.log(`  ${(c.category || '—').padEnd(26)}${c.next.padEnd(30)}${c.name}`);
+      console.log(`  ${(c.category || '-').padEnd(26)}${c.next.padEnd(30)}${c.name}`);
     }
   }
 
   if (kept.size) {
-    console.log('\nLeft as-is (retired labels — re-pick these by hand on the Master Data screen):');
+    console.log('\nLeft as-is (retired labels - re-pick these by hand on the Master Data screen):');
     for (const [label, n] of kept) console.log(`  ${String(n).padStart(4)}  ${label}`);
   }
 
   if (offBlock.length) {
-    console.log(`\n${offBlock.length} material code(s) sit outside their category's block — not changed, listed for review:`);
+    console.log(`\n${offBlock.length} material code(s) sit outside their category's block - not changed, listed for review:`);
     for (const o of offBlock.slice(0, 50)) {
       console.log(`  ${String(o.code).padEnd(10)}${o.next.padEnd(30)}(block ${formatCodeRange(o.next)})  ${o.name}`);
     }
@@ -87,7 +87,7 @@ async function main() {
   }
 
   if (!apply) {
-    console.log('\nDRY RUN — nothing was written. Re-run with --apply to save.\n');
+    console.log('\nDRY RUN - nothing was written. Re-run with --apply to save.\n');
     return;
   }
   if (!changes.length) {

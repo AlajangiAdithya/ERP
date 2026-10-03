@@ -26,7 +26,7 @@ self.addEventListener('push', (event) => {
   try { data = event.data ? event.data.json() : {}; } catch (_) {}
   const title = data.title || 'RAPS ERP';
   event.waitUntil((async () => {
-    // If the app is already open and focused, the in-page toast handles it —
+    // If the app is already open and focused, the in-page toast handles it -
     // skip the OS notification so the user isn't alerted twice.
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const appFocused = windows.some((c) => c.focused || c.visibilityState === 'visible');
@@ -60,7 +60,7 @@ self.addEventListener('notificationclick', (event) => {
           if ('focus' in client) { await client.focus(); return; }
         }
         // Otherwise reuse this tab: send it to the notification's page, then
-        // focus — so the click always lands on the respective page, not on
+        // focus - so the click always lands on the respective page, not on
         // whatever the tab happened to be showing.
         if ('navigate' in client) {
           const navigated = await client.navigate(target).catch(() => null);

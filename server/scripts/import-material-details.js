@@ -103,7 +103,7 @@ async function run() {
   console.log(`\nDone. Created: ${created}  Updated: ${updated}  Skipped: ${skipped}  Errors: ${errors.length}`);
   if (errors.length) {
     console.log('\nFirst 10 errors:');
-    for (const e of errors.slice(0, 10)) console.log(`  [${e.materialCode}] ${e.name} — ${e.message}`);
+    for (const e of errors.slice(0, 10)) console.log(`  [${e.materialCode}] ${e.name} - ${e.message}`);
   }
 }
 

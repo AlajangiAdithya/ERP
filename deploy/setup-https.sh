@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# setup-https.sh — put automatic HTTPS in front of the RAPS ERP Node app.
+# setup-https.sh - put automatic HTTPS in front of the RAPS ERP Node app.
 #
-# WHY: browsers block service workers + web push on http:// (the "Needs HTTPS —
+# WHY: browsers block service workers + web push on http:// (the "Needs HTTPS -
 # push is blocked" banner). Web push ONLY works on https:// (or localhost).
 # This installs Caddy as a reverse proxy that auto-obtains a free Let's Encrypt
 # certificate and forwards https://<host>  ->  http://localhost:<APP_PORT>.
@@ -44,7 +44,7 @@ fi
 echo ">> HTTPS host : $HOST"
 echo ">> Proxy to   : localhost:$APP_PORT"
 
-# ── 2. Install Caddy (arch-aware static binary — works on Ubuntu & Amazon Linux) ─
+# ── 2. Install Caddy (arch-aware static binary - works on Ubuntu & Amazon Linux) ─
 if ! command -v caddy >/dev/null 2>&1 && [ ! -x /usr/local/bin/caddy ]; then
   ARCH=amd64; case "$(uname -m)" in aarch64|arm64) ARCH=arm64;; esac
   echo ">> Downloading Caddy ($ARCH)…"

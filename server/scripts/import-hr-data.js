@@ -1,8 +1,8 @@
-// One-shot importer for the HR module — seeds Employees, Skill Matrix,
+// One-shot importer for the HR module - seeds Employees, Skill Matrix,
 // the FY 2023-24 Training Plan, and the autoclave-batch training sessions.
 //
 // Reads from scripts/hr-data.json (pre-extracted from the original Excel
-// files on the dev machine — see the sibling extract-hr-data.js script).
+// files on the dev machine - see the sibling extract-hr-data.js script).
 //
 // Run from the server folder:   node scripts/import-hr-data.js
 //
@@ -116,7 +116,7 @@ async function importTrainingPlan(data, systemUserId) {
     });
     console.log(`Training plan FY ${fy} created.`);
   } else {
-    console.log(`Training plan FY ${fy} already exists — items will be added if missing.`);
+    console.log(`Training plan FY ${fy} already exists - items will be added if missing.`);
   }
 
   let added = 0, skippedDup = 0;
@@ -130,7 +130,7 @@ async function importTrainingPlan(data, systemUserId) {
         planId: plan.id,
         serialNo: item.serialNo,
         subject: item.subject,
-        participants: item.participants || '—',
+        participants: item.participants || '-',
         faculty: item.faculty,
         scheduledMonth: item.scheduledMonth,
         actualMonth: item.actualMonth,
@@ -182,7 +182,7 @@ async function importTrainingSessions(data, systemUserId) {
   for (const s of data.sessions) {
     const fromDate = parseDmy(s.fromDate);
     if (!s.subject || !fromDate || !s.faculty) {
-      console.log(`  ! ${s.sheetName}: missing subject/from-date/faculty — skipped`);
+      console.log(`  ! ${s.sheetName}: missing subject/from-date/faculty - skipped`);
       continue;
     }
     const existing = await prisma.trainingSession.findFirst({
@@ -246,7 +246,7 @@ async function importTrainingSessions(data, systemUserId) {
     orderBy: { createdAt: 'asc' },
   }) || await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
   if (!owner) {
-    console.error('No users exist — create at least one admin before running this import.');
+    console.error('No users exist - create at least one admin before running this import.');
     process.exit(1);
   }
   console.log(`Crediting records to user: ${owner.username} (${owner.role})`);

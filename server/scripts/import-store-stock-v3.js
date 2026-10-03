@@ -2,7 +2,7 @@
 //
 // Same DB logic as v2 (canonical materialCode anchoring from Material Details,
 // multi-variant letter suffixes, novel-code assignment per category, batch + QC
-// + referred-unit allocation) — but the source rows now come from a pre-parsed
+// + referred-unit allocation) - but the source rows now come from a pre-parsed
 // JSON file instead of reading the .xlsx directly. This avoids needing the
 // `xlsx` package on the production box; the workbook is parsed locally by
 // scripts/extract-store-stock-18-06.py into the JSON consumed here.
@@ -400,13 +400,13 @@ async function run() {
 
   if (errors.length) {
     console.log('\nErrors (first 15):');
-    for (const e of errors.slice(0, 15)) console.log(`  [${e.code}] ${e.name} — ${e.msg}`);
+    for (const e of errors.slice(0, 15)) console.log(`  [${e.code}] ${e.name} - ${e.msg}`);
   }
 
   console.log('\n=== SAMPLE ASSIGNMENTS (multi-variant groups) ===');
   for (const [base, rows] of groups.entries()) {
     if (rows.length <= 1) continue;
-    console.log(`\n  MD ${base} — ${rows[0].mdMatch.mdRow.name}`);
+    console.log(`\n  MD ${base} - ${rows[0].mdMatch.mdRow.name}`);
     for (let i = 0; i < rows.length; i++) {
       const suffix = String.fromCharCode(65 + i);
       console.log(`    ${base}${suffix}: ${rows[i].name} (qty=${rows[i].qty}, ${rows[i].uom}, ref=${rows[i].referredUnit || '-'})`);

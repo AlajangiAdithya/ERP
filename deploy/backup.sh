@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# RAPS-ERP — FY-aligned tiered backup to S3.
+# RAPS-ERP - FY-aligned tiered backup to S3.
 #
 # Runs every Sunday 00:30 IST via cron. Bundles (Postgres dump + /server/uploads
 # + metadata.json) into one .tar.gz and promotes it through tiers:
 #
-#   weekly       — only ever 1 file (overwritten each Sunday)
-#   monthly      — last Sunday of each calendar month; keeps up to 3 in a quarter
-#   quarterly    — last Sunday of FY-quarter month (Jun/Sep/Dec/Mar); keeps 2 per half
-#   half-yearly  — last Sunday of Sep or Mar; keeps 2 per FY
-#   yearly       — last Sunday of March (FY end); kept forever
+#   weekly       - only ever 1 file (overwritten each Sunday)
+#   monthly      - last Sunday of each calendar month; keeps up to 3 in a quarter
+#   quarterly    - last Sunday of FY-quarter month (Jun/Sep/Dec/Mar); keeps 2 per half
+#   half-yearly  - last Sunday of Sep or Mar; keeps 2 per FY
+#   yearly       - last Sunday of March (FY end); kept forever
 #
 # When a backup is promoted to a higher tier the files at the lower tier
 # (which it consumed) are deleted from S3.
@@ -128,7 +128,7 @@ else
 fi
 log "Files tar: $(du -h "$FILES_TAR" | cut -f1) (${FILES_COUNT} files)"
 
-# Row counts per table (best-effort — used by the Backups preview UI)
+# Row counts per table (best-effort - used by the Backups preview UI)
 TABLES_JSON=$(psql "$DB_URL" -tA -F'|' -c "
   SELECT table_name FROM information_schema.tables
   WHERE table_schema='public' AND table_type='BASE TABLE'
@@ -217,7 +217,7 @@ if [ "$IS_LAST_SUN_OF_FY" = "1" ]; then
 fi
 
 # ───────────────────────────────────────────────────────────
-# 8. Master snapshot — suppliers + products + users, JSON, kept forever
+# 8. Master snapshot - suppliers + products + users, JSON, kept forever
 # ───────────────────────────────────────────────────────────
 MASTER_JSON="${WORK}/master.json"
 psql "$DB_URL" -tA <<SQL > "$MASTER_JSON" 2>/dev/null || echo '{}' > "$MASTER_JSON"

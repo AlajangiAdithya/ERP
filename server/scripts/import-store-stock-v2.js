@@ -7,7 +7,7 @@
 //   • Stock rows that match no MD base are assigned a fresh canonical numeric code
 //     in the appropriate range (Raw 2700+, Consumable 3200+, Stationery 3600+).
 //   • DOM / DOE / batchNo / referred-unit captured via a lightweight QCInspection
-//     linked to the ProductBatch (no PO required — schema relaxed to allow this).
+//     linked to the ProductBatch (no PO required - schema relaxed to allow this).
 //   • REFERRED UNIT column → ProductUnitStock allocation for the named unit.
 //
 // Dry-run by default: pass --commit to actually mutate the DB.
@@ -284,7 +284,7 @@ async function run() {
   // Re-bind any novel plan items whose product was already created on a prior
   // run (looked up by normalized name) so the second run is idempotent.
   for (const item of plan) {
-    if (item.mdBaseName) continue; // matched or suffixed — already keyed by code
+    if (item.mdBaseName) continue; // matched or suffixed - already keyed by code
     const existing = byNormName.get(normName(item.stockRow.name));
     if (existing && existing.materialCode && !byCode.has(item.finalCode)) {
       // Replace the freshly-chosen finalCode with whatever was assigned before.
@@ -455,14 +455,14 @@ async function run() {
 
   if (errors.length) {
     console.log('\nErrors (first 10):');
-    for (const e of errors.slice(0, 10)) console.log(`  [${e.code}] ${e.name} — ${e.msg}`);
+    for (const e of errors.slice(0, 10)) console.log(`  [${e.code}] ${e.name} - ${e.msg}`);
   }
 
   // Print a sample assignment table for sanity-check.
   console.log('\n=== SAMPLE ASSIGNMENTS (multi-variant groups) ===');
   for (const [base, rows] of groups.entries()) {
     if (rows.length <= 1) continue;
-    console.log(`\n  MD ${base} — ${rows[0].mdMatch.mdRow.name}`);
+    console.log(`\n  MD ${base} - ${rows[0].mdMatch.mdRow.name}`);
     for (let i = 0; i < rows.length; i++) {
       const suffix = String.fromCharCode(65 + i);
       console.log(`    ${base}${suffix}: ${rows[i].name} (qty=${rows[i].qty}, ${rows[i].uom}, ref=${rows[i].referredUnit || '-'})`);

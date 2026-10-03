@@ -16,7 +16,7 @@
  *
  * `.on-dark` re-declares the light set so any subtree that already sits on a
  * permanently dark surface (sidebar, gradient page heroes, the login backdrop)
- * keeps its original semantics — white stays white there, in both themes.
+ * keeps its original semantics - white stays white there, in both themes.
  *
  * Variable naming: --bg-<family>-<shade>, --tx-… (text), --bd-… (border/ring).
  * Values are space-separated RGB channels so Tailwind's `<alpha-value>` works
@@ -33,12 +33,12 @@ const hex2rgb = (h) => {
   return [parseInt(f.slice(0, 2), 16), parseInt(f.slice(2, 4), 16), parseInt(f.slice(4, 6), 16)];
 };
 const rgbStr = (rgb) => rgb.map((v) => Math.max(0, Math.min(255, Math.round(v)))).join(' ');
-// Lay `fg` over `bg` at `a` opacity — used to build dark tinted surfaces.
+// Lay `fg` over `bg` at `a` opacity - used to build dark tinted surfaces.
 const mix = (fg, bg, a) => hex2rgb(fg).map((c, i) => c * a + hex2rgb(bg)[i] * (1 - a));
 const lighten = (hex, a) => mix('#ffffff', hex, a);
 
 // ── Dark neutral surfaces (cool, to sit under the navy brand) ──────────────
-const SURFACE = '#151d2e'; // bg-white   — cards, modals, table rows
+const SURFACE = '#151d2e'; // bg-white   - cards, modals, table rows
 const PAGE = '#0a0f1a';    // page background behind everything
 // Tinted chips (bg-red-50, bg-green-50, …) are mixed over a near-neutral base
 // instead of SURFACE: the surface's blue bias would drag reds toward magenta.
@@ -75,7 +75,7 @@ const FAMILIES = {
 // 400+ are solid button/dot colours and stay put.
 const BG_TINT = { 50: 0.14, 100: 0.2, 200: 0.28, 300: 0.36 };
 const BD_TINT = { 50: 0.18, 100: 0.24, 200: 0.32, 300: 0.4 };
-// Text: the ramp flips — dark-on-light shades become light-on-dark ones.
+// Text: the ramp flips - dark-on-light shades become light-on-dark ones.
 const TX_FLIP = { 500: 400, 600: 400, 700: 300, 800: 300, 900: 200, 950: 200 };
 
 // Hand-tuned ramps where the generic rule doesn't hold: the neutrals carry
@@ -111,7 +111,7 @@ const darkBg = (fam, shade, hex) => {
   const o = BG_OVERRIDES[fam]?.[shade];
   if (o) return hex2rgb(o);
   if (BG_TINT[shade]) return mix(FAMILIES[fam][400] || hex, TINT_BASE, BG_TINT[shade]);
-  return hex2rgb(hex); // 400+ — solid buttons, dots, badges keep their punch
+  return hex2rgb(hex); // 400+ - solid buttons, dots, badges keep their punch
 };
 const darkText = (fam, shade, hex) => {
   const o = TEXT_OVERRIDES[fam]?.[shade];
@@ -124,7 +124,7 @@ const darkBorder = (fam, shade, hex) => {
   const o = BORDER_OVERRIDES[fam]?.[shade];
   if (o) return hex2rgb(o);
   if (BD_TINT[shade]) return mix(FAMILIES[fam][400] || hex, TINT_BASE, BD_TINT[shade]);
-  // 400–600 double as focus rings (`ring-navy-500`) — lift them so they show.
+  // 400–600 double as focus rings (`ring-navy-500`) - lift them so they show.
   if (shade <= 600) return lighten(hex, 0.3);
   return lighten(hex, 0.15);
 };
@@ -146,7 +146,7 @@ for (const [fam, scale] of Object.entries(FAMILIES)) {
 }
 
 // Neutrals that aren't part of a scale. `bg-white` is a surface, so it goes
-// dark; `text-white` / `border-white` stay white — they label solid buttons and
+// dark; `text-white` / `border-white` stay white - they label solid buttons and
 // gradient heroes in both themes.
 push('bg-white', '255 255 255', rgbStr(hex2rgb(SURFACE)));
 push('bg-black', '0 0 0', '0 0 0');
@@ -183,14 +183,14 @@ push('scrollbar-thumb-hover', '80 111 175', '73 92 128');
 push('scrollbar-track', '237 240 247', rgbStr(hex2rgb(PAGE)));
 
 const out = `/* ─────────────────────────────────────────────────────────────────────────
-   GENERATED FILE — do not edit by hand.
+   GENERATED FILE - do not edit by hand.
    Regenerate with:  node scripts/generate-theme.cjs
 
    Every colour utility in the app resolves through these variables (see
    tailwind.config.js), so flipping \`.dark\` on <html> retints the whole UI
    without touching a single component class.
 
-   \`.on-dark\` pins the light values for a subtree — use it on surfaces that
+   \`.on-dark\` pins the light values for a subtree - use it on surfaces that
    are dark in BOTH themes (sidebar, gradient heroes) so their white text,
    frosted \`bg-white/10\` tiles and light rings keep working.
    ───────────────────────────────────────────────────────────────────────── */
@@ -208,4 +208,4 @@ ${dark.join('\n')}
 
 const dest = path.join(__dirname, '..', 'src', 'theme.css');
 fs.writeFileSync(dest, out);
-console.log(`wrote ${dest} — ${light.length} tokens per theme`);
+console.log(`wrote ${dest} - ${light.length} tokens per theme`);

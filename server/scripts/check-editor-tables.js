@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Health check for the row editors (SUPERADMIN "Tables" / DATA_EDITOR "Edit Data").
 //
-// Walks EVERY entry the editor publishes — the curated views plus all 84 models
-// — through the exact same code path the HTTP route uses, and reports for each:
+// Walks EVERY entry the editor publishes - the curated views plus all 84 models
+// - through the exact same code path the HTTP route uses, and reports for each:
 //
 //   OK    <n> rows          read fine, has data
 //   EMPTY 0 rows            read fine, table is genuinely empty
-//   FAIL  <reason>          the read errored — this is what shows up as a broken
+//   FAIL  <reason>          the read errored - this is what shows up as a broken
 //                           or blank table in the UI
 //
 // Answers two questions directly: "is anything erroring?" and "which tables are

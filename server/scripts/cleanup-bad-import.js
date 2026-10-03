@@ -1,7 +1,7 @@
 // Cleanup script: removes the StockStatement batches and the auto-SKU products
 // created by the rejected v1 import (server/scripts/import-store-stock.js).
 //
-// Dry-run by default — pass --commit to actually delete.
+// Dry-run by default - pass --commit to actually delete.
 //   node scripts/cleanup-bad-import.js [--commit]
 
 const prisma = require('../src/config/db');
@@ -18,7 +18,7 @@ async function run() {
   });
   console.log(`Found ${ssBatches.length} StockStatement batches.`);
 
-  // 2. Auto-SKU products (no materialCode) — these are the ones v1 created when
+  // 2. Auto-SKU products (no materialCode) - these are the ones v1 created when
   //    it couldn't match a stock row to an existing product.
   const autoProducts = await prisma.product.findMany({
     where: { materialCode: null },

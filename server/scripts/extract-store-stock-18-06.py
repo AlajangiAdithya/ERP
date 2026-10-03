@@ -5,7 +5,7 @@ revisions, so we anchor on the section-header keywords rather than fixed rows).
 Output mirrors the field semantics the JS importer expects:
   section, category, name, qty, uom, batch, dom, doe, referredUnit, remarks
 
-FIM (customer property, Sheet1) is intentionally excluded — it belongs to the
+FIM (customer property, Sheet1) is intentionally excluded - it belongs to the
 gate-pass flow, not regular product stock.
 
   python scripts/extract-store-stock-18-06.py <excel_path> <out_json>

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# RAPS-ERP — Create all AWS infrastructure from your local machine.
-# Single-EC2 design (Postgres on same instance) — fits ~₹1300/mo.
+# RAPS-ERP - Create all AWS infrastructure from your local machine.
+# Single-EC2 design (Postgres on same instance) - fits ~₹1300/mo.
 #
 # Prerequisites:
 #   aws configure   (region: ap-south-2, output: json)
@@ -22,14 +22,14 @@ DB_PASSWORD="${RAPS_DB_PASSWORD:?Export RAPS_DB_PASSWORD first}"
 KEY_NAME="${RAPS_KEY_NAME:-raps-key}"
 MY_IP="${RAPS_MY_IP:-0.0.0.0/0}"
 
-EC2_TYPE="t4g.small"          # ARM — ~30% cheaper than t3.small, ample for this app
+EC2_TYPE="t4g.small"          # ARM - ~30% cheaper than t3.small, ample for this app
 EC2_NAME="raps-app"
 EC2_SG="raps-app-sg"
 S3_BUCKET="raps-backups-$(aws sts get-caller-identity --query Account --output text)"
 IAM_ROLE="raps-ec2-role"
 
 echo "================================================"
-echo "  RAPS-ERP — AWS Infrastructure Setup"
+echo "  RAPS-ERP - AWS Infrastructure Setup"
 echo "  Region: ${REGION}"
 echo "================================================"
 
@@ -86,7 +86,7 @@ else
   aws ec2 create-key-pair --region "$REGION" --key-name "$KEY_NAME" \
     --query "KeyMaterial" --output text > "${KEY_NAME}.pem"
   chmod 400 "${KEY_NAME}.pem"
-  echo "  Created: ${KEY_NAME}.pem — SAVE THIS FILE, cannot be re-downloaded"
+  echo "  Created: ${KEY_NAME}.pem - SAVE THIS FILE, cannot be re-downloaded"
 fi
 
 # ── 4. S3 Backup Bucket ────────────────────────────
@@ -102,7 +102,7 @@ else
     --public-access-block-configuration \
     "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
 
-  # Note: no lifecycle rules — tier promotion (weekly → monthly → quarterly → half-yearly
+  # Note: no lifecycle rules - tier promotion (weekly → monthly → quarterly → half-yearly
   # → yearly) is managed by deploy/backup.sh. Lifecycle rules would conflict with that logic.
   # We still clean up old versions so accidental overwrites don't pile up forever.
   aws s3api put-bucket-lifecycle-configuration --bucket "$S3_BUCKET" \
@@ -214,7 +214,7 @@ echo "  Region:       ${REGION} (Hyderabad)"
 echo "  S3 Bucket:    ${S3_BUCKET}"
 echo "  DB:           Postgres 16 on EC2 (localhost)"
 echo ""
-echo "  Next step — copy bootstrap.sh to the box and run it:"
+echo "  Next step - copy bootstrap.sh to the box and run it:"
 echo ""
 echo "    scp -i ${KEY_NAME}.pem deploy/bootstrap.sh ubuntu@${ELASTIC_IP}:~"
 echo "    ssh -i ${KEY_NAME}.pem ubuntu@${ELASTIC_IP}"

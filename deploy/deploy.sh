@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RAPS-ERP — Redeploy after a git push.
+# RAPS-ERP - Redeploy after a git push.
 # Run ON the EC2 box:  cd /var/www/raps && ./deploy/deploy.sh
 
 set -euo pipefail

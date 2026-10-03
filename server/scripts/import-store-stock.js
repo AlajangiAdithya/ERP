@@ -9,7 +9,7 @@
 //        from the section.
 //   2. Create a ProductBatch row per stock entry with qty>0 (referenceType='StockStatement').
 //   3. Stationery products get category='Stationery'.
-//   4. FIM rows (customer property) are intentionally skipped — those belong on
+//   4. FIM rows (customer property) are intentionally skipped - those belong on
 //      the FIM Status / Gate Pass flow, not the products list.
 //
 // Run from the server folder:
@@ -29,7 +29,7 @@ const EXCEL_PATH =
   'C:/Users/alaja/Desktop/25-05-2026 STORE STOCK STATEMENT.xlsx';
 const STATEMENT_DATE = new Date('2026-05-25');
 
-// Section row positions (0-indexed) inside the Sheet2 sheet — matched by inspection.
+// Section row positions (0-indexed) inside the Sheet2 sheet - matched by inspection.
 const SECTIONS = [
   { row: 2,   key: 'FABRICS',          category: 'Raw Material' },
   { row: 27,  key: 'SPOOLS',           category: 'Raw Material' },
@@ -210,7 +210,7 @@ async function run() {
   );
   if (errors.length) {
     console.log('\nFirst 10 errors:');
-    for (const e of errors.slice(0, 10)) console.log(`  [${e.section}] ${e.name} — ${e.message}`);
+    for (const e of errors.slice(0, 10)) console.log(`  [${e.section}] ${e.name} - ${e.message}`);
   }
 }
 
