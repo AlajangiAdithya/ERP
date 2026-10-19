@@ -58,12 +58,19 @@ const trimOrNull = (v) => {
 // the free text on every request would be guesswork. A place that matches no
 // unit resolves to null and the machine shows under Unassigned, which is
 // visible rather than silently mis-filed.
+// Unit.code is not spelled the same everywhere - production stores 'UNIT-1' /
+// 'UNIT-1A', the dev seed stores bare '1' / '1A' - so both sides are stripped
+// of punctuation and either spelling is accepted. Comparing the raw token to
+// the raw code matches nothing on production and quietly files every machine
+// as Unassigned.
 const resolveUnitId = async (place) => {
   if (!place) return null;
   const m = /^[Uu]nit[-\s]*([0-9]+[A-Za-z]?)/.exec(String(place).trim());
   if (!m) return null;
+  const token = m[1].toUpperCase();
   const units = await prisma.unit.findMany({ select: { id: true, code: true } });
-  const hit = units.find((u) => (u.code || '').toUpperCase() === m[1].toUpperCase());
+  const norm = (c) => (c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const hit = units.find((u) => norm(u.code) === `UNIT${token}` || norm(u.code) === token);
   return hit?.id ?? null;
 };
 

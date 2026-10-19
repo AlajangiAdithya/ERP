@@ -129,17 +129,23 @@ router.get('/units', authenticate, async (req, res) => {
     machines.forEach((m) => { bucket(m.unitId || 'unassigned').machineCount += 1; });
     rows.forEach((r) => { bucket(r.unitId || 'unassigned').rows.push(r); });
 
-    const cards = units.map((u) => {
-      const b = bucket(u.id);
-      return {
-        unitId: u.id,
-        code: u.code,
-        name: u.name,
-        machineCount: b.machineCount,
-        canEdit: ANY_UNIT_ROLES.includes(req.user.role) || req.user.unitId === u.id,
-        ...summarise(b.rows),
-      };
-    });
+    // Only units that actually hold machines, plus the viewer's own unit so a
+    // manager always sees their own card even while it is empty. There are far
+    // more units on the books (offsite sites, departments, a Test unit) than
+    // have machinery, and showing them all buries the six that matter.
+    const cards = units
+      .filter((u) => bucket(u.id).machineCount > 0 || req.user.unitId === u.id)
+      .map((u) => {
+        const b = bucket(u.id);
+        return {
+          unitId: u.id,
+          code: u.code,
+          name: u.name,
+          machineCount: b.machineCount,
+          canEdit: ANY_UNIT_ROLES.includes(req.user.role) || req.user.unitId === u.id,
+          ...summarise(b.rows),
+        };
+      });
 
     const un = bucket('unassigned');
     if (un.machineCount > 0) {
