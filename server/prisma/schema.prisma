@@ -105,6 +105,8 @@ model User {
   // ── Machine allocation (unit managers schedule WO/ION work onto machines) ──
   machineAllocations MachineAllocation[] @relation("MachineAllocator")
   machineDowntimes   MachineDowntime[]   @relation("MachineDowntimeCreator")
+  machineWorkLogged  MachineWorkStatus[] @relation("MachineWorkStatusCreator")
+  machineWorkEdited  MachineWorkStatus[] @relation("MachineWorkStatusEditor")
 
   // HR / Training domain ownership
   employeesCreated         Employee[]         @relation("EmployeeCreator")
@@ -209,6 +211,8 @@ model Unit {
   attendanceMonthSubmissions AttendanceMonthSubmission[]
   machineAllocations         MachineAllocation[]
   machineDowntimes           MachineDowntime[]
+  machinery                  Machinery[]
+  machineWorkStatuses        MachineWorkStatus[]
 }
 
 // ──── AUDIT LOG ────
@@ -2585,6 +2589,13 @@ model Machinery {
   machineSerialNo String? // Serial No printed on the machine
   rapsId          String              @unique // RAPS ID No (e.g. RAMS/HP-01/LM/01)
   place           String? // Place of Machine (Unit-1, Unit-5, Unit-1A …)
+  // `place` is the free-text label people type and print. `unitId` is the
+  // resolved owning unit, backfilled from it, and is what the work-status
+  // permission check matches on - a manager edits only their own unit's
+  // machines. Matching the free text at request time cannot be trusted
+  // ("Unit-2 QC Lab", "Unit-1 (NDT)"), so it is resolved once and stored.
+  unitId          String?
+  unit            Unit?               @relation(fields: [unitId], references: [id])
   remarks         String?
   amcStatus       String? // ACTIVE / EXPIRED / NA / free-text
   amcVendor       String?
@@ -2596,9 +2607,57 @@ model Machinery {
   createdBy       User?               @relation("MachineryCreator", fields: [createdById], references: [id])
   allocations     MachineAllocation[]
   downtimes       MachineDowntime[]
+  workStatuses    MachineWorkStatus[]
 
   @@index([serialNumber])
   @@index([place])
+  @@index([unitId])
+}
+
+// ──────────────────────────────────────────────────────────────
+// Working machine status - the daily ON/OFF log units already keep on paper
+// and in "WORKING MACHINE STATUS FILE.xlsx". One row per machine per day:
+// what work ran, who switched it on and when, who switched it off and when,
+// and the result. This is the operators' own record, distinct from
+// MachineAllocation, which is a planner scheduling WO/ION work ahead of time.
+//
+// Rows are created lazily. The month grid is rendered from the calendar and
+// filled from whatever rows exist, so an untouched month costs nothing.
+// ──────────────────────────────────────────────────────────────
+model MachineWorkStatus {
+  id          String    @id @default(uuid())
+  machineryId String
+  machinery   Machinery @relation(fields: [machineryId], references: [id], onDelete: Cascade)
+  // Copied off the machine at write time so the permission check and the unit
+  // roll-ups do not have to join through Machinery on every read.
+  unitId      String?
+  unit        Unit?     @relation(fields: [unitId], references: [id])
+  logDate     DateTime  @db.Date
+  work        String?
+  onPerson    String?
+  offPerson   String?
+  // Minutes from midnight (0..1439), not timestamps. The form records a
+  // wall-clock shift time against a date that is already its own column, so an
+  // instant would invent a timezone nobody supplied. An integer keeps that
+  // property while making the hours arithmetic exact - summing hours out of
+  // free text ("9:00" / "09:00 AM" / "9am") silently drops rows.
+  onMinutes   Int?
+  offMinutes  Int?
+  // Derived on write, never hand-edited, null while either end is missing.
+  // Stored rather than computed on read so the month and year roll-ups are a
+  // plain SUM the database answers from the index below.
+  runMinutes  Int?
+  remarks     String?
+  createdById String?
+  createdBy   User?     @relation("MachineWorkStatusCreator", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?     @relation("MachineWorkStatusEditor", fields: [updatedById], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([machineryId, logDate])
+  @@index([machineryId, logDate])
+  @@index([unitId, logDate])
 }
 
 // ──────────────────────────────────────────────────────────────

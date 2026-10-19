@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "postinstall": "prisma generate",
     "seed": "node prisma/seed.js",
-    "check:tables": "node scripts/check-editor-tables.js"
+    "check:tables": "node scripts/check-editor-tables.js",
+    "check:work-status": "node scripts/check-work-status-math.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

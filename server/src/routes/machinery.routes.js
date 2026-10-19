@@ -52,6 +52,21 @@ const trimOrNull = (v) => {
   return s === '' ? null : s;
 };
 
+// `place` is the free-text label people type ("Unit-5", "Unit-2 QC Lab",
+// "Unit-1 (NDT)"). Work-status edit rights are scoped to a manager's own unit,
+// so the owning Unit has to be resolved to a real id at write time - matching
+// the free text on every request would be guesswork. A place that matches no
+// unit resolves to null and the machine shows under Unassigned, which is
+// visible rather than silently mis-filed.
+const resolveUnitId = async (place) => {
+  if (!place) return null;
+  const m = /^[Uu]nit[-\s]*([0-9]+[A-Za-z]?)/.exec(String(place).trim());
+  if (!m) return null;
+  const units = await prisma.unit.findMany({ select: { id: true, code: true } });
+  const hit = units.find((u) => (u.code || '').toUpperCase() === m[1].toUpperCase());
+  return hit?.id ?? null;
+};
+
 // Lightweight permissions probe used by the client to decide whether to render
 // add/edit/delete buttons. Mirrors canWrite exactly.
 router.get('/permissions', authenticate, (req, res) => {
@@ -91,6 +106,8 @@ router.post('/', authenticate, requireWrite, async (req, res) => {
       serialNumber = (last?.serialNumber || 0) + 1;
     }
 
+    const place = trimOrNull(body.place) ?? null;
+
     const item = await prisma.machinery.create({
       data: {
         serialNumber,
@@ -99,7 +116,8 @@ router.post('/', authenticate, requireWrite, async (req, res) => {
         makeModel: trimOrNull(body.makeModel) ?? null,
         machineSerialNo: trimOrNull(body.machineSerialNo) ?? null,
         rapsId,
-        place: trimOrNull(body.place) ?? null,
+        place,
+        unitId: await resolveUnitId(place),
         remarks: trimOrNull(body.remarks) ?? null,
         amcStatus: trimOrNull(body.amcStatus) ?? null,
         amcVendor: trimOrNull(body.amcVendor) ?? null,
@@ -154,6 +172,9 @@ router.put('/:id', authenticate, requireWrite, async (req, res) => {
     }
     ['capacity', 'makeModel', 'machineSerialNo', 'place', 'remarks', 'amcStatus', 'amcVendor']
       .forEach((k) => { if (body[k] !== undefined) data[k] = trimOrNull(body[k]) ?? null; });
+    // Moving a machine between units has to move who may log work on it, so
+    // re-resolve the unit whenever `place` is edited.
+    if (body.place !== undefined) data.unitId = await resolveUnitId(data.place);
     if (body.amcExpiry !== undefined) data.amcExpiry = toDate(body.amcExpiry);
     // amcAttachment is set via the dedicated upload route, but allow clearing it.
     if (body.amcAttachment === null || body.amcAttachment === '') data.amcAttachment = null;
