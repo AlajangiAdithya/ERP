@@ -209,8 +209,10 @@ async function resolvePrItemProducts(items) {
 
   const ids = [...new Set(items.map((i) => i.productId).filter(Boolean))];
   const products = ids.length
+    // Customer property (FIM) is never purchasable - it already belongs to the
+    // customer. Excluded here so a stale id fails the Master Data check below.
     ? await prisma.product.findMany({
-      where: { id: { in: ids }, isActive: true },
+      where: { id: { in: ids }, isActive: true, isCustomerProperty: false },
       select: { id: true, name: true, unit: true, category: true },
     })
     : [];

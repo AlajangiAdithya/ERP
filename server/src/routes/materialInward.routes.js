@@ -1092,8 +1092,12 @@ router.post('/cash-bulk', authenticate, requireInwardWrite, async (req, res) => 
 
     // Resolve linked products once → trusted name / UOM / category snapshots.
     const productIds = [...new Set(items.map((it) => it.productId))];
+    // isCustomerProperty rows are FIM plumbing, not catalogue materials - they
+    // are invisible in the picker, so one arriving here means a stale or forged
+    // id. Excluding them makes it fail as "not in Master Data" rather than
+    // quietly receiving purchased stock against customer property.
     const products = await prisma.product.findMany({
-      where: { id: { in: productIds }, isActive: true },
+      where: { id: { in: productIds }, isActive: true, isCustomerProperty: false },
       select: { id: true, name: true, unit: true, category: true },
     });
     const productMap = Object.fromEntries(products.map((p) => [p.id, p]));

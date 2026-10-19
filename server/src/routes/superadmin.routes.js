@@ -1122,7 +1122,8 @@ router.get('/quick-stats', async (req, res) => {
       prisma.session.count(),
       prisma.auditLog.count({ where: { action: 'LOGIN', createdAt: { gte: since24h } } }),
       prisma.auditLog.count({ where: { createdAt: { gte: since24h } } }),
-      prisma.product.count({ where: { isActive: true } }),
+      // Catalogue materials only - FIM is customer property, not Master Data.
+      prisma.product.count({ where: { isActive: true, isCustomerProperty: false } }),
       prisma.purchaseRequest.count(),
       prisma.purchaseOrder.count(),
       prisma.workOrder.count(),

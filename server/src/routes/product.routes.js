@@ -128,8 +128,14 @@ const PRODUCT_FIELD_LABELS = {
 // A product is "FIM-only" when every batch it has is isFim=true. Products with no
 // batches yet (newly created, never inwarded) stay visible so Stores can manage them.
 function buildProductListWhere({ search, category, masterData }) {
+  // Customer property (FIM) is not a catalogue material - see
+  // Product.isCustomerProperty. The batch-shaped condition below predates the
+  // flag and is kept alongside it so any row the backfill could not classify
+  // (e.g. a FIM product created while the migration was running) still stays
+  // out of Master Data.
   const where = {
     isActive: true,
+    isCustomerProperty: false,
     AND: [
       {
         OR: [
@@ -352,7 +358,7 @@ router.get('/fim-status', authenticate, async (req, res) => {
 router.get('/categories', authenticate, async (req, res) => {
   try {
     const categories = await prisma.product.findMany({
-      where: { isActive: true, category: { not: null } },
+      where: { isActive: true, isCustomerProperty: false, category: { not: null } },
       select: { category: true },
       distinct: ['category'],
     });
@@ -448,9 +454,11 @@ router.get('/export', authenticate, async (req, res) => {
 
     // The register sheet - the printed material-code list, with a live count of
     // how many codes in each block are already issued.
+    // Customer property never took a code out of a block, so it must not be
+    // counted as having spent one.
     const usedByCategory = await prisma.product.groupBy({
       by: ['category'],
-      where: { isActive: true },
+      where: { isActive: true, isCustomerProperty: false },
       _count: { _all: true },
     });
     const usedFor = (label) =>

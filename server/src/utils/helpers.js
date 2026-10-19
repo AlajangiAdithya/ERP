@@ -234,6 +234,27 @@ const generateProductSku = async (prisma, materialType) => {
   return nextUnallocatedCode(used);
 };
 
+// Identifier for the Product row behind a FIM line. Customer property is not in
+// our catalogue, so it must not draw a material code: 166 of the FIM products
+// created before this held codes inside real category blocks (3613-7043),
+// permanently spending register numbers on material we do not own. FIM gets its
+// own series instead - FIM-0001, FIM-0002 ... - which materialCodeToNumber()
+// ignores, so it can never collide with or consume a block.
+const FIM_SKU_PREFIX = 'FIM-';
+
+const generateFimProductSku = async (prisma) => {
+  const rows = await prisma.product.findMany({
+    where: { sku: { startsWith: FIM_SKU_PREFIX } },
+    select: { sku: true },
+  });
+  let max = 0;
+  for (const r of rows) {
+    const n = parseInt(String(r.sku).slice(FIM_SKU_PREFIX.length), 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${FIM_SKU_PREFIX}${String(max + 1).padStart(4, '0')}`;
+};
+
 // ──── DEPARTMENT OWNERSHIP ────
 // Non-unit requester roles that "own" the stock they raise PRs for. Their inwarded
 // stock is reserved to the department (ProductDeptStock) and excluded from the
@@ -427,6 +448,7 @@ module.exports = {
   generateGatePassNumber,
   generateSequentialNumber,
   generateProductSku,
+  generateFimProductSku,
   parsePoNumber,
   buildPoNumber,
   PO_NUMBER_PENDING_LABEL,

@@ -6,7 +6,7 @@ const { authorize } = require('../middleware/rbac');
 const { fimGpUpload, fimTestReportUpload, publicUrlFor } = require('../middleware/upload');
 const {
   generateSequentialNumber, generateGatePassNumber, paginate, applyDateFilter, isUniqueViolation,
-  withDocRetry, generateProductSku, normalizeMaterialType,
+  withDocRetry, generateFimProductSku, normalizeMaterialType,
 } = require('../utils/helpers');
 const { validateReason } = require('../utils/reasonValidation');
 
@@ -498,19 +498,22 @@ router.post('/', authenticate, authorize('MANAGER', 'STORE_MANAGER', 'ADMIN', 'P
             const qty = src.quantity || 0;
             if (qty <= 0) continue;
 
-            const matType = normalizeMaterialType('Others');
+            // Customer property, not a catalogue material: it carries a FIM-
+            // series identifier and is flagged so it never surfaces as Master
+            // Data. See Product.isCustomerProperty.
             let productId;
             for (let attempt = 0; attempt < 5; attempt++) {
               try {
-                const sku = await generateProductSku(tx, matType);
+                const sku = await generateFimProductSku(tx);
                 const product = await tx.product.create({
                   data: {
                     name: src.description.trim(),
                     sku,
-                    category: matType,
+                    category: normalizeMaterialType('Others'),
                     unit: src.unit || 'pcs',
                     currentStock: 0,
                     isActive: true,
+                    isCustomerProperty: true,
                   },
                 });
                 productId = product.id;
@@ -1566,11 +1569,14 @@ router.put('/:id/accept-inward', authenticate, authorize('STORE_MANAGER', 'ADMIN
         let productId = row.productId;
         let product;
         if (!productId) {
-          // Create new product (FIM product), retry SKU collisions
+          // Create new product (FIM product), retry SKU collisions. The chosen
+          // material type is kept for description only - the identifier comes
+          // from the FIM series, never from that category's code block, because
+          // customer property must not spend Master Data register numbers.
           const matType = normalizeMaterialType(row.newProduct.materialType || 'Others');
           for (let attempt = 0; attempt < 5; attempt++) {
             try {
-              const sku = await generateProductSku(tx, matType);
+              const sku = await generateFimProductSku(tx);
               product = await tx.product.create({
                 data: {
                   name: row.newProduct.name.trim(),
@@ -1579,6 +1585,7 @@ router.put('/:id/accept-inward', authenticate, authorize('STORE_MANAGER', 'ADMIN
                   unit: row.newProduct.unit || src.unit || 'pcs',
                   currentStock: 0, // we'll increment below
                   isActive: true,
+                  isCustomerProperty: true,
                 },
               });
               productId = product.id;

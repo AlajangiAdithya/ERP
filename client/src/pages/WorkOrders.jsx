@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, createContext, useContext } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, createContext, useContext } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, Plus, CheckCircle2, Clock, XCircle, Building2,
@@ -79,6 +79,67 @@ const DOC_TYPE_LABELS = { LOT_REPORT: 'Lot Report' };
 // Roles allowed to see closure invoice / SLA / payment fields. Mirrors the
 // server's FINANCE_HIDDEN_ROLES sanitizer.
 const canSeeFinance = (role) => !['MANAGER', 'QC'].includes(role);
+
+// ── Who may change what, mirrored from workOrder.routes.js ──
+// Full View edits in place, so every live cell needs the same answer the API
+// would give. Each flag below has a matching guard on the server; they are
+// spelled out rather than collapsed because the two sets have to be read side
+// by side when either changes. An editable cell that 403s is worse than a
+// read-only one, so when in doubt these stay closed.
+const WO_VIEW_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'MANAGER', 'SAFETY', 'ACCOUNTING', 'FINANCE', 'QC'];
+const WO_CORE_EDIT_ROLES = ['SUPPLY_CHAIN', 'ADMIN', 'PLANNING'];
+const WO_DEAD_STATUSES = ['CANCELLED', 'REJECTED'];
+// Manual delivered-qty override is refused outside these statuses.
+const DELIVERED_QTY_STATUSES = ['UNIT_ACCEPTED', 'IN_PROGRESS', 'COMPLETED'];
+
+const woPerms = (user, wo) => {
+  const role = user?.role;
+  const isAssignedMgr = role === 'MANAGER'
+    && !!wo.assignedUnitId && wo.assignedUnitId === user?.unitId;
+  const dead = WO_DEAD_STATUSES.includes(wo.status);
+  // PATCH /:id - the WO body (customer, supply order, scope, specs, dates).
+  // The assigned unit head may fill in details learned after release.
+  const core = (WO_CORE_EDIT_ROLES.includes(role) || isAssignedMgr) && !dead;
+  return {
+    isAssignedMgr,
+    core,
+    // Items and the unit itself are withheld from the unit head - the server
+    // does the same, so a unit head cannot move the WO off their own unit.
+    assignUnit: core && role !== 'MANAGER',
+    items: core && role !== 'MANAGER' && !(wo.closures?.length > 0),
+    remarks: WO_VIEW_ROLES.includes(role) && (role !== 'MANAGER' || isAssignedMgr),
+    deliveryDetails: ['SUPPLY_CHAIN', 'ADMIN', 'ACCOUNTING'].includes(role),
+    deliveredQty: WO_CORE_EDIT_ROLES.includes(role) && DELIVERED_QTY_STATUSES.includes(wo.status),
+    bgIns: ['SUPPLY_CHAIN', 'ADMIN'].includes(role) && !dead,
+    pdcExtend: core,
+    adminAccept: role === 'ADMIN' && wo.status === 'PENDING_ADMIN',
+    unitAccept: isAssignedMgr && wo.status === 'ADMIN_ACCEPTED',
+    finance: canSeeFinance(role),
+  };
+};
+
+// Field → endpoint. Three fields have their own routes (each writes extra audit
+// state the generic PATCH does not); everything else is a partial PATCH of the
+// WO body. All of them return the full decorated order, so a cell edit merges
+// the response into the row rather than refetching the register - a reload
+// mid-edit would yank the grid out from under whoever is typing in it.
+const WO_FIELD_ROUTE = {
+  remarks:         (id, v) => api.patch(`/work-orders/${id}/remarks`, { remarks: v }),
+  deliveryDetails: (id, v) => api.put(`/work-orders/${id}/delivery-details`, { deliveryDetails: v }),
+  deliveredQty:    (id, v) => api.patch(`/work-orders/${id}/delivered-qty`, { deliveredQty: Number(v) }),
+};
+
+const saveWoField = async (id, field, value) => {
+  const route = WO_FIELD_ROUTE[field];
+  const { data } = route
+    ? await route(id, value)
+    : await api.patch(`/work-orders/${id}`, { [field]: value });
+  return data;
+};
+
+// The backend's message is the useful one ("Delivered qty cannot exceed…");
+// Axios' own is always "Request failed with status code 400".
+const apiErr = (err, fallback) => err?.response?.data?.error || fallback;
 
 // Flatten the WO + closure cycle into the shape QCVerificationCertificatePdf
 // expects: top-level WO scope fields plus the cycle's QC + submission audit.
@@ -243,6 +304,16 @@ export default function WorkOrders() {
   };
 
   useEffect(load, [refreshKey]);
+
+  // Full View writes in place. Every edit endpoint answers with the whole
+  // decorated order, so the edited row is swapped straight into the list -
+  // re-running `load()` instead would drop scroll position and close whatever
+  // cell or popover is open, which is exactly the "open it again" the grid is
+  // meant to remove.
+  const patchRow = useCallback((updated) => {
+    if (!updated?.id) return;
+    setWorkOrders((prev) => prev.map((w) => (w.id === updated.id ? { ...w, ...updated } : w)));
+  }, []);
 
   useEffect(() => {
     api.get('/units').then(({ data }) => setUnits(data.units || data || [])).catch(() => setUnits([]));
@@ -780,11 +851,24 @@ export default function WorkOrders() {
           </div>
         </Card>
       ) : activeTab === 'CLOSED_ORDERS' ? (
-        <ClosedOrdersGroups workOrders={sorted} view={view} onOpen={setDetail} />
+        <ClosedOrdersGroups
+          workOrders={sorted}
+          view={view}
+          onOpen={setDetail}
+          currentUser={user}
+          units={units}
+          onRowPatched={patchRow}
+        />
       ) : view === 'table' ? (
         <DashboardTable workOrders={sorted} onOpen={setDetail} />
       ) : (
-        <WorkOrderSheet workOrders={sorted} onOpen={setDetail} />
+        <WorkOrderSheet
+          workOrders={sorted}
+          onOpen={setDetail}
+          currentUser={user}
+          units={units}
+          onRowPatched={patchRow}
+        />
       )}
 
       {showCreate && (
@@ -840,10 +924,13 @@ const ALARM_SEVERITY_META = {
 // "Orders Closed" tab body - one bucket, two labelled groups: delivered-but-
 // unpaid (COMPLETED) on top, then fully-paid (CLOSED). Each group reuses the same
 // row/sheet renderer as the main list so cards look identical everywhere.
-function ClosedOrdersGroups({ workOrders, view, onOpen }) {
+function ClosedOrdersGroups({ workOrders, view, onOpen, currentUser, units, onRowPatched }) {
   const pending = workOrders.filter((w) => w.status === 'COMPLETED');
   const paid = workOrders.filter((w) => w.status === 'CLOSED');
   const List = view === 'table' ? DashboardTable : WorkOrderSheet;
+  // DashboardTable ignores the editing props; the sheet needs them, and both
+  // groups here render through the same component as the main list.
+  const listProps = { onOpen, currentUser, units, onRowPatched };
 
   const Group = ({ title, subtitle, tone, items }) => (
     <div className="space-y-2">
@@ -853,7 +940,7 @@ function ClosedOrdersGroups({ workOrders, view, onOpen }) {
         <span className="ml-auto tnum rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-navy-600">{items.length}</span>
       </div>
       {items.length ? (
-        <List workOrders={items} onOpen={onOpen} />
+        <List workOrders={items} {...listProps} />
       ) : (
         <p className="px-3 py-4 text-sm text-navy-400">None.</p>
       )}
@@ -1096,21 +1183,863 @@ const Field = ({ label, children, className = '' }) => (
 // who logged it, admin approval + when, unit acceptance + when, the latest
 // PDC extension (new date, by whom, when) and the last-updated stamp.
 // ────────────────────────────────────────────────────────────────────
-function WorkOrderSheet({ workOrders, onOpen }) {
-  const lastExt = (w) => (w.extensions?.length ? w.extensions[w.extensions.length - 1] : null);
+// ── Full View column registry ───────────────────────────────────────
+// Every field the work order carries is a column here, so the register can be
+// read and worked end-to-end without opening anything. That is a lot of width,
+// so the columns are bundled into groups the toolbar can switch off: a unit
+// head scanning delivery does not need ten scope columns on screen, but they
+// are one toggle away rather than one modal away.
+//
+// One array drives the header and the body. The two used to be hand-written in
+// parallel, which is how a column ends up one cell out of step with its title.
+const SHEET_GROUPS = [
+  { key: 'order',      label: 'Order' },
+  { key: 'assignment', label: 'Assignment' },
+  { key: 'materials',  label: 'Materials & Delivery' },
+  { key: 'schedule',   label: 'Schedule' },
+  { key: 'approvals',  label: 'Approvals' },
+  { key: 'scope',      label: 'Scope & Specs' },
+  { key: 'documents',  label: 'Documents' },
+  { key: 'activity',   label: 'Activity' },
+];
 
+const GROUPS_STORAGE_KEY = 'raps-wo-groups';
+const readStoredGroups = () => {
+  // Everything on by default - the point of Full View is that it is all there.
+  const all = SHEET_GROUPS.map((g) => g.key);
+  try {
+    const raw = localStorage.getItem(GROUPS_STORAGE_KEY);
+    if (!raw) return all;
+    const saved = JSON.parse(raw);
+    const kept = Array.isArray(saved) ? saved.filter((k) => all.includes(k)) : [];
+    // A stored empty set would render a sheet with nothing in it.
+    return kept.length ? kept : all;
+  } catch {
+    return all;
+  }
+};
+
+// Plain text / number / date cell bound to one WO field.
+const fieldCol = (group, key, label, { type = 'text', perm = 'core', width = '', multiline = false, groupEnd = false } = {}) => ({
+  key, group, label, width, groupEnd,
+  render: (w, p, ctx) => (
+    <EditableCell
+      value={type === 'date' ? toDateInput(w[key]) : w[key]}
+      display={
+        type === 'date'
+          ? (w[key] ? formatDate(w[key]) : null)
+          : (w[key] ? <span className={multiline ? 'block whitespace-pre-wrap' : ''}>{w[key]}</span> : null)
+      }
+      title={multiline ? (w[key] || '') : undefined}
+      type={multiline ? 'textarea' : type}
+      editable={p[perm]}
+      onSave={(v) => ctx.save(w, key, v)}
+    />
+  ),
+});
+
+function buildSheetColumns() {
+  return [
+    // ── Order ──
+    {
+      key: 'status', group: 'order', label: 'Status',
+      render: (w) => {
+        const meta = STATUS_META[w.status] || { color: 'gray', label: w.status, Icon: ClipboardList };
+        const Icon = meta.Icon;
+        const pendSince = woPendingSince(w);
+        return (
+          <>
+            <Badge color={meta.color}><Icon size={11} className="inline mr-1" />{meta.label}</Badge>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {pendSince && <TatBadge since={pendSince} />}
+              {w.overdue && <Pill tone="red">Overdue</Pill>}
+              {w.onTime === true && <Pill tone="green">On-Time</Pill>}
+              {w.onTime === false && <Pill tone="red">Late</Pill>}
+              {w.pdc3MonthAlertActive && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] font-semibold text-white ring-1 ring-red-700/20">
+                  <AlertTriangle size={9} /> PDC {'≤'} 3m
+                </span>
+              )}
+            </div>
+          </>
+        );
+      },
+    },
+    {
+      key: 'customer', group: 'order', label: 'Customer / Work Order', groupEnd: true,
+      width: 'min-w-[190px] max-w-[260px]', nowrap: false,
+      render: (w, p, ctx) => (
+        <>
+          <EditableCell
+            value={w.customerName}
+            display={<span className="font-semibold leading-tight text-navy-900">{w.customerName}</span>}
+            editable={p.core}
+            onSave={(v) => ctx.save(w, 'customerName', v)}
+            nullable={false}
+          />
+          <div className="mt-0.5 font-mono text-[10px] text-navy-500">{w.workOrderNumber}</div>
+          <EditableCell
+            value={w.ionNumber}
+            display={w.ionNumber ? <span className="font-mono text-[10px] text-navy-400">ION {w.ionNumber}</span> : null}
+            editable={p.core}
+            onSave={(v) => ctx.save(w, 'ionNumber', v)}
+          />
+          {w.createdBy?.name && (
+            <div className="mt-0.5 text-[10px] text-gray-400">Logged by {w.createdBy.name}</div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'supplyOrder', group: 'order', label: 'Supply Order',
+      width: 'max-w-[190px]', nowrap: false,
+      render: (w, p, ctx) => (
+        <>
+          <EditableCell
+            value={w.supplyOrderNo}
+            display={<span className="break-all font-mono text-[11px] text-navy-800">{w.supplyOrderNo}</span>}
+            editable={p.core}
+            onSave={(v) => ctx.save(w, 'supplyOrderNo', v)}
+            nullable={false}
+          />
+          <EditableCell
+            value={toDateInput(w.supplyOrderDate)}
+            display={<span className="text-[10px] text-gray-500">{formatDate(w.supplyOrderDate)}</span>}
+            type="date"
+            editable={p.core}
+            onSave={(v) => ctx.save(w, 'supplyOrderDate', v)}
+            nullable={false}
+          />
+        </>
+      ),
+    },
+    fieldCol('order', 'supplyOrderDescription', 'SO Description', { multiline: true, width: 'max-w-[220px]' }),
+    fieldCol('order', 'nomenclature', 'Nomenclature', { width: 'max-w-[180px]' }),
+    {
+      key: 'orderQty', group: 'order', label: 'Order Qty',
+      render: (w, p, ctx) => (
+        <div className="flex items-baseline gap-1">
+          <EditableCell
+            value={w.orderQuantity}
+            display={<span className="font-semibold tnum">{fmtQty(w.orderQuantity)}</span>}
+            type="number"
+            editable={p.core}
+            onSave={(v) => ctx.save(w, 'orderQuantity', v)}
+            nullable={false}
+          />
+          <EditableCell
+            value={w.orderUnit}
+            display={<span className="text-[10px] text-gray-500">{w.orderUnit}</span>}
+            editable={p.core}
+            onSave={(v) => ctx.save(w, 'orderUnit', v)}
+            nullable={false}
+          />
+        </div>
+      ),
+    },
+    {
+      key: 'orderType', group: 'order', label: 'Type',
+      // Captured in remarks at import time, not a column of its own - read-only
+      // because editing it means editing the remark it was parsed out of.
+      render: (w) => orderType(w) || <SDash />,
+    },
+    fieldCol('order', 'customerContact', 'Customer Contact', { width: 'max-w-[150px]' }),
+
+    // ── Assignment ──
+    {
+      key: 'unit', group: 'assignment', label: 'Unit',
+      render: (w, p, ctx) => {
+        if (!p.assignUnit) {
+          return w.assignedUnit ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-navy-100 px-2 py-0.5 text-[10px] font-semibold text-navy-700">
+              <Building2 size={10} />{w.assignedUnit.name}
+            </span>
+          ) : w.assignedUnitName ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+              <Building2 size={10} />{w.assignedUnitName}
+            </span>
+          ) : <SDash />;
+        }
+        return (
+          <EditableCell
+            value={w.assignedUnitId || ''}
+            type="select"
+            options={[
+              { value: '', label: w.assignedUnitName ? `${w.assignedUnitName} (unmatched)` : 'Unassigned' },
+              ...ctx.units.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` })),
+            ]}
+            display={w.assignedUnit ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-navy-100 px-2 py-0.5 text-[10px] font-semibold text-navy-700">
+                <Building2 size={10} />{w.assignedUnit.name}
+              </span>
+            ) : w.assignedUnitName ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                <Building2 size={10} />{w.assignedUnitName}
+              </span>
+            ) : null}
+            editable
+            onSave={(v) => ctx.save(w, 'assignedUnitId', v)}
+          />
+        );
+      },
+    },
+    fieldCol('assignment', 'projectCoordinator', 'Project Coordinator', { width: 'max-w-[150px]' }),
+    fieldCol('assignment', 'majorWorksAtSite', 'Major Works At Site', { width: 'max-w-[150px]' }),
+
+    // ── Materials & Delivery ──
+    {
+      key: 'items', group: 'materials', label: 'Materials',
+      width: 'min-w-[230px] max-w-[320px]', nowrap: false,
+      render: (w) => {
+        if (!w.items?.length) return <SDash />;
+        const done = deliveredByItem(w);
+        return (
+          <StackCell>
+            {w.items.map((it) => {
+              const dv = done[it.id] || 0;
+              const left = (it.quantity || 0) - dv;
+              return (
+                <div key={it.id} className="leading-tight">
+                  <div className="text-navy-800">
+                    <span className="mr-1 text-[9px] text-navy-400">{it.lineNo}.</span>{it.description}
+                  </div>
+                  <div className="text-[10px] text-gray-500">
+                    {fmtQty(it.quantity)} {it.uom}
+                    {dv > 0 && <span className="text-emerald-700"> · {fmtQty(dv)} sent</span>}
+                    {left > 0 && dv > 0 && <span className="text-amber-700"> · {fmtQty(left)} left</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </StackCell>
+        );
+      },
+    },
+    {
+      key: 'delivered', group: 'materials', label: 'Delivered',
+      render: (w, p, ctx) => {
+        const pct = w.orderQuantity > 0
+          ? Math.min(100, Math.round((w.deliveredQty / w.orderQuantity) * 100))
+          : 0;
+        return (
+          <>
+            <div className="flex items-baseline gap-1 text-navy-800">
+              <EditableCell
+                value={w.deliveredQty}
+                display={<span className="font-semibold tnum">{fmtQty(w.deliveredQty)}</span>}
+                type="number"
+                editable={p.deliveredQty}
+                title={p.deliveredQty ? 'Click to set delivered qty' : undefined}
+                onSave={(v) => ctx.save(w, 'deliveredQty', v)}
+            nullable={false}
+              />
+              <span className="text-gray-500">/ {fmtQty(w.orderQuantity)} {w.orderUnit}</span>
+            </div>
+            <div className="mt-1 h-1.5 w-20 overflow-hidden rounded-full bg-navy-100">
+              <div className={`h-full ${pct === 100 ? 'bg-green-500' : 'bg-blue-500'}`} style={{ width: `${pct}%` }} />
+            </div>
+            <div className="mt-0.5 text-[10px] text-gray-500">{pct}%</div>
+          </>
+        );
+      },
+    },
+    {
+      key: 'lots', group: 'materials', label: 'Lots',
+      render: (w, p, ctx) => (
+        <>
+          <div className="font-semibold text-navy-800">
+            {w.lotsExpected ? `${w.closures?.length || 0} / ${w.lotsExpected}` : (w.closures?.length || 0)}
+          </div>
+          <EditableCell
+            value={w.lotsExpected}
+            display={<span className="text-[10px] text-gray-500">{w.lotsExpected ? 'sent' : 'sent (open)'}</span>}
+            type="number"
+            editable={p.core}
+            title={p.core ? 'Click to set how many lots this WO splits into' : undefined}
+            onSave={(v) => ctx.save(w, 'lotsExpected', v)}
+          />
+        </>
+      ),
+    },
+    {
+      key: 'lotDetail', group: 'materials', label: 'Lot Progress',
+      width: 'min-w-[200px] max-w-[280px]', nowrap: false,
+      render: (w, p) => {
+        if (!w.closures?.length) return <SDash />;
+        return (
+          <StackCell>
+            {w.closures.map((c) => {
+              const meta = CYCLE_STAGE_META[c.stage] || { color: 'gray', label: c.stage };
+              return (
+                <div key={c.id} className="leading-tight">
+                  <span className="mr-1 text-[9px] font-semibold text-navy-400">Lot {c.cycleNumber}</span>
+                  <Badge color={meta.color}>{meta.label}</Badge>
+                  <div className="text-[10px] text-gray-500">
+                    {fmtQty(c.deliveryQty)} {w.orderUnit}
+                    {p.finance && c.invoiceNumber && <> · Inv {c.invoiceNumber}</>}
+                  </div>
+                </div>
+              );
+            })}
+          </StackCell>
+        );
+      },
+    },
+    fieldCol('materials', 'deliveryClause', 'Delivery Clause', { width: 'max-w-[160px]', multiline: true }),
+    {
+      key: 'deliveryDetails', group: 'materials', label: 'Delivery Details',
+      width: 'min-w-[180px] max-w-[260px]', nowrap: false,
+      render: (w, p, ctx) => (
+        <>
+          <EditableCell
+            value={w.deliveryDetails}
+            display={w.deliveryDetails ? <span className="block whitespace-pre-wrap text-gray-700">{w.deliveryDetails}</span> : null}
+            type="textarea"
+            editable={p.deliveryDetails}
+            onSave={(v) => ctx.save(w, 'deliveryDetails', v)}
+          />
+          {w.deliveryDetailsUpdatedBy?.name && (
+            <div className="mt-0.5 text-[10px] text-gray-400">
+              {w.deliveryDetailsUpdatedBy.name}
+              {w.deliveryDetailsUpdatedAt && <> · {formatDate(w.deliveryDetailsUpdatedAt)}</>}
+            </div>
+          )}
+        </>
+      ),
+    },
+
+    // ── Schedule ──
+    {
+      key: 'pdc', group: 'schedule', label: 'PDC',
+      render: (w, p, ctx) => (
+        <>
+          <div className="font-medium text-navy-800">{formatDate(w.effectivePdcDate)}</div>
+          <EditableCell
+            value={toDateInput(w.pdcDate)}
+            display={(
+              <span className="text-[10px] text-gray-500">
+                {w.extensions?.length ? `${w.extensions.length} ext · orig ${formatDate(w.pdcDate)}` : 'original'}
+              </span>
+            )}
+            type="date"
+            editable={p.core}
+            title={p.core ? 'Click to correct the original PDC' : undefined}
+            onSave={(v) => ctx.save(w, 'pdcDate', v)}
+          />
+        </>
+      ),
+    },
+    {
+      key: 'pdcExt', group: 'schedule', label: 'PDC Extensions', groupEnd: true,
+      width: 'min-w-[200px] max-w-[250px]', nowrap: false,
+      render: (w, p, ctx) => (
+        <>
+          {w.extensions?.length ? (
+            <StackCell>
+              {w.extensions.map((ext) => (
+                <div key={ext.id} className="leading-tight">
+                  <div className="font-semibold text-navy-800">
+                    <span className="mr-1 text-[9px] uppercase tracking-wider text-navy-400">Ext {ext.extensionNo}</span>
+                    {formatDate(ext.newPdcDate)}
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] text-gray-600">
+                    <UserCheck size={10} className="text-gray-400" />
+                    {ext.grantedBy?.name || '-'} · {formatDate(ext.grantedAt)}
+                  </div>
+                  {ext.bankGuaranteeExtendedUpto && (
+                    <div className="text-[9px] text-gray-500">BG→{formatDate(ext.bankGuaranteeExtendedUpto)}</div>
+                  )}
+                </div>
+              ))}
+            </StackCell>
+          ) : <SDash />}
+          {p.pdcExtend && (
+            <div className="mt-1">
+              <ExtendPdcPopover wo={w} onDone={ctx.reload} />
+            </div>
+          )}
+        </>
+      ),
+    },
+
+    // ── Approvals ──
+    {
+      key: 'adminApproval', group: 'approvals', label: 'Admin Approval',
+      width: 'max-w-[190px]', nowrap: false,
+      render: (w, p, ctx) => {
+        if (w.adminAcceptedAt) {
+          return (
+            <div className="leading-tight">
+              <div className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                <ShieldCheck size={11} />{w.adminAcceptedBy?.name || 'Approved'}
+              </div>
+              <div className="mt-0.5 text-[10px] text-gray-500">{formatDateTime(w.adminAcceptedAt)}</div>
+              {w.adminAcceptanceNote && <div className="text-[10px] text-gray-500">{w.adminAcceptanceNote}</div>}
+              {w.adminDelayRemark && <div className="text-[10px] text-amber-700">Delay: {w.adminDelayRemark}</div>}
+            </div>
+          );
+        }
+        if (w.status === 'REJECTED') return <Pill tone="red">Rejected</Pill>;
+        return (
+          <div className="space-y-1">
+            <Pill tone="amber">Pending</Pill>
+            {p.adminAccept && <AdminDecisionPopover wo={w} units={ctx.units} onDone={ctx.patch} />}
+          </div>
+        );
+      },
+    },
+    {
+      key: 'unitAcceptance', group: 'approvals', label: 'Unit Acceptance', groupEnd: true,
+      width: 'max-w-[190px]', nowrap: false,
+      render: (w, p, ctx) => {
+        if (w.unitAcceptedAt) {
+          return (
+            <div className="leading-tight">
+              <div className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                <CheckCircle2 size={11} />{w.unitAcceptedBy?.name || 'Accepted'}
+              </div>
+              <div className="mt-0.5 text-[10px] text-gray-500">{formatDateTime(w.unitAcceptedAt)}</div>
+              {w.unitAcceptanceNote && <div className="text-[10px] text-gray-500">{w.unitAcceptanceNote}</div>}
+              {w.unitDelayRemark && <div className="text-[10px] text-amber-700">Delay: {w.unitDelayRemark}</div>}
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-1">
+            <Pill tone="amber">Pending</Pill>
+            {p.unitAccept && <UnitDecisionPopover wo={w} onDone={ctx.patch} />}
+          </div>
+        );
+      },
+    },
+
+    // ── Scope & Specs ──
+    fieldCol('scope', 'fimDetails', 'FIM Details', { multiline: true, width: 'max-w-[200px]' }),
+    fieldCol('scope', 'inspectionAgency', 'Inspection Agency', { width: 'max-w-[150px]' }),
+    fieldCol('scope', 'qapNo', 'QAP No.', { width: 'max-w-[130px]' }),
+    fieldCol('scope', 'drawingsDetails', 'Drawings', { multiline: true, width: 'max-w-[200px]' }),
+    fieldCol('scope', 'processDrawingsDetails', 'Process Drawings', { multiline: true, width: 'max-w-[200px]' }),
+    fieldCol('scope', 'toolingScope', 'Tooling Scope', { width: 'max-w-[150px]' }),
+    fieldCol('scope', 'packingDetails', 'Packing', { multiline: true, width: 'max-w-[180px]' }),
+    fieldCol('scope', 'transportationDetails', 'Transportation', { multiline: true, width: 'max-w-[180px]' }),
+    fieldCol('scope', 'orderTermsAndScope', 'Order Terms & Scope', { multiline: true, width: 'max-w-[220px]' }),
+    fieldCol('scope', 'otherInformation', 'Other Information', { multiline: true, width: 'max-w-[200px]', groupEnd: true }),
+
+    // ── Documents ──
+    {
+      key: 'bg', group: 'documents', label: 'Bank Guarantee',
+      width: 'min-w-[180px] max-w-[240px]', nowrap: false,
+      render: (w, p, ctx) => (
+        <>
+          <div className="font-mono text-[11px] text-navy-800">{w.bankGuaranteeNo || <SDash />}</div>
+          <EditableCell
+            value={toDateInput(w.bankGuaranteeDate)}
+            display={<span className="text-[10px] text-gray-500">{w.bankGuaranteeDate ? formatDate(w.bankGuaranteeDate) : 'no date'}</span>}
+            type="date"
+            editable={p.core}
+            onSave={(v) => ctx.save(w, 'bankGuaranteeDate', v)}
+          />
+          {w.bgEntries?.length > 1 && (
+            <StackCell max="max-h-20">
+              {w.bgEntries.slice(1).map((b) => (
+                <div key={b.id} className="text-[10px] text-gray-500">
+                  {b.bgNo}{b.validUpto && <> · upto {formatDate(b.validUpto)}</>}
+                </div>
+              ))}
+            </StackCell>
+          )}
+          {p.bgIns && (
+            <div className="mt-1">
+              <BgInsPopover wo={w} kind="bg" onDone={ctx.reload} />
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'insurance', group: 'documents', label: 'Insurance',
+      width: 'min-w-[180px] max-w-[240px]', nowrap: false,
+      render: (w, p, ctx) => (
+        <>
+          <div className="font-mono text-[11px] text-navy-800">{w.insuranceNo || <SDash />}</div>
+          {w.insuranceDate && <div className="text-[10px] text-gray-500">{formatDate(w.insuranceDate)}</div>}
+          {w.insuranceEntries?.length > 1 && (
+            <StackCell max="max-h-20">
+              {w.insuranceEntries.slice(1).map((x) => (
+                <div key={x.id} className="text-[10px] text-gray-500">
+                  {x.insuranceNo}{x.validUpto && <> · upto {formatDate(x.validUpto)}</>}
+                </div>
+              ))}
+            </StackCell>
+          )}
+          {p.bgIns && (
+            <div className="mt-1">
+              <BgInsPopover wo={w} kind="insurance" onDone={ctx.reload} />
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'invoices', group: 'documents', label: 'Invoices', finance: true,
+      width: 'max-w-[200px]', nowrap: false,
+      render: (w) => (w.invoices?.length ? (
+        <StackCell>
+          {w.invoices.map((inv) => (
+            <div key={inv.id} className="leading-tight">
+              <div className="font-mono text-[10px] text-navy-800">{inv.invoiceNo}</div>
+              <div className="text-[10px] text-gray-500">
+                {formatDate(inv.invoiceDate)} · {fmtQty(inv.quantity)} {w.orderUnit}
+              </div>
+            </div>
+          ))}
+        </StackCell>
+      ) : <SDash />),
+    },
+    {
+      key: 'prMiv', group: 'documents', label: 'PR / MIV', groupEnd: true,
+      render: (w) => {
+        const pr = w._count?.purchaseRequests || 0;
+        const miv = w._count?.productRequests || 0;
+        if (!pr && !miv) return <SDash />;
+        return (
+          <div className="text-[10px] text-navy-700">
+            <span className="font-semibold">{pr}</span> PR · <span className="font-semibold">{miv}</span> MIV
+          </div>
+        );
+      },
+    },
+
+    // ── Activity ──
+    {
+      key: 'alarms', group: 'activity', label: 'Alarms',
+      width: 'min-w-[170px] max-w-[240px]', nowrap: false,
+      render: (w) => (w.alarms?.length ? (
+        <StackCell>
+          {w.alarms.map((a) => {
+            const meta = ALARM_SEVERITY_META[a.severity] || ALARM_SEVERITY_META.INFO;
+            return (
+              <div key={a.id} className={`rounded border px-1.5 py-1 text-[10px] leading-tight ${meta.chip}`}>
+                <div className="font-semibold">{a.title}</div>
+                <div className="opacity-80">{a.status === 'ACKNOWLEDGED' ? 'Acknowledged' : 'Active'}</div>
+              </div>
+            );
+          })}
+        </StackCell>
+      ) : <SDash />),
+    },
+    {
+      key: 'updated', group: 'activity', label: 'Last Updated',
+      width: 'max-w-[150px]', nowrap: false,
+      render: (w) => <span className="text-[10px] text-gray-600">{formatDateTime(w.updatedAt)}</span>,
+    },
+    {
+      key: 'remarks', group: 'activity', label: 'Remarks',
+      width: 'min-w-[180px] max-w-[260px]', nowrap: false,
+      render: (w, p, ctx) => (
+        <EditableCell
+          value={w.remarks}
+          display={w.remarks ? <span className="block whitespace-pre-wrap text-gray-700">{w.remarks}</span> : null}
+          type="textarea"
+          editable={p.remarks}
+          onSave={(v) => ctx.save(w, 'remarks', v)}
+        />
+      ),
+    },
+  ];
+}
+
+// ── In-grid action popovers ─────────────────────────────────────────
+// These four are the only things Full View cannot express as a cell: each
+// needs two or three fields together, and the accept flows carry an SLA
+// remark that is mandatory past 48h. They open over the row rather than
+// routing to the detail modal, so the decision is still made in the register.
+
+function ExtendPdcPopover({ wo, onDone }) {
+  const [form, setForm] = useState({ newPdcDate: '', bankGuaranteeExtendedUpto: '', reason: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  // This route answers with the extension it created, not the order, so the
+  // row is re-read rather than patched from the response.
+  const submit = async (close) => {
+    setBusy(true); setErr('');
+    try {
+      await api.post(`/work-orders/${wo.id}/extensions`, {
+        newPdcDate: form.newPdcDate,
+        bankGuaranteeExtendedUpto: form.bankGuaranteeExtendedUpto,
+        reason: form.reason.trim() || undefined,
+      });
+      await onDone(wo.id);
+      close();
+    } catch (e) {
+      setErr(apiErr(e, 'Could not add the extension'));
+    }
+    setBusy(false);
+  };
+
+  return (
+    <SheetPopover label="+ Extend PDC" title="New PDC extension">
+      {({ close }) => (
+        <div>
+          {err && <div className="mb-2 rounded bg-rose-50 px-2 py-1 text-[10px] text-rose-700">{err}</div>}
+          <PopField label="New PDC *">
+            <input type="date" className={popInput} value={form.newPdcDate}
+              onChange={(e) => setForm((f) => ({ ...f, newPdcDate: e.target.value }))} />
+          </PopField>
+          <PopField label="BG extended upto *">
+            <input type="date" className={popInput} value={form.bankGuaranteeExtendedUpto}
+              onChange={(e) => setForm((f) => ({ ...f, bankGuaranteeExtendedUpto: e.target.value }))} />
+          </PopField>
+          <PopField label="Reason">
+            <textarea rows={2} className={popInput} value={form.reason}
+              onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} />
+          </PopField>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="text-[10px] text-navy-500" onClick={close}>Cancel</button>
+            <button
+              type="button"
+              disabled={busy || !form.newPdcDate || !form.bankGuaranteeExtendedUpto}
+              onClick={() => submit(close)}
+              className="rounded bg-navy-700 px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-40"
+            >
+              {busy ? 'Saving…' : 'Add extension'}
+            </button>
+          </div>
+        </div>
+      )}
+    </SheetPopover>
+  );
+}
+
+function BgInsPopover({ wo, kind, onDone }) {
+  const isBg = kind === 'bg';
+  const [form, setForm] = useState({ no: '', date: '', validUpto: '', note: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const submit = async (close) => {
+    setBusy(true); setErr('');
+    try {
+      const body = isBg
+        ? { bgNo: form.no, bgDate: form.date || null, validUpto: form.validUpto || null, note: form.note || null }
+        : { insuranceNo: form.no, insuranceDate: form.date || null, validUpto: form.validUpto || null, note: form.note || null };
+      // Answers with the new entry; the order's own latest-BG/insurance
+      // columns are updated server-side, so re-read the row to pick them up.
+      await api.post(`/work-orders/${wo.id}/${isBg ? 'bg-entries' : 'insurance-entries'}`, body);
+      await onDone(wo.id);
+      close();
+    } catch (e) {
+      setErr(apiErr(e, 'Could not save the entry'));
+    }
+    setBusy(false);
+  };
+
+  return (
+    <SheetPopover label={isBg ? '+ BG' : '+ Insurance'} title={isBg ? 'New bank guarantee' : 'New insurance'}>
+      {({ close }) => (
+        <div>
+          {err && <div className="mb-2 rounded bg-rose-50 px-2 py-1 text-[10px] text-rose-700">{err}</div>}
+          <PopField label={isBg ? 'BG No *' : 'Insurance No *'}>
+            <input className={popInput} value={form.no} onChange={(e) => setForm((f) => ({ ...f, no: e.target.value }))} />
+          </PopField>
+          <PopField label="Date">
+            <input type="date" className={popInput} value={form.date}
+              onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
+          </PopField>
+          <PopField label="Valid upto">
+            <input type="date" className={popInput} value={form.validUpto}
+              onChange={(e) => setForm((f) => ({ ...f, validUpto: e.target.value }))} />
+          </PopField>
+          <PopField label="Note">
+            <input className={popInput} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} />
+          </PopField>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="text-[10px] text-navy-500" onClick={close}>Cancel</button>
+            <button
+              type="button"
+              disabled={busy || !form.no.trim()}
+              onClick={() => submit(close)}
+              className="rounded bg-navy-700 px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-40"
+            >
+              {busy ? 'Saving…' : 'Add'}
+            </button>
+          </div>
+        </div>
+      )}
+    </SheetPopover>
+  );
+}
+
+function AdminDecisionPopover({ wo, units, onDone }) {
+  const [assignedUnitId, setAssignedUnitId] = useState(wo.assignedUnitId || '');
+  const [note, setNote] = useState('');
+  const [delayRemark, setDelayRemark] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  // Same 48h SLA the detail form enforces - past it the remark is mandatory
+  // and must survive reasonValidation, or the server rejects the decision.
+  const isDelayed = wo.createdAt && (Date.now() - new Date(wo.createdAt).getTime()) > 48 * 60 * 60 * 1000;
+  const delayErr = isDelayed ? reasonError(delayRemark, { fieldLabel: 'delay remark' }) : '';
+  const delayBlocked = isDelayed && (!delayRemark.trim() || !!delayErr);
+
+  const go = async (close, accept) => {
+    setBusy(true); setErr('');
+    try {
+      // Accept and reject are the same route with an `accept` flag - there is
+      // no separate reject endpoint.
+      const { data } = await api.post(`/work-orders/${wo.id}/admin-accept`, {
+        accept,
+        note,
+        ...(accept ? { assignedUnitId, adminDelayRemark: delayRemark.trim() || undefined } : {}),
+      });
+      onDone(data);
+      close();
+    } catch (e) {
+      setErr(apiErr(e, 'Could not record the decision'));
+    }
+    setBusy(false);
+  };
+
+  return (
+    <SheetPopover label="Accept / Reject" tone="emerald" title="Admin acceptance">
+      {({ close }) => (
+        <div>
+          {err && <div className="mb-2 rounded bg-rose-50 px-2 py-1 text-[10px] text-rose-700">{err}</div>}
+          {isDelayed && (
+            <div className="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-800">
+              ⚠ Pending more than 48 hours - a delay remark is required.
+            </div>
+          )}
+          <PopField label="Assign to unit *">
+            <select className={popInput} value={assignedUnitId} onChange={(e) => setAssignedUnitId(e.target.value)}>
+              <option value="">Select unit…</option>
+              {units.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.code})</option>)}
+            </select>
+          </PopField>
+          <PopField label="Acceptance note">
+            <textarea rows={2} className={popInput} value={note} onChange={(e) => setNote(e.target.value)} />
+          </PopField>
+          {isDelayed && (
+            <PopField label="Delay remark *">
+              <textarea rows={2} className={popInput} value={delayRemark}
+                onChange={(e) => setDelayRemark(e.target.value)} />
+              {delayErr && <span className="text-[10px] text-rose-600">{delayErr}</span>}
+            </PopField>
+          )}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button" disabled={busy}
+              onClick={() => go(close, false)}
+              className="rounded border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-700 disabled:opacity-40"
+            >
+              Reject
+            </button>
+            <button
+              type="button" disabled={busy || !assignedUnitId || delayBlocked}
+              onClick={() => go(close, true)}
+              className="rounded bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-40"
+            >
+              {busy ? 'Saving…' : 'Accept & assign'}
+            </button>
+          </div>
+        </div>
+      )}
+    </SheetPopover>
+  );
+}
+
+function UnitDecisionPopover({ wo, onDone }) {
+  const [note, setNote] = useState('');
+  const [delayRemark, setDelayRemark] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const isDelayed = wo.adminAcceptedAt
+    && (Date.now() - new Date(wo.adminAcceptedAt).getTime()) > 48 * 60 * 60 * 1000;
+  const delayErr = isDelayed ? reasonError(delayRemark, { fieldLabel: 'delay remark' }) : '';
+  const delayBlocked = isDelayed && (!delayRemark.trim() || !!delayErr);
+  const rejectErr = reasonError(note, { fieldLabel: 'reason for not accepting' });
+  const rejectBlocked = !note.trim() || !!rejectErr;
+
+  const go = async (close, accept) => {
+    setBusy(true); setErr('');
+    try {
+      // One route for both decisions, same as admin acceptance.
+      const { data } = await api.post(`/work-orders/${wo.id}/unit-accept`, {
+        accept,
+        note,
+        ...(accept ? { unitDelayRemark: delayRemark.trim() || undefined } : {}),
+      });
+      onDone(data);
+      close();
+    } catch (e) {
+      setErr(apiErr(e, 'Could not record the decision'));
+    }
+    setBusy(false);
+  };
+
+  return (
+    <SheetPopover label="Accept / Reject" tone="emerald" title="Unit decision">
+      {({ close }) => (
+        <div>
+          {err && <div className="mb-2 rounded bg-rose-50 px-2 py-1 text-[10px] text-rose-700">{err}</div>}
+          {isDelayed && (
+            <div className="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-800">
+              ⚠ More than 48 hours since admin acceptance - a delay remark is required.
+            </div>
+          )}
+          <PopField label="Note (required to reject)">
+            <textarea rows={2} className={popInput} value={note} onChange={(e) => setNote(e.target.value)} />
+            {note.trim() && rejectErr && <span className="text-[10px] text-rose-600">{rejectErr}</span>}
+          </PopField>
+          {isDelayed && (
+            <PopField label="Delay remark *">
+              <textarea rows={2} className={popInput} value={delayRemark}
+                onChange={(e) => setDelayRemark(e.target.value)} />
+              {delayErr && <span className="text-[10px] text-rose-600">{delayErr}</span>}
+            </PopField>
+          )}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button" disabled={busy || rejectBlocked}
+              onClick={() => go(close, false)}
+              className="rounded border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-700 disabled:opacity-40"
+            >
+              Reject
+            </button>
+            <button
+              type="button" disabled={busy || delayBlocked}
+              onClick={() => go(close, true)}
+              className="rounded bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-40"
+            >
+              {busy ? 'Saving…' : 'Accept'}
+            </button>
+          </div>
+        </div>
+      )}
+    </SheetPopover>
+  );
+}
+
+function WorkOrderSheet({ workOrders, onOpen, currentUser, units, onRowPatched }) {
   const scrollRef = useRef(null);
   const [density, setDensity] = useState(readStoredDensity);
+  const [activeGroups, setActiveGroups] = useState(readStoredGroups);
   // Whether there are columns off the left / right edge right now.
   const [edge, setEdge] = useState({ left: false, right: false });
 
   useEffect(() => {
     try { localStorage.setItem(DENSITY_STORAGE_KEY, density); } catch { /* private mode - session only */ }
   }, [density]);
+  useEffect(() => {
+    try { localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(activeGroups)); } catch { /* ditto */ }
+  }, [activeGroups]);
 
-  // Fourteen columns do not fit any laptop, and a flat clipped edge gives no
-  // sign that more exist. Track which side is overflowing so the frozen column
-  // casts a shadow over what slides under it and the open edge fades out.
+  // The sheet is far wider than any laptop, and a flat clipped edge gives no
+  // sign that more exists. Track which side is overflowing so the frozen
+  // column casts a shadow over what slides under it and the open edge fades.
   // Writes only when a flag actually flips, so scrolling does not re-render.
   const syncEdges = () => {
     const el = scrollRef.current;
@@ -1125,19 +2054,79 @@ function WorkOrderSheet({ workOrders, onOpen }) {
     window.addEventListener('resize', syncEdges);
     return () => window.removeEventListener('resize', syncEdges);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workOrders.length, density]);
+  }, [workOrders.length, density, activeGroups]);
+
+  const showFinance = canSeeFinance(currentUser?.role);
+  const columns = useMemo(
+    () => buildSheetColumns().filter((c) => activeGroups.includes(c.group) && (!c.finance || showFinance)),
+    [activeGroups, showFinance],
+  );
+
+  // Both inline edits and the popovers hand back the full decorated order, so
+  // the row is replaced in place. Refetching the register instead would throw
+  // away scroll position and close whatever else is open mid-edit.
+  const ctx = useMemo(() => ({
+    units,
+    // For routes that answer with the order itself.
+    patch: onRowPatched,
+    // For routes that answer with the sub-entity they created (BG entry,
+    // insurance entry, PDC extension) - re-read just that order.
+    reload: async (woId) => {
+      const { data } = await api.get(`/work-orders/${woId}`);
+      onRowPatched(data);
+    },
+    save: async (w, field, value) => {
+      const updated = await saveWoField(w.id, field, value);
+      onRowPatched(updated);
+    },
+  }), [units, onRowPatched]);
+
+  const toggleGroup = (key) => setActiveGroups((prev) => (
+    prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+  ));
+  const allOn = activeGroups.length === SHEET_GROUPS.length;
 
   return (
     <SheetDensityContext.Provider value={density}>
     <Card className="!p-0 overflow-hidden">
-      {/* Sheet toolbar. Row count on the left so the register states its own
-          size; density on the right, where the view toggle also sits. */}
+      {/* Sheet toolbar: what is on screen, and how much of it. */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-navy-200/70 bg-navy-50/60 px-3 py-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-navy-500">
-          {workOrders.length} work order{workOrders.length === 1 ? '' : 's'}
-        </span>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-navy-400">Rows</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-navy-500">
+            {workOrders.length} work order{workOrders.length === 1 ? '' : 's'}
+          </span>
+          <span className="text-[10px] text-navy-400">· {columns.length + 1} columns</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-navy-400">Columns</span>
+          <div className="flex flex-wrap items-center gap-1">
+            {SHEET_GROUPS.map((g) => {
+              const on = activeGroups.includes(g.key);
+              return (
+                <button
+                  key={g.key}
+                  type="button"
+                  onClick={() => toggleGroup(g.key)}
+                  aria-pressed={on}
+                  className={`rounded border px-2 py-0.5 text-[10px] font-semibold ${SHEET_EASE} ${
+                    on
+                      ? 'border-navy-600 bg-navy-700 text-white'
+                      : 'border-navy-200 bg-white text-navy-400 hover:bg-navy-50'
+                  }`}
+                >
+                  {g.label}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setActiveGroups(allOn ? ['order'] : SHEET_GROUPS.map((g) => g.key))}
+              className="rounded border border-navy-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-navy-600 hover:bg-navy-50"
+            >
+              {allOn ? 'Only order' : 'Show all'}
+            </button>
+          </div>
+          <span className="ml-1 text-[10px] font-medium uppercase tracking-wider text-navy-400">Rows</span>
           <div className="inline-flex rounded-md border border-navy-200 bg-white p-0.5">
             {[['comfortable', 'Comfortable'], ['compact', 'Compact']].map(([key, label]) => (
               <button
@@ -1168,222 +2157,58 @@ function WorkOrderSheet({ workOrders, onOpen }) {
           }`}
         />
         <div ref={scrollRef} onScroll={syncEdges} className="overflow-x-auto">
-        <table className="min-w-full text-[11.5px] border-separate border-spacing-0">
+        <table className="min-w-full border-separate border-spacing-0 text-[11.5px]">
           <thead className={`sticky top-0 z-20 ${edge.left ? '[&_th:first-child]:shadow-[6px_0_8px_-6px_rgba(16,32,64,0.22)]' : ''}`}>
             <tr>
               <Sth sticky>#</Sth>
-              <Sth>Status</Sth>
-              <Sth groupEnd>Customer / Work Order</Sth>
-              <Sth>Supply Order</Sth>
-              <Sth>Unit Manager</Sth>
-              <Sth>Materials</Sth>
-              <Sth groupEnd>Delivered</Sth>
-              <Sth>PDC</Sth>
-              <Sth groupEnd>PDC Extension</Sth>
-              <Sth>Admin Approval</Sth>
-              <Sth groupEnd>Unit Acceptance</Sth>
-              <Sth>Lots</Sth>
-              <Sth>Last Updated</Sth>
-              <Sth>Remarks</Sth>
+              {columns.map((c) => <Sth key={c.key} groupEnd={c.groupEnd}>{c.label}</Sth>)}
             </tr>
           </thead>
           <tbody>
             {workOrders.map((w, i) => {
-              const ext = lastExt(w);
-              const meta = STATUS_META[w.status] || { color: 'gray', label: w.status, Icon: ClipboardList };
-              const Icon = meta.Icon;
-              const deliveredPct = w.orderQuantity > 0
-                ? Math.min(100, Math.round((w.deliveredQty / w.orderQuantity) * 100))
-                : 0;
-              const lotsSent = w.closures?.length || 0;
-              const lotsExpected = w.lotsExpected || null;
+              const p = woPerms(currentUser, w);
               const accent =
                 w.overdue || w.status === 'ON_HOLD' ? 'border-l-red-500'
                 : w.status === 'CLOSED' ? 'border-l-green-500'
                 : w.status === 'COMPLETED' ? 'border-l-amber-500'
                 : 'border-l-navy-300';
-              const pendSince = woPendingSince(w);
-              const tatLevel = tatStatus(pendSince).level;
-              const tatTint = tatRowClass(tatLevel);
+              const tatTint = tatRowClass(tatStatus(woPendingSince(w)).level);
               const zebra = tatTint || (i % 2 === 1 ? 'bg-brand-gray' : 'bg-white');
 
               return (
-                <tr
-                  key={w.id}
-                  // The row is the control that opens the order, so it has to be
-                  // reachable and operable without a mouse - it was click-only.
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`Open work order ${w.workOrderNumber} for ${w.customerName}`}
-                  className={`group ${zebra} ${tatTint ? '' : 'hover:bg-navy-50'} ${SHEET_EASE} cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-navy-500`}
-                  onClick={() => onOpen(w)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(w); }
-                  }}
-                >
-                  {/* # - frozen, with status-coloured accent edge. The shadow
-                      appears only once columns are actually sliding under it. */}
+                <tr key={w.id} className={`group ${zebra} ${tatTint ? '' : 'hover:bg-navy-50/40'} ${SHEET_EASE}`}>
+                  {/* # - frozen, with status-coloured accent edge. The row no
+                      longer opens the detail modal on click: every cell in it
+                      is now a control, so a stray click must never navigate.
+                      Opening the full record is this explicit button. */}
                   <Std
                     sticky
-                    className={`border-l-4 ${accent} text-center text-gray-400 font-mono text-[10px] ${SHEET_EASE} ${
+                    className={`border-l-4 ${accent} text-center ${SHEET_EASE} ${
                       edge.left ? 'shadow-[6px_0_8px_-6px_rgba(16,32,64,0.22)]' : ''
                     }`}
                   >
-                    {i + 1}
+                    <div className="font-mono text-[10px] text-gray-400">{i + 1}</div>
+                    <button
+                      type="button"
+                      onClick={() => onOpen(w)}
+                      title={`Open ${w.workOrderNumber} - lots, alarms and history`}
+                      aria-label={`Open work order ${w.workOrderNumber}`}
+                      className="mt-1 rounded border border-navy-200 px-1 py-0.5 text-[9px] font-semibold text-navy-600 hover:bg-navy-100"
+                    >
+                      Open
+                    </button>
                   </Std>
 
-                  {/* Status + live flags */}
-                  <Std>
-                    <Badge color={meta.color}><Icon size={11} className="inline mr-1" />{meta.label}</Badge>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {pendSince && <TatBadge since={pendSince} />}
-                      {w.overdue && <Pill tone="red">Overdue</Pill>}
-                      {w.onTime === true && <Pill tone="green">On-Time</Pill>}
-                      {w.onTime === false && <Pill tone="red">Late</Pill>}
-                      {/* Solid, not pulsing. A blinking badge on a register
-                          people read all day is noise, and the colour already
-                          carries the urgency. */}
-                      {w.pdc3MonthAlertActive && (
-                        <span className="text-[9px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-600 font-semibold text-white ring-1 ring-red-700/20">
-                          <AlertTriangle size={9} /> PDC {'≤'} 3m
-                        </span>
-                      )}
-                    </div>
-                  </Std>
-
-                  {/* Customer / WO no + who logged it */}
-                  <Std groupEnd nowrap={false} className="min-w-[180px] max-w-[260px]">
-                    <div className="font-semibold text-navy-900 leading-tight truncate" title={w.customerName}>{w.customerName}</div>
-                    <div className="font-mono text-[10px] text-navy-500 mt-0.5">{w.workOrderNumber}</div>
-                    {w.createdBy?.name && (
-                      <div className="text-[10px] text-gray-400 mt-0.5">Logged by {w.createdBy.name}</div>
-                    )}
-                  </Std>
-
-                  {/* Supply order no + date */}
-                  <Std nowrap={false} className="max-w-[180px]">
-                    <div className="font-mono text-[11px] text-navy-800 break-all" title={w.supplyOrderNo}>{w.supplyOrderNo}</div>
-                    <div className="text-[10px] text-gray-500 mt-0.5">{formatDate(w.supplyOrderDate)}</div>
-                  </Std>
-
-                  {/* Assigned unit manager */}
-                  <Std>
-                    {w.assignedUnit ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-navy-100 text-navy-700">
-                        <Building2 size={10} />{w.assignedUnit.name}
-                      </span>
-                    ) : w.assignedUnitName ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
-                        <Building2 size={10} />{w.assignedUnitName}
-                      </span>
-                    ) : <SDash />}
-                  </Std>
-
-                  {/* Materials */}
-                  <Std nowrap={false} className="max-w-[180px]">
-                    {w.items?.length ? (
-                      <div className="text-navy-800 line-clamp-2" title={w.items.map((it) => `${it.description} - ${it.quantity} ${it.uom}`).join('; ')}>
-                        {w.items.length === 1 ? w.items[0].description : `${w.items.length} materials`}
-                      </div>
-                    ) : <SDash />}
-                  </Std>
-
-                  {/* Delivered qty + progress */}
-                  <Std groupEnd>
-                    <div className="text-navy-800">
-                      <span className="font-semibold tnum">{fmtQty(w.deliveredQty)}</span>
-                      <span className="text-gray-500"> / {fmtQty(w.orderQuantity)} {w.orderUnit}</span>
-                    </div>
-                    <div className="w-20 h-1.5 bg-navy-100 rounded-full mt-1 overflow-hidden">
-                      <div className={`h-full ${deliveredPct === 100 ? 'bg-green-500' : 'bg-blue-500'}`} style={{ width: `${deliveredPct}%` }} />
-                    </div>
-                    <div className="text-[10px] text-gray-500 mt-0.5">{deliveredPct}%</div>
-                  </Std>
-
-                  {/* PDC (effective) */}
-                  <Std>
-                    <div className="font-medium text-navy-800">{formatDate(w.effectivePdcDate)}</div>
-                    <div className="text-[10px] text-gray-500 mt-0.5">
-                      {w.extensions?.length ? `${w.extensions.length} ext · orig ${formatDate(w.pdcDate)}` : 'original'}
-                    </div>
-                  </Std>
-
-                  {/* Latest PDC extension - done by the assigned unit manager */}
-                  <Std groupEnd nowrap={false} className="max-w-[210px]">
-                    {ext ? (
-                      <div className="leading-tight">
-                        <div className="font-semibold text-navy-800">
-                          <span className="text-[9px] uppercase tracking-wider text-navy-400 mr-1">Ext {ext.extensionNo}</span>
-                          {formatDate(ext.newPdcDate)}
-                        </div>
-                        <div className="text-[10px] text-gray-600 mt-0.5 flex items-center gap-1">
-                          <UserCheck size={10} className="text-gray-400" />
-                          {ext.grantedBy?.name || '-'}
-                        </div>
-                        <div className="text-[10px] text-gray-400">{formatDateTime(ext.grantedAt)}</div>
-                        {(ext.bankGuaranteeExtendedUpto || ext.requestLetterStatus || ext.prcStatus) && (
-                          <div className="text-[9px] text-gray-500 mt-0.5">
-                            {ext.bankGuaranteeExtendedUpto && <>BG→{formatDate(ext.bankGuaranteeExtendedUpto)} </>}
-                            {(ext.requestLetterStatus || ext.prcStatus) && (
-                              <>· Req:{ext.requestLetterStatus || '-'} · PRC:{ext.prcStatus || '-'}</>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ) : <SDash />}
-                  </Std>
-
-                  {/* Admin approval - who + when */}
-                  <Std nowrap={false} className="max-w-[170px]">
-                    {w.adminAcceptedAt ? (
-                      <div className="leading-tight">
-                        <div className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
-                          <ShieldCheck size={11} />{w.adminAcceptedBy?.name || 'Approved'}
-                        </div>
-                        <div className="text-[10px] text-gray-500 mt-0.5">{formatDateTime(w.adminAcceptedAt)}</div>
-                      </div>
-                    ) : w.status === 'REJECTED' ? (
-                      <Pill tone="red">Rejected</Pill>
-                    ) : <Pill tone="amber">Pending</Pill>}
-                  </Std>
-
-                  {/* Unit acceptance - who + when */}
-                  <Std groupEnd nowrap={false} className="max-w-[170px]">
-                    {w.unitAcceptedAt ? (
-                      <div className="leading-tight">
-                        <div className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
-                          <CheckCircle2 size={11} />{w.unitAcceptedBy?.name || 'Accepted'}
-                        </div>
-                        <div className="text-[10px] text-gray-500 mt-0.5">{formatDateTime(w.unitAcceptedAt)}</div>
-                      </div>
-                    ) : <Pill tone="amber">Pending</Pill>}
-                  </Std>
-
-                  {/* Lots */}
-                  <Std>
-                    <div className="font-semibold text-navy-800">
-                      {lotsExpected ? `${lotsSent} / ${lotsExpected}` : lotsSent}
-                    </div>
-                    <div className="text-[10px] text-gray-500">{lotsExpected ? 'sent' : 'sent (open)'}</div>
-                  </Std>
-
-                  {/* Last updated - what & when */}
-                  <Std nowrap={false} className="max-w-[170px]">
-                    <div className="text-[10px] text-gray-600">{formatDateTime(w.updatedAt)}</div>
-                    {w.deliveryDetailsUpdatedBy?.name && (
-                      <div className="text-[10px] text-gray-400 mt-0.5">
-                        Delivery: {w.deliveryDetailsUpdatedBy.name}
-                        {w.deliveryDetailsUpdatedAt && <> · {formatDate(w.deliveryDetailsUpdatedAt)}</>}
-                      </div>
-                    )}
-                  </Std>
-
-                  {/* Remarks / delivery notes */}
-                  <Std nowrap={false} className="min-w-[160px] max-w-[240px]">
-                    <div className="text-gray-700 line-clamp-2" title={w.deliveryDetails || w.remarks || ''}>
-                      {w.deliveryDetails || w.remarks || <SDash />}
-                    </div>
-                  </Std>
+                  {columns.map((c) => (
+                    <Std
+                      key={c.key}
+                      groupEnd={c.groupEnd}
+                      nowrap={c.nowrap !== false && !c.width}
+                      className={c.width || ''}
+                    >
+                      {c.render(w, p, ctx)}
+                    </Std>
+                  ))}
                 </tr>
               );
             })}
@@ -1438,6 +2263,204 @@ const Pill = ({ tone = 'amber', children }) => (
     {children}
   </span>
 );
+
+// A cell with more rows in it than the grid can afford to grow by. Scrolls
+// inside itself so every entry is still reachable without opening anything,
+// while the row stays a row.
+const StackCell = ({ children, max = 'max-h-28' }) => (
+  <div className={`${max} overflow-y-auto pr-1 space-y-1 [scrollbar-width:thin]`}>{children}</div>
+);
+
+// ── Inline editing ──────────────────────────────────────────────────
+// Full View is the working surface, not a report, so a cell the user is
+// allowed to change is edited where it sits. Click (or Enter) opens the
+// editor, Enter commits, Escape reverts. Commit is skipped when the value did
+// not actually move, so tabbing across a row never writes.
+function EditableCell({
+  value,
+  display,
+  type = 'text',
+  options,
+  placeholder,
+  editable,
+  onSave,
+  title,
+  align = 'left',
+  nullable = true,
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [justSaved, setJustSaved] = useState(false);
+  const inputRef = useRef(null);
+  // Enter commits and then the field blurs, which would commit a second time
+  // and PATCH the same value twice. A ref, not state, because both calls
+  // happen before any re-render.
+  const inFlight = useRef(false);
+
+  useEffect(() => {
+    if (editing && inputRef.current) inputRef.current.focus();
+  }, [editing]);
+
+  const shown = display ?? (value === 0 ? '0' : value) ?? null;
+
+  if (!editable) {
+    return (
+      <div className={align === 'right' ? 'text-right' : ''} title={title || undefined}>
+        {shown || <SDash />}
+      </div>
+    );
+  }
+
+  const open = () => {
+    setDraft(value == null ? '' : String(value));
+    setErr('');
+    setEditing(true);
+  };
+
+  const commit = async (override) => {
+    if (inFlight.current) return;
+    const raw = override ?? draft;
+    const next = type === 'number' ? String(raw).trim() : raw;
+    const before = value == null ? '' : String(value);
+    if (next === before) { setEditing(false); setErr(''); return; }
+    // Blanking a required number would post null, which the API coerces to 0 -
+    // an empty cell must read as "leave it alone", not "set it to nothing".
+    if (next === '' && !nullable) { setEditing(false); setErr(''); return; }
+    inFlight.current = true;
+    setBusy(true);
+    setErr('');
+    try {
+      await onSave(next === '' ? null : next);
+      setEditing(false);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1400);
+    } catch (e) {
+      // Stay open with the text intact - retyping a long scope field because
+      // the server said no would be its own bug.
+      setErr(apiErr(e, 'Could not save'));
+    }
+    inFlight.current = false;
+    setBusy(false);
+  };
+
+  if (editing) {
+    const common = {
+      ref: inputRef,
+      value: draft,
+      disabled: busy,
+      onChange: (e) => setDraft(e.target.value),
+      onKeyDown: (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); setEditing(false); setErr(''); }
+        if (e.key === 'Enter' && type !== 'textarea') { e.preventDefault(); commit(); }
+        if (e.key === 'Enter' && type === 'textarea' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
+      },
+      className: `w-full min-w-[7rem] rounded border border-navy-400 bg-white px-1.5 py-1 text-[11.5px]
+        text-navy-900 outline-none ring-2 ring-navy-200 disabled:opacity-60`,
+    };
+    return (
+      <div className="relative">
+        {type === 'select' ? (
+          // Commit on change, not on blur: picking an option is the decision,
+          // and committing from blur would read the draft one render late.
+          <select
+            {...common}
+            onChange={(e) => { setDraft(e.target.value); commit(e.target.value); }}
+            onBlur={() => setEditing(false)}
+          >
+            {(options || []).map((o) => (
+              <option key={o.value ?? ''} value={o.value ?? ''}>{o.label}</option>
+            ))}
+          </select>
+        ) : type === 'textarea' ? (
+          <textarea {...common} rows={3} placeholder={placeholder} onBlur={() => commit()} />
+        ) : (
+          <input {...common} type={type === 'number' ? 'number' : type} placeholder={placeholder} onBlur={() => commit()} />
+        )}
+        {err && (
+          <div className="absolute left-0 top-full z-40 mt-1 w-56 rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[10px] font-medium text-rose-700 shadow-lg">
+            {err}
+          </div>
+        )}
+        {type === 'textarea' && !err && (
+          <div className="mt-0.5 text-[9px] text-navy-400">Ctrl+Enter saves · Esc cancels</div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      title={title || 'Click to edit'}
+      onClick={open}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); open(); } }}
+      className={`group/cell -mx-1 cursor-text rounded px-1 py-0.5 ${SHEET_EASE}
+        hover:bg-white hover:ring-1 hover:ring-navy-200
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-navy-500
+        ${align === 'right' ? 'text-right' : ''}`}
+    >
+      {shown || <span className="text-gray-300 group-hover/cell:text-navy-400">Add…</span>}
+      {justSaved && <Check size={10} className="ml-1 inline text-emerald-600" />}
+    </div>
+  );
+}
+
+// Anchored panel for the handful of in-grid actions that genuinely need more
+// than one field (accept/reject with its SLA remark, a PDC extension, a new BG
+// or insurance entry). Still in the row - nothing navigates away.
+function SheetPopover({ label, tone = 'navy', title, children, disabled, width = 'w-72' }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+
+  const tones = {
+    navy:    'border-navy-600 text-navy-700 hover:bg-navy-50',
+    emerald: 'border-emerald-600 text-emerald-700 hover:bg-emerald-50',
+    amber:   'border-amber-500 text-amber-700 hover:bg-amber-50',
+  };
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${SHEET_EASE} disabled:opacity-40 ${tones[tone]}`}
+      >
+        {label}
+      </button>
+      {open && (
+        <div className={`absolute right-0 top-full z-50 mt-1 ${width} rounded-lg border border-navy-200 bg-white p-3 shadow-xl`}>
+          {title && <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-navy-500">{title}</div>}
+          {children({ close: () => setOpen(false) })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Compact field inside a SheetPopover.
+const PopField = ({ label, children }) => (
+  <label className="mb-2 block">
+    <span className="mb-0.5 block text-[10px] font-medium text-navy-600">{label}</span>
+    {children}
+  </label>
+);
+const popInput = 'w-full rounded border border-gray-300 px-1.5 py-1 text-[11px] outline-none focus:border-navy-500 focus:ring-1 focus:ring-navy-200';
 
 // ────────────────────────────────────────────────────────────────────
 // Create

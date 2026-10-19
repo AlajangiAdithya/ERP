@@ -22,11 +22,13 @@ router.get('/dashboard', authenticate, async (req, res) => {
       recentRequests,
       movementTrends,
     ] = await Promise.all([
-      prisma.product.count({ where: { isActive: true } }),
+      // Customer property (FIM) is not our material - it is neither stock we
+      // own nor a catalogue item, so it counts towards neither tile.
+      prisma.product.count({ where: { isActive: true, isCustomerProperty: false } }),
 
       prisma.$queryRaw`
         SELECT COUNT(*)::int as count FROM "Product"
-        WHERE "isActive" = true AND (
+        WHERE "isActive" = true AND "isCustomerProperty" = false AND (
           ("minStockLevel" > 0 AND "currentStock" <= "minStockLevel")
           OR "currentStock" = 0
         )

@@ -250,6 +250,12 @@ model Product {
   // this is true. Existing rows are backfilled to true by the migration; products
   // created afterward start false until enriched on the Master Data screen.
   masterDataComplete   Boolean                    @default(false)
+  // Customer property (FIM), not our material. A FIM line still needs a Product
+  // row to hang its batch, stock movement and unit assignment off, but it is NOT
+  // a Master Data item: it never belongs in the materials catalogue, the product
+  // pickers, the dashboard counts or the material-code register. Set once at
+  // inward and never cleared - customer property does not become ours.
+  isCustomerProperty   Boolean                    @default(false)
   // Who entered this material into Master Data. Anyone who raises purchase
   // requests may add a material (a PR line can only name a material that is
   // already in Master Data), so the entry has to carry its author: alongside the
