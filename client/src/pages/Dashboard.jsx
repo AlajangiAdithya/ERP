@@ -2220,32 +2220,49 @@ const QC_ROLE_META = {
   DESIGNS: { label: 'Designs', subtitle: 'Material conformance against released designs' },
 };
 
+// Outcome of a lot as the register holds it right now - result once QC has
+// filed one, otherwise where it sits in the queue.
+const QC_LOT_BADGE = {
+  PASSED: { color: 'green', label: 'PASSED' },
+  FAILED: { color: 'red', label: 'FAILED' },
+  PARTIAL: { color: 'yellow', label: 'PARTIAL' },
+  ON_HOLD: { color: 'yellow', label: 'ON HOLD' },
+};
+
 function QCDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [inspections, setInspections] = useState([]);
-  const [pendingOrders, setPendingOrders] = useState([]);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Counted on the server over the whole Material Inward register - that is
+  // where inspection happens. Re-read whenever the tab comes back into view, so
+  // returning from the register after filing a review shows the new numbers
+  // without a manual reload (the app has no background polling).
   useEffect(() => {
     let cancelled = false;
-    api.get('/qc-inspections?limit=50')
-      .then(({ data }) => {
-        if (cancelled) return;
-        setInspections(data.inspections || []);
-        setPendingOrders(data.pendingOrders || []);
-      })
+    const load = () => api.get('/material-inward/qc-stats')
+      .then(({ data }) => { if (!cancelled) setStats(data); })
       .catch(console.error)
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
+    load();
+    window.addEventListener('focus', load);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', load);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   if (loading) return <Loader />;
 
   const meta = QC_ROLE_META[user?.role] || QC_ROLE_META.QC;
-  const pendingCount = inspections.filter(i => i.result === 'PENDING').length;
-  const passedCount = inspections.filter(i => i.result === 'PASSED').length;
-  const failedCount = inspections.filter(i => i.result === 'FAILED').length;
+  const counts = stats?.counts || {};
+  const awaitingRows = stats?.awaitingRows || [];
+  const recentRows = stats?.recentRows || [];
+  const n = (v) => v ?? 0;
 
   return (
     <div className="space-y-6">
@@ -2269,42 +2286,50 @@ function QCDashboard() {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard title="Awaiting Inspection" value={pendingOrders.length} icon={AlertTriangle} color="red" onClick={() => navigate('/inward-entry')} />
-        <StatsCard title="Pending Results" value={pendingCount} icon={ClipboardList} color="yellow" onClick={() => navigate('/inward-entry')} />
-        <StatsCard title="Passed" value={passedCount} icon={CheckCircle} color="green" onClick={() => navigate('/inward-entry')} />
-        <StatsCard title="Failed" value={failedCount} icon={AlertTriangle} color="red" />
+        <StatsCard title="Awaiting Inspection" value={n(counts.awaiting)} icon={AlertTriangle} color="red" onClick={() => navigate('/inward-entry')} />
+        <StatsCard title="Pending Results" value={n(counts.pendingResults)} icon={ClipboardList} color="yellow" onClick={() => navigate('/inward-entry')} />
+        <StatsCard title="Passed" value={n(counts.passed)} icon={CheckCircle} color="green" onClick={() => navigate('/inward-entry')} />
+        <StatsCard title="Failed" value={n(counts.failed)} icon={AlertTriangle} color="red" onClick={() => navigate('/inward-entry')} />
       </div>
+      {/* Outcomes the four cards do not cover - shown only when there are any. */}
+      {(n(counts.partial) > 0 || n(counts.onHold) > 0) && (
+        <p className="text-xs text-gray-500 -mt-3">
+          Also: <span className="font-semibold text-gray-700">{n(counts.partial)}</span> partially accepted
+          {' · '}
+          <span className="font-semibold text-gray-700">{n(counts.onHold)}</span> on hold for re-inspection
+        </p>
+      )}
 
-      {/* Pending Orders Awaiting Inspection */}
-      {pendingOrders.length > 0 && (
+      {/* Lots Stores has sent to QC that nobody has picked up yet */}
+      {awaitingRows.length > 0 && (
         <Card>
           <SectionHeader
             icon={AlertTriangle}
             tone="amber"
-            title="Orders Awaiting Inspection"
-            count={pendingOrders.length}
-            subtitle="Goods arrived - inspection lot not yet opened"
+            title="Lots Awaiting Inspection"
+            count={n(counts.awaiting)}
+            subtitle="Sent to QC by Stores - longest waiting first"
             actions={<Button variant="secondary" size="sm" onClick={() => navigate('/inward-entry')}>Open QC</Button>}
           />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Order #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">MIR #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Material</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Supplier</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Items</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Arrived</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Sent to QC</th>
                 </tr>
               </thead>
               <tbody>
-                {pendingOrders.map((o, i) => (
-                  <tr key={o.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/inward-entry')}>
-                    <td className="px-3 py-2 font-medium text-navy-700">{o.orderNumber}</td>
-                    <td className="px-3 py-2 text-gray-600">{o.supplierName || '-'}</td>
-                    <td className="px-3 py-2 text-gray-600">{o.items?.length || 0} items</td>
-                    <td className="px-3 py-2 text-gray-500">{o.goodsArrivedAt ? formatDateTime(o.goodsArrivedAt) : '-'}</td>
-                    <td className="px-3 py-2"><Badge color="yellow">{o.status}</Badge></td>
+                {awaitingRows.map((r, i) => (
+                  <tr key={r.id} className={`border-b border-gray-100 transition-colors ${i % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50 cursor-pointer`} onClick={() => navigate('/inward-entry')}>
+                    <td className="px-3 py-2 font-medium text-navy-700">{r.mirNo || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{r.itemDescription || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{r.supplierName || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{r.qtyReceived != null ? `${r.qtyReceived} ${r.uom || ''}` : '-'}</td>
+                    <td className="px-3 py-2 text-gray-500">{r.qcRequestedAt ? formatDateTime(r.qcRequestedAt) : '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2319,11 +2344,11 @@ function QCDashboard() {
           icon={ClipboardCheck}
           tone="navy"
           title="Recent Inspections"
-          count={inspections.length}
-          subtitle="Latest inspection lots and outcomes"
+          count={recentRows.length}
+          subtitle="Latest inspected lots and outcomes"
           actions={<Button variant="secondary" size="sm" onClick={() => navigate('/inward-entry')}>View All</Button>}
         />
-        {inspections.length === 0 ? (
+        {recentRows.length === 0 ? (
           <EmptyState icon={ClipboardCheck} title="No inspections yet" />
         ) : (
           <div className="overflow-x-auto">
@@ -2331,28 +2356,30 @@ function QCDashboard() {
               <thead>
                 <tr className="border-b">
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Inspection #</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Order</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">MIR #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Material</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Supplier</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Result</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Inspected</th>
                 </tr>
               </thead>
               <tbody>
-                {inspections.slice(0, 10).map((i, idx) => (
-                  <tr key={i.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
-                    <td className="px-3 py-2 font-medium text-navy-700">{i.inspectionNumber}</td>
-                    <td className="px-3 py-2 text-gray-600">{i.purchaseOrder?.orderNumber || '-'}</td>
-                    <td className="px-3 py-2 text-gray-600">{i.purchaseOrder?.supplierName || '-'}</td>
-                    <td className="px-3 py-2">
-                      <Badge color={
-                        i.result === 'PASSED' ? 'green' :
-                        i.result === 'FAILED' ? 'red' :
-                        i.result === 'PARTIAL' ? 'yellow' : 'gray'
-                      }>{i.result}</Badge>
-                    </td>
-                    <td className="px-3 py-2 text-gray-500">{formatDateTime(i.createdAt)}</td>
-                  </tr>
-                ))}
+                {recentRows.map((r, idx) => {
+                  // An operator's review is not final until QC signs it off.
+                  const badge = r.status === 'QC_PENDING_APPROVAL'
+                    ? { color: 'gray', label: `${r.qcResult || 'REVIEWED'} - AWAITING SIGN-OFF` }
+                    : (QC_LOT_BADGE[r.qcResult] || { color: 'gray', label: r.qcResult || '-' });
+                  return (
+                    <tr key={r.id} className={`border-b border-gray-100 transition-colors ${idx % 2 === 1 ? 'bg-brand-gray' : 'bg-white'} hover:bg-navy-50`}>
+                      <td className="px-3 py-2 font-medium text-navy-700">{r.qcReportNo || '-'}</td>
+                      <td className="px-3 py-2 text-gray-600">{r.mirNo || '-'}</td>
+                      <td className="px-3 py-2 text-gray-600">{r.itemDescription || '-'}</td>
+                      <td className="px-3 py-2 text-gray-600">{r.supplierName || '-'}</td>
+                      <td className="px-3 py-2"><Badge color={badge.color}>{badge.label}</Badge></td>
+                      <td className="px-3 py-2 text-gray-500">{formatDateTime(r.qcFinishedAt)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

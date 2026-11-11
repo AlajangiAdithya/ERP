@@ -686,6 +686,60 @@ router.get('/active-pos', authenticate, requireInwardWrite, async (req, res) => 
   }
 });
 
+// ── GET /api/material-inward/qc-stats ─────────────────────────────────
+// Numbers behind the QC dashboard cards. Inspection happens on this register
+// (request-qc → take-review → finish-review → approve-review), so the cards are
+// counted here, over every lot, rather than from a page of the legacy
+// QCInspection table - that capped each card at the page size and never moved
+// once QC stopped filing lots there.
+//   awaiting       - sent to QC, nobody has taken it yet
+//   pendingResults - being inspected, or inspected by an operator and waiting on
+//                    QC's sign-off
+//   passed / failed / partial - the CURRENT outcome of a finalised lot. A lot
+//                    resent for re-inspection has its outcome cleared, so it
+//                    drops back into "awaiting" instead of being counted twice.
+//   onHold         - parked by QC for re-inspection
+// The dashboard is shared with NDT / R&D / Designs, hence the wider role list.
+const QC_STATS_ROLES = [...VIEW_ROLES, 'NDT', 'RND', 'DESIGNS'];
+const QC_FINAL_STATUSES = ['QC_DONE', 'INWARDED'];
+const QC_STATS_LIST_SIZE = 10;
+const QC_STATS_SELECT = {
+  id: true, mirNo: true, itemDescription: true, supplierName: true, qtyReceived: true, uom: true,
+  status: true, qcResult: true, qcReportNo: true, qcRequestedAt: true, qcFinishedAt: true,
+};
+
+router.get('/qc-stats', authenticate, authorize(...QC_STATS_ROLES), async (_req, res) => {
+  try {
+    const model = prisma.materialInwardRegister;
+    const finalised = (qcResult) => model.count({ where: { qcResult, status: { in: QC_FINAL_STATUSES } } });
+    const [awaiting, pendingResults, passed, failed, partial, onHold, awaitingRows, recentRows] = await Promise.all([
+      model.count({ where: { status: 'QC_REQUESTED' } }),
+      model.count({ where: { status: { in: ['QC_IN_REVIEW', 'QC_PENDING_APPROVAL'] } } }),
+      finalised('PASSED'),
+      finalised('FAILED'),
+      finalised('PARTIAL'),
+      model.count({ where: { status: 'ON_HOLD' } }),
+      // Oldest request first - the lot that has waited longest is the one to pick up.
+      model.findMany({
+        where: { status: 'QC_REQUESTED' },
+        orderBy: { qcRequestedAt: 'asc' },
+        take: QC_STATS_LIST_SIZE,
+        select: QC_STATS_SELECT,
+      }),
+      model.findMany({
+        where: { qcFinishedAt: { not: null } },
+        orderBy: { qcFinishedAt: 'desc' },
+        take: QC_STATS_LIST_SIZE,
+        select: QC_STATS_SELECT,
+      }),
+    ]);
+    res.json({ counts: { awaiting, pendingResults, passed, failed, partial, onHold }, awaitingRows, recentRows });
+  } catch (err) {
+    console.error('material-inward qc-stats error:', err);
+    res.status(500).json({ error: 'Failed to load QC stats' });
+  }
+});
+
 // ── GET /api/material-inward ──────────────────────────────────────────
 // The register. Rows are enriched with resolved user / unit / product names
 // and the MIV number(s) that later drew this lot (matched on product + batch).
