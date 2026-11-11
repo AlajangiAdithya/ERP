@@ -3,8 +3,10 @@ import {
   Plus, Trash2, RotateCcw, CheckCircle2, Truck, PackageCheck,
   Send, ShieldCheck, Calculator, Stamp, XCircle, Clock, AlertCircle, LayoutList,
   DoorOpen, FileText, Upload, FileDown, ClipboardList, Briefcase,
-  GitBranch, ArrowRight, ArrowDown, User, Workflow, Eye, Filter, Pencil,
+  GitBranch, ArrowRight, ArrowDown, User, Workflow, Eye, Filter, Pencil, PackageSearch,
 } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import FimStatusRegister from '../components/fim/FimStatusRegister';
 import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -37,12 +39,16 @@ const gpPendingSince = (g) =>
 // one is shown, and seeds the kind chosen when a new gate pass is created.
 //  • OUTSIDE   → Outward register (RAMS/GPR/01) - delivered to a site office.
 //  • LOCAL_JOB → Local Job Work register (RAPS/JL-JW) - returns to stores.
-// The FIM / Customer Property register used to live here as a third view. It now
-// sits on Material Inward (a FIM only exists because Stores inwarded customer
-// material), so its whole lifecycle reads on one page.
+//  • FIM       → FIM / Customer Property status register. The same register is
+//    also a tab on Material Inward (where the FIM is first recorded); it is
+//    shown in both places because a FIM comes in and goes back on gate passes,
+//    so people look for it here too. Not a gate pass kind - it has its own
+//    component and none of the status tabs / sheet below apply to it.
+const FIM_VIEW = 'FIM';
 const KIND_VIEWS = [
   { key: 'OUTSIDE',   label: 'Outward (RAMS/GPR/01)',   Icon: DoorOpen },
   { key: 'LOCAL_JOB', label: 'Local Job (RAPS/JL-JW)',  Icon: Briefcase },
+  { key: FIM_VIEW,    label: 'FIM Status',              Icon: PackageSearch },
 ];
 
 const STATUS_TABS = [
@@ -210,7 +216,14 @@ export default function GatePass() {
   // never has a PENDING_STORE pass of its own to edit, and the server's /edit
   // endpoint does not authorise STORE_MANAGER.
   const canEdit = ['MANAGER', 'ADMIN', 'PLANNING', 'QC'].includes(role);
-  const [view, setView] = useState('OUTSIDE'); // 'OUTSIDE' | 'LOCAL_JOB'
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // 'OUTSIDE' | 'LOCAL_JOB' | 'FIM'. ?tab=fim-status opens straight on FIM Status,
+  // matching the same query on Material Inward.
+  const [view, setView] = useState(() => (searchParams.get('tab') === 'fim-status' ? FIM_VIEW : 'OUTSIDE'));
+  const isFimView = view === FIM_VIEW;
+  // A new gate pass is always Outward or Local Job - FIM Status is not a kind.
+  const createKind = isFimView ? 'OUTSIDE' : view;
   const [activeTab, setActiveTab] = useState(DEFAULT_TAB_BY_ROLE[role] || 'PENDING_STORE');
   const [gatePasses, setGatePasses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -293,6 +306,11 @@ export default function GatePass() {
         ))}
       </div>
 
+      {isFimView && (
+        <FimStatusRegister user={user} onOpenProduct={(id) => navigate(`/products/${id}`)} />
+      )}
+
+      {!isFimView && (
       <Card className="p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 text-xs font-medium text-navy-500">
@@ -316,8 +334,9 @@ export default function GatePass() {
           })}
         </div>
       </Card>
+      )}
 
-      {loading ? (
+      {isFimView ? null : loading ? (
         <Card><p className="text-navy-500 text-center py-8">Loading…</p></Card>
       ) : filtered.length === 0 ? (
         <Card>
@@ -345,7 +364,7 @@ export default function GatePass() {
 
       {showCreate && (
         <CreateGatePassModal
-          defaultKind={view}
+          defaultKind={createKind}
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); refresh(); }}
         />
@@ -353,7 +372,7 @@ export default function GatePass() {
 
       {editTarget && (
         <CreateGatePassModal
-          defaultKind={editTarget.kind || view}
+          defaultKind={editTarget.kind || createKind}
           initialData={editTarget}
           editId={editTarget.id}
           onClose={() => setEditTarget(null)}
