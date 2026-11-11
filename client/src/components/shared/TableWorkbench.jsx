@@ -46,9 +46,17 @@ export default function TableWorkbench({
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState('');
   const [error, setError] = useState('');
+  // Bulk delete: ids ticked on the page being shown. Cleared whenever the visible
+  // set changes (other table, page or search) so nothing off-screen can be
+  // deleted by a selection the user can no longer see.
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   useEffect(() => { fetchTables(); }, [base]);
-  useEffect(() => { if (active) fetchRows(active, page, rowQuery); }, [active, page, rowQuery]);
+  useEffect(() => {
+    setSelected(new Set());
+    if (active) fetchRows(active, page, rowQuery);
+  }, [active, page, rowQuery]);
 
   async function fetchTables() {
     setLoadingTables(true);
@@ -179,11 +187,57 @@ export default function TableWorkbench({
     if (!window.confirm(`Delete “${label}”?\n\nThis is permanent, and any records that hang off this row go with it.`)) return;
     try {
       await api.delete(`${base}/table/${active}/row/${row.id}`);
+      setSelected((prev) => { const next = new Set(prev); next.delete(row.id); return next; });
       fetchRows(active, page, rowQuery);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     }
   }
+
+  const toggleSelected = (id) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const toggleSelectAll = () => setSelected(allOnPageSelected ? new Set() : new Set(rows.map((r) => r.id)));
+
+  // One request per row, one after another, so a failure on one row (e.g. it is
+  // still referenced elsewhere) never stops the rest. Rows that failed stay
+  // ticked so the user can see which ones are left.
+  async function bulkDelete() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    const tableLabel = activeTable?.label || active;
+    if (!window.confirm(`Delete ${ids.length} row(s) from ${tableLabel}?\n\nThis is permanent, and any records that hang off these rows go with them.`)) return;
+    setBulkDeleting(true);
+    setError('');
+    const failed = [];
+    for (const id of ids) {
+      try {
+        await api.delete(`${base}/table/${active}/row/${id}`);
+      } catch (e) {
+        failed.push({ id, error: e.response?.data?.error || e.message });
+      }
+    }
+    setBulkDeleting(false);
+    if (failed.length) {
+      const deleted = ids.length - failed.length;
+      setError(`${deleted} deleted, ${failed.length} could not be deleted. First error: ${failed[0].error}`);
+    }
+    await fetchRows(active, page, rowQuery);
+    setSelected(new Set(failed.map((f) => f.id)));
+  }
+
+  const selectBox = (row) => (
+    <input
+      type="checkbox"
+      checked={selected.has(row.id)}
+      onChange={() => toggleSelected(row.id)}
+      className="w-4 h-4 accent-red-600 cursor-pointer shrink-0"
+      aria-label={`Select ${row._rowLabel || row.id}`}
+    />
+  );
 
   const rowActions = (row, big) => (
     <div className="flex items-center gap-2 shrink-0">
@@ -290,6 +344,16 @@ export default function TableWorkbench({
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    {allowDelete && selected.size > 0 && (
+                      <button
+                        onClick={bulkDelete}
+                        disabled={bulkDeleting}
+                        className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60 flex items-center gap-1"
+                      >
+                        <Trash2 size={15} />
+                        {bulkDeleting ? 'Deleting…' : <>Delete <span className="hidden sm:inline">selected</span> ({selected.size})</>}
+                      </button>
+                    )}
                     {allowInsert && (
                       <button
                         onClick={() => { setModalError(''); setCreating(true); }}
@@ -337,10 +401,24 @@ export default function TableWorkbench({
                 <>
                   {/* Mobile: stacked cards */}
                   <div className="md:hidden divide-y">
+                    {allowDelete && (
+                      <label className="flex items-center gap-2 px-3 py-2 text-xs text-gray-600 bg-gray-50">
+                        <input
+                          type="checkbox"
+                          checked={allOnPageSelected}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 accent-red-600"
+                        />
+                        Select all on this page
+                      </label>
+                    )}
                     {rows.map((row) => (
-                      <div key={row.id} className="p-3">
+                      <div key={row.id} className={`p-3 ${selected.has(row.id) ? 'bg-red-50' : ''}`}>
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-sm text-gray-900 min-w-0 truncate">{row._rowLabel || '-'}</span>
+                          <div className="flex items-center gap-2 min-w-0">
+                            {allowDelete && selectBox(row)}
+                            <span className="font-semibold text-sm text-gray-900 min-w-0 truncate">{row._rowLabel || '-'}</span>
+                          </div>
                           {rowActions(row, true)}
                         </div>
                         <dl className="mt-2 space-y-1">
@@ -360,6 +438,18 @@ export default function TableWorkbench({
                     <table className="min-w-full text-xs">
                       <thead className="bg-gray-50 sticky top-0">
                         <tr>
+                          {allowDelete && (
+                            <th className="px-2 py-2 w-8">
+                              <input
+                                type="checkbox"
+                                checked={allOnPageSelected}
+                                onChange={toggleSelectAll}
+                                className="w-4 h-4 accent-red-600 cursor-pointer"
+                                aria-label="Select all rows on this page"
+                                title="Select all on this page"
+                              />
+                            </th>
+                          )}
                           <th className="px-2 py-2 text-left font-semibold text-gray-600 w-20">Actions</th>
                           <th className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">Record</th>
                           {columns.map((c) => (
@@ -369,7 +459,8 @@ export default function TableWorkbench({
                       </thead>
                       <tbody>
                         {rows.map((row) => (
-                          <tr key={row.id} className="border-t hover:bg-gray-50">
+                          <tr key={row.id} className={`border-t ${selected.has(row.id) ? 'bg-red-50' : 'hover:bg-gray-50'}`}>
+                            {allowDelete && <td className="px-2 py-1">{selectBox(row)}</td>}
                             <td className="px-2 py-1">{rowActions(row, false)}</td>
                             <td className="px-2 py-1 font-medium text-gray-900 whitespace-nowrap max-w-xs truncate">{row._rowLabel || '-'}</td>
                             {columns.map((c) => (
