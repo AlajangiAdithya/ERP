@@ -10,13 +10,9 @@ import Input, { Select, Textarea } from '../components/ui/Input';
 import DateRangeFilter from '../components/shared/DateRangeFilter';
 import { useAuth } from '../context/AuthContext';
 import { formatDateTime } from '../utils/formatters';
+import { useSearchParams } from 'react-router-dom';
+import { DEPT_BY_ROLE } from '../utils/stockOwnership';
 
-// Mirror of server utils/helpers DEPT_BY_ROLE - non-unit roles that own reserved
-// stock. Stores is intentionally absent (its stock is the shared pool).
-const DEPT_BY_ROLE = {
-  DESIGNS: 'Designs', PLANNING: 'Planning', QC: 'QC', LAB: 'Lab',
-  METROLOGY: 'Metrology', NDT: 'NDT', SAFETY: 'Safety',
-};
 const OWNER_DEPTS = Object.values(DEPT_BY_ROLE);
 
 const TABS = [
@@ -120,6 +116,28 @@ export default function InventoryTransfers() {
     setFormError('');
     setShowCreate(true);
   };
+
+  // Arriving from a blocked MIV line (?from=unit:<id>&product=<id>&qty=<n>): open
+  // the request form already filled in, so the requester only has to confirm.
+  // The query is dropped afterwards so a refresh does not reopen the form.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const from = searchParams.get('from');
+    const productId = searchParams.get('product');
+    if (!from || !productId || !myOwnerToken) return;
+    setForm({
+      fromOwner: from,
+      toOwner: myOwnerToken,
+      productId,
+      quantity: searchParams.get('qty') || '',
+      reason: 'Needed for a material issue (MIV)',
+      notes: '',
+    });
+    setFormError('');
+    setShowCreate(true);
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line
+  }, []);
 
   const submitCreate = async () => {
     setFormError('');

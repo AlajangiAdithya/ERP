@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, ClipboardList, Truck, CheckCircle } from 'lucide-react';
+import { Plus, X, ClipboardList, Truck, CheckCircle, ArrowLeftRight } from 'lucide-react';
 import PageHero from '../components/shared/PageHero';
 import api from '../api/axios';
 import { useAutoRefresh } from '../context/NotificationContext';
@@ -16,9 +16,12 @@ import MivWorkflowGuide, { mivAudienceFor } from '../components/shared/MivWorkfl
 import WorkOrderPicker from '../components/shared/WorkOrderPicker';
 import { formatDateTime } from '../utils/formatters';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { stockViewFor, canRaiseTransfer } from '../utils/stockOwnership';
 
 export default function MyRequests() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fromDate, setFromDate] = useState('');
@@ -81,7 +84,7 @@ export default function MyRequests() {
   };
 
   const openCreate = () => {
-    api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products));
+    api.get('/products', { params: { limit: 'all', includeUnitStock: 'true' } }).then(({ data }) => setProducts(data.products));
     loadWorkOrders();
     setEditingId(null);
     setCartItems([]);
@@ -92,7 +95,7 @@ export default function MyRequests() {
   };
 
   const openEdit = (request) => {
-    api.get('/products', { params: { limit: 'all' } }).then(({ data }) => setProducts(data.products));
+    api.get('/products', { params: { limit: 'all', includeUnitStock: 'true' } }).then(({ data }) => setProducts(data.products));
     loadWorkOrders();
     setEditingId(request.id);
     setCartItems((request.items || []).map(item => ({
@@ -170,6 +173,25 @@ export default function MyRequests() {
     p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
     p.sku.toLowerCase().includes(productSearch.toLowerCase())
   );
+
+  // Stock reserved to another unit / department cannot be issued on this user's
+  // MIV - the server refuses it. Work out the same split here so the form says
+  // so before submit and points at the transfer that unlocks it. Read off the
+  // freshly loaded product list (a cart line restored from an existing MIV
+  // carries no per-owner stock of its own).
+  const stockOf = (productId) => stockViewFor(products.find(p => p.id === productId), user);
+  const blockOf = (item) => {
+    const view = stockOf(item.productId);
+    if (item.quantity <= view.availableToYou || view.holders.length === 0) return null;
+    return { ...view, shortBy: item.quantity - view.availableToYou };
+  };
+  const hasBlockedItem = products.length > 0 && cartItems.some(blockOf);
+  const mayRaiseTransfer = canRaiseTransfer(user);
+
+  const requestTransfer = (item, holder, shortBy) => {
+    const qty = Math.min(shortBy, holder.quantity);
+    navigate(`/inventory-transfers?from=${encodeURIComponent(holder.ownerToken)}&product=${item.productId}&qty=${qty}`);
+  };
 
   const statusColor = (s) => ({
     PENDING: 'yellow', APPROVED: 'green', PARTIAL: 'orange', COLLECTED: 'blue', REJECTED: 'red', CANCELLED: 'gray'
@@ -339,17 +361,25 @@ export default function MyRequests() {
 
           {/* Product list */}
           <div className="max-h-48 overflow-y-auto border rounded-md">
-            {filteredProducts.map(p => (
+            {filteredProducts.map(p => {
+              const view = stockViewFor(p, user);
+              return (
               <div key={p.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-0">
                 <div>
                   <span className="text-sm font-medium text-gray-700">{p.name}</span>
-                  <span className="text-xs text-gray-400 ml-2">({p.currentStock} {p.unit} available)</span>
+                  <span className="text-xs text-gray-400 ml-2">({view.availableToYou} {p.unit} available to you)</span>
+                  {view.holders.length > 0 && (
+                    <span className="text-xs text-amber-700 ml-2">
+                      Held by {view.holders.map(h => `${h.short}: ${h.quantity}`).join(', ')} - needs transfer
+                    </span>
+                  )}
                 </div>
                 <Button size="sm" variant="secondary" onClick={() => addToCart(p)} disabled={cartItems.find(i => i.productId === p.id)}>
                   {cartItems.find(i => i.productId === p.id) ? 'Added' : 'Add'}
                 </Button>
               </div>
-            ))}
+              );
+            })}
             {filteredProducts.length === 0 && <p className="px-3 py-4 text-center text-gray-400 text-sm">No products found</p>}
           </div>
 
@@ -358,12 +388,14 @@ export default function MyRequests() {
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-2">Selected Items ({cartItems.length})</h4>
               <div className="space-y-2">
-                {cartItems.map(item => (
-                  <div key={item.productId} className="bg-gray-50 rounded-md p-2 space-y-2">
+                {cartItems.map(item => {
+                  const block = products.length > 0 ? blockOf(item) : null;
+                  return (
+                  <div key={item.productId} className={`rounded-md p-2 space-y-2 ${block ? 'bg-amber-50 border border-amber-300' : 'bg-gray-50'}`}>
                     <div className="flex items-center gap-3">
                       <div className="flex-1">
                         <span className="text-sm font-medium">{item.product.name}</span>
-                        <span className="text-xs text-gray-400 ml-1">({item.product.currentStock} {item.product.unit} available)</span>
+                        <span className="text-xs text-gray-400 ml-1">({stockOf(item.productId).availableToYou} {item.product.unit} available to you)</span>
                       </div>
                       <Input
                         type="number" min={1} value={item.quantity}
@@ -382,8 +414,30 @@ export default function MyRequests() {
                       placeholder="Purpose (optional)"
                       className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-navy-500 focus:border-navy-500"
                     />
+                    {block && (
+                      <div className="text-xs text-amber-900 space-y-1.5">
+                        <p>
+                          <span className="font-semibold">Inventory transfer needed.</span>{' '}
+                          Only {block.availableToYou} {item.product.unit} is available to you - {block.shortBy} {item.product.unit} short.{' '}
+                          {block.holders.map(h => `${h.label} holds ${h.quantity} ${item.product.unit}`).join(', ')}.{' '}
+                          {mayRaiseTransfer
+                            ? 'Request a transfer from them, then raise this MIV once it is approved.'
+                            : 'This stock is reserved to them - ask your unit manager to request a transfer before this MIV can be raised.'}
+                        </p>
+                        {mayRaiseTransfer && (
+                          <div className="flex flex-wrap gap-2">
+                            {block.holders.map(h => (
+                              <Button key={h.ownerToken} size="sm" variant="secondary" onClick={() => requestTransfer(item, h, block.shortBy)}>
+                                <ArrowLeftRight size={14} /> Request transfer from {h.short}
+                              </Button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -411,7 +465,11 @@ export default function MyRequests() {
 
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="secondary" onClick={() => { setShowCreate(false); setEditingId(null); }}>Cancel</Button>
-            <Button onClick={submitRequest} disabled={saving || cartItems.length === 0}>
+            <Button
+              onClick={submitRequest}
+              disabled={saving || cartItems.length === 0 || hasBlockedItem}
+              title={hasBlockedItem ? 'Some items are held by another unit - request an inventory transfer first' : undefined}
+            >
               {saving
                 ? (editingId ? 'Saving...' : 'Submitting...')
                 : `${editingId ? 'Save Changes' : 'Submit Request'} (${cartItems.length} items)`}

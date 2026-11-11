@@ -154,6 +154,73 @@ async function computeAvailability(client, request, requesterDept) {
   return availabilityByItem;
 }
 
+// Gate on raising / editing a MIV. Stock reserved to another unit or department
+// can never be issued against this requester's MIV (see computeAvailability), so
+// a MIV asking for it used to be accepted and then sit PARTIAL forever with no
+// hint why. Instead it is refused up front, naming who holds the stock, so the
+// requester raises an inventory transfer first and the MIV only goes in once the
+// stock is actually theirs to draw.
+//
+// A line is blocked only when BOTH hold: it asks for more than the requester can
+// draw (own bucket + unassigned pool), AND some other owner holds that product.
+// A product nobody holds is a plain shortage - that still goes through and waits
+// on stock, as before.
+async function findTransferBlocks(client, { unitId, requesterDept, items }) {
+  const wantedByProduct = new Map();
+  for (const it of items) {
+    wantedByProduct.set(it.productId, (wantedByProduct.get(it.productId) || 0) + it.quantity);
+  }
+  const productIds = [...wantedByProduct.keys()];
+  const [products, unitBuckets, deptBuckets] = await Promise.all([
+    client.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, name: true, unit: true, currentStock: true },
+    }),
+    client.productUnitStock.findMany({
+      where: { productId: { in: productIds }, quantity: { gt: 0 } },
+      select: { productId: true, unitId: true, quantity: true, unit: { select: { id: true, name: true, code: true } } },
+    }),
+    client.productDeptStock.findMany({
+      where: { productId: { in: productIds }, quantity: { gt: 0 } },
+      select: { productId: true, dept: true, quantity: true },
+    }),
+  ]);
+
+  const blocks = [];
+  for (const product of products) {
+    const requested = wantedByProduct.get(product.id);
+    const units = unitBuckets.filter((b) => b.productId === product.id);
+    const depts = deptBuckets.filter((b) => b.productId === product.id);
+    const assignedTotal = units.reduce((s, b) => s + b.quantity, 0) + depts.reduce((s, b) => s + b.quantity, 0);
+    const own = unitId
+      ? (units.find((b) => b.unitId === unitId)?.quantity || 0)
+      : (requesterDept ? (depts.find((b) => b.dept === requesterDept)?.quantity || 0) : 0);
+    const availableToYou = own + Math.max(0, (product.currentStock || 0) - assignedTotal);
+    if (requested <= availableToYou + 0.001) continue;
+
+    const holders = [
+      ...units.filter((b) => b.unitId !== unitId).map((b) => ({
+        unitId: b.unitId, dept: null, label: b.unit?.name || b.unit?.code || 'Unit', quantity: b.quantity,
+      })),
+      ...depts.filter((b) => unitId || b.dept !== requesterDept).map((b) => ({
+        unitId: null, dept: b.dept, label: `${b.dept} department`, quantity: b.quantity,
+      })),
+    ];
+    if (!holders.length) continue;
+
+    blocks.push({
+      productId: product.id, productName: product.name, unit: product.unit,
+      requested, availableToYou, holders,
+    });
+  }
+  return blocks;
+}
+
+const transferBlockMessage = (blocks) => blocks.map((b) => (
+  `${b.productName}: you asked for ${b.requested} ${b.unit} but only ${b.availableToYou} ${b.unit} is available to you. `
+  + `${b.holders.map((h) => `${h.label} holds ${h.quantity} ${b.unit}`).join(', ')}.`
+)).join(' ') + ' Request an inventory transfer from them first, then raise the MIV.';
+
 // Issue `take` units of one request item inside a transaction: FIFO batch
 // draw-down, currentStock + own-bucket decrement, and an OUT stockMovement.
 // Does NOT touch the RequestItem row - callers update qtyIssued/collectedQty
@@ -339,6 +406,19 @@ router.post('/', authenticate, authorize(...MANAGE_ROLES), async (req, res) => {
     // R&D and a Work Order are mutually exclusive - R&D always clears the WO link.
     const isRnd = !!data.isRnd;
 
+    const transferBlocks = await findTransferBlocks(prisma, {
+      unitId: req.user.unitId || null,
+      requesterDept: req.user.unitId ? null : deptForRole(req.user.role),
+      items: data.items,
+    });
+    if (transferBlocks.length) {
+      return res.status(409).json({
+        error: transferBlockMessage(transferBlocks),
+        code: 'TRANSFER_REQUIRED',
+        transferRequired: transferBlocks,
+      });
+    }
+
     // Offsite units route to ADMIN for approval (with qty edit) instead of the
     // store auto-issue path; everything else is unchanged.
     const offsiteUnit = req.user.unitId
@@ -446,6 +526,20 @@ router.put('/:id/edit', authenticate, authorize(...MANAGE_ROLES), async (req, re
     if (!woLink.ok) return res.status(400).json({ error: woLink.error });
     // R&D and a Work Order are mutually exclusive - R&D always clears the WO link.
     const isRnd = !!data.isRnd;
+
+    // Same gate as create - an edit must not swap in another owner's stock.
+    const transferBlocks = await findTransferBlocks(prisma, {
+      unitId: request.unitId || null,
+      requesterDept: request.unitId ? null : deptForRole(req.user.role),
+      items: data.items,
+    });
+    if (transferBlocks.length) {
+      return res.status(409).json({
+        error: transferBlockMessage(transferBlocks),
+        code: 'TRANSFER_REQUIRED',
+        transferRequired: transferBlocks,
+      });
+    }
 
     // Full replace of items inside a transaction - no stock has moved on a
     // PENDING MIV, so deleting and recreating the rows is safe.
@@ -1575,14 +1669,32 @@ router.post('/offsite/gatepass', authenticate, authorize('STORE_MANAGER', 'ADMIN
       resolved.push({ ri, qty });
     }
 
-    // Stock check (aggregate per product across the selected lines).
+    // Stock check (aggregate per product across the selected lines). Same rule as
+    // a store issue: the offsite unit may draw only its own unit bucket plus the
+    // unassigned pool. Stock reserved to another unit / department is not
+    // dispatchable here - checking total stock alone let it go out on a gate pass
+    // (Admin can also raise approvedQty above what was requested).
     const neededByProduct = {};
     for (const { ri, qty } of resolved) neededByProduct[ri.productId] = (neededByProduct[ri.productId] || 0) + qty;
+    const ownBucketByProduct = {};
     for (const [productId, need] of Object.entries(neededByProduct)) {
       const p = resolved.find((r) => r.ri.productId === productId).ri.product;
-      if ((p.currentStock || 0) < need - 0.001) {
-        return res.status(400).json({ error: `Insufficient stock for ${p.name}: need ${need}, have ${p.currentStock || 0}` });
+      const [own, unitBuckets, deptBuckets] = await Promise.all([
+        prisma.productUnitStock.findUnique({ where: { productId_unitId: { productId, unitId: unit.id } } }),
+        prisma.productUnitStock.findMany({ where: { productId }, select: { quantity: true } }),
+        prisma.productDeptStock.findMany({ where: { productId }, select: { quantity: true } }),
+      ]);
+      const ownQty = Math.max(0, own?.quantity || 0);
+      const assigned = unitBuckets.reduce((s, b) => s + b.quantity, 0) + deptBuckets.reduce((s, b) => s + b.quantity, 0);
+      const pool = Math.max(0, (p.currentStock || 0) - assigned);
+      const available = ownQty + pool;
+      if (available < need - 0.001) {
+        return res.status(400).json({
+          error: `Insufficient stock for ${p.name}: need ${need}, ${unit.name} can draw ${available} (own ${ownQty} + unassigned ${pool}). `
+            + 'Stock held by other units / departments needs an inventory transfer first.',
+        });
       }
+      ownBucketByProduct[productId] = ownQty;
     }
 
     // Per-unit gate-pass number RAPS/GP/<UNIT>/<FY>/<N> (destination = the offsite unit).
@@ -1606,6 +1718,16 @@ router.post('/offsite/gatepass', authenticate, authorize('STORE_MANAGER', 'ADMIN
       for (const { ri, qty } of resolved) {
         const { batchNo } = await dispatchFifo(tx, ri.productId, qty);
         await tx.product.update({ where: { id: ri.productId }, data: { currentStock: { decrement: qty } } });
+        // Draw the unit's own bucket first, the rest from the unassigned pool -
+        // otherwise the bucket keeps counting stock that already left.
+        const fromOwn = Math.min(ownBucketByProduct[ri.productId] || 0, qty);
+        if (fromOwn > 0) {
+          await tx.productUnitStock.update({
+            where: { productId_unitId: { productId: ri.productId, unitId: unit.id } },
+            data: { quantity: { decrement: fromOwn } },
+          });
+          ownBucketByProduct[ri.productId] -= fromOwn;
+        }
 
         const gpItem = await tx.gatePassItem.create({
           data: {
