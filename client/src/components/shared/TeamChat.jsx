@@ -29,7 +29,6 @@ export default function TeamChat({ heightClass = 'h-80' } = {}) {
 
   const inputRef = useRef(null);
   const scrollRef = useRef(null);
-  const bottomRef = useRef(null);
 
   // ── Load the @mention picker list once ──
   useEffect(() => {
@@ -59,9 +58,12 @@ export default function TeamChat({ heightClass = 'h-80' } = {}) {
   // the deleted history reads like a log (newest first).
   const ordered = view === 'active' ? [...messages].reverse() : messages;
 
-  // Auto-scroll the active feed to the newest message.
+  // Auto-scroll the active feed to the newest message. Scrolls the feed's own
+  // box only - scrollIntoView() also scrolls every ancestor, which dragged the
+  // whole dashboard down to the chat on load and on each new message.
   useEffect(() => {
-    if (view === 'active') bottomRef.current?.scrollIntoView({ block: 'end' });
+    const feed = scrollRef.current;
+    if (view === 'active' && feed) feed.scrollTop = feed.scrollHeight;
   }, [ordered.length, view]);
 
   // ── @mention autocomplete ──
@@ -278,7 +280,6 @@ export default function TeamChat({ heightClass = 'h-80' } = {}) {
                 </div>
               );
             })}
-            <div ref={bottomRef} />
           </div>
         )}
       </div>

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import Sidebar from './Sidebar';
@@ -54,6 +55,15 @@ function HubBackBar() {
 }
 
 export default function MainLayout({ children }) {
+  // The router keeps the window's scroll position across navigations, so a page
+  // opened from far down a long one used to start part-way down. Every page
+  // opens at the top instead. Keyed on the path only - switching a ?tab= on the
+  // same page must not jump.
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+
   return (
     <div className="min-h-screen">
       <Sidebar />
